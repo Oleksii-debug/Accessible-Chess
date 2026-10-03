@@ -25,6 +25,7 @@ from pathlib import Path
 import stat
 import tempfile
 import threading
+import time
 from typing import Any
 
 from .bookdocument import BookDocument
@@ -333,6 +334,7 @@ class BookProgressStore:
             raise TypeError("book progress store path must be path-like")
         self._path = Path(path)
         self._process_lock = _process_lock_for(self._path)
+        self._active_storage_directory_identity: os.stat_result | None = None
 
     @property
     def path(self) -> Path:
@@ -446,6 +448,9 @@ class BookProgressStore:
         then the opened descriptor and a post-open path snapshot must identify
         the same regular file.  Reads never reopen the path after validation.
         """
+        active_directory = self._active_storage_directory_identity
+        if active_directory is not None:
+            self._require_storage_directory_unlocked(active_directory)
         try:
             before = os.lstat(path)
         except FileNotFoundError:
@@ -514,17 +519,32 @@ class BookProgressStore:
 
             with os.fdopen(descriptor, "rb", closefd=False) as stream:
                 raw = stream.read(MAX_BOOK_PROGRESS_STORE_BYTES + 1)
-            if len(raw) > MAX_BOOK_PROGRESS_STORE_BYTES:
-                raise BookProgressStoreError(
-                    "book progress store exceeds the resource limit",
-                    code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
-                )
+                if len(raw) > MAX_BOOK_PROGRESS_STORE_BYTES:
+                    raise BookProgressStoreError(
+                        "book progress store exceeds the resource limit",
+                        code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+                    )
+                if os.name == "nt":
+                    # Windows pathname-stat ctime cannot be compared reliably
+                    # with descriptor fstat ctime. Confirm byte stability on the
+                    # already-authenticated open descriptor instead, so a
+                    # same-inode/same-size writer cannot hide an in-place change
+                    # merely by restoring mtime during this read.
+                    stream.seek(0)
+                    confirmed_raw = stream.read(MAX_BOOK_PROGRESS_STORE_BYTES + 1)
+                    if confirmed_raw != raw:
+                        raise BookProgressStoreError(
+                            "book progress storage changed while being read",
+                            code=BookProgressStoreErrorCode.IO_FAILURE,
+                        )
             final_metadata = os.fstat(descriptor)
             if (
                 not self._same_file_identity(opened, final_metadata)
                 or final_metadata.st_size != opened.st_size
                 or getattr(final_metadata, "st_mtime_ns", None)
                 != getattr(opened, "st_mtime_ns", None)
+                or getattr(final_metadata, "st_ctime_ns", None)
+                != getattr(opened, "st_ctime_ns", None)
             ):
                 raise BookProgressStoreError(
                     "book progress storage changed while being read",
@@ -538,12 +558,39 @@ class BookProgressStore:
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
             self._require_private_data_metadata(after_read)
-            if not self._same_file_identity(opened, after_read):
+            # Windows exposes incompatible/deprecated st_ctime semantics
+            # between pathname stat and descriptor fstat.  Binding a stable read
+            # to cross-interface ctime therefore turns valid publications into
+            # false IO_FAILURE/DURABILITY_UNKNOWN results on Windows.  Keep the
+            # portable identity/size/mtime checks across interfaces; descriptor
+            # metadata above still observes ctime on one interface while the
+            # exact inode remains open.
+            cross_interface_ctime_changed = (
+                os.name != "nt"
+                and getattr(after_read, "st_ctime_ns", None)
+                != getattr(final_metadata, "st_ctime_ns", None)
+            )
+            if (
+                not self._same_file_identity(opened, after_read)
+                or after_read.st_size != final_metadata.st_size
+                or getattr(after_read, "st_mtime_ns", None)
+                != getattr(final_metadata, "st_mtime_ns", None)
+                or cross_interface_ctime_changed
+            ):
                 raise BookProgressStoreError(
                     "book progress storage changed while being read",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            if active_directory is not None:
+                self._require_storage_directory_unlocked(active_directory)
             return raw
+        except BookProgressStoreError:
+            raise
+        except OSError:
+            raise BookProgressStoreError(
+                "book progress storage could not be read",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
         finally:
             # Reading/identity validation is the operation authority. A late
             # close failure on this read-only descriptor cannot invalidate
@@ -554,7 +601,10 @@ class BookProgressStore:
                 pass
 
     @staticmethod
-    def _decode_payload(raw: bytes) -> dict[str, object]:
+    def _decode_payload_with_source_schema(
+        raw: bytes,
+    ) -> tuple[dict[str, object], int]:
+        """Decode one store while retaining its on-disk schema generation."""
         try:
             text = raw.decode("utf-8")
             parsed = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
@@ -565,7 +615,16 @@ class BookProgressStore:
                 "book progress store is corrupt",
                 code=BookProgressStoreErrorCode.CORRUPT_STORE,
             ) from None
-        return _validate_payload(parsed)
+        validated = _validate_payload(parsed)
+        assert isinstance(parsed, Mapping)
+        source_schema_version = parsed["schema_version"]
+        assert type(source_schema_version) is int
+        return validated, source_schema_version
+
+    @staticmethod
+    def _decode_payload(raw: bytes) -> dict[str, object]:
+        validated, _ = BookProgressStore._decode_payload_with_source_schema(raw)
+        return validated
 
     def _read_state_unlocked(
         self,
@@ -688,43 +747,87 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
 
-    def _open_lock_descriptor(self) -> int:
-        try:
-            existing = os.lstat(self._lock_path)
-        except FileNotFoundError:
-            existing = None
-        except OSError:
-            raise BookProgressStoreError(
-                "book progress storage lock is unavailable",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from None
-        if existing is not None:
-            self._require_private_lock_metadata(existing)
+    def _open_lock_descriptor(
+        self,
+        *,
+        expected_directory_identity: os.stat_result | None = None,
+    ) -> int:
+        if expected_directory_identity is not None:
+            self._require_storage_directory_unlocked(expected_directory_identity)
+        # A first-use race between two cooperating processes is expected:
+        # both may observe a missing pathname, while exactly one wins O_EXCL.
+        # Never initialize the raced-in file. Instead, briefly wait for the
+        # exclusive creator to finish writing the canonical marker, then reopen
+        # it through the same private-inode validation used for pre-existing
+        # locks. A noncanonical raced-in file still fails closed unchanged.
+        descriptor = -1
+        existing: os.stat_result | None = None
+        initializing_identity: os.stat_result | None = None
+        # An O_EXCL creator exposes an empty inode briefly before its one-byte
+        # marker is durable. Another process may first observe that inode after
+        # creation, without itself seeing FileExistsError. Wait only for the
+        # exact private inode to become initialized; never write into it.
+        for attempt in range(250):
+            try:
+                existing = os.lstat(self._lock_path)
+            except FileNotFoundError:
+                existing = None
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress storage lock is unavailable",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
+            if existing is not None:
+                self._require_private_lock_metadata(existing)
+                if (
+                    initializing_identity is not None
+                    and not self._same_file_identity(initializing_identity, existing)
+                ):
+                    raise BookProgressStoreError(
+                        "book progress storage lock changed while being initialized",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
+                if existing.st_size == 0:
+                    if initializing_identity is None:
+                        initializing_identity = existing
+                    if attempt == 249:
+                        raise BookProgressStoreError(
+                            "book progress storage lock was not initialized by its creator",
+                            code=BookProgressStoreErrorCode.IO_FAILURE,
+                        )
+                    time.sleep(0.002)
+                    continue
 
-        flags = os.O_RDWR
-        flags |= getattr(os, "O_BINARY", 0)
-        flags |= getattr(os, "O_NOINHERIT", 0)
-        flags |= getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        if existing is None:
-            # A missing lock path must be created by this store, not merely
-            # opened after a non-cooperating file appears in the lstat→open
-            # window. Failing this race closed avoids adopting and initializing
-            # an unknown user-owned file as the coordination object.
-            flags |= os.O_CREAT | os.O_EXCL
-        created_lock_identity: os.stat_result | None = None
-        try:
-            descriptor = os.open(self._lock_path, flags, 0o600)
-        except FileExistsError:
-            raise BookProgressStoreError(
-                "book progress storage lock changed while being opened",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from None
-        except OSError:
+            flags = os.O_RDWR
+            flags |= getattr(os, "O_BINARY", 0)
+            flags |= getattr(os, "O_NOINHERIT", 0)
+            flags |= getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            if existing is None:
+                # Only an exclusive creator may initialize a missing lock.
+                flags |= os.O_CREAT | os.O_EXCL
+            try:
+                descriptor = os.open(self._lock_path, flags, 0o600)
+                break
+            except FileExistsError:
+                if attempt == 249:
+                    raise BookProgressStoreError(
+                        "book progress storage lock changed while being opened",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    ) from None
+                time.sleep(0.002)
+                continue
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress storage lock is unavailable",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
+        if descriptor < 0:
             raise BookProgressStoreError(
                 "book progress storage lock is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from None
+            )
+        created_lock_identity: os.stat_result | None = None
         try:
             metadata = os.fstat(descriptor)
             self._require_private_lock_metadata(metadata)
@@ -807,18 +910,15 @@ class BookProgressStore:
                             "book progress storage lock changed while being initialized",
                             code=BookProgressStoreErrorCode.IO_FAILURE,
                         )
-                    os.lseek(descriptor, 0, os.SEEK_SET)
-                    marker = os.read(descriptor, 2)
                 except OSError:
                     raise BookProgressStoreError(
                         "book progress storage lock could not be validated",
                         code=BookProgressStoreErrorCode.IO_FAILURE,
                     ) from None
-                if marker != b"\0":
-                    raise BookProgressStoreError(
-                        "book progress storage lock changed while being initialized",
-                        code=BookProgressStoreErrorCode.IO_FAILURE,
-                    )
+                # The creator already proved a one-byte write and fsync on this
+                # exact private inode. Avoid a pre-lock Windows CRT readback
+                # race here; _require_lock_descriptor_current() re-reads the
+                # canonical marker immediately after the OS lock is acquired.
             try:
                 final_path = os.lstat(self._lock_path)
             except OSError:
@@ -832,8 +932,12 @@ class BookProgressStore:
                     "book progress storage lock changed while being initialized",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            if expected_directory_identity is not None:
+                self._require_storage_directory_unlocked(
+                    expected_directory_identity
+                )
             return descriptor
-        except BaseException:
+        except BaseException as error:
             # Preserve the validation/initialization failure as the public
             # authority. If this attempt exclusively created the lock, remove
             # only that exact inode after closing it so a transient write/fsync
@@ -848,7 +952,43 @@ class BookProgressStore:
                     self._lock_path,
                     created_lock_identity,
                 )
+            if isinstance(error, OSError):
+                raise BookProgressStoreError(
+                    "book progress storage lock is unavailable",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
             raise
+
+    def _require_storage_directory_unlocked(
+        self,
+        expected_identity: os.stat_result | None = None,
+    ) -> os.stat_result:
+        """Require and optionally identity-bind the configured storage parent."""
+        try:
+            metadata = os.lstat(self._path.parent)
+        except OSError:
+            raise BookProgressStoreError(
+                "book progress storage directory is unavailable",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISDIR(metadata.st_mode)
+        ):
+            raise BookProgressStoreError(
+                "book progress storage directory is not a regular directory",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+        if (
+            expected_identity is not None
+            and not self._same_file_identity(expected_identity, metadata)
+        ):
+            raise BookProgressStoreError(
+                "book progress storage directory changed during the transaction",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+        return metadata
 
     def _cleanup_stale_temps_unlocked(self) -> None:
         """Leave crash-left temp pathnames untouched.
@@ -872,15 +1012,22 @@ class BookProgressStore:
                     "book progress storage is unavailable",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
-            descriptor = self._open_lock_descriptor()
+            directory_identity = self._require_storage_directory_unlocked()
+            descriptor = self._open_lock_descriptor(
+                expected_directory_identity=directory_identity
+            )
             acquired = False
+            previous_directory_identity = self._active_storage_directory_identity
             try:
                 self._lock_file_descriptor(descriptor)
                 acquired = True
                 self._require_lock_descriptor_current(descriptor)
+                self._require_storage_directory_unlocked(directory_identity)
+                self._active_storage_directory_identity = directory_identity
                 self._cleanup_stale_temps_unlocked()
                 yield
             finally:
+                self._active_storage_directory_identity = previous_directory_identity
                 # The protected body is the transaction authority. A save can
                 # already have atomically published primary progress bytes when
                 # lock-release cleanup runs. Cleanup failure cannot undo that
@@ -903,6 +1050,8 @@ class BookProgressStore:
         *,
         require_no_orphan_backup_before_replace: bool = False,
         expected_target_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
+        expected_guard_path: Path | None = None,
+        expected_guard_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
     ) -> None:
         if type(require_no_orphan_backup_before_replace) is not bool:
             raise TypeError("require_no_orphan_backup_before_replace must be a boolean")
@@ -912,6 +1061,16 @@ class BookProgressStore:
             and type(expected_target_raw) is not bytes
         ):
             raise TypeError("expected_target_raw must be bytes, None, or omitted")
+        if expected_guard_path is None:
+            if expected_guard_raw is not _EXPECTED_TARGET_UNSET:
+                raise TypeError("expected_guard_raw requires expected_guard_path")
+        else:
+            if not isinstance(expected_guard_path, Path):
+                raise TypeError("expected_guard_path must be a Path or None")
+            if expected_guard_raw is _EXPECTED_TARGET_UNSET:
+                raise TypeError("expected_guard_raw is required with expected_guard_path")
+            if expected_guard_raw is not None and type(expected_guard_raw) is not bytes:
+                raise TypeError("expected_guard_raw must be bytes or None")
         if len(encoded) > MAX_BOOK_PROGRESS_STORE_BYTES:
             raise BookProgressStoreError(
                 "book progress store exceeds the resource limit",
@@ -940,6 +1099,10 @@ class BookProgressStore:
         else:
             publication_base_raw = expected_target_raw
 
+        active_directory = self._active_storage_directory_identity
+        if active_directory is not None:
+            self._require_storage_directory_unlocked(active_directory)
+
         temp_path: Path | None = None
         temp_identity: os.stat_result | None = None
         try:
@@ -949,10 +1112,12 @@ class BookProgressStore:
                 dir=target.parent,
             )
             temp_path = Path(temp_name)
-            created_identity = os.fstat(descriptor)
-            temp_identity = created_identity
-            self._require_private_temp_metadata(created_identity)
             with os.fdopen(descriptor, "wb") as stream:
+                created_identity = os.fstat(stream.fileno())
+                temp_identity = created_identity
+                self._require_private_temp_metadata(created_identity)
+                if active_directory is not None:
+                    self._require_storage_directory_unlocked(active_directory)
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -986,6 +1151,16 @@ class BookProgressStore:
                     "book progress temporary file changed before publication",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            if expected_guard_path is not None:
+                current_guard_raw = self._read_raw_file_unlocked(
+                    expected_guard_path,
+                    missing_ok=True,
+                )
+                if current_guard_raw != expected_guard_raw:
+                    raise BookProgressStoreError(
+                        "book progress recovery data changed during publication preparation",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
             current_target_raw = self._read_raw_file_unlocked(
                 target,
                 missing_ok=True,
@@ -995,11 +1170,46 @@ class BookProgressStore:
                     "book progress changed during publication preparation",
                     code=BookProgressStoreErrorCode.STALE_WRITE,
                 )
+            if active_directory is not None:
+                self._require_storage_directory_unlocked(active_directory)
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
+                # Publication success is bound to the exact fsynced temp inode,
+                # not merely to equivalent bytes at the canonical pathname.
+                # A non-cooperating same-user writer can substitute the temp
+                # pathname in the final lstat -> replace window with a different
+                # private inode carrying identical bytes. Byte readback alone
+                # would otherwise report a false successful commit.
+                published_identity = os.lstat(target)
+                self._require_private_data_metadata(published_identity)
+                if temp_identity is None or not self._same_file_identity(
+                    temp_identity,
+                    published_identity,
+                ):
+                    raise BookProgressStoreError(
+                        "book progress was published but canonical storage changed before confirmation",
+                        code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+                    )
+                if active_directory is not None:
+                    self._require_storage_directory_unlocked(active_directory)
                 _sync_published_path(target)
                 visible = self._read_raw_file_unlocked(target, missing_ok=False)
+                # Byte equality is not sufficient confirmation: a same-user
+                # non-cooperating writer can replace the canonical pathname
+                # with an equivalent private inode while the durability sync is
+                # in progress. Bind the final visible pathname back to the exact
+                # fsynced temp inode that this transaction published.
+                final_published_identity = os.lstat(target)
+                self._require_private_data_metadata(final_published_identity)
+                if temp_identity is None or not self._same_file_identity(
+                    temp_identity,
+                    final_published_identity,
+                ):
+                    raise BookProgressStoreError(
+                        "book progress was published but canonical storage changed before confirmation",
+                        code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+                    )
             except (OSError, BookProgressStoreError):
                 # Replacement already succeeded. The published bytes may be
                 # visible even though crash durability or canonical pathname
@@ -1070,7 +1280,10 @@ class BookProgressStore:
                 # application's ordinary save instead of being silently
                 # downgraded to the current primary.
                 try:
-                    backup_payload = self._decode_payload(backup_base_raw)
+                    (
+                        backup_payload,
+                        backup_source_schema,
+                    ) = self._decode_payload_with_source_schema(backup_base_raw)
                 except BookProgressStoreError as backup_error:
                     if backup_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                         raise
@@ -1079,15 +1292,24 @@ class BookProgressStore:
                     # publication below is allowed to repair it from that exact
                     # current primary.
                 else:
-                    primary_payload = self._decode_payload(previous_raw)
+                    (
+                        primary_payload,
+                        primary_source_schema,
+                    ) = self._decode_payload_with_source_schema(previous_raw)
                     backup_generation = backup_payload["generation"]
                     primary_generation = primary_payload["generation"]
                     assert type(backup_generation) is int
                     assert type(primary_generation) is int
+                    legacy_pair = (
+                        primary_source_schema
+                        == LEGACY_BOOK_PROGRESS_STORE_SCHEMA_VERSION
+                        and backup_source_schema
+                        == LEGACY_BOOK_PROGRESS_STORE_SCHEMA_VERSION
+                    )
                     if backup_generation > primary_generation or (
                         backup_generation == primary_generation
-                        and primary_generation > 0
                         and backup_base_raw != previous_raw
+                        and not legacy_pair
                     ):
                         raise BookProgressStoreError(
                             "book progress recovery data is newer or divergent",
@@ -1111,6 +1333,8 @@ class BookProgressStore:
                 self.backup_path,
                 previous_raw,
                 expected_target_raw=backup_base_raw,
+                expected_guard_path=self._path,
+                expected_guard_raw=previous_raw,
             )
 
         current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
@@ -1125,12 +1349,21 @@ class BookProgressStore:
             # absent. Recheck recovery data immediately before publication so
             # an ordinary first-save path does not silently supersede it.
             self._require_no_orphan_backup_unlocked()
-        self._atomic_publish_bytes_unlocked(
-            self._path,
-            encoded,
-            require_no_orphan_backup_before_replace=previous_raw is None,
-            expected_target_raw=previous_raw,
-        )
+        if previous_raw is None:
+            self._atomic_publish_bytes_unlocked(
+                self._path,
+                encoded,
+                require_no_orphan_backup_before_replace=True,
+                expected_target_raw=None,
+            )
+        else:
+            self._atomic_publish_bytes_unlocked(
+                self._path,
+                encoded,
+                expected_target_raw=previous_raw,
+                expected_guard_path=self.backup_path,
+                expected_guard_raw=previous_raw,
+            )
 
     @staticmethod
     def _next_generation(payload: Mapping[str, object]) -> int:
@@ -1329,5 +1562,7 @@ class BookProgressStore:
                 self._path,
                 backup_raw,
                 expected_target_raw=primary_raw,
+                expected_guard_path=self.backup_path,
+                expected_guard_raw=backup_raw,
             )
             return True

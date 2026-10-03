@@ -512,17 +512,39 @@ class Version2Application:
             # Book position/game from Library, PGN, Settings, or another route.
             if self.shell.current_route.route_id != "books":
                 return self.books.projection.generic_error()
+            # A shell modal owns keyboard/focus authority over the Books route.
+            # Do not publish progress or open Board underneath that modal.
+            if self.shell.active_dialog_id is not None:
+                return self.books.projection.generic_error()
             # Once Book Board owns an origin, only its explicit return path may
             # release that ownership; a second open must not replace it.
             if self.book_workflow is not None and self.book_workflow.active:
                 return self.books.projection.generic_error()
-            # The canonical BookBoard delegate owns board-opening publication.
+            # Persist the exact reading origin before Board ownership is
+            # published. This is the shared browser/native/NVDA durability
+            # boundary: a failed write must leave the user in Book Reader.
+            try:
+                self.save_book_progress()
+            except Exception:
+                if self.books is None:
+                    return self._error()
+                return self.books.projection.generic_error()
             return self.books.dispatch(command_id, payload)
         if command_id == "book.return_from_board":
-            # Board review is read-only with respect to BookReader progress.
-            # Open already committed the exact origin before Board publication,
-            # so Return must not perform a redundant durable write.
-            return self.books.dispatch(command_id, payload)
+            # Return first discards only transient Board review and restores the
+            # exact canonical Book origin. Re-publish that origin through the
+            # same persistence boundary used by native/NVDA and browser paths;
+            # failure remains sanitized after the workflow has safely returned.
+            result = self.books.dispatch(command_id, payload)
+            if result.kind == "error":
+                return result
+            try:
+                self.save_book_progress()
+            except Exception:
+                if self.books is None:
+                    return self._error()
+                return self.books.projection.generic_error()
+            return result
         if command_id in self._BOOK_PROGRESS_COMMANDS:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
