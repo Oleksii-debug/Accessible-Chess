@@ -1,0 +1,85 @@
+name: Settings Upgrade Lock Identity
+
+on:
+  push:
+    branches:
+      - fix/settings-upgrade-lock-identity-20261004
+  pull_request:
+    branches:
+      - fix/v2-upgrade-library-prepare-path-identity-20261004
+    paths:
+      - 'acs/settings.py'
+      - 'tests/test_settings.py'
+      - '.github/workflows/settings-upgrade-lock-identity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: settings-upgrade-lock-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and Settings-lock scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='5611e56a1f5b5be2f130d2870ad4c5857ba855e2'
+          git cat-file -e "$parent^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test '${{ github.event.pull_request.base.ref }}' = 'fix/v2-upgrade-library-prepare-path-identity-20261004'
+            test '${{ github.event.pull_request.base.sha }}' = "$parent"
+          fi
+
+          git diff --check "$parent" HEAD
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/settings-upgrade-lock-identity.yml'             'acs/settings.py'             'tests/test_settings.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/settings.py)" = "8e2b2edee6f61c7aa46ff1296874ae4452a5bdce"
+          test "$(git rev-parse HEAD:tests/test_settings.py)" = "b0fee298cbba7544a41b67525f9aa7f8dc557417"
+
+          echo 'SETTINGS_UPGRADE_LOCK_IDENTITY_SCOPE=PASS'
+
+      - name: Compile Settings surfaces
+        run: >-
+          python -m compileall -q
+          acs/settings.py
+          tests/test_settings.py
+
+      - name: Settings and upgrade-lock regressions
+        run: >-
+          python -m unittest -v
+          tests.test_settings
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_v2_upgrade_publish_race_audit
+
+      - name: Core selftest
+        run: python -m acs.selftest
