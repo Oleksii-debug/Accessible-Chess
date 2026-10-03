@@ -113,8 +113,8 @@ jobs:
             'tests/test_version2_application.py' \
             'tests/test_p0_release_critical_triad_convergence.py' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "adac7a10ca0f20f50f619fb1adc70b6578a72dc8"
-          test "$(git rev-parse HEAD:tests/test_p0_release_critical_triad_convergence.py)" = "2c3ee62a6a88702430e2c8f52243642ce0914f08"
+          test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "cbcb8c3085e28a8a70530b37174bcb94142d9395"
+          test "$(git rev-parse HEAD:tests/test_p0_release_critical_triad_convergence.py)" = "759de3221f5912eae8deb57ee8b94fd8002022f6"
           echo "BOOK_PROGRESS_ORPHAN_BACKUP_TOPOLOGY=$topology"
           echo 'BOOK_PROGRESS_ORPHAN_BACKUP_SCOPE=PASS'
 
