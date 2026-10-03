@@ -62,6 +62,7 @@ jobs:
             acs/version2_upgrade_base.py \
             acs/legacy_library_migration.py \
             tests/test_v2_upgrade_schema0_integration.py \
+            tests/test_v2_upgrade_sound_artifact_control.py \
             tests/test_v2_upgrade_publish_race_audit.py \
             tests/test_v2_upgrade_tracked_writer_conflict.py
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$D07_V6_BLOB"
