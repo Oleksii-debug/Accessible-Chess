@@ -187,6 +187,7 @@
       this._global = options.globalObject || global;
       this._executor = null;
       this._adapter = null;
+      this._config = null;
       this._busy = false;
       this._credentialTransaction = null;
     }
@@ -199,12 +200,39 @@
       return await this._invoke(command, payload || {});
     }
 
-    async _ensureExecutor() {
-      if (this._executor) return this._executor;
+    async _ensureExecutor(refreshConfig) {
+      if (this._executor && !refreshConfig) return this._executor;
 
       const config = providerConfig(
         await this._call("media.provider_config", {})
       );
+      if (this._executor) {
+        const sameConfig = this._config &&
+          this._config.serverUrl === config.serverUrl &&
+          this._config.moderationParticipantIdentity ===
+            config.moderationParticipantIdentity;
+        if (sameConfig) return this._executor;
+
+        let snapshot;
+        try {
+          snapshot = this._adapter && this._adapter.snapshot();
+        } catch (_error) {
+          throw new ClassroomMediaProviderRuntimeError(
+            "existing media provider runtime cannot be safely reconfigured"
+          );
+        }
+        if (!snapshot || typeof snapshot !== "object" ||
+            snapshot.connected !== false ||
+            snapshot.cleanup_required !== false) {
+          throw new ClassroomMediaProviderRuntimeError(
+            "active media provider runtime cannot change configuration"
+          );
+        }
+        this._executor = null;
+        this._adapter = null;
+        this._config = null;
+      }
+
       const livekit = this._global.LivekitClient;
       const mediaModule = this._global.AccessibleChessLiveKitMedia;
       const executorModule =
@@ -255,6 +283,7 @@
 
       this._adapter = adapter;
       this._executor = executor;
+      this._config = config;
       return executor;
     }
 
@@ -265,12 +294,12 @@
       );
     }
 
-    async _executeOne(result) {
+    async _executeOne(result, refreshConfig) {
       const dispatch = dispatchEvent(result);
       const id = dispatch.transactionId;
       let executor;
       try {
-        executor = await this._ensureExecutor();
+        executor = await this._ensureExecutor(refreshConfig === true);
 
         const operation = dispatch.provider.operation;
         const credentialSession =
@@ -360,7 +389,7 @@
               "media provider transaction exceeded the bounded dispatch count"
             );
           }
-          current = await this._executeOne(current);
+          current = await this._executeOne(current, steps === 1);
         }
         if (!current || typeof current !== "object") {
           throw new ClassroomMediaProviderRuntimeError(
