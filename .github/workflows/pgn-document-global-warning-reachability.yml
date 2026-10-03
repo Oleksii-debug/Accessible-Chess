@@ -3,7 +3,7 @@ name: PGN Document Global Warning Reachability
 on:
   pull_request:
     branches:
-      - work/pgn-position-new-document-reachability-20260929
+      - converge/pgn-position-current-books-20261003
     paths:
       - 'acs/pgn_document_webview_projection.py'
       - 'acs/version2_application.py'
@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      STACK_PARENT_SHA: 6013b0e397bcfb47081f026a9496400c6254f7ba
+      STACK_PARENT_SHA: ede120c612f22156e0583f396197d0bc5cb27fea
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -41,8 +41,8 @@ jobs:
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
 
-          git fetch --no-tags origin work/pgn-position-new-document-reachability-20260929
-          live_parent="$(git rev-parse refs/remotes/origin/work/pgn-position-new-document-reachability-20260929)"
+          git fetch --no-tags origin converge/pgn-position-current-books-20261003
+          live_parent="$(git rev-parse refs/remotes/origin/converge/pgn-position-current-books-20261003)"
           test "$live_parent" = "$STACK_PARENT_SHA"
           git merge-base --is-ancestor "$STACK_PARENT_SHA" HEAD
           git diff --check "$STACK_PARENT_SHA" HEAD
