@@ -169,6 +169,30 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('block.dom_id !== "book-block-" + String(block.index)', text)
         self.assertIn('catalogue.items.length !== catalogue.booklet_count + 1', text)
 
+    def test_browser_rechecks_canonical_snapshot_budgets(self) -> None:
+        text = self.text
+        self.assertIn("const MAX_BOOKMARK_NAME = 80", text)
+        self.assertIn("const MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024", text)
+        self.assertIn("const MAX_BOOK_HEADING_PATH_PARTS = 6", text)
+        self.assertIn("const MAX_STARTER_BOOKLETS = 24", text)
+        self.assertIn("const MAX_TRAINING_SOLUTION_MOVES = 64", text)
+        self.assertIn("function requireBoundedText(value, label, allowEmpty, limit)", text)
+        self.assertIn('text.indexOf("\\x00") >= 0 || text.length > limit', text)
+        self.assertIn('bookmark.max_length !== MAX_BOOKMARK_NAME', text)
+        self.assertIn('block.heading_path.length > MAX_BOOK_HEADING_PATH_PARTS', text)
+        self.assertIn('listVisibleChars > MAX_BOOK_BLOCK_VISIBLE_CHARS', text)
+        self.assertIn('catalogue.booklet_count > MAX_STARTER_BOOKLETS', text)
+        self.assertIn('payload.solution.length > MAX_TRAINING_SOLUTION_MOVES', text)
+        self.assertIn('move.length > MAX_TRAINING_SOLUTION_TEXT', text)
+        self.assertIn(
+            'requireBoundedText(payload.announcement, "Book announcement", true, 1000)',
+            text,
+        )
+        self.assertIn(
+            'requireBoundedText(payload.announcement, "Training announcement", true, 1200)',
+            text,
+        )
+
     def test_starter_material_actions_reuse_the_canonical_book_root(self) -> None:
         text = self.text
         self.assertIn(
