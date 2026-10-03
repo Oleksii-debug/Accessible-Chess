@@ -88,6 +88,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         )
         application.media_transactions = transactions
         application._media_join_http = None
+        application._media_join_now_provider = None
         application._events = deque()
         application._assert_thread = lambda: None
         return application, controller, transactions
@@ -118,6 +119,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "must be bound"):
             self.configure(unbound, lambda: "never")
         self.assertIsNone(unbound._media_join_http)
+        self.assertIsNone(unbound._media_join_now_provider)
 
     def test_invalid_clock_configuration_is_atomic(self):
         application, _controller, _transactions = self.application()
@@ -132,7 +134,6 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             )
         self.assertIsNone(application._media_join_http)
         self.assertIsNone(application._media_join_now_provider)
-        self.assertIsNone(getattr(application, "_media_join_now_provider", None))
 
     def test_join_uses_canonical_controller_participant_and_redacts_provider_token(self):
         application, _controller, transactions = self.application()
@@ -322,6 +323,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         self.assertIsNone(application.media)
         self.assertIsNone(application.media_transactions)
         self.assertIsNone(application._media_join_http)
+        self.assertIsNone(application._media_join_now_provider)
 
 
 if __name__ == "__main__":
