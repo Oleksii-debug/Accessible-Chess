@@ -242,11 +242,24 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if bridge is None or material is None:
             raise RuntimeError("no Training exercise is active")
-        # Normalize only exact browser text. A str subclass is untrusted
-        # Python input and must reach the exact-type bridge boundary without
-        # executing an overridden strip() hook here.
-        command_id = command.strip() if type(command) is str else command
-        if command_id == "training.continue" and not (
+        # Normalize only exact, already-bounded browser text. Overlong
+        # exact strings and all non-exact values go unchanged to the bridge,
+        # whose boundary checks length/type before strip(). This workspace must
+        # not execute subclass strip/equality hooks or scan an oversized command.
+        command_id = (
+            command.strip()
+            if type(command) is str and len(command) <= 64
+            else command
+        )
+        exact_command = type(command_id) is str
+        is_continue = exact_command and command_id == "training.continue"
+        is_language = exact_command and command_id == "training.language"
+        is_disabled_completed_action = exact_command and command_id in (
+            "training.hint",
+            "training.reveal",
+            "training.retry",
+        )
+        if is_continue and not (
             self.session.completed and self.has_next()
         ):
             # Continue is disabled unless a completed exercise has a validated
@@ -254,10 +267,7 @@ class Version2BookTrainingWorkspace:
             # current progress, so stale/forged WebView activation of a disabled
             # Continue control cannot perform durable I/O.
             return bridge.projection.generic_error()
-        if (
-            self.session.completed
-            and command_id in ("training.hint", "training.reveal", "training.retry")
-        ):
+        if self.session.completed and is_disabled_completed_action:
             # These controls are explicitly disabled in the canonical snapshot
             # after completion. Enforce the same boundary server-side so stale
             # DOM/native-menu activation cannot mutate transient feedback or
@@ -305,7 +315,7 @@ class Version2BookTrainingWorkspace:
         try:
             event = bridge.dispatch(command_id, payload)
         except Exception:
-            if command_id == "training.continue":
+            if is_continue:
                 restore_continue_state()
             else:
                 # The bridge normally sanitizes projection failures. If the
@@ -315,7 +325,7 @@ class Version2BookTrainingWorkspace:
                 # sanitize it.
                 restore_active_state()
             raise
-        if command_id == "training.continue":
+        if is_continue:
             if event.kind == "error":
                 restore_continue_state()
             return event
@@ -337,7 +347,7 @@ class Version2BookTrainingWorkspace:
             # durable storage. This also remains correct if future Book Training
             # content gains real hints: a changed hints_used counter will make the
             # snapshots differ and therefore take the durable write path below.
-            if command_id == "training.language":
+            if is_language:
                 self.language = self.bridge.projection.language
             return event
         try:
