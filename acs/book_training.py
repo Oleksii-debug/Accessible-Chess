@@ -218,14 +218,25 @@ class BookTrainingOrigin:
         object.__setattr__(self, "source_anchor", source_anchor)
 
     def as_dict(self) -> dict[str, object]:
+        if type(self) is not BookTrainingOrigin:
+            raise TypeError("origin must be an exact BookTrainingOrigin")
+        canonical = BookTrainingOrigin(
+            target_key=self.target_key,
+            block_digest=self.block_digest,
+            index_at_export=self.index_at_export,
+            block_id=self.block_id,
+            source_anchor=self.source_anchor,
+            heading_path=self.heading_path,
+            book_fingerprint=self.book_fingerprint,
+        )
         return {
-            "target_key": self.target_key,
-            "block_digest": self.block_digest,
-            "index_at_export": self.index_at_export,
-            "block_id": self.block_id,
-            "source_anchor": self.source_anchor,
-            "heading_path": list(self.heading_path),
-            "book_fingerprint": self.book_fingerprint,
+            "target_key": canonical.target_key,
+            "block_digest": canonical.block_digest,
+            "index_at_export": canonical.index_at_export,
+            "block_id": canonical.block_id,
+            "source_anchor": canonical.source_anchor,
+            "heading_path": list(canonical.heading_path),
+            "book_fingerprint": canonical.book_fingerprint,
         }
 
     @classmethod
@@ -270,9 +281,7 @@ class BookTrainingMaterial:
             raise TypeError("definition must be an exact ExerciseDefinition")
 
     def as_dict(self) -> dict[str, object]:
-        # Rebuild the definition through the strict wire decoder so a caller that
-        # mutated the Mapping held by a frozen ExerciseDefinition cannot publish
-        # malformed or coercive content.
+        self.__post_init__()
         canonical = _definition_from_dict(_definition_to_dict(self.definition))
         return {
             "schema_version": BOOK_TRAINING_SCHEMA_VERSION,
