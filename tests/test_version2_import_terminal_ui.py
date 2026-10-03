@@ -243,6 +243,48 @@ class ImportTerminalUiTests(unittest.TestCase):
             ],
         )
 
+    def test_shutdown_during_started_publication_arms_cancel_without_joining_unstarted_worker(self):
+        events = []
+        shutdown_results = []
+        holder = {}
+        dialogs = SimpleNamespace(
+            open_pgn=lambda: None,
+            save_pgn_as=lambda *_: None,
+            select_library_import=lambda: Path("shutdown-during-start.pgn"),
+        )
+
+        def observe(event):
+            events.append(event)
+            if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
+                shutdown_results.append(holder["host"].shutdown(0.1))
+
+        host = Version2WindowsFileActionDelegate(
+            dialogs=dialogs,
+            get_pgn_session=lambda: None,
+            set_pgn_session=lambda _: None,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                SimpleNamespace(import_games=lambda *_args, **_kwargs: None),
+                None,
+                lambda: None,
+            ),
+            event_sink=observe,
+            next_delegate=lambda *_: None,
+        )
+        holder["host"] = host
+
+        started = host("library.import", {})
+        self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertEqual(shutdown_results, [False])
+        self.assertTrue(host.wait_for_import(5.0))
+        self.assertEqual(
+            [event.kind for event in events],
+            [
+                FileWorkflowEventKind.IMPORT_STARTED,
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+            ],
+        )
+        self.assertFalse(host.import_running)
+
     def test_no_import_failure_publication_is_outside_host_lock(self):
         events = []
         probe_done = threading.Event()
