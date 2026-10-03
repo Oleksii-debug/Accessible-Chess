@@ -78,7 +78,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_application
-          tests.test_library_webview_projection
+          tests.test_dev1_library_webview_projection
           tests.test_d07_library_import_service
 
       - name: Package preflight adjacency
