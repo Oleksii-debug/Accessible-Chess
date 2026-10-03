@@ -666,6 +666,17 @@ def _snapshot(value: object) -> dict[str, object]:
 
 def _clean_disconnected_snapshot(value: object) -> dict[str, object]:
     result = _snapshot(value)
+    for key in (
+        "connected",
+        "cleanup_required",
+        "microphone_enabled",
+        "camera_enabled",
+        "screen_share_enabled",
+    ):
+        if type(result[key]) is not bool:
+            raise ValueError(
+                "media provider transport-loss snapshot flags are invalid"
+            )
     expected = {
         "connected": False,
         "cleanup_required": False,
