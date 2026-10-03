@@ -1033,8 +1033,15 @@ def _sqlite_backup(
     # allowing a substituted file to become the backup target. Build the
     # consistent SQLite snapshot in memory, serialize the validated database,
     # then publish those bytes through the already identity-bound atomic writer.
+    #
+    # Keep BEGIN IMMEDIATE alive through durable backup publication. Releasing
+    # the writer lock after serialization but before _atomic_bytes() would allow
+    # a cooperative SQLite writer to commit to the same source inode while this
+    # function still returned success for the older snapshot.
     lock = reader = target = None
     serialized: bytes | None = None
+    version: int | None = None
+    state_digest: str | None = None
     try:
         try:
             # Separate connections avoid sqlite3.Connection.backup stalling on
@@ -1076,17 +1083,24 @@ def _sqlite_backup(
         finally:
             if target is not None:
                 target.close()
+                target = None
             if reader is not None:
                 reader.close()
-            if lock is not None:
-                if lock.in_transaction:
-                    lock.rollback()
-                lock.close()
+                reader = None
 
-        if serialized is None:
+        if serialized is None or version is None or state_digest is None:
             raise Version2UpgradeError("library backup serialization is unavailable")
+        if lock is None or not lock.in_transaction:
+            raise Version2UpgradeError(
+                "library backup writer lock was lost before publication"
+            )
+
         require_source_identity()
         _atomic_bytes(destination, serialized)
+        # A non-cooperating process can replace a pathname despite SQLite
+        # transaction discipline on platforms that permit rename of open files.
+        # Rebind source identity after publication and again after validation.
+        require_source_identity()
         if (
             _library_state_sha256(
                 destination,
@@ -1095,6 +1109,7 @@ def _sqlite_backup(
             != state_digest
         ):
             raise Version2UpgradeError("library backup publication validation failed")
+        require_source_identity()
         return (
             len(serialized),
             hashlib.sha256(serialized).hexdigest(),
@@ -1103,6 +1118,13 @@ def _sqlite_backup(
         )
     except OSError as exc:
         raise Version2UpgradeError("library backup could not be published") from exc
+    finally:
+        if lock is not None:
+            try:
+                if lock.in_transaction:
+                    lock.rollback()
+            finally:
+                lock.close()
 
 
 class _UpgradeLock:
