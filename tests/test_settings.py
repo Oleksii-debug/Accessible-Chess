@@ -128,6 +128,57 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(clone.get("sound_capture_variant"), "5")
             self.assertEqual(clone.get("sound_start_variant"), "1")
 
+    def test_per_event_sound_controls_default_persist_and_validate(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+
+            self.assertIs(settings.get("sound_move_enabled"), True)
+            self.assertEqual(settings.get("sound_move_volume"), 100)
+            self.assertIs(settings.get("sound_low_time_enabled"), True)
+            self.assertEqual(settings.get("sound_low_time_volume"), 100)
+
+            settings.set("sound_move_enabled", False)
+            settings.set("sound_move_volume", 35)
+            settings.set("sound_check_volume", 0)
+
+            restored = Settings(path)
+            self.assertIs(restored.get("sound_move_enabled"), False)
+            self.assertEqual(restored.get("sound_move_volume"), 35)
+            self.assertEqual(restored.get("sound_check_volume"), 0)
+
+            for value in (-1, 101, True, "50"):
+                with self.subTest(value=value):
+                    with self.assertRaises(SettingsError):
+                        restored.set("sound_capture_volume", value)
+            for value in (0, 1, "true", None):
+                with self.subTest(enabled=value):
+                    with self.assertRaises(SettingsError):
+                        restored.set("sound_capture_enabled", value)
+
+    def test_per_event_sound_defaults_extend_legacy_profiles_without_warning(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "values": {
+                            "sounds": True,
+                            "volume": 63,
+                            "sound_move_variant": "2",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = Settings(path)
+            self.assertEqual(settings.get("volume"), 63)
+            self.assertEqual(settings.get("sound_move_variant"), "2")
+            self.assertIs(settings.get("sound_move_enabled"), True)
+            self.assertEqual(settings.get("sound_move_volume"), 100)
+            self.assertIsNone(settings.warning)
+
     def test_sound_variant_id_rejects_path_or_empty_values(self):
         with tempfile.TemporaryDirectory() as td:
             settings = Settings(Path(td) / "settings.json")
