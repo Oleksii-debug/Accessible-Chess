@@ -488,6 +488,10 @@ def _publish_livekit_client_notices(product_dir: Path, notices_dir: Path) -> Non
         raise Version2ReleasePayloadError(
             "LiveKit client provenance bundle_sha256 does not match the pinned release"
         )
+    if raw.get("notice_sha256") != _LIVEKIT_CLIENT_NOTICE_SHA256:
+        raise Version2ReleasePayloadError(
+            "LiveKit client provenance notice_sha256 does not match the pinned release"
+        )
     for path, key in (
         (bundle, "bundle_sha256"),
         (license_path, "license_sha256"),
