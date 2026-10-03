@@ -170,6 +170,16 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             first["credential"]["token"],
             "secret-server-issued-token",
         )
+        self.assertNotIn("secret-server-issued-token", repr(first))
+        self.assertNotIn("secret-server-issued-token", str(first))
+        self.assertNotIn(
+            "secret-server-issued-token",
+            repr(first["credential"]),
+        )
+        self.assertNotIn(
+            "secret-server-issued-token",
+            str(first["credential"]),
+        )
         with self.assertRaisesRegex(
             MediaSessionHandoffError,
             "already claimed",
