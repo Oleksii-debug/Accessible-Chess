@@ -635,12 +635,7 @@ class ClassroomCollaborationController:
                 transfer_state="failed",
             )
             raise
-        try:
-            return self._store.adopt_authoritative_attachment(result)
-        except CollaborationStorageError as error:
-            raise CollaborationError(
-                "file transport authority could not be reconciled"
-            ) from error
+        return self._adopt_authoritative_upload(result)
 
     def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -684,12 +679,7 @@ class ClassroomCollaborationController:
                 transfer_state="failed",
             )
             raise
-        try:
-            return self._store.adopt_authoritative_attachment(result)
-        except CollaborationStorageError as error:
-            raise CollaborationError(
-                "file transport authority could not be reconciled"
-            ) from error
+        return self._adopt_authoritative_upload(result)
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -1000,6 +990,50 @@ class ClassroomCollaborationController:
             raise CollaborationError("prepared file size changed before upload")
         if _sha256_path(path) != metadata.sha256:
             raise CollaborationError("prepared file content changed before upload")
+
+    def _adopt_authoritative_upload(
+        self,
+        result: AttachmentMetadata,
+    ) -> AttachmentMetadata:
+        # Other clients may have claimed earlier authoritative room sequences
+        # while this upload was in flight. Reconcile that immutable history
+        # prefix before publishing our later server-assigned sequence locally.
+        authoritative = tuple(
+            item
+            for item in self._store.room_attachments(self.room_id)
+            if item.transfer_state in {"stored", "deleted"}
+        )
+        after: int | None = None
+        for current in authoritative:
+            expected = 0 if after is None else after + 1
+            if current.sequence_no != expected:
+                break
+            after = current.sequence_no
+        expected_sequence = 0 if after is None else after + 1
+        if result.sequence_no > expected_sequence:
+            self.sync_files()
+            authoritative = tuple(
+                item
+                for item in self._store.room_attachments(self.room_id)
+                if item.transfer_state in {"stored", "deleted"}
+            )
+            after = None
+            for current in authoritative:
+                expected = 0 if after is None else after + 1
+                if current.sequence_no != expected:
+                    break
+                after = current.sequence_no
+            expected_sequence = 0 if after is None else after + 1
+            if result.sequence_no > expected_sequence:
+                raise CollaborationError(
+                    "file authority sequence prefix remains incomplete after recovery"
+                )
+        try:
+            return self._store.adopt_authoritative_attachment(result)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "file transport authority could not be reconciled"
+            ) from error
 
     @staticmethod
     def _validate_uploaded_result(
