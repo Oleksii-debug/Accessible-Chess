@@ -2650,6 +2650,7 @@ class Version2UpgradeCoordinator:
         return restored
 
     def _recover_locked(self) -> bool:
+        self._assert_upgrade_lock()
         if (
             not self.layout.journal_path.exists()
             and not self.layout.journal_path.is_symlink()
@@ -2669,12 +2670,18 @@ class Version2UpgradeCoordinator:
             recovered=True,
             error_code="INTERRUPTED_UPGRADE_RECOVERED",
         )
+        self._assert_upgrade_lock()
         return True
 
     def recover_interrupted(self) -> bool:
         self._ensure_roots()
-        with _UpgradeLock(self.layout.lock_path):
-            return self._recover_locked()
+        with _UpgradeLock(self.layout.lock_path) as upgrade_lock:
+            self._active_upgrade_lock = upgrade_lock
+            try:
+                self._assert_upgrade_lock()
+                return self._recover_locked()
+            finally:
+                self._active_upgrade_lock = None
 
     def _settings_need(self) -> bool:
         path = self.layout.settings_path
