@@ -659,6 +659,24 @@ class BookProgressStore:
                 "book progress storage lock changed while being acquired",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
+        if metadata.st_size != 1:
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being acquired",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            marker = os.read(descriptor, 2)
+        except OSError:
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being acquired",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
+        if marker != b"\0":
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being acquired",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
 
     def _open_lock_descriptor(self) -> int:
         try:
