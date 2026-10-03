@@ -73,6 +73,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertGreaterEqual(len(tree["items"]), 5)
                 self.assertEqual(tree["items"][0]["kind"], "move")
                 self.assertEqual(tree["items"][0]["depth"], 0)
+                self.assertIsNone(tree["items"][0]["parent_index"])
                 self.assertIn("e4", tree["items"][0]["label"])
                 expected_before = (
                     "Before main"
@@ -85,12 +86,15 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual((), tree["items"][0]["comments"])
                 self.assertEqual(tree["items"][1]["kind"], "variation")
                 self.assertEqual(tree["items"][1]["depth"], 1)
+                self.assertEqual(tree["items"][1]["parent_index"], 0)
                 self.assertEqual(len(tree["items"][1]["trailing_comments"]), 1)
                 self.assertIn("Nested", tree["items"][1]["trailing_comments"][0])
                 self.assertEqual(tree["items"][2]["depth"], 2)
+                self.assertEqual(tree["items"][2]["parent_index"], 1)
                 self.assertIn("d4", tree["items"][2]["label"])
                 self.assertIn("$1", tree["items"][2]["label"])
                 self.assertEqual(tree["items"][-1]["depth"], 0)
+                self.assertIsNone(tree["items"][-1]["parent_index"])
                 serialized = json.dumps(tree, ensure_ascii=False)
                 self.assertNotIn("[Result", serialized)
                 self.assertNotIn("private", serialized.casefold())

@@ -117,6 +117,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             )
 
         rendered_items: list[dict[str, object]] = []
+        seen_node_indices: dict[str, int] = {}
+        active_ancestor_indices: list[int] = []
         previous_depth = 0
         for position, item in enumerate(view.items):
             if item.kind not in {"move", "variation"}:
@@ -127,6 +129,32 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticTreeError("book semantic GameTree root depth is invalid")
             if position > 0 and item.depth > previous_depth + 1:
                 raise _BookSemanticTreeError("book semantic GameTree depth jumps unexpectedly")
+
+            node_id = item.node_id
+            if type(node_id) is not str or not node_id:
+                raise _BookSemanticTreeError("book semantic GameTree node identity is invalid")
+            if node_id in seen_node_indices:
+                raise _BookSemanticTreeError("book semantic GameTree node identity is duplicated")
+
+            if item.depth == 0:
+                if item.parent_id is not None:
+                    raise _BookSemanticTreeError("book semantic GameTree root parent is invalid")
+                parent_index: int | None = None
+            else:
+                parent_id = item.parent_id
+                if type(parent_id) is not str or not parent_id:
+                    raise _BookSemanticTreeError("book semantic GameTree parent identity is invalid")
+                parent_index = seen_node_indices.get(parent_id)
+                if parent_index is None:
+                    raise _BookSemanticTreeError("book semantic GameTree parent is unavailable")
+                if (
+                    len(active_ancestor_indices) < item.depth
+                    or active_ancestor_indices[item.depth - 1] != parent_index
+                ):
+                    raise _BookSemanticTreeError(
+                        "book semantic GameTree parent does not match active ancestry"
+                    )
+
             label = safe(item.label)
             if not label:
                 raise _BookSemanticTreeError("book semantic GameTree item label is empty")
@@ -159,6 +187,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 {
                     "kind": item.kind,
                     "depth": item.depth,
+                    "parent_index": parent_index,
                     "label": label,
                     "comments": comments,
                     "comments_before": comments_before,
@@ -166,6 +195,9 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     "trailing_comments": trailing_comments,
                 }
             )
+            seen_node_indices[node_id] = position
+            del active_ancestor_indices[item.depth:]
+            active_ancestor_indices.append(position)
             previous_depth = item.depth
 
         outro_comments = tuple(

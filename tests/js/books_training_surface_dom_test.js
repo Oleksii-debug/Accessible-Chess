@@ -171,6 +171,7 @@ function semanticGameSnapshot() {
       {
         kind: "move",
         depth: 0,
+        parent_index: null,
         label: "1. e4",
         comments: ["legacy combined must not duplicate"],
         comments_before: ["Before <em>literal</em>"],
@@ -179,13 +180,14 @@ function semanticGameSnapshot() {
       {
         kind: "variation",
         depth: 1,
+        parent_index: 0,
         label: "Variation 1",
         comments: [],
         trailing_comments: ["Branch tail <b>literal</b>"]
       },
-      { kind: "move", depth: 2, label: "1. d4 $1", comments: ["<img onerror=bad()>"] },
-      { kind: "move", depth: 2, label: "d5", comments: [] },
-      { kind: "move", depth: 0, label: "e5", comments: [] }
+      { kind: "move", depth: 2, parent_index: 1, label: "1. d4 $1", comments: ["<img onerror=bad()>"] },
+      { kind: "move", depth: 2, parent_index: 1, label: "d5", comments: [] },
+      { kind: "move", depth: 0, parent_index: null, label: "e5", comments: [] }
     ]
   };
   return snapshot;
@@ -542,6 +544,69 @@ async function run() {
     "malformed after-move comments must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed after-move comments must not steal reading focus");
+
+  const malformedParent = semanticGameSnapshot();
+  malformedParent.block.semantic_tree.items[2].parent_index = 0;
+  let malformedParentRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedParent,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedParentRejected = true;
+  }
+  check(malformedParentRejected, "inconsistent semantic parent index must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed semantic parent must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed semantic parent must not steal reading focus");
+
+  const malformedLabel = semanticGameSnapshot();
+  malformedLabel.block.semantic_tree.comments_label = { text: "bad" };
+  let malformedLabelRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedLabel,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedLabelRejected = true;
+  }
+  check(malformedLabelRejected, "non-text semantic labels must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed semantic label must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed semantic label must not steal reading focus");
+
+  const excessiveText = semanticGameSnapshot();
+  excessiveText.block.semantic_tree.items[0].label = "x".repeat(12 * 1024 * 1024 + 1);
+  let excessiveTextRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      excessiveText,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    excessiveTextRejected = true;
+  }
+  check(excessiveTextRejected, "excessive semantic visible text must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive semantic visible text must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive semantic visible text must not steal reading focus");
 
   const excessiveItems = semanticGameSnapshot();
   excessiveItems.block.semantic_tree.items = new Array(10001).fill({

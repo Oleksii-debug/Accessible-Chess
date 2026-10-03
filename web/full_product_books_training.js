@@ -2,6 +2,7 @@
   "use strict";
 
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
+  const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
 
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
@@ -39,12 +40,25 @@
     });
   }
 
-  function semanticTextArray(value, name) {
+  function semanticText(value, name, budget) {
+    if (typeof value !== "string") throw new TypeError(name + " must be text");
+    budget.used += value.length;
+    if (budget.used > MAX_BOOK_SEMANTIC_VISIBLE_CHARS) {
+      throw new TypeError("book semantic visible-text budget exceeded");
+    }
+    return value;
+  }
+
+  function semanticOptionalText(value, name, budget, fallback) {
+    if (value === undefined || value === null || value === "") return fallback;
+    return semanticText(value, name, budget);
+  }
+
+  function semanticTextArray(value, name, budget) {
     if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) throw new TypeError(name + " must be an array");
     return value.map(function (item) {
-      if (typeof item !== "string") throw new TypeError(name + " must contain text");
-      return item;
+      return semanticText(item, name, budget);
     });
   }
 
@@ -70,28 +84,57 @@
       throw new TypeError("book semantic tree kind is invalid");
     }
 
-    if (semantic.players) {
-      if (typeof semantic.players !== "string") {
-        throw new TypeError("book semantic players must be text");
-      }
-      container.appendChild(node("p", String(semantic.players_label || "Players") + ": " + semantic.players));
+    const budget = { used: 0 };
+    const playersLabel = semanticOptionalText(
+      semantic.players_label, "book semantic players label", budget, "Players"
+    );
+    const resultLabel = semanticOptionalText(
+      semantic.result_label, "book semantic result label", budget, "Result"
+    );
+    const commentsLabel = semanticOptionalText(
+      semantic.comments_label, "book semantic comments label", budget, ""
+    );
+    const introCommentsLabel = semanticOptionalText(
+      semantic.intro_comments_label,
+      "book semantic intro comments label",
+      budget,
+      commentsLabel
+    );
+    const outroCommentsLabel = semanticOptionalText(
+      semantic.outro_comments_label,
+      "book semantic outro comments label",
+      budget,
+      commentsLabel
+    );
+    const warningsLabel = semanticOptionalText(
+      semantic.warnings_label, "book semantic warnings label", budget, ""
+    );
+    const movesLabel = semanticOptionalText(
+      semantic.label, "book semantic moves label", budget, ""
+    );
+    const players = semanticOptionalText(
+      semantic.players, "book semantic players", budget, ""
+    );
+    const result = semanticOptionalText(
+      semantic.result, "book semantic result", budget, ""
+    );
+
+    if (players) {
+      container.appendChild(node("p", playersLabel + ": " + players));
     }
 
-    if (semantic.result) {
-      if (typeof semantic.result !== "string") {
-        throw new TypeError("book semantic result must be text");
-      }
-      container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + semantic.result));
+    if (result) {
+      container.appendChild(node("p", resultLabel + ": " + result));
     }
 
     appendSemanticTextList(
       container,
-      semantic.intro_comments_label || semantic.comments_label || "",
-      semanticTextArray(semantic.intro_comments, "book semantic intro comments"),
+      introCommentsLabel,
+      semanticTextArray(semantic.intro_comments, "book semantic intro comments", budget),
       String(block.dom_id || "") + "-semantic-intro-heading"
     );
 
-    const heading = node("h4", semantic.label || "");
+    const heading = node("h4", movesLabel);
     heading.id = String(block.dom_id || "") + "-semantic-heading";
     container.appendChild(heading);
 
@@ -109,6 +152,7 @@
     const lists = [rootList];
     const lastItems = [];
     const deferredTrailingComments = [];
+    const activeAncestorIndices = [];
     let previousDepth = 0;
 
     items.forEach(function (item, index) {
@@ -128,6 +172,22 @@
       if ((index === 0 && depth !== 0) || (index > 0 && depth > previousDepth + 1)) {
         throw new TypeError("book semantic item depth is not contiguous");
       }
+      const parentIndex = item.parent_index;
+      if (depth === 0) {
+        if (parentIndex !== null) {
+          throw new TypeError("book semantic root parent index is invalid");
+        }
+      } else {
+        if (
+          !Number.isSafeInteger(parentIndex) ||
+          parentIndex < 0 ||
+          parentIndex >= index ||
+          activeAncestorIndices.length < depth ||
+          activeAncestorIndices[depth - 1] !== parentIndex
+        ) {
+          throw new TypeError("book semantic parent index is invalid");
+        }
+      }
       while (lists.length > depth + 1) lists.pop();
       while (lists.length < depth + 1) {
         const parent = lastItems[lists.length - 1];
@@ -137,15 +197,20 @@
         lists.push(nested);
       }
 
+      const itemLabel = semanticText(item.label, "book semantic item label", budget);
       const listItem = node("li");
-      const comments = semanticTextArray(item.comments, "book semantic item comments");
+      const comments = semanticTextArray(
+        item.comments, "book semantic item comments", budget
+      );
       const commentsBefore = semanticTextArray(
         item.comments_before,
-        "book semantic comments before move"
+        "book semantic comments before move",
+        budget
       );
       const commentsAfter = semanticTextArray(
         item.comments_after,
-        "book semantic comments after move"
+        "book semantic comments after move",
+        budget
       );
       const exactMoveComments = item.kind === "move" && (
         item.comments_before !== undefined || item.comments_after !== undefined
@@ -154,7 +219,7 @@
       function appendItemComments(values) {
         if (!values.length) return;
         const commentList = node("ul");
-        commentList.setAttribute("aria-label", semantic.comments_label || "");
+        commentList.setAttribute("aria-label", commentsLabel);
         values.forEach(function (comment) {
           commentList.appendChild(node("li", comment));
         });
@@ -162,7 +227,7 @@
       }
 
       if (exactMoveComments) appendItemComments(commentsBefore);
-      listItem.appendChild(node("span", item.label));
+      listItem.appendChild(node("span", itemLabel));
       if (exactMoveComments) {
         appendItemComments(commentsAfter);
       } else {
@@ -171,7 +236,8 @@
 
       const trailingComments = semanticTextArray(
         item.trailing_comments,
-        "book semantic item trailing comments"
+        "book semantic item trailing comments",
+        budget
       );
       lists[depth].appendChild(listItem);
       if (trailingComments.length) {
@@ -179,12 +245,14 @@
       }
       lastItems[depth] = listItem;
       lastItems.length = depth + 1;
+      activeAncestorIndices.length = depth;
+      activeAncestorIndices.push(index);
       previousDepth = depth;
     });
 
     deferredTrailingComments.forEach(function (entry) {
       const commentList = node("ul");
-      commentList.setAttribute("aria-label", semantic.comments_label || "");
+      commentList.setAttribute("aria-label", commentsLabel);
       entry.comments.forEach(function (comment) {
         commentList.appendChild(node("li", comment));
       });
@@ -195,15 +263,15 @@
 
     appendSemanticTextList(
       container,
-      semantic.outro_comments_label || semantic.comments_label || "",
-      semanticTextArray(semantic.outro_comments, "book semantic outro comments"),
+      outroCommentsLabel,
+      semanticTextArray(semantic.outro_comments, "book semantic outro comments", budget),
       String(block.dom_id || "") + "-semantic-outro-heading"
     );
 
     appendSemanticTextList(
       container,
-      semantic.warnings_label || "",
-      semanticTextArray(semantic.warnings, "book semantic warnings"),
+      warningsLabel,
+      semanticTextArray(semantic.warnings, "book semantic warnings", budget),
       String(block.dom_id || "") + "-semantic-warnings-heading"
     );
   }
