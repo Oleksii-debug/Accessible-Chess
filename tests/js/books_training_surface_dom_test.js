@@ -2530,6 +2530,26 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "forged custom metadata must preserve reading focus");
 
+  const forgedFenDetail = semanticGameSnapshot();
+  forgedFenDetail.block.semantic_tree.details[2].kind = "custom:FEN";
+  forgedFenDetail.block.semantic_tree.details[2].label = "FEN";
+  forgedFenDetail.block.semantic_tree.details[2].value =
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+  let forgedFenDetailRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, forgedFenDetail, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    forgedFenDetailRejected = true;
+  }
+  check(forgedFenDetailRejected,
+    "forged private FEN metadata must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "forged private FEN metadata must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "forged private FEN metadata must preserve reading focus");
+
   const duplicateCustomDetail = semanticGameSnapshot();
   duplicateCustomDetail.block.semantic_tree.details[3].kind = "custom:ECO";
   duplicateCustomDetail.block.semantic_tree.details[3].label = "ECO";
