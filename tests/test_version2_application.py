@@ -75,6 +75,68 @@ class Version2ApplicationTests(unittest.TestCase):
                 self.assertEqual("board-square-e4", self.app._focus)
                 self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
 
+
+    def test_browser_ingress_rejects_string_subclasses_before_custom_hooks(self):
+        class HostileText(str):
+            touched = False
+
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("browser ingress equality hook must never execute")
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress hash hook must never execute")
+
+            def startswith(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("browser ingress startswith hook must never execute")
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("browser ingress strip hook must never execute")
+
+        result = self.app.browser_command(HostileText("books"), "book.next")
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(HostileText.touched)
+
+        result = self.app.browser_command("books", HostileText("book.next"))
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(HostileText.touched)
+
+    def test_direct_book_dispatch_rejects_command_subclass_without_strip_hook(self):
+        self._open_book_game()
+
+        class StripBomb(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("application preflight must not strip subclass")
+
+        event = self.app._dispatch_book_surface_command(StripBomb("book.next"))
+        self.assertEqual("error", event.kind)
+        self.assertFalse(StripBomb.touched)
+
+    def test_board_projection_rejects_hostile_or_oversized_position_before_projector(self):
+        class StripBomb(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("board boundary must not strip subclass")
+
+        before = list(self.projected_positions)
+        with self.assertRaisesRegex(RuntimeError, "canonical board position"):
+            self.app._project_board_position(StripBomb("8/8/8/8/8/8/8/8 w - - 0 1"))
+        self.assertFalse(StripBomb.touched)
+
+        with self.assertRaisesRegex(RuntimeError, "canonical board position"):
+            self.app._project_board_position("x" * 4097)
+        with self.assertRaisesRegex(RuntimeError, "canonical board position"):
+            self.app._project_board_position("8/8/8/8/8/8/8/8 w - - 0 1\x00")
+        self.assertEqual(before, self.projected_positions)
+
     def test_native_file_open_browser_edit_save_and_reopen(self):
         self.app.browser_command("shell", "pgn.open")
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
