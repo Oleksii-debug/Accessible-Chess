@@ -118,6 +118,28 @@ def _is_generated_education_workspace_file(
     return _is_tempfile_token(token)
 
 
+def _is_upgrade_publication_guard_file(
+    relative_path: PurePosixPath,
+    *,
+    settings_name: str,
+    library_name: str,
+) -> bool:
+    """Classify exact publication guards, whose legitimate inode is hard-linked."""
+    if len(relative_path.parts) != 1:
+        return False
+    name = relative_path.parts[0].casefold()
+    for target in (settings_name.casefold(), library_name.casefold()):
+        prefix = f".{target}.publish-guard-"
+        if not name.startswith(prefix):
+            continue
+        token = name[len(prefix) :]
+        if len(token) == 12 and all(
+            character in _HEX_CHARACTERS for character in token
+        ):
+            return True
+    return False
+
+
 def _is_upgrade_generated_root_runtime_file(
     relative_path: PurePosixPath,
     *,
@@ -130,7 +152,6 @@ def _is_upgrade_generated_root_runtime_file(
 
     name = relative_path.parts[0].casefold()
     settings = settings_name.casefold()
-    library = library_name.casefold()
 
     # Settings.save() owns one fixed sibling temporary pathname.
     if name == f"{settings}.tmp":
@@ -146,20 +167,11 @@ def _is_upgrade_generated_root_runtime_file(
             if _is_tempfile_token(token):
                 return True
 
-    # Publication guards are same-filesystem hard links to the authenticated
-    # pre-publication Settings/Library inode.  A crash may strand them, but
-    # they are coordination state and must never consume preservation quota.
-    for target in (settings, library):
-        prefix = f".{target}.publish-guard-"
-        if not name.startswith(prefix):
-            continue
-        token = name[len(prefix) :]
-        if len(token) == 12 and all(
-            character in _HEX_CHARACTERS for character in token
-        ):
-            return True
-
-    return False
+    return _is_upgrade_publication_guard_file(
+        relative_path,
+        settings_name=settings_name,
+        library_name=library_name,
+    )
 
 
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
@@ -894,27 +906,40 @@ class Version2UpgradeCoordinator:
             # temporary files behind only after abrupt process death. They are
             # internal publication residue, not preservation-backed user data.
             # Nested lookalikes and non-matching near names remain ordinary data.
-            if (
+            private_generated_runtime = (
                 _is_generated_root_runtime_file(relative_path)
                 or _is_generated_training_progress_file(relative_path)
                 or _is_generated_education_workspace_file(relative_path)
-                or _is_upgrade_generated_root_runtime_file(
-                    relative_path,
-                    settings_name=self.layout.settings_name,
-                    library_name=self.layout.library_name,
-                )
-            ):
+            )
+            upgrade_generated_runtime = _is_upgrade_generated_root_runtime_file(
+                relative_path,
+                settings_name=self.layout.settings_name,
+                library_name=self.layout.library_name,
+            )
+            publication_guard = _is_upgrade_publication_guard_file(
+                relative_path,
+                settings_name=self.layout.settings_name,
+                library_name=self.layout.library_name,
+            )
+            if private_generated_runtime or upgrade_generated_runtime:
                 # Filename grammar identifies ownership, but it does not prove
-                # filesystem identity.  Canonically named crash residue must
-                # still be an authenticated in-root object; otherwise a symlink
-                # or reparse alias could bypass the same fail-closed boundary
-                # enforced for persistent control files.
+                # filesystem identity. Canonical writer temps/locks are created
+                # as private inodes and may be excluded only while st_nlink=1.
+                # Publication guards are the deliberate exception: their writer
+                # contract is a same-filesystem hard link to an authenticated
+                # Settings/Library inode, so regular hard-linked guards remain
+                # derived coordination state.
                 generated_info = _safe_stat(path, "generated runtime entry")
                 if stat.S_ISREG(generated_info.st_mode):
-                    continue
+                    link_count = int(getattr(generated_info, "st_nlink", 1))
+                    if publication_guard or link_count == 1:
+                        continue
+                    # A hard-linked temp/lock-shaped regular file cannot be an
+                    # authentic private writer residue. Preserve it as ordinary
+                    # user data instead of silently dropping an aliased inode.
                 # A directory merely happens to have a generated filename; it
-                # is not writer residue.  Let the ordinary path logic below
-                # preserve its descendants.  Other special objects also fall
+                # is not writer residue. Let the ordinary path logic below
+                # preserve its descendants. Other special objects also fall
                 # through and are rejected by the normal non-regular boundary.
             folded = relative.casefold()
             if folded in seen:
