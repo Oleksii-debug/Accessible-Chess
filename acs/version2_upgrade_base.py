@@ -469,6 +469,32 @@ def _require_published_temp_identity(
         )
 
 
+def _require_directory_identity(
+    path: Path,
+    expected: os.stat_result | None,
+    *,
+    label: str,
+) -> os.stat_result:
+    """Require one staging pathname to remain the exact owned directory inode."""
+    try:
+        current = os.lstat(path)
+    except OSError as exc:
+        raise Version2UpgradeError(
+            f"{label} changed unexpectedly"
+        ) from exc
+    if (
+        stat.S_ISLNK(current.st_mode)
+        or _reparse(current)
+        or not stat.S_ISDIR(current.st_mode)
+        or expected is None
+        or not _same_file_identity(expected, current)
+    ):
+        raise Version2UpgradeError(
+            f"{label} changed unexpectedly"
+        )
+    return current
+
+
 def _dir_chain(
     root: Path,
     directory: Path,
@@ -1483,12 +1509,37 @@ class Version2UpgradeCoordinator:
         if final.exists() or final.is_symlink():
             raise Version2UpgradeError("upgrade backup identifier collision")
         temp.mkdir()
+        temp_identity = _require_directory_identity(
+            temp,
+            os.lstat(temp),
+            label="upgrade backup staging directory",
+        )
         data = temp / "data"
         data.mkdir()
+        data_identity = _require_directory_identity(
+            data,
+            os.lstat(data),
+            label="upgrade backup data directory",
+        )
+        published = False
+
+        def require_staging() -> None:
+            _require_directory_identity(
+                temp,
+                temp_identity,
+                label="upgrade backup staging directory",
+            )
+            _require_directory_identity(
+                data,
+                data_identity,
+                label="upgrade backup data directory",
+            )
+
         entries: list[dict[str, object]] = []
         library_schema = None
         try:
             for source in self._files():
+                require_staging()
                 relative = _relative(self.layout.root, source)
                 destination = data.joinpath(*PurePosixPath(relative).parts)
                 chain = _dir_chain(self.layout.root, source.parent)
@@ -1503,6 +1554,7 @@ class Version2UpgradeCoordinator:
                     size, digest = _stable_copy(source, destination)
                     if relative == self.layout.settings_name:
                         state_digest = digest
+                require_staging()
                 if _dir_chain(self.layout.root, source.parent) != chain:
                     raise Version2UpgradeError(
                         "user-data parent directory changed during backup copy"
@@ -1526,15 +1578,45 @@ class Version2UpgradeCoordinator:
                 "library_schema_before": library_schema,
                 "entries": entries,
             }
+            require_staging()
             _atomic_json(temp / "manifest.json", manifest)
+            require_staging()
+            # The initial collision check is not publication authority: refuse a
+            # destination that appeared while the backup was being prepared.
+            if final.exists() or final.is_symlink():
+                raise Version2UpgradeError("upgrade backup identifier collision")
+            require_staging()
             os.replace(temp, final)
+            published = True
+            _require_directory_identity(
+                final,
+                temp_identity,
+                label="upgrade backup publication",
+            )
             _fsync_dir(self.layout.backup_root)
+            _require_directory_identity(
+                final,
+                temp_identity,
+                label="upgrade backup publication",
+            )
             self._last_backup = final
             self._last_manifest = manifest
             return final, manifest
         finally:
-            if temp.exists():
-                shutil.rmtree(temp, ignore_errors=True)
+            if not published and (temp.exists() or temp.is_symlink()):
+                # Never recursively delete a pathname another actor substituted
+                # for our staging directory. Cleanup is permitted only while the
+                # top-level staging inode is still exactly the directory we made.
+                try:
+                    _require_directory_identity(
+                        temp,
+                        temp_identity,
+                        label="upgrade backup staging directory",
+                    )
+                except Version2UpgradeError:
+                    pass
+                else:
+                    shutil.rmtree(temp, ignore_errors=True)
 
     def _write_phase(
         self,
