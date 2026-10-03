@@ -196,7 +196,10 @@ class TrainingWebViewProjection:
             self._language = previous_language
             self._presenter.set_language(previous_language)
             raise
-        return TrainingWebViewEvent("render", {"snapshot": snapshot, "focus_target": ""})
+        return TrainingWebViewEvent(
+            "render",
+            {"snapshot": snapshot, "focus_target": snapshot["focus_target"]},
+        )
 
     def _continuation_available(self, completed: bool) -> bool:
         if not completed or self._can_continue is None:
