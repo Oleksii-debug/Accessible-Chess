@@ -24,6 +24,7 @@ from .classroom_collaboration import (
     FileTransferProgress,
     PreparedFile,
 )
+from .classroom_chat_outbox import ChatOutboxError, SecretStoreChatOutbox
 from .classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
@@ -278,6 +279,7 @@ class ClassroomCollaborationWebView:
         store: ClassroomCollaborationSQLiteStore,
         participant_label: Callable[[str], str],
         *,
+        chat_outbox: SecretStoreChatOutbox | None = None,
         language: UILanguage = UILanguage.UA,
         file_picker: Callable[[], Path | None] | None = None,
         file_saver: Callable[[str, str], object] | None = None,
@@ -295,6 +297,10 @@ class ClassroomCollaborationWebView:
             raise TypeError("store must be ClassroomCollaborationSQLiteStore")
         if not callable(participant_label):
             raise TypeError("participant_label must be callable")
+        if chat_outbox is not None and not isinstance(
+            chat_outbox, SecretStoreChatOutbox
+        ):
+            raise TypeError("chat_outbox must be SecretStoreChatOutbox")
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
         if file_picker is not None and not callable(file_picker):
@@ -320,6 +326,7 @@ class ClassroomCollaborationWebView:
         self._controller = controller
         self._store = store
         self._participant_label = participant_label
+        self._chat_outbox = chat_outbox
         self._language = language
         self._file_picker = file_picker
         self._file_saver = file_saver
@@ -339,6 +346,18 @@ class ClassroomCollaborationWebView:
         # not retained outside the browser.
         self._pending_chat_secret = secrets.token_bytes(32)
         self._pending_chat: dict[str, str] = {}
+        if self._chat_outbox is not None:
+            for pending in self._chat_outbox.entries():
+                fingerprint = self._chat_draft_fingerprint(
+                    pending.body,
+                    retention=pending.retention,
+                )
+                if (
+                    fingerprint in self._pending_chat
+                    or len(self._pending_chat) >= _MAX_PENDING_CHAT_DRAFTS
+                ):
+                    raise RuntimeError("durable pending chat recovery state is ambiguous")
+                self._pending_chat[fingerprint] = pending.message_id
         self._chat_page_bucket: int | None = None
         self._file_page_bucket: int | None = None
         self._removed_participant_ids: set[str] = set()
@@ -526,12 +545,40 @@ class ClassroomCollaborationWebView:
             instant.isoformat(timespec="seconds").replace("+00:00", "Z"),
         )
 
-    def _chat_draft_fingerprint(self, value: str) -> str:
+    def _chat_draft_fingerprint(
+        self,
+        value: str,
+        *,
+        retention: str | None = None,
+    ) -> str:
+        policy = self._chat_retention if retention is None else retention
         return hmac.new(
             self._pending_chat_secret,
-            value.encode("utf-8"),
+            (policy + "\0" + value).encode("utf-8"),
             sha256,
         ).hexdigest()
+
+    def _discard_pending_chat(
+        self,
+        *,
+        fingerprint: str,
+        message_id: str,
+        body: str,
+        retention: str,
+    ) -> bool:
+        if self._chat_outbox is not None:
+            try:
+                removed = self._chat_outbox.discard(
+                    message_id=message_id,
+                    body=body,
+                    retention=retention,
+                )
+            except ChatOutboxError:
+                return False
+            if not removed:
+                return False
+        self._pending_chat.pop(fingerprint, None)
+        return True
 
     @staticmethod
     def _announcement_body(value: str) -> str:
@@ -1016,6 +1063,23 @@ class ClassroomCollaborationWebView:
                     focus_target="collaboration-chat-input",
                 )
             message_id = self._id_factory("message")
+            if self._chat_outbox is not None:
+                try:
+                    reserved = self._chat_outbox.reserve(
+                        message_id=message_id,
+                        body=body,
+                        retention=self._chat_retention,
+                    )
+                except ChatOutboxError:
+                    return self._error(
+                        message=_LABELS[self._language]["send_failed"],
+                        focus_target="collaboration-chat-input",
+                    )
+                message_id = reserved.message_id
+                fingerprint = self._chat_draft_fingerprint(
+                    reserved.body,
+                    retention=reserved.retention,
+                )
             self._pending_chat[fingerprint] = message_id
         try:
             self._controller.send_chat(
@@ -1028,7 +1092,16 @@ class ClassroomCollaborationWebView:
                 message=_LABELS[self._language]["send_failed"],
                 focus_target="collaboration-chat-input",
             )
-        self._pending_chat.pop(fingerprint, None)
+        if not self._discard_pending_chat(
+            fingerprint=fingerprint,
+            message_id=message_id,
+            body=body,
+            retention=self._chat_retention,
+        ):
+            return self._error(
+                message=_LABELS[self._language]["send_failed"],
+                focus_target="collaboration-chat-input",
+            )
         self._chat_page_bucket = None
         return self._event(
             "collaboration.chat.sent",
@@ -1049,11 +1122,13 @@ class ClassroomCollaborationWebView:
                 if message_id == message.message_id
             )
             if pending_fingerprints:
-                fingerprint = self._chat_draft_fingerprint(message.body)
+                fingerprint = self._chat_draft_fingerprint(
+                    message.body,
+                    retention=message.retention,
+                )
                 if (
                     fingerprint not in pending_fingerprints
                     or message.sender_id != self._controller.local_participant_id
-                    or message.retention != self._chat_retention
                 ):
                     raise ValueError(
                         "live chat conflicts with pending send identity"
@@ -1075,7 +1150,16 @@ class ClassroomCollaborationWebView:
         )
         pending_recovered = bool(recovered_fingerprints)
         for fingerprint in recovered_fingerprints:
-            self._pending_chat.pop(fingerprint, None)
+            if not self._discard_pending_chat(
+                fingerprint=fingerprint,
+                message_id=received.message_id,
+                body=received.body,
+                retention=received.retention,
+            ):
+                return self._error(
+                    message=_LABELS[self._language]["send_failed"],
+                    focus_target="collaboration-chat-sync",
+                )
 
         if received.hidden:
             self._unread_message_ids.discard(received.message_id)
@@ -1129,7 +1213,7 @@ class ClassroomCollaborationWebView:
             if not item.hidden
         }
         self._unread_message_ids.intersection_update(visible_message_ids)
-        recovered_fingerprints: list[str] = []
+        recovered_pending: list[tuple[str, ChatMessageMetadata]] = []
         pending_conflict = False
         for fingerprint, message_id in self._pending_chat.items():
             item = current_by_id.get(message_id)
@@ -1137,20 +1221,29 @@ class ClassroomCollaborationWebView:
                 continue
             if (
                 item.sender_id == self._controller.local_participant_id
-                and item.retention == self._chat_retention
-                and self._chat_draft_fingerprint(item.body) == fingerprint
+                and self._chat_draft_fingerprint(
+                    item.body,
+                    retention=item.retention,
+                ) == fingerprint
             ):
-                recovered_fingerprints.append(fingerprint)
+                recovered_pending.append((fingerprint, item))
             else:
                 pending_conflict = True
-        for fingerprint in recovered_fingerprints:
-            self._pending_chat.pop(fingerprint, None)
-        if pending_conflict:
+        cleanup_failed = False
+        for fingerprint, item in recovered_pending:
+            if not self._discard_pending_chat(
+                fingerprint=fingerprint,
+                message_id=item.message_id,
+                body=item.body,
+                retention=item.retention,
+            ):
+                cleanup_failed = True
+        if pending_conflict or cleanup_failed:
             return self._error(
                 message=_LABELS[self._language]["send_failed"],
                 focus_target="collaboration-chat-sync",
             )
-        pending_recovered = bool(recovered_fingerprints)
+        pending_recovered = bool(recovered_pending)
         new_remote = tuple(
             item
             for item in incoming

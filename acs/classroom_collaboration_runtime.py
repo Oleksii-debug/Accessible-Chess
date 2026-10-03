@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import cast
 
 from .classroom_chat_http_endpoint import ClassroomChatHttpRpcCall
+from .classroom_chat_outbox import SecretStoreChatOutbox
 from .classroom_chat_rpc import ClassroomChatRpcClient
 from .classroom_collaboration import (
     ClassroomCollaborationController,
@@ -27,6 +28,7 @@ from .classroom_file_http_transport import ClassroomFileHttpRpcCall
 from .classroom_file_rpc import ClassroomFileRpcClient, MAX_RPC_UPLOAD_BYTES
 from .classroom_realtime_media import ClassroomMediaController, ClassroomRosterPort
 from .full_product_ui_shell import UILanguage
+from .secret_store import SecretStore
 
 
 class _DeferredCollaborationStore:
@@ -69,6 +71,7 @@ class ClassroomCollaborationRuntime:
     webview: ClassroomCollaborationWebView = field(repr=False)
     chat_client: ClassroomChatRpcClient = field(repr=False)
     file_client: ClassroomFileRpcClient = field(repr=False)
+    chat_outbox: SecretStoreChatOutbox | None = field(default=None, repr=False)
 
     def __repr__(self) -> str:
         return "ClassroomCollaborationRuntime(<bound>)"
@@ -86,6 +89,7 @@ def build_classroom_collaboration_http_runtime(
     file_bearer_token_provider: Callable[[], str],
     participant_label: Callable[[str], str],
     language: UILanguage = UILanguage.UA,
+    chat_secret_store: SecretStore | None = None,
     file_picker: Callable[[], Path | None] | None = None,
     file_saver: Callable[[str, str], object] | None = None,
     file_opener: Callable[[str, str], object] | None = None,
@@ -121,6 +125,12 @@ def build_classroom_collaboration_http_runtime(
         raise TypeError("roster must implement ClassroomRosterPort")
     if not callable(participant_label):
         raise TypeError("participant_label must be callable")
+    if chat_secret_store is not None and not (
+        callable(getattr(chat_secret_store, "read", None))
+        and callable(getattr(chat_secret_store, "write", None))
+        and callable(getattr(chat_secret_store, "delete", None))
+    ):
+        raise TypeError("chat_secret_store must implement SecretStore")
     for label, callback in (
         ("file_picker", file_picker),
         ("file_saver", file_saver),
@@ -223,12 +233,27 @@ def build_classroom_collaboration_http_runtime(
         quota=quota,
     )
 
+    chat_outbox = (
+        None
+        if chat_secret_store is None
+        else SecretStoreChatOutbox(
+            chat_secret_store,
+            room_id,
+            participant_id,
+        )
+    )
+    if chat_outbox is not None:
+        # Corrupt/unreadable secure recovery state must fail before local
+        # collaboration metadata is materialized and before any network call.
+        chat_outbox.entries()
+
     store = ClassroomCollaborationSQLiteStore(str(path))
     deferred_store.bind(store)
     webview = ClassroomCollaborationWebView(
         controller,
         store,
         participant_label,
+        chat_outbox=chat_outbox,
         language=language,
         file_picker=file_picker,
         file_saver=file_saver,
@@ -245,6 +270,7 @@ def build_classroom_collaboration_http_runtime(
         webview=webview,
         chat_client=chat_client,
         file_client=file_client,
+        chat_outbox=chat_outbox,
     )
 
 

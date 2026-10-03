@@ -10,6 +10,7 @@ from acs.classroom_collaboration import (
     ClassroomCollaborationController,
     FileTransferProgress,
 )
+from acs.classroom_chat_outbox import ChatOutboxError, SecretStoreChatOutbox
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     AttachmentStateUpdate,
@@ -22,6 +23,21 @@ from acs.classroom_realtime_media import ClassroomMediaController, ClassroomRole
 from acs.full_product_ui_shell import UILanguage
 from tests.test_classroom_collaboration import FakeChat, FakeFiles, FakeFileStore, FakeRoster
 from tests.test_classroom_realtime_media import FakeMedia
+
+
+class MemorySecretStore:
+    def __init__(self) -> None:
+        self.values: dict[str, bytes] = {}
+
+    def write(self, name: str, value: bytes) -> None:
+        self.values[name] = bytes(value)
+
+    def read(self, name: str) -> bytes | None:
+        value = self.values.get(name)
+        return None if value is None else bytes(value)
+
+    def delete(self, name: str) -> bool:
+        return self.values.pop(name, None) is not None
 
 
 class ClassroomCollaborationWebViewTests(unittest.TestCase):
@@ -68,11 +84,13 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         chat_retention: str = "session",
         file_retention: str = "session",
         file_progress_event_sink=None,
+        chat_outbox=None,
     ) -> ClassroomCollaborationWebView:
         return ClassroomCollaborationWebView(
             self.controller,
             self.store,
             lambda participant_id: self.labels[participant_id],
+            chat_outbox=chat_outbox,
             language=language,
             file_picker=lambda: self.selected_file,
             file_saver=lambda token, name: self.save_calls.append((token, name)),
@@ -2352,6 +2370,129 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             "Зберігання нових файлів: session (сесійне)",
             view.snapshot()["files"]["retention_policy_label"],
         )
+
+    def test_durable_chat_outbox_reuses_identity_after_webview_recreation(self) -> None:
+        secrets_store = MemorySecretStore()
+        first_outbox = SecretStoreChatOutbox(
+            secrets_store,
+            "room-1",
+            "student-1",
+        )
+        first_view = self.webview(chat_outbox=first_outbox)
+        calls: list[tuple[str, str, str]] = []
+
+        def ambiguous_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append((message_id, body, retention))
+            raise RuntimeError("acknowledgement lost")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=ambiguous_send,
+        ):
+            failed = first_view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Survive full host restart"},
+            )
+
+        self.assertEqual("error", failed.kind)
+        pending = first_outbox.entries()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].message_id, "message-ui-1")
+        self.assertEqual(pending[0].body, "Survive full host restart")
+
+        second_outbox = SecretStoreChatOutbox(
+            secrets_store,
+            "room-1",
+            "student-1",
+        )
+        second_view = self.webview(chat_outbox=second_outbox)
+
+        def confirmed_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append((message_id, body, retention))
+            return None
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=confirmed_send,
+        ):
+            retried = second_view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Survive full host restart"},
+            )
+
+        self.assertEqual("collaboration.chat.sent", retried.kind)
+        self.assertEqual(
+            calls,
+            [
+                ("message-ui-1", "Survive full host restart", "session"),
+                ("message-ui-1", "Survive full host restart", "session"),
+            ],
+        )
+        self.assertEqual(self.ids["message"], 1)
+        self.assertEqual(second_outbox.entries(), ())
+        self.assertEqual(second_view._pending_chat, {})
+
+    def test_durable_chat_outbox_failure_prevents_network_send(self) -> None:
+        class FailingWriteSecretStore(MemorySecretStore):
+            def write(self, name: str, value: bytes) -> None:
+                raise RuntimeError("device secret storage unavailable")
+
+        outbox = SecretStoreChatOutbox(
+            FailingWriteSecretStore(),
+            "room-1",
+            "student-1",
+        )
+        view = self.webview(chat_outbox=outbox)
+        with mock.patch.object(self.controller, "send_chat") as send_chat:
+            result = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Must not leave device before durable reservation"},
+            )
+
+        self.assertEqual("error", result.kind)
+        send_chat.assert_not_called()
+        self.assertEqual(view._pending_chat, {})
+
+    def test_durable_chat_outbox_keeps_retention_in_recovery_identity(self) -> None:
+        secrets_store = MemorySecretStore()
+        outbox = SecretStoreChatOutbox(secrets_store, "room-1", "student-1")
+        outbox.reserve(
+            message_id="old-session-message",
+            body="Same visible text",
+            retention="session",
+        )
+        view = self.webview(
+            chat_outbox=SecretStoreChatOutbox(
+                secrets_store,
+                "room-1",
+                "student-1",
+            ),
+            chat_retention="persistent",
+        )
+        calls: list[tuple[str, str]] = []
+
+        def confirmed_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append((message_id, retention))
+            return None
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=confirmed_send,
+        ):
+            result = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Same visible text"},
+            )
+
+        self.assertEqual("collaboration.chat.sent", result.kind)
+        self.assertEqual(calls, [("message-ui-1", "persistent")])
+        remaining = outbox.entries()
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].message_id, "old-session-message")
+        self.assertEqual(remaining[0].retention, "session")
 
 
 if __name__ == "__main__":

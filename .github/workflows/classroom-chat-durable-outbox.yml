@@ -1,0 +1,146 @@
+name: Classroom Chat Durable Outbox
+
+on:
+  pull_request:
+    branches:
+      - converge/windows-dpapi-secret-store-collaboration-20261003
+    paths:
+      - 'acs/classroom_chat_outbox.py'
+      - 'acs/classroom_collaboration_webview.py'
+      - 'acs/classroom_collaboration_runtime.py'
+      - 'acs/version2_final_product_application.py'
+      - 'tests/test_classroom_chat_outbox.py'
+      - 'tests/test_classroom_collaboration_webview.py'
+      - 'tests/test_classroom_collaboration_runtime.py'
+      - '.github/workflows/classroom-chat-durable-outbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-chat-durable-outbox-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact stacked outbox scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "converge/windows-dpapi-secret-store-collaboration-20261003"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$EXPECTED_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base...HEAD"
+          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-chat-durable-outbox.yml' \
+            'acs/classroom_chat_outbox.py' \
+            'acs/classroom_collaboration_runtime.py' \
+            'acs/classroom_collaboration_webview.py' \
+            'acs/version2_final_product_application.py' \
+            'tests/test_classroom_chat_outbox.py' \
+            'tests/test_classroom_collaboration_runtime.py' \
+            'tests/test_classroom_collaboration_webview.py' | LC_ALL=C sort)"
+          test "$changed" = "$allowed"
+          echo "CLASSROOM_CHAT_DURABLE_OUTBOX_EXACT_SCOPE=PASS"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile durable outbox stack
+        run: >-
+          python -m py_compile
+          acs/secret_store.py
+          acs/classroom_chat_outbox.py
+          acs/classroom_collaboration_webview.py
+          acs/classroom_collaboration_runtime.py
+          acs/version2_final_product_application.py
+          tests/test_secret_store.py
+          tests/test_classroom_chat_outbox.py
+          tests/test_classroom_collaboration_webview.py
+          tests/test_classroom_collaboration_runtime.py
+
+      - name: Run durable outbox and collaboration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_secret_store
+          tests.test_classroom_chat_outbox
+          tests.test_classroom_collaboration_webview
+          tests.test_classroom_collaboration_runtime
+          tests.test_classroom_collaboration_final_product
+          tests.test_classroom_collaboration
+          tests.test_classroom_collaboration_storage
+          tests.test_classroom_chat_rpc
+          tests.test_classroom_chat_http_endpoint
+
+      - name: Run accessible collaboration DOM regression
+        run: node tests/js/classroom_collaboration_surface_dom_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+      - name: Install canonical Windows standalone toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION" "clr-loader==$env:CLR_LOADER_VERSION" "cffi==$env:CFFI_VERSION" "pycparser==$env:PYCPARSER_VERSION" "typing-extensions==$env:TYPING_EXTENSIONS_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_OUTBOX_TOOLCHAIN_INSTALL_FAILURE'}
+
+      - name: Build exact Windows standalone with durable outbox
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_OUTBOX_SOURCE_DIAGNOSTIC_FAILURE'}
+          $report=Join-Path $env:RUNNER_TEMP 'classroom-outbox-nuitka-report.xml'
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_OUTBOX_NUITKA_BUILD_FAILURE'}
+          $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=Join-Path $dist 'AccessibleChess.exe'
+          if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'CLASSROOM_OUTBOX_PACKAGED_EXE_MISSING'}
+          $reportText=Get-Content -LiteralPath $report -Raw
+          foreach($module in @('acs.classroom_chat_outbox','acs.secret_store','acs.classroom_collaboration_runtime')){
+            if($reportText -notmatch [regex]::Escape($module)){throw "CLASSROOM_OUTBOX_PACKAGED_MODULE_MISSING module=$module"}
+          }
+          $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in @('.py','.pyc','.pyo')})
+          if($leaks.Count -ne 0){throw "CLASSROOM_OUTBOX_PACKAGED_PYTHON_SOURCE_LEAK count=$($leaks.Count)"}
+          Write-Host "CLASSROOM_OUTBOX_STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
+          Write-Host 'CLASSROOM_CHAT_DURABLE_OUTBOX_WINDOWS_STANDALONE=PASS'
