@@ -407,9 +407,7 @@ class ClassroomCollaborationSQLiteStore:
                     """
                     CREATE TABLE collaboration_chat_state_cursors(
                         room_id TEXT PRIMARY KEY,
-                        revision INTEGER NOT NULL CHECK(
-                            revision >= 0 AND revision <= 9007199254740991
-                        )
+                        revision INTEGER NOT NULL CHECK(revision >= 0)
                     )
                     """
                 )
@@ -517,7 +515,9 @@ class ClassroomCollaborationSQLiteStore:
                     CREATE TABLE collaboration_attachment_snapshot_watermarks(
                         attachment_id TEXT PRIMARY KEY,
                         room_id TEXT NOT NULL,
-                        revision INTEGER NOT NULL CHECK(revision >= 0)
+                        revision INTEGER NOT NULL CHECK(
+                            revision >= 0 AND revision <= 9007199254740991
+                        )
                     )
                     """
                 )
