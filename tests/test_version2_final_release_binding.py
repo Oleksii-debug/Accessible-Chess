@@ -40,6 +40,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
             "full_product_books_training.js",
             "full_product_teacher.js",
             "full_product_education.js",
+            "full_product_classroom_media.js",
             "version2_final_product_bootstrap.js",
             "p0_accessibility_runtime.js",
             "livekit_classroom_media.js",
@@ -241,10 +242,15 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         sdk_label = "LiveKit browser SDK"
         adapter_label = "Classroom LiveKit media adapter"
         teacher_label = "V2 Teacher surface"
+        media_label = "V2 Classroom media surface"
+        bootstrap_label = "V2 final-product bootstrap"
         self.assertEqual(labels.count(sdk_label), 1)
         self.assertEqual(labels.count(adapter_label), 1)
+        self.assertEqual(labels.count(media_label), 1)
         self.assertLess(labels.index(sdk_label), labels.index(adapter_label))
         self.assertLess(labels.index(adapter_label), labels.index(teacher_label))
+        self.assertLess(labels.index(adapter_label), labels.index(media_label))
+        self.assertLess(labels.index(media_label), labels.index(bootstrap_label))
         self.assertIn("LivekitClient", dict(sources)[sdk_label])
 
     def test_unstaged_livekit_sdk_does_not_load_adapter_by_itself(self) -> None:
@@ -264,6 +270,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         labels = [label for label, _source in sources]
         self.assertNotIn("LiveKit browser SDK", labels)
         self.assertNotIn("Classroom LiveKit media adapter", labels)
+        self.assertEqual(labels.count("V2 Classroom media surface"), 1)
 
     def test_partial_livekit_vendor_root_fails_closed(self) -> None:
         from acs import version2_final_release as final_release
