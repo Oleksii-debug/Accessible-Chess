@@ -35,20 +35,30 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
         self.file_token_calls += 1
         return "file-secret-token"
 
-    def build(self, *, roster, participant_id: str = "student-1", path: Path):
-        return build_classroom_collaboration_http_runtime(
-            room_id="room-1",
-            participant_id=participant_id,
-            roster=roster,
-            store_path=path,
-            chat_endpoint_url=CHAT_URL,
-            file_endpoint_url=FILE_URL,
-            chat_bearer_token_provider=self.chat_token,
-            file_bearer_token_provider=self.file_token,
-            participant_label=lambda participant: participant,
-            language=UILanguage.EN,
-            allow_insecure_loopback=True,
-        )
+    def build(
+        self,
+        *,
+        roster,
+        path: Path,
+        room_id: str = "room-1",
+        participant_id: str = "student-1",
+        **overrides,
+    ):
+        arguments = {
+            "room_id": room_id,
+            "participant_id": participant_id,
+            "roster": roster,
+            "store_path": path,
+            "chat_endpoint_url": CHAT_URL,
+            "file_endpoint_url": FILE_URL,
+            "chat_bearer_token_provider": self.chat_token,
+            "file_bearer_token_provider": self.file_token,
+            "participant_label": lambda participant: participant,
+            "language": UILanguage.EN,
+            "allow_insecure_loopback": True,
+        }
+        arguments.update(overrides)
+        return build_classroom_collaboration_http_runtime(**arguments)
 
     def assert_no_persistence_or_credentials(self, path: Path) -> None:
         self.assertFalse(path.exists())
@@ -92,6 +102,82 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
             self.build(roster=FailingRoster(), path=path)
 
         self.assert_no_persistence_or_credentials(path)
+
+    def test_duplicate_roster_identity_fails_before_durable_store_creation(self) -> None:
+        class DuplicateRoster(FakeRoster):
+            def participant_ids(self):
+                return super().participant_ids() + ("student-1",)
+
+        path = self.root / "duplicate-roster.sqlite3"
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "canonical room roster contains duplicate identities",
+        ):
+            self.build(roster=DuplicateRoster(), path=path)
+
+        self.assert_no_persistence_or_credentials(path)
+
+    def test_invalid_roster_identity_fails_before_durable_store_creation(self) -> None:
+        class InvalidIdentityRoster(FakeRoster):
+            def participant_ids(self):
+                return super().participant_ids() + ("invalid participant",)
+
+        path = self.root / "invalid-roster-identity.sqlite3"
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "participant id must be a canonical opaque identifier",
+        ):
+            self.build(roster=InvalidIdentityRoster(), path=path)
+
+        self.assert_no_persistence_or_credentials(path)
+
+    def test_oversized_roster_fails_before_durable_store_creation(self) -> None:
+        class OversizedRoster(FakeRoster):
+            def participant_ids(self):
+                return tuple(f"student-{index}" for index in range(5001))
+
+        path = self.root / "oversized-roster.sqlite3"
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "canonical room roster is invalid or too large",
+        ):
+            self.build(roster=OversizedRoster(), path=path)
+
+        self.assert_no_persistence_or_credentials(path)
+
+    def test_invalid_bound_identity_fails_before_durable_store_creation(self) -> None:
+        cases = (
+            {"room_id": "room id"},
+            {"participant_id": "student id"},
+        )
+        for index, overrides in enumerate(cases):
+            with self.subTest(overrides=overrides):
+                path = self.root / f"invalid-bound-identity-{index}.sqlite3"
+                with self.assertRaises(Exception):
+                    self.build(
+                        roster=FakeRoster(),
+                        path=path,
+                        **overrides,
+                    )
+                self.assert_no_persistence_or_credentials(path)
+
+    def test_invalid_transport_timeout_fails_before_durable_store_creation(self) -> None:
+        cases = (
+            {"chat_timeout_seconds": 0},
+            {"chat_timeout_seconds": float("nan")},
+            {"file_timeout_seconds": 0},
+            {"file_timeout_seconds": float("inf")},
+        )
+        for index, overrides in enumerate(cases):
+            with self.subTest(overrides=overrides):
+                path = self.root / f"invalid-timeout-{index}.sqlite3"
+                with self.assertRaises(ValueError):
+                    self.build(
+                        roster=FakeRoster(),
+                        path=path,
+                        **overrides,
+                    )
+                self.assert_no_persistence_or_credentials(path)
 
     def test_successful_binding_materializes_store_and_proxy_forwards(self) -> None:
         path = self.root / "valid.sqlite3"
