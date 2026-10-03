@@ -89,6 +89,22 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertNotIn("error.message", text)
         self.assertNotIn("String(error)", text)
 
+    def test_malformed_host_events_fail_closed_before_surface_mutation(self) -> None:
+        text = self.text
+        self.assertIn("function requireHostEvent(result, allowedKinds, surface)", text)
+        self.assertIn('throw new TypeError(surface + " host result must be an object")', text)
+        self.assertIn('throw new TypeError(surface + " host result kind is invalid")', text)
+        self.assertIn('throw new TypeError(surface + " host result payload must be an object")', text)
+        self.assertIn('throw new TypeError(surface + " render result requires a snapshot")', text)
+        self.assertIn(
+            'requireHostEvent(result, ["render", "error", "delegated"], "Book")',
+            text,
+        )
+        self.assertIn(
+            'requireHostEvent(result, ["render", "error"], "Training")',
+            text,
+        )
+
     def test_book_position_path_has_no_browser_fen_or_direct_board_mutation(self) -> None:
         text = self.text
         self.assertNotIn("position_fen", text)
