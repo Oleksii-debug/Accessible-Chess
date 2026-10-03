@@ -168,7 +168,14 @@ function semanticGameSnapshot() {
     warnings_label: "Recovery warnings",
     warnings: ["Recovered safely"],
     items: [
-      { kind: "move", depth: 0, label: "1. e4", comments: ["Main <comment>"] },
+      {
+        kind: "move",
+        depth: 0,
+        label: "1. e4",
+        comments: ["legacy combined must not duplicate"],
+        comments_before: ["Before <em>literal</em>"],
+        comments_after: ["After <strong>literal</strong>"]
+      },
       {
         kind: "variation",
         depth: 1,
@@ -388,7 +395,20 @@ async function run() {
   const rootMoves = find(semanticBlock, "OL");
   check(rootMoves !== null && rootMoves.children.length === 2,
     "main-line move order/list semantics are wrong");
-  const branch = find(rootMoves.children[0], "OL");
+  const e4Item = rootMoves.children[0];
+  check(e4Item.children[0].tagName === "UL",
+    "before-move comments must precede the move label");
+  check(e4Item.children[1].tagName === "SPAN" && e4Item.children[1].textContent === "1. e4",
+    "move label must follow before-move comments");
+  check(e4Item.children[2].tagName === "UL",
+    "after-move comments must follow the move label");
+  check(find(e4Item.children[0], "LI", "Before <em>literal</em>") !== null,
+    "before-move comment text is missing");
+  check(find(e4Item.children[2], "LI", "After <strong>literal</strong>") !== null,
+    "after-move comment text is missing");
+  check(find(e4Item, "LI", "legacy combined must not duplicate") === null,
+    "legacy combined move comments must not duplicate exact comment slots");
+  const branch = find(e4Item, "OL");
   check(branch !== null && branch.children.length === 1,
     "variation branch is not nested below its parent move");
   const variationItem = branch.children[0];
@@ -397,8 +417,8 @@ async function run() {
     "variation moves are not nested in authored order");
   const variationTail = find(variationItem, "LI", "Branch tail <b>literal</b>");
   check(variationTail !== null, "variation trailing comment is not visible");
-  check(semanticBlock.descendants().every((item) => item.tagName !== "B"),
-    "variation trailing comment must remain literal text");
+  check(semanticBlock.descendants().every((item) => !["B", "EM", "STRONG"].includes(item.tagName)),
+    "semantic comments must remain literal text");
   check(variationItem.children[variationItem.children.length - 1].tagName === "UL",
     "variation trailing comment must follow its nested move list");
   check(find(semanticBlock, "LI", "<img onerror=bad()>") !== null,

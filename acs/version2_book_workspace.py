@@ -111,11 +111,26 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             label = safe(item.label)
             if not label:
                 raise ValueError("book semantic GameTree item label is empty")
-            comments = tuple(
-                comment
-                for comment in (safe(raw) for raw in item.comments)
-                if comment
-            )
+            if item.kind == "move":
+                comments_before = tuple(
+                    comment
+                    for comment in (safe(raw) for raw in item.comments_before)
+                    if comment
+                )
+                comments_after = tuple(
+                    comment
+                    for comment in (safe(raw) for raw in item.comments_after)
+                    if comment
+                )
+                comments = ()
+            else:
+                comments_before = ()
+                comments_after = ()
+                comments = tuple(
+                    comment
+                    for comment in (safe(raw) for raw in item.comments)
+                    if comment
+                )
             trailing_comments = tuple(
                 comment
                 for comment in (safe(raw) for raw in item.trailing_comments)
@@ -127,6 +142,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     "depth": item.depth,
                     "label": label,
                     "comments": comments,
+                    "comments_before": comments_before,
+                    "comments_after": comments_after,
                     "trailing_comments": trailing_comments,
                 }
             )

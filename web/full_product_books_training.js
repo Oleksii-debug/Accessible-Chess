@@ -133,20 +133,41 @@
       }
 
       const listItem = node("li");
-      listItem.appendChild(node("span", item.label));
       const comments = semanticTextArray(item.comments, "book semantic item comments");
-      const trailingComments = semanticTextArray(
-        item.trailing_comments,
-        "book semantic item trailing comments"
+      const commentsBefore = semanticTextArray(
+        item.comments_before,
+        "book semantic comments before move"
       );
-      if (comments.length) {
+      const commentsAfter = semanticTextArray(
+        item.comments_after,
+        "book semantic comments after move"
+      );
+      const exactMoveComments = item.kind === "move" && (
+        item.comments_before !== undefined || item.comments_after !== undefined
+      );
+
+      function appendItemComments(values) {
+        if (!values.length) return;
         const commentList = node("ul");
         commentList.setAttribute("aria-label", semantic.comments_label || "");
-        comments.forEach(function (comment) {
+        values.forEach(function (comment) {
           commentList.appendChild(node("li", comment));
         });
         listItem.appendChild(commentList);
       }
+
+      if (exactMoveComments) appendItemComments(commentsBefore);
+      listItem.appendChild(node("span", item.label));
+      if (exactMoveComments) {
+        appendItemComments(commentsAfter);
+      } else {
+        appendItemComments(comments);
+      }
+
+      const trailingComments = semanticTextArray(
+        item.trailing_comments,
+        "book semantic item trailing comments"
+      );
       lists[depth].appendChild(listItem);
       if (trailingComments.length) {
         deferredTrailingComments.push({ item: listItem, comments: trailingComments });

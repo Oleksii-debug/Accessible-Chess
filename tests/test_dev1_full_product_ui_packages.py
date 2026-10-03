@@ -56,7 +56,7 @@ class FullProductActionTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592|b0b92c755f23df170fe90cb2380baa10796028cd|2ffd5d89988c82f5347d04144dd5575ed0700827",
+            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592|b0b92c755f23df170fe90cb2380baa10796028cd|2ffd5d89988c82f5347d04144dd5575ed0700827|001fa6144d983059b627994577334c1bfe1c6349",
             source,
         )
         self.assertIn(
@@ -175,7 +175,7 @@ class PgnPresenterTests(unittest.TestCase):
 [Black \"Black\"]
 [Result \"*\"]
 
-1. e4 {main comment} e5 $1 (1... c5 {Sicilian} 2. Nf3 (2. Nc3) * {branch tail}) 2. Nf3 *
+1. {before e4} e4 {after e4} e5 $1 (1... c5 {Sicilian} 2. Nf3 (2. Nc3) * {branch tail}) 2. Nf3 *
 """
         self.games = tuple(parse_games(text))
 
@@ -185,7 +185,10 @@ class PgnPresenterTests(unittest.TestCase):
         self.assertEqual("White — Black", view.title)
         self.assertTrue(any("e4" in item.label for item in view.items))
         self.assertTrue(any("$1" in item.label for item in view.items))
-        self.assertTrue(any(item.comments and "main comment" in item.comments for item in view.items))
+        e4 = next(item for item in view.items if item.san == "e4")
+        self.assertEqual(("before e4",), e4.comments_before)
+        self.assertEqual(("after e4",), e4.comments_after)
+        self.assertEqual(("before e4", "after e4"), e4.comments)
         variation = next(
             item
             for item in view.items

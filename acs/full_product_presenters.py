@@ -54,6 +54,8 @@ class PgnTreeItem:
     comments: tuple[str, ...] = ()
     nags: tuple[str, ...] = ()
     trailing_comments: tuple[str, ...] = ()
+    comments_before: tuple[str, ...] = ()
+    comments_after: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,11 +179,19 @@ class PgnTreePresenter:
         for move_index, move in enumerate(line.moves):
             node_id = f"{line_id}/m{move_index}"
             number = f"{move.move_number} " if move.move_number else ""
-            comments = tuple(
+            comments_before = tuple(
                 comment.text
-                for comment in (*move.comments_before, *move.comments_after)
+                for comment in move.comments_before
                 if comment.text.strip()
             )
+            comments_after = tuple(
+                comment.text
+                for comment in move.comments_after
+                if comment.text.strip()
+            )
+            # Keep the historical aggregate for PGN editing surfaces while
+            # exposing exact before/after slots to read-only semantic readers.
+            comments = comments_before + comments_after
             annotation = " ".join(move.nags)
             label = f"{number}{move.san}"
             if annotation:
@@ -196,6 +206,8 @@ class PgnTreePresenter:
                     san=move.san,
                     comments=comments,
                     nags=tuple(move.nags),
+                    comments_before=comments_before,
+                    comments_after=comments_after,
                 )
             )
             for variation_index, variation in enumerate(move.variations):

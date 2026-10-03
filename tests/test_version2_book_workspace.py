@@ -48,7 +48,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
             ),
             VariationTree(
                 root_fen=Board.START,
-                pgn='[White "Gamma"]\n[Black "Delta"]\n[Result "*"]\n\n{Intro variation} 1. e4 {Main} (1. d4 $1 d5 * {Nested variation}) e5 * {Outro variation}',
+                pgn='[White "Gamma"]\n[Black "Delta"]\n[Result "*"]\n\n{Intro variation} 1. {Before variation main} e4 {After variation main} (1. d4 $1 d5 * {Nested variation}) e5 * {Outro variation}',
                 title="Variation study",
                 block_id="variation",
             ),
@@ -74,6 +74,15 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(tree["items"][0]["kind"], "move")
                 self.assertEqual(tree["items"][0]["depth"], 0)
                 self.assertIn("e4", tree["items"][0]["label"])
+                expected_before = (
+                    "Before main"
+                    if isinstance(semantic, Game)
+                    else "Before variation main"
+                )
+                self.assertEqual((expected_before,), tree["items"][0]["comments_before"])
+                self.assertEqual(1, len(tree["items"][0]["comments_after"]))
+                self.assertIn("After", tree["items"][0]["comments_after"][0])
+                self.assertEqual((), tree["items"][0]["comments"])
                 self.assertEqual(tree["items"][1]["kind"], "variation")
                 self.assertEqual(tree["items"][1]["depth"], 1)
                 self.assertEqual(len(tree["items"][1]["trailing_comments"]), 1)
