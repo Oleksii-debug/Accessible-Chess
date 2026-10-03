@@ -42,7 +42,8 @@ jobs:
           parent_branch='fix/pgn-presentation-lease-20261003'
           test "$(git rev-parse HEAD)" = "$expected_head"
 
-          git fetch --no-tags origin             "+refs/heads/$parent_branch:refs/remotes/origin/$parent_branch"
+          git fetch --no-tags origin \
+            "+refs/heads/$parent_branch:refs/remotes/origin/$parent_branch"
           live_parent="$(git rev-parse "refs/remotes/origin/$parent_branch")"
           git merge-base --is-ancestor "$live_parent" HEAD
 
@@ -55,7 +56,12 @@ jobs:
             test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
 
             changed="$(git diff --name-only "$live_parent" HEAD | sort)"
-            expected="$(printf '%s\n'               '.github/workflows/pgn-game-navigation-cas.yml'               'acs/pgn_workspace_webview_adapter.py'               'acs/version2_pgn_commands.py'               'tests/test_dev1_pgn_workspace_webview_adapter.py'               'tests/test_version2_pgn_commands.py' | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/pgn-game-navigation-cas.yml' \
+              'acs/pgn_workspace_webview_adapter.py' \
+              'acs/version2_pgn_commands.py' \
+              'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+              'tests/test_version2_pgn_commands.py' | sort)"
             test "$changed" = "$expected"
             git diff --check "$live_parent" HEAD
           else
@@ -63,9 +69,9 @@ jobs:
           fi
 
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "3d4fa3d19c3bd185b80fdbbf1113331a22ea73db"
-          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "d0d53a763067d6f5f1d110eefcb7ea477d39f10a"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "af4e9fff1824473708a419a93370f5e8a2c754b9"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "e42539cf34366046e26b22f4c51318250c1ab432"
-          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "2b8cd5ed08cd699c82ff5dd9b9432c8763ad0e63"
+          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "7bd2dbe509a54395c5eaf3dc1fa5ddbcadbe44ff"
 
           # Retain the #1443 rendered-state lease and whole-application proof.
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "c7ade6cc8fefdac160235b67291438fa15c689b8"
