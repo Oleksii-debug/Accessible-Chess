@@ -510,6 +510,52 @@ class Version2ReleasePayloadTests(unittest.TestCase):
 
         manifest_path.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
 
+    def test_layered_sound_assets_are_packaged_and_malformed_layers_fail_atomically(self) -> None:
+        impact = self.sounds / "move-hit.wav"
+        self._write_wav(impact, sample=321)
+        layers_path = self.sounds / "layers.json"
+        layers_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "events": {
+                        "move": {
+                            "1": ["move.wav", "move-hit.wav"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        output = self.root / "payload-layered-sounds"
+        result = self._prepare(output)
+        packaged_sound_root = result.product_dir / "assets" / "sounds"
+        self.assertTrue((packaged_sound_root / "layers.json").is_file())
+        self.assertTrue((packaged_sound_root / "move-hit.wav").is_file())
+
+        shutil.rmtree(output)
+        layers_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "events": {
+                        "move": {
+                            "1": ["move-hit.wav", "move.wav"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        invalid_output = self.root / "payload-layered-sounds-invalid"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "production resolver contract",
+        ):
+            self._prepare(invalid_output)
+        self._assert_no_publication(invalid_output)
+
     def test_sound_provenance_is_required_and_bound_to_every_asset(self) -> None:
         original = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
         event = next(iter(SoundEvent)).value
