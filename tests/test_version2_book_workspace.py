@@ -187,6 +187,15 @@ class Version2BookWorkspaceTests(unittest.TestCase):
             "Некоректний результат у заголовку PGN проігноровано.",
             tree["warnings"],
         )
+
+        event = bridge.dispatch("book.language", {"language": "en"})
+        english_tree = event.payload["snapshot"]["block"]["semantic_tree"]
+        self.assertIn(
+            "An invalid PGN header result was ignored.",
+            english_tree["warnings"],
+        )
+        self.assertNotIn(secret, json.dumps(english_tree, ensure_ascii=False))
+        self.assertEqual(event.payload["snapshot"]["document"]["lang"], "en")
         self.assertFalse(workflow.active)
         self.assertEqual(workflow.revision, 0)
         self.assertEqual(reader.snapshot(), progress_before)
