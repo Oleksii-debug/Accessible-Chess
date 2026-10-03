@@ -43,7 +43,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
     def test_game_and_variation_blocks_project_readable_semantic_move_trees(self):
         cases = (
             Game(
-                pgn='[Event "Accessible Cup"]\n[Site "/home/private/venue.txt"]\n[Date "2026.10.03"]\n[Round "3"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
+                pgn='[Event "Accessible Cup"]\n[Site "/home/private/venue.txt"]\n[Date "2026.10.03"]\n[Round "3"]\n[ECO "C20"]\n[Annotator ""]\n[CustomTag "analysis"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
                 title="Annotated game",
                 block_id="game",
             ),
@@ -72,9 +72,25 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                         item["label"]: item["value"]
                         for item in tree["details"]
                     }
+                    detail_kinds = {
+                        item["label"]: item["kind"]
+                        for item in tree["details"]
+                    }
+                    self.assertEqual(detail_kinds["Подія"], "event")
+                    self.assertEqual(detail_kinds["Дата"], "date")
+                    self.assertEqual(detail_kinds["Тур"], "round")
+                    self.assertEqual(detail_kinds["ECO"], "custom:ECO")
+                    self.assertEqual(detail_kinds["Annotator"], "custom:Annotator")
+                    self.assertEqual(detail_kinds["CustomTag"], "custom:CustomTag")
                     self.assertEqual(details["Подія"], "Accessible Cup")
                     self.assertEqual(details["Дата"], "2026.10.03")
                     self.assertEqual(details["Тур"], "3")
+                    self.assertEqual(details["ECO"], "C20")
+                    self.assertEqual(details["Annotator"], "")
+                    self.assertEqual(details["CustomTag"], "analysis")
+                    self.assertNotIn("White", details)
+                    self.assertNotIn("Black", details)
+                    self.assertNotIn("Result", details)
                     self.assertNotIn("private", json.dumps(tree["details"]).casefold())
                 else:
                     self.assertEqual(tree["details"], ())
@@ -99,6 +115,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(tree["items"][1]["kind"], "variation")
                 self.assertEqual(tree["items"][1]["depth"], 1)
                 self.assertEqual(tree["items"][1]["parent_index"], 0)
+                self.assertEqual("*", tree["items"][1]["result"])
                 self.assertEqual(len(tree["items"][1]["trailing_comments"]), 1)
                 self.assertIn("Nested", tree["items"][1]["trailing_comments"][0])
                 self.assertEqual(tree["items"][2]["depth"], 2)
@@ -236,6 +253,39 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertEqual(reader.snapshot(), before)
         self.assertFalse(workflow.active)
         self.assertEqual(workflow.revision, 0)
+
+    def test_excessive_semantic_detail_count_fails_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Metadata-heavy game",
+                blocks=[
+                    Game(
+                        pgn='[Event "Bounded"]\\n[Result "*"]\\n\\n1. e4 e5 *',
+                        title="Bounded metadata",
+                        block_id="bounded-metadata",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        with patch(
+            "acs.version2_book_workspace._MAX_BOOK_SEMANTIC_DETAILS",
+            0,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
 
     def test_excessive_semantic_item_count_fails_closed_but_keeps_board_available(self):
         reader, workflow, bridge, _ = self.compose(
