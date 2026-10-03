@@ -44,6 +44,7 @@ jobs:
               expected="$(printf '%s\n' \
                 '.github/workflows/d01-pgn-workspace-webview.yml' \
                 '.github/workflows/p0-release-critical-triad-convergence.yml' \
+                '.github/workflows/p0g-event-aware-announcements.yml' \
                 '.github/workflows/v2-book-progress-production-repair.yml' \
                 'acs/full_product_actions.py' \
                 'acs/full_product_ui_shell.py' \
@@ -51,6 +52,7 @@ jobs:
                 'tests/js/version2_release_bootstrap_dom_test.js' \
                 'tests/test_dev1_full_product_webview_adapter.py' \
                 'tests/test_version2_application.py' \
+                'tests/test_version2_release_accessibility_contract.py' \
                 'web/version2_release_bootstrap.js' | sort)"
               actual="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | sort)"
               test "$actual" = "$expected"
