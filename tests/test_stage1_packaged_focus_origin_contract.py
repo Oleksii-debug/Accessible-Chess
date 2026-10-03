@@ -12,6 +12,29 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.bootstrap = (self.root / "web" / "stage1_release_bootstrap.js").read_text(encoding="utf-8")
         self.html = (self.root / "web" / "index.html").read_text(encoding="utf-8")
 
+    def _assert_original_move_keyboard_submission_contract(self) -> None:
+        marker = "el('move-input').addEventListener('keydown'"
+        start = self.html.index(marker)
+        end = self.html.index("el('fen-load')", start)
+        handler = self.html[start:end]
+        legacy_enter = "if(e.key==='Enter')" in handler and "submitMove()" in handler
+        direct_registry = (
+            "resolveBinding(eventChord(e),'move_entry','move-entry')" in handler
+            and "a.actionId==='move.submit'" in handler
+            and "executeAction(a.actionId)" in handler
+        )
+        cached_registry = (
+            "keymapActionForEvent(e,'move_entry')" in handler
+            and "resolveBinding(chord,'move_entry','move-entry')" in handler
+            and "a&&a.actionId===candidate" in handler
+            and "executeAction(a.actionId)" in handler
+        )
+        self.assertTrue(legacy_enter or direct_registry or cached_registry, handler)
+        self.assertIn("e.preventDefault()", handler)
+        if direct_registry or cached_registry:
+            self.assertIn("'move.submit':()=>submitMove()", self.html)
+            self.assertNotIn("if(e.key==='Enter')", handler)
+
     def test_complete_stage1_user_flow_still_covers_canonical_state_history_fen_editor_and_sound_contract(self) -> None:
         api = Stage1ReleaseAccessibleChessAPI()
         result = complete_user_flow_diagnostic(api)
@@ -160,7 +183,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertEqual(text.count("submit.removeEventListener('click', baseSubmit)"), 1)
         self.assertEqual(text.count("submit.addEventListener('click', wrappedSubmit)"), 1)
         self.assertNotIn("keydown", body)
-        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+        self._assert_original_move_keyboard_submission_contract()
 
     def test_uia_invoke_has_bounded_settled_focus_convergence(self) -> None:
         text = self.bootstrap
@@ -227,7 +250,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("async function submitMove()", self.html)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}else{input.focus();input.select()}", self.html)
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
-        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+        self._assert_original_move_keyboard_submission_contract()
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", self.bootstrap)
 
 
