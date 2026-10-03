@@ -583,6 +583,26 @@ function installBoardFocusContinuity() {
     document.body.dataset.stage1BoardFocusContinuityReady = 'true';
 }
 
+let clockSoundPulseInFlight = false;
+
+function installClockSoundPulse() {
+    if (document.body.dataset.stage1ClockSoundPulseReady === 'true') return;
+    setInterval(async () => {
+        if (clockSoundPulseInFlight) return;
+        const a = api();
+        if (!a || typeof a.clock_sound_pulse !== 'function') return;
+        clockSoundPulseInFlight = true;
+        try {
+            await a.clock_sound_pulse();
+        } catch (_) {
+            // Clock ambience is presentation-only and must never affect the game.
+        } finally {
+            clockSoundPulseInFlight = false;
+        }
+    }, 3400);
+    document.body.dataset.stage1ClockSoundPulseReady = 'true';
+}
+
 const soundLabels = {
     uk: {
         legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
@@ -843,6 +863,7 @@ installMoveFocusPolicy();
 installMoveEntryIdentity();
 installBoardFocusContinuity();
 installNewGameVisualSequence();
+installClockSoundPulse();
 installSemanticFocusBoundary();
 installSoundSettings();
 new MutationObserver(refreshReleaseLanguageSemantics).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});
