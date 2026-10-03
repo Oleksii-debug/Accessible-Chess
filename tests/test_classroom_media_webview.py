@@ -356,6 +356,39 @@ def minimal_application(language=UILanguage.EN):
     return application
 
 
+def test_application_snapshot_hides_media_actions_during_active_provider_transaction(monkeypatch):
+    application = object.__new__(Version2FinalProductApplication)
+    application.media = SimpleNamespace(
+        projection=SimpleNamespace(
+            snapshot=lambda: {
+                "own": {
+                    "actions": (
+                        {"id": "stale-media-action", "command": "media.local_source"},
+                    )
+                }
+            }
+        )
+    )
+    application.media_transactions = SimpleNamespace(
+        binder=SimpleNamespace(
+            active_lease=object(),
+            recovery_status=None,
+        )
+    )
+    application.teacher = None
+    application.education = None
+    application._education_load_error = False
+    monkeypatch.setattr(Version2Application, "snapshot", lambda self: {})
+
+    snapshot = application.snapshot()
+
+    assert snapshot["media"] is None
+    assert snapshot["product_status"]["media_binding_active"] is True
+    assert snapshot["product_status"]["media_transaction_active"] is True
+    assert snapshot["product_status"]["media_recovery_required"] is False
+    assert snapshot["product_status"]["remote_transport"] == "not_approved"
+
+
 def test_application_snapshot_hides_media_actions_during_provider_recovery(monkeypatch):
     application = object.__new__(Version2FinalProductApplication)
     application.media = SimpleNamespace(
@@ -370,7 +403,10 @@ def test_application_snapshot_hides_media_actions_during_provider_recovery(monke
         )
     )
     application.media_transactions = SimpleNamespace(
-        binder=SimpleNamespace(recovery_status=object())
+        binder=SimpleNamespace(
+            active_lease=None,
+            recovery_status=object(),
+        )
     )
     application.teacher = None
     application.education = None
@@ -382,6 +418,7 @@ def test_application_snapshot_hides_media_actions_during_provider_recovery(monke
     assert snapshot["media"] is None
     assert snapshot["product_status"]["media_binding_active"] is True
     assert snapshot["product_status"]["media_provider_composed"] is True
+    assert snapshot["product_status"]["media_transaction_active"] is False
     assert snapshot["product_status"]["media_recovery_required"] is True
     assert snapshot["product_status"]["remote_transport"] == "not_approved"
 
