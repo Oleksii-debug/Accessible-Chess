@@ -20,6 +20,18 @@ _MAX_BOOKMARK_NAME = 80
 _MAX_BOOK_LIST_ITEMS = 10_000
 _MAX_BOOK_HEADING_PATH_DEPTH = 256
 _MAX_BOOK_POSITION_TOKEN_CHARS = 4096
+_BOOK_NAVIGATION_FIELDS = frozenset(
+    {
+        "previous",
+        "next",
+        "previous_heading",
+        "next_heading",
+        "previous_position",
+        "next_position",
+        "previous_game",
+        "next_game",
+    }
+)
 # Accepted TXT/HTML ingress bounds visible content at 12 MiB. Preserve the
 # complete current semantic block up to that release budget instead of silently
 # truncating reader-visible/copyable content to a small UI preview.
@@ -261,6 +273,13 @@ class BookWebViewProjection:
         if role != "list" and not (safe_title or safe_block_text):
             raise ValueError("book block role must expose readable content")
         navigation = self._presenter.navigation_availability()
+        if (
+            not isinstance(navigation, Mapping)
+            or set(navigation) != _BOOK_NAVIGATION_FIELDS
+            or any(type(navigation[name]) is not bool for name in _BOOK_NAVIGATION_FIELDS)
+        ):
+            raise ValueError("book navigation availability is invalid")
+        navigation = dict(navigation)
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
