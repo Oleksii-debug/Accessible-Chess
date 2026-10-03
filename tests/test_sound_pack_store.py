@@ -508,6 +508,50 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 "nested asset directory must be synchronized before publication",
             )
 
+    def test_final_version_tamper_after_rename_never_advances_active_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            first = _manifest(version="1.0.0")
+            first_download, _ = _staged_download(root, first, seed=b"a")
+            store.install_atomically(first_download)
+
+            second = _manifest(version="1.1.0")
+            second_download, _ = _staged_download(root, second, seed=b"b")
+            real_replace = os.replace
+            tampered = False
+
+            def tamper_after_version_publish(source, destination):
+                nonlocal tampered
+                result = real_replace(source, destination)
+                destination = Path(destination)
+                if destination.name == second.version and not tampered:
+                    tampered = True
+                    target = destination / second.files["move"]
+                    target.write_bytes(b"tampered-after-rename")
+                return result
+
+            with mock.patch(
+                "acs.sound_pack_store.os.replace",
+                side_effect=tamper_after_version_publish,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "checksum|size mismatch",
+            ):
+                store.install_atomically(second_download)
+
+            self.assertTrue(tampered)
+            self.assertEqual("1.0.0", store.active_version(first.pack_id))
+            self.assertEqual(("1.0.0",), store.versions(first.pack_id))
+            self.assertFalse(
+                os.path.lexists(
+                    store.root
+                    / second.pack_id
+                    / "versions"
+                    / second.version
+                )
+            )
+
     def test_version_directory_is_flushed_before_active_pointer_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
