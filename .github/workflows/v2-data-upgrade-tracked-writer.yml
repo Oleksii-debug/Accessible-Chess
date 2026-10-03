@@ -106,7 +106,7 @@ jobs:
           tests/test_v2_upgrade_root_writer_artifact_grammar.py=1076ccf1984b270e625c05adc951a021dcd56a4b
           tests/test_v2_upgrade_book_progress_temp_artifact_control.py=16505bed990f26aa576a106f682a85f66c3f2bde
           tests/test_v2_upgrade_training_progress_artifact_control.py=cd0be4e3d9e0cff14f8d2b1288d92e3b9a428465
-          tests/test_v2_upgrade_self_coordination_artifact_control.py=753ea15b3910ea6a0e1852dc59c81aab1993f947
+          tests/test_v2_upgrade_self_coordination_artifact_control.py=03685f593644de95f717c2d4a5c81d6a3510d4fe
           tests/test_v2_upgrade_education_workspace_artifact_control.py=17651a67b66c5e9b48008b03b96b1ea13ea27582
           tests/test_v2_upgrade_generated_artifact_authentication.py=68c70f1de3c415e6cdfd37321994f66fb78637ea
           tests/test_v2_upgrade_publish_race_audit.py=a30b5657c5b43f9dfdaad0ea4c5abdaf1b84e697
