@@ -3,6 +3,11 @@ name: W4 V2 P0 Fresh Windows Candidate
 on:
   workflow_dispatch:
     inputs:
+      owner_final_candidate_approved:
+        description: Repository owner explicitly approved creating the user-facing Windows test candidate
+        required: true
+        default: false
+        type: boolean
       product_sha:
         description: Exact integrated Full Product commit to package
         required: true
@@ -57,6 +62,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test '${{ inputs.owner_final_candidate_approved }}' = 'true' || {
+            echo 'OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED' >&2
+            exit 1
+          }
           test "$GITHUB_REF_TYPE" = "branch" || {
             echo 'W4 candidate must be dispatched from a branch ref' >&2
             exit 1
