@@ -69,7 +69,7 @@ jobs:
           fi
 
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "3d4fa3d19c3bd185b80fdbbf1113331a22ea73db"
-          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "af4e9fff1824473708a419a93370f5e8a2c754b9"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "6612707e091d707b6a62d1e5d21fa194f471aba9"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "e42539cf34366046e26b22f4c51318250c1ab432"
           test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "7bd2dbe509a54395c5eaf3dc1fa5ddbcadbe44ff"
 
