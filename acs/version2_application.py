@@ -642,6 +642,14 @@ class Version2Application:
             self.shell.open_route("books")
 
     def _delegate(self, action, payload):
+        # Route-changing delegated PGN actions must respect modal focus before
+        # they mutate Board projection or ownership flags. Otherwise open_route()
+        # can reject the transition after domain state has already moved.
+        if (
+            action in {"pgn.open_on_board", "pgn.return"}
+            and self.shell.active_dialog_id is not None
+        ):
+            raise ValueError("close the active dialog before changing PGN Board state")
         # Native menus enter the same projection commands as keyboard buttons.
         if action == "pgn.open_on_board":
             if payload: raise ValueError("PGN board accepts no payload")
@@ -896,9 +904,15 @@ class Version2Application:
 
     def record_focus(self, token):
         self._assert_thread()
-        if type(token) is str and len(token) <= 160 and all(c.isalnum() or c in "-_" for c in token):
-            self._focus = token
-            self.shell.record_focus(token)
+        if type(token) is not str:
+            return
+        if not token:
+            return
+        # AccessibleShellState owns the one canonical DOM focus-ID contract.
+        # Validate there before publishing the token to native-menu ingress so
+        # _focus can never diverge from the route-local shell memory.
+        self.shell.record_focus(token)
+        self._focus = token
 
     def import_ui_ready(self, mailbox):
         self._assert_thread()
