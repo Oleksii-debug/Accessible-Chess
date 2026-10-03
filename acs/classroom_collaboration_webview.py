@@ -252,6 +252,7 @@ _SCAN_LABELS = {
 
 _CHAT_HISTORY_BUCKET_SIZE = 50
 _FILE_HISTORY_BUCKET_SIZE = 50
+_MAX_PENDING_CHAT_DRAFTS = 32
 
 
 def _default_id(prefix: str) -> str:
@@ -318,7 +319,12 @@ class ClassroomCollaborationWebView:
         self._action_secret = secrets.token_bytes(32)
         self._browser_session_key = secrets.token_hex(16)
         self._unread_message_ids: set[str] = set()
-        self._pending_chat: tuple[str, str] | None = None
+        # Ambiguous chat sends are host recovery state, not browser capability
+        # state. Keep only keyed fingerprints -> stable message IDs so multiple
+        # unresolved drafts cannot overwrite one another and raw draft text is
+        # not retained outside the browser.
+        self._pending_chat_secret = secrets.token_bytes(32)
+        self._pending_chat: dict[str, str] = {}
         self._chat_page_bucket: int | None = None
         self._file_page_bucket: int | None = None
         self._removed_participant_ids: set[str] = set()
@@ -337,15 +343,15 @@ class ClassroomCollaborationWebView:
         """Invalidate browser capabilities and release session-only UI state.
 
         Durable chat/file metadata remains owned by the collaboration store. This
-        method only retires presentation capabilities and sensitive retry state so
-        a later bind cannot revive browser action keys or local source paths from
-        the previous classroom UI session.
+        method retires browser capabilities, unread/page state and sensitive local
+        file retry paths. Ambiguous chat-send IDs remain host recovery state across
+        a browser rebind so reconnect cannot mint a duplicate logical message; raw
+        draft text is never retained here.
         """
 
         self._action_secret = secrets.token_bytes(32)
         self._browser_session_key = secrets.token_hex(16)
         self._unread_message_ids.clear()
-        self._pending_chat = None
         self._chat_page_bucket = None
         self._file_page_bucket = None
         self._removed_participant_ids.clear()
@@ -436,6 +442,13 @@ class ClassroomCollaborationWebView:
             instant.strftime("%Y-%m-%d %H:%M:%S UTC"),
             instant.isoformat(timespec="seconds").replace("+00:00", "Z"),
         )
+
+    def _chat_draft_fingerprint(self, value: str) -> str:
+        return hmac.new(
+            self._pending_chat_secret,
+            value.encode("utf-8"),
+            sha256,
+        ).hexdigest()
 
     @staticmethod
     def _announcement_body(value: str) -> str:
@@ -841,11 +854,16 @@ class ClassroomCollaborationWebView:
             or any(0xD800 <= ord(ch) <= 0xDFFF for ch in body)
         ):
             raise ValueError("chat body is outside the browser safety boundary")
-        if self._pending_chat is not None and self._pending_chat[1] == body:
-            message_id = self._pending_chat[0]
-        else:
+        fingerprint = self._chat_draft_fingerprint(body)
+        message_id = self._pending_chat.get(fingerprint)
+        if message_id is None:
+            if len(self._pending_chat) >= _MAX_PENDING_CHAT_DRAFTS:
+                return self._error(
+                    message=_LABELS[self._language]["send_failed"],
+                    focus_target="collaboration-chat-input",
+                )
             message_id = self._id_factory("message")
-            self._pending_chat = (message_id, body)
+            self._pending_chat[fingerprint] = message_id
         try:
             self._controller.send_chat(
                 message_id=message_id,
@@ -857,7 +875,7 @@ class ClassroomCollaborationWebView:
                 message=_LABELS[self._language]["send_failed"],
                 focus_target="collaboration-chat-input",
             )
-        self._pending_chat = None
+        self._pending_chat.pop(fingerprint, None)
         self._chat_page_bucket = None
         return self._event(
             "collaboration.chat.sent",
@@ -880,12 +898,14 @@ class ClassroomCollaborationWebView:
         }
         received = self._controller.receive_chat(message)
         is_new = received.message_id not in before_ids
-        pending_recovered = (
-            self._pending_chat is not None
-            and self._pending_chat[0] == received.message_id
+        recovered_fingerprints = tuple(
+            fingerprint
+            for fingerprint, message_id in self._pending_chat.items()
+            if message_id == received.message_id
         )
-        if pending_recovered:
-            self._pending_chat = None
+        pending_recovered = bool(recovered_fingerprints)
+        for fingerprint in recovered_fingerprints:
+            self._pending_chat.pop(fingerprint, None)
 
         announcement = ""
         if (
@@ -922,18 +942,21 @@ class ClassroomCollaborationWebView:
                 message=_LABELS[self._language]["chat_sync_failed"],
                 focus_target="collaboration-chat-sync",
             )
-        pending_recovered = False
-        if self._pending_chat is not None:
-            pending_id = self._pending_chat[0]
-            pending_recovered = any(
-                item.message_id == pending_id
-                for item in self._store.room_messages(
-                    self._controller.room_id,
-                    include_hidden=True,
-                )
+        current_message_ids = {
+            item.message_id
+            for item in self._store.room_messages(
+                self._controller.room_id,
+                include_hidden=True,
             )
-            if pending_recovered:
-                self._pending_chat = None
+        }
+        recovered_fingerprints = tuple(
+            fingerprint
+            for fingerprint, message_id in self._pending_chat.items()
+            if message_id in current_message_ids
+        )
+        pending_recovered = bool(recovered_fingerprints)
+        for fingerprint in recovered_fingerprints:
+            self._pending_chat.pop(fingerprint, None)
         new_remote = tuple(
             item
             for item in incoming

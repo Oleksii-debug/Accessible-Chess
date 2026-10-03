@@ -61,7 +61,10 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
 
     def test_trusted_binding_is_single_owner_and_unbind_does_not_mutate_store(self) -> None:
         app = self.bare_app()
-        self.collaboration._pending_chat = ("pending-before-unbind", "Draft")
+        pending_fingerprint = self.collaboration._chat_draft_fingerprint("Draft")
+        self.collaboration._pending_chat = {
+            pending_fingerprint: "pending-before-unbind",
+        }
         self.collaboration._unread_message_ids.add("unread-before-unbind")
         with (
             mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
@@ -78,7 +81,11 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
             app.unbind_classroom_collaboration()
         retire.assert_called_once_with()
         self.assertIsNone(app.collaboration)
-        self.assertIsNone(self.collaboration._pending_chat)
+        self.assertEqual(
+            {pending_fingerprint: "pending-before-unbind"},
+            self.collaboration._pending_chat,
+        )
+        self.assertNotIn("Draft", repr(self.collaboration._pending_chat))
         self.assertEqual(set(), self.collaboration._unread_message_ids)
         self.assertEqual((), self.store.room_messages("room-1"))
 

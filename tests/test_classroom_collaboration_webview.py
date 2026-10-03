@@ -105,7 +105,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
                     {"body": body},
                 )
                 self.assertEqual("error", event.kind)
-                self.assertIsNone(view._pending_chat)
+                self.assertEqual({}, view._pending_chat)
                 self.assertEqual({}, self.ids)
                 self.assertEqual((), self.store.room_messages("room-1"))
 
@@ -148,6 +148,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             ],
         )
         self.assertEqual(1, self.ids["message"])
+        self.assertEqual({}, view._pending_chat)
         self.assertNotIn("message-ui-1", repr(failed.payload))
         self.assertNotIn("message-ui-1", repr(retried.payload))
 
@@ -188,6 +189,80 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
                 ("message-ui-2", "Edited draft"),
             ],
         )
+        self.assertEqual({"message-ui-1"}, set(view._pending_chat.values()))
+        self.assertNotIn("Original draft", repr(view._pending_chat))
+        self.assertNotIn("Edited draft", repr(view._pending_chat))
+
+    def test_multiple_ambiguous_chat_drafts_keep_independent_retry_identities(self) -> None:
+        view = self.webview()
+        calls: list[tuple[str, str]] = []
+
+        def ambiguous_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append((message_id, body))
+            raise RuntimeError("ambiguous chat transport")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=ambiguous_send,
+        ):
+            first = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "First ambiguous"},
+            )
+            second = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Second ambiguous"},
+            )
+            first_retry = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "First ambiguous"},
+            )
+
+        self.assertEqual("error", first.kind)
+        self.assertEqual("error", second.kind)
+        self.assertEqual("error", first_retry.kind)
+        self.assertEqual(
+            calls,
+            [
+                ("message-ui-1", "First ambiguous"),
+                ("message-ui-2", "Second ambiguous"),
+                ("message-ui-1", "First ambiguous"),
+            ],
+        )
+        self.assertEqual(
+            {"message-ui-1", "message-ui-2"},
+            set(view._pending_chat.values()),
+        )
+        self.assertNotIn("First ambiguous", repr(view._pending_chat))
+        self.assertNotIn("Second ambiguous", repr(view._pending_chat))
+
+    def test_ambiguous_chat_recovery_state_is_bounded_before_minting_more_ids(self) -> None:
+        view = self.webview()
+        calls: list[str] = []
+
+        def ambiguous_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append(message_id)
+            raise RuntimeError("ambiguous chat transport")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=ambiguous_send,
+        ):
+            events = tuple(
+                view.dispatch(
+                    "collaboration.chat.send",
+                    {"body": f"Ambiguous draft {index}"},
+                )
+                for index in range(33)
+            )
+
+        self.assertTrue(all(event.kind == "error" for event in events))
+        self.assertEqual(32, len(calls))
+        self.assertEqual(32, self.ids["message"])
+        self.assertEqual(32, len(view._pending_chat))
+        self.assertNotIn("Ambiguous draft", repr(view._pending_chat))
 
     def test_chat_sync_clears_recovered_pending_identity(self) -> None:
         view = self.webview()
@@ -223,6 +298,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         synced = view.dispatch("collaboration.chat.sync", {})
         self.assertEqual("collaboration.chat.synced", synced.kind)
         self.assertEqual("Message sent.", synced.payload["announcement"])
+        self.assertEqual({}, view._pending_chat)
         self.assertNotIn(pending_id, repr(synced.payload))
 
         next_calls: list[str] = []
@@ -351,8 +427,9 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
                 {"body": "Pending live echo"},
             )
         self.assertEqual("error", failed.kind)
-        self.assertIsNotNone(view._pending_chat)
-        pending_id = view._pending_chat[0]
+        self.assertEqual(1, len(view._pending_chat))
+        pending_id = next(iter(view._pending_chat.values()))
+        self.assertNotIn("Pending live echo", repr(view._pending_chat))
 
         recovered = view.receive_chat(
             ChatMessageMetadata(
@@ -367,7 +444,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("collaboration.chat.received", recovered.kind)
         self.assertEqual("Message sent.", recovered.payload["announcement"])
-        self.assertIsNone(view._pending_chat)
+        self.assertEqual({}, view._pending_chat)
         self.assertEqual(
             0,
             recovered.payload["collaboration"]["chat"]["unread_count"],
@@ -1246,7 +1323,9 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
                 {"body": "Pending before unbind"},
             )
         self.assertEqual("error", failed_send.kind)
-        self.assertIsNotNone(view._pending_chat)
+        self.assertEqual(1, len(view._pending_chat))
+        pending_before_retire = dict(view._pending_chat)
+        self.assertNotIn("Pending before unbind", repr(view._pending_chat))
 
         self.selected_file = self.root / "retire-retry.pgn"
         self.selected_file.write_text(
@@ -1263,7 +1342,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         view._removed_participant_ids.add("student-2")
         view.retire_browser_session()
 
-        self.assertIsNone(view._pending_chat)
+        self.assertEqual(pending_before_retire, view._pending_chat)
         self.assertEqual({}, view._prepared)
         self.assertIsNone(view._chat_page_bucket)
         self.assertIsNone(view._file_page_bucket)
