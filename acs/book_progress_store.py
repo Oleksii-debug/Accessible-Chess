@@ -932,6 +932,8 @@ class BookProgressStore:
         *,
         require_no_orphan_backup_before_replace: bool = False,
         expected_target_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
+        expected_guard_path: Path | None = None,
+        expected_guard_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
     ) -> None:
         if type(require_no_orphan_backup_before_replace) is not bool:
             raise TypeError("require_no_orphan_backup_before_replace must be a boolean")
@@ -941,6 +943,16 @@ class BookProgressStore:
             and type(expected_target_raw) is not bytes
         ):
             raise TypeError("expected_target_raw must be bytes, None, or omitted")
+        if expected_guard_path is None:
+            if expected_guard_raw is not _EXPECTED_TARGET_UNSET:
+                raise TypeError("expected_guard_raw requires expected_guard_path")
+        else:
+            if not isinstance(expected_guard_path, Path):
+                raise TypeError("expected_guard_path must be a Path or None")
+            if expected_guard_raw is _EXPECTED_TARGET_UNSET:
+                raise TypeError("expected_guard_raw is required with expected_guard_path")
+            if expected_guard_raw is not None and type(expected_guard_raw) is not bytes:
+                raise TypeError("expected_guard_raw must be bytes or None")
         if len(encoded) > MAX_BOOK_PROGRESS_STORE_BYTES:
             raise BookProgressStoreError(
                 "book progress store exceeds the resource limit",
@@ -1015,6 +1027,16 @@ class BookProgressStore:
                     "book progress temporary file changed before publication",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            if expected_guard_path is not None:
+                current_guard_raw = self._read_raw_file_unlocked(
+                    expected_guard_path,
+                    missing_ok=True,
+                )
+                if current_guard_raw != expected_guard_raw:
+                    raise BookProgressStoreError(
+                        "book progress recovery data changed during publication preparation",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
             current_target_raw = self._read_raw_file_unlocked(
                 target,
                 missing_ok=True,
@@ -1370,5 +1392,7 @@ class BookProgressStore:
                 self._path,
                 backup_raw,
                 expected_target_raw=primary_raw,
+                expected_guard_path=self.backup_path,
+                expected_guard_raw=backup_raw,
             )
             return True
