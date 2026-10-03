@@ -387,9 +387,18 @@
         if (!terminal) {
           // Provider teardown is already exact and clean, but canonical
           // acknowledgement is missing, malformed, or still requires trusted
-          // reconciliation. Preserve that clean fact for the existing
-          // transport-loss path after the latch is released.
+          // reconciliation. Preserve that clean fact and fail closed through
+          // the existing unknown-outcome authority unless Python already
+          // returned its explicit recovery surface.
           this._rememberTransportLossSnapshot(snapshot);
+          if (!(result && result.kind === "error" &&
+                payload.recovery_required === true)) {
+            const recovery = await this._providerOutcomeUnknown(
+              invoke,
+              transaction
+            );
+            return recovery || result;
+          }
         }
         return result;
       } catch (_error) {
