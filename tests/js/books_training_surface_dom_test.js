@@ -1004,6 +1004,26 @@ async function run() {
   check(find(variationRoot, "P", "Variation tail") !== null,
     "semantic variation tail missing");
 
+  const semanticSection = find(variationRoot, "H4", "Moves and variations").parentNode;
+  const rootMoveList = semanticSection.children.find(function (child) {
+    return child.tagName === "OL";
+  });
+  const gameResult = semanticSection.children.find(function (child) {
+    return child.tagName === "P" && child.textContent === "Result: *";
+  });
+  const gameOutro = semanticSection.children.find(function (child) {
+    return child.tagName === "P" && child.textContent === "Outro";
+  });
+  check(rootMoveList && gameResult && gameOutro,
+    "game termination reading landmarks missing");
+  check(
+    semanticSection.children.indexOf(rootMoveList) <
+      semanticSection.children.indexOf(gameResult) &&
+      semanticSection.children.indexOf(gameResult) <
+        semanticSection.children.indexOf(gameOutro),
+    "game result must follow movetext and precede after-result comments"
+  );
+
   const mainMove = find(variationRoot, "SPAN", "1 e4");
   const variationLabel = find(variationRoot, "STRONG", "Variation 1");
   const variationMove = find(variationRoot, "SPAN", "1 d4");
