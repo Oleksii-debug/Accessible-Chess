@@ -152,9 +152,12 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         started = threading.Event()
         release = threading.Event()
         issued = credential()
+        owner_thread = threading.get_ident()
+        worker_threads = []
 
         def issue(_client, *, room_id, participant_id):
             self.assertEqual((room_id, participant_id), ("room-1", "student-1"))
+            worker_threads.append(threading.get_ident())
             started.set()
             self.assertTrue(release.wait(2.0))
             return issued
@@ -176,6 +179,8 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
 
         self.assertEqual(rendered["kind"], "provider-dispatch")
         self.assertEqual(len(transactions.join_calls), 1)
+        self.assertEqual(len(worker_threads), 1)
+        self.assertNotEqual(worker_threads[0], owner_thread)
 
     def test_worker_failure_is_sanitized_and_never_creates_provider_lease(self):
         application, _controller, transactions = self.application()
@@ -319,6 +324,123 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
                 rendered = self.finish(application, request_id)
 
         self.assertEqual(rendered["kind"], "provider-dispatch")
+
+    def test_second_join_fetch_is_rejected_while_first_is_pending(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def issue(_client, *, room_id, participant_id):
+            calls.append((room_id, participant_id))
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return credential(room_id=room_id, participant_id=participant_id)
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            self.assertTrue(started.wait(1.0))
+            with self.assertRaisesRegex(RuntimeError, "already pending"):
+                application.prepare_classroom_media_join_http("room-2")
+            release.set()
+            rendered = self.finish(application, request_id)
+
+        self.assertEqual(calls, [("room-1", "student-1")])
+        self.assertEqual(rendered["kind"], "provider-dispatch")
+        self.assertEqual(len(transactions.join_calls), 1)
+
+    def test_participant_change_during_fetch_discards_join_result(self):
+        application, controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        started = threading.Event()
+        release = threading.Event()
+
+        def issue(_client, *, room_id, participant_id):
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return credential(room_id=room_id, participant_id=participant_id)
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            self.assertTrue(started.wait(1.0))
+            controller.state = SimpleNamespace(
+                room_id=None,
+                participant_id="student-2",
+                connected=False,
+            )
+            release.set()
+            with self.assertRaisesRegex(RuntimeError, "authority changed"):
+                self.finish(application, request_id)
+
+        self.assertEqual(transactions.join_calls, [])
+        self.assertEqual(list(application._events), [])
+
+    def test_reconnect_room_change_during_fetch_discards_result(self):
+        application, controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        controller.state = SimpleNamespace(
+            room_id="room-1",
+            participant_id="student-1",
+            connected=False,
+        )
+        started = threading.Event()
+        release = threading.Event()
+
+        def issue(_client, *, room_id, participant_id):
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return credential(room_id=room_id, participant_id=participant_id)
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            request_id = application.prepare_classroom_media_reconnect_http()
+            self.assertTrue(started.wait(1.0))
+            controller.state = SimpleNamespace(
+                room_id="room-2",
+                participant_id="student-1",
+                connected=False,
+            )
+            release.set()
+            with self.assertRaisesRegex(RuntimeError, "room identity changed"):
+                self.finish(application, request_id)
+
+        self.assertEqual(transactions.reconnect_calls, [])
+        self.assertEqual(list(application._events), [])
+
+    def test_completed_join_result_is_consumed_exactly_once(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            return_value=credential(),
+        ):
+            request_id = application.prepare_classroom_media_join_http("room-1")
+            rendered = self.finish(application, request_id)
+
+        self.assertEqual(rendered["kind"], "provider-dispatch")
+        self.assertEqual(len(transactions.join_calls), 1)
+        with self.assertRaisesRegex(RuntimeError, "not pending"):
+            application.finish_classroom_media_join_http(request_id)
+        self.assertEqual(len(transactions.join_calls), 1)
+        self.assertEqual(len(application._events), 1)
 
     def test_join_uses_canonical_controller_participant_and_redacts_provider_token(self):
         application, _controller, transactions = self.application()
