@@ -375,6 +375,18 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
 
+    @classmethod
+    def _require_private_temp_metadata(cls, metadata: os.stat_result) -> None:
+        cls._require_regular_metadata(
+            metadata,
+            message="book progress temporary file is not a regular file",
+        )
+        if int(getattr(metadata, "st_nlink", 1)) != 1:
+            raise BookProgressStoreError(
+                "book progress temporary file is not private",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+
     @staticmethod
     def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         """Return whether two metadata snapshots identify the same file object."""
@@ -382,6 +394,27 @@ class BookProgressStore:
             return os.path.samestat(first, second)
         except (AttributeError, OSError):
             return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+    @classmethod
+    def _discard_owned_temp_unlocked(
+        cls,
+        path: Path,
+        expected: os.stat_result | None,
+    ) -> None:
+        """Remove only the exact private temp inode created by this writer."""
+        if expected is None:
+            return
+        try:
+            current = os.lstat(path)
+            cls._require_private_temp_metadata(current)
+        except (FileNotFoundError, OSError, BookProgressStoreError):
+            return
+        if not cls._same_file_identity(expected, current):
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def _read_raw_file_unlocked(self, path: Path, *, missing_ok: bool) -> bytes | None:
         """Read through the exact descriptor whose file identity was validated.
@@ -789,6 +822,7 @@ class BookProgressStore:
             )
 
         temp_path: Path | None = None
+        temp_identity: os.stat_result | None = None
         try:
             descriptor, temp_name = tempfile.mkstemp(
                 prefix=f".{target.name}.",
@@ -796,17 +830,42 @@ class BookProgressStore:
                 dir=target.parent,
             )
             temp_path = Path(temp_name)
+            created_identity = os.fstat(descriptor)
+            self._require_private_temp_metadata(created_identity)
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
+                temp_identity = os.fstat(stream.fileno())
+                self._require_private_temp_metadata(temp_identity)
+                if not self._same_file_identity(created_identity, temp_identity):
+                    raise BookProgressStoreError(
+                        "book progress temporary file changed while being prepared",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
             if require_no_orphan_backup_before_replace:
                 # The previous orphan check happens before temp-file I/O. A
                 # non-cooperating writer can create recovery data while this
                 # potentially slow write/fsync is in progress. Recheck after
-                # the durable temp is complete and immediately before the
-                # atomic primary replacement, with no intervening disk work.
+                # the durable temp is complete. The temp pathname is then
+                # rebound to the exact fsynced inode immediately before replace.
                 self._require_no_orphan_backup_unlocked()
+            try:
+                current_temp = os.lstat(temp_path)
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress temporary file changed before publication",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
+            self._require_private_temp_metadata(current_temp)
+            if temp_identity is None or not self._same_file_identity(
+                temp_identity,
+                current_temp,
+            ):
+                raise BookProgressStoreError(
+                    "book progress temporary file changed before publication",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
@@ -839,10 +898,7 @@ class BookProgressStore:
             ) from None
         finally:
             if temp_path is not None:
-                try:
-                    temp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                self._discard_owned_temp_unlocked(temp_path, temp_identity)
 
     def _require_no_orphan_backup_unlocked(self) -> None:
         """Do not destroy recoverable history when the primary store is missing."""

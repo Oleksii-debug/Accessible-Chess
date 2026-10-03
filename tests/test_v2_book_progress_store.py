@@ -395,6 +395,97 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_publish_rejects_substituted_temp_inode_without_deleting_substitute(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        real_require = self.store._require_no_orphan_backup_unlocked
+        checks = 0
+        substituted_path: Path | None = None
+        substitute_bytes = b"user-owned-substitute-bytes"
+
+        def substitute_after_temp_fsync() -> None:
+            nonlocal checks, substituted_path
+            checks += 1
+            real_require()
+            if checks != 3:
+                return
+            candidates = tuple(
+                item
+                for item in self.path.parent.iterdir()
+                if item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+            )
+            self.assertEqual(len(candidates), 1)
+            substituted_path = candidates[0]
+            replacement = self.path.parent / "user-owned-substitute.bin"
+            replacement.write_bytes(substitute_bytes)
+            os.replace(replacement, substituted_path)
+
+        with mock.patch.object(
+            self.store,
+            "_require_no_orphan_backup_unlocked",
+            side_effect=substitute_after_temp_fsync,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:temp-substitution",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(checks, 3)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertFalse(self.path.exists())
+        self.assertIsNotNone(substituted_path)
+        assert substituted_path is not None
+        self.assertTrue(substituted_path.exists())
+        self.assertEqual(substituted_path.read_bytes(), substitute_bytes)
+
+    def test_publish_rejects_hardlinked_temp_inode_without_unlinking_peer(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        real_require = self.store._require_no_orphan_backup_unlocked
+        checks = 0
+        temp_path: Path | None = None
+        peer = self.path.parent / "user-owned-temp-hardlink.bin"
+
+        def hardlink_after_temp_fsync() -> None:
+            nonlocal checks, temp_path
+            checks += 1
+            real_require()
+            if checks != 3:
+                return
+            candidates = tuple(
+                item
+                for item in self.path.parent.iterdir()
+                if item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+            )
+            self.assertEqual(len(candidates), 1)
+            temp_path = candidates[0]
+            try:
+                os.link(temp_path, peer)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+        with mock.patch.object(
+            self.store,
+            "_require_no_orphan_backup_unlocked",
+            side_effect=hardlink_after_temp_fsync,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:temp-hardlink",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(checks, 3)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertFalse(self.path.exists())
+        self.assertIsNotNone(temp_path)
+        assert temp_path is not None
+        self.assertTrue(temp_path.exists())
+        self.assertTrue(peer.exists())
+        self.assertEqual(temp_path.read_bytes(), peer.read_bytes())
+        self.assertEqual(os.lstat(temp_path).st_nlink, 2)
+
     def test_stale_temp_cleanup_deletes_only_owned_tempfile_names(self) -> None:
         self.path.parent.mkdir(parents=True)
         owned = (
