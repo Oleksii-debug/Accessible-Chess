@@ -1,0 +1,116 @@
+name: One-shot repair canonical Training focus convergence
+
+on:
+  push:
+    branches:
+      - converge/training-authority-focus-20261004
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Repair exact Book/Training focus placements and repin gate
+        shell: python
+        run: |
+          from pathlib import Path
+
+          runtime = Path("web/full_product_books_training.js")
+          gate = Path(".github/workflows/training-authority-focus-convergence.yml")
+          text = runtime.read_text(encoding="utf-8")
+
+          book_start = text.index("  function renderBookSurface(")
+          reset_start = text.index("  function buildResetDialog(", book_start)
+          training_start = text.index("  function renderTrainingSurface(", reset_start)
+          exports_start = text.index("  global.AccessibleChessBookSurface", training_start)
+
+          book = text[book_start:reset_start]
+          middle = text[reset_start:training_start]
+          training = text[training_start:exports_start]
+
+          misplaced_id = '      button.id = trainingActionFocusTarget(action.command);\n'
+          wrong_book_focus = '    focusTarget(root, effectiveFocus);\n'
+          training_anchor = '      button.type = "button";\n      button.disabled = !action.enabled;\n'
+          wrong_training_focus = '    focusTarget(root, requestedFocus || "");\n'
+
+          assert book.count(misplaced_id) == 1, "Book Training-action id placement drifted"
+          assert book.count(wrong_book_focus) == 1, "Book effectiveFocus placement drifted"
+          assert training.count(misplaced_id) == 0, "Training action id unexpectedly already present"
+          assert training.count(training_anchor) == 1, "Training action-button anchor drifted"
+          assert training.count(wrong_training_focus) == 1, "Training final focus placement drifted"
+
+          book = book.replace(misplaced_id, "", 1)
+          book = book.replace(wrong_book_focus, '    focusTarget(root, requestedFocus || "");\n', 1)
+          training = training.replace(
+              training_anchor,
+              '      button.type = "button";\n'
+              '      button.id = trainingActionFocusTarget(action.command);\n'
+              '      button.disabled = !action.enabled;\n',
+              1,
+          )
+          training = training.replace(wrong_training_focus, '    focusTarget(root, effectiveFocus);\n', 1)
+
+          repaired = text[:book_start] + book + middle + training + text[exports_start:]
+          runtime.write_text(repaired, encoding="utf-8")
+
+          check = runtime.read_text(encoding="utf-8")
+          b0 = check.index("  function renderBookSurface(")
+          b1 = check.index("  function buildResetDialog(", b0)
+          t0 = check.index("  function renderTrainingSurface(", b1)
+          t1 = check.index("  global.AccessibleChessBookSurface", t0)
+          book_check = check[b0:b1]
+          training_check = check[t0:t1]
+          assert 'trainingActionFocusTarget(action.command)' not in book_check
+          assert 'focusTarget(root, effectiveFocus)' not in book_check
+          assert book_check.count('focusTarget(root, requestedFocus || "")') == 1
+          assert training_check.count('button.id = trainingActionFocusTarget(action.command)') == 1
+          assert training_check.count('focusTarget(root, effectiveFocus)') == 1
+
+      - name: Focused browser verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - name: Repin repaired runtime blob and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          new_blob="$(git hash-object web/full_product_books_training.js)"
+          python - "$new_blob" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          blob = sys.argv[1]
+          path = Path('.github/workflows/training-authority-focus-convergence.yml')
+          text = path.read_text(encoding='utf-8')
+          updated, count = re.subn(
+              r'(?m)^(\s*WEB_BLOB:\s*)[0-9a-f]{40}\s*$',
+              lambda m: m.group(1) + blob,
+              text,
+              count=1,
+          )
+          assert count == 1, 'WEB_BLOB pin not found exactly once'
+          path.write_text(updated, encoding='utf-8')
+          PY
+          test "$(git rev-parse :web/full_product_books_training.js 2>/dev/null || git hash-object web/full_product_books_training.js)" = "$new_blob" || true
+          git diff --check
+          git config user.name "accessible-chess-autonomous-repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/full_product_books_training.js .github/workflows/training-authority-focus-convergence.yml
+          git commit -m "Repair Book and Training focus placement"
+          git push origin HEAD:converge/training-authority-focus-20261004
