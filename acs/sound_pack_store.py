@@ -71,6 +71,7 @@ class InstalledSoundPack:
     manifest: SoundPackManifest
     version_dir: Path
     digests: Mapping[str, SoundAssetDigest]
+    rights_evidence: SoundPackRightsEvidence | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1010,7 +1011,11 @@ class FilesystemSoundPackStore:
         *,
         expected_pack_id: str | None = None,
         expected_version: str | None = None,
-    ) -> tuple[SoundPackManifest, dict[str, SoundAssetDigest]]:
+    ) -> tuple[
+        SoundPackManifest,
+        dict[str, SoundAssetDigest],
+        SoundPackRightsEvidence | None,
+    ]:
         _require_real_dir(version_dir, "installed sound pack version")
         manifest = self._read_manifest(version_dir)
         if expected_pack_id is not None and manifest.pack_id != expected_pack_id:
@@ -1097,7 +1102,7 @@ class FilesystemSoundPackStore:
                 )
 
             _read_verified_asset_bytes(path, digest)
-        return manifest, digests
+        return manifest, digests, rights_evidence
 
     @staticmethod
     def _active_payload(pack_id: str, version: str) -> dict[str, object]:
@@ -1209,12 +1214,11 @@ class FilesystemSoundPackStore:
         destination = versions_dir / manifest.version
 
         if destination.exists():
-            existing_manifest, existing_digests = self._verify_version(
+            existing_manifest, existing_digests, existing_rights = self._verify_version(
                 destination,
                 expected_pack_id=manifest.pack_id,
                 expected_version=manifest.version,
             )
-            existing_rights = self._read_rights(destination)
             if (
                 existing_manifest != manifest
                 or existing_digests != digests
@@ -1273,12 +1277,11 @@ class FilesystemSoundPackStore:
                     _canonical_json(downloaded.rights_evidence.to_mapping()),
                 )
 
-            staged_manifest, staged_digests = self._verify_version(
+            staged_manifest, staged_digests, staged_rights = self._verify_version(
                 staging,
                 expected_pack_id=manifest.pack_id,
                 expected_version=manifest.version,
             )
-            staged_rights = self._read_rights(staging)
             if (
                 staged_manifest != manifest
                 or staged_digests != digests
@@ -1315,7 +1318,7 @@ class FilesystemSoundPackStore:
             except OSError as exc:
                 if destination.exists():
                     try:
-                        current_manifest, current_digests = self._verify_version(
+                        current_manifest, current_digests, current_rights = self._verify_version(
                             destination,
                             expected_pack_id=manifest.pack_id,
                             expected_version=manifest.version,
@@ -1324,7 +1327,6 @@ class FilesystemSoundPackStore:
                         raise SoundPackStoreError(
                             "sound pack install lost an atomic publication race"
                         ) from exc
-                    current_rights = self._read_rights(destination)
                     if (
                         current_manifest == manifest
                         and current_digests == digests
@@ -1346,12 +1348,11 @@ class FilesystemSoundPackStore:
             # verification but before rename, leaving active.json pointing at
             # bytes that were never proven under their final identity.
             try:
-                published_manifest, published_digests = self._verify_version(
+                published_manifest, published_digests, published_rights = self._verify_version(
                     destination,
                     expected_pack_id=manifest.pack_id,
                     expected_version=manifest.version,
                 )
-                published_rights = self._read_rights(destination)
                 if (
                     published_manifest != manifest
                     or published_digests != digests
@@ -1396,7 +1397,7 @@ class FilesystemSoundPackStore:
                 "sound pack active pointer id does not match directory"
             )
         version_dir = self._version_dir(identity, version)
-        manifest, digests = self._verify_version(
+        manifest, digests, rights_evidence = self._verify_version(
             version_dir,
             expected_pack_id=identity,
             expected_version=version,
@@ -1405,6 +1406,7 @@ class FilesystemSoundPackStore:
             manifest=manifest,
             version_dir=version_dir,
             digests=digests,
+            rights_evidence=rights_evidence,
         )
 
     def installed(self) -> Mapping[str, SoundPackManifest]:
@@ -1468,16 +1470,7 @@ class FilesystemSoundPackStore:
         if identity in self._built_in:
             return None
         try:
-            installed = self._installed_disk_pack(identity)
-            _digests, rights_sha256, rights_binding_supported = self._read_integrity(
-                installed.version_dir
-            )
-            if not rights_binding_supported or rights_sha256 is None:
-                return None
-            rights = self._read_rights(installed.version_dir)
-            if rights is None or _rights_sha256(rights) != rights_sha256:
-                return None
-            return rights
+            return self._installed_disk_pack(identity).rights_evidence
         except (TypeError, ValueError, SoundPackStoreError):
             return None
 
