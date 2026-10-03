@@ -528,6 +528,32 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 authenticated_participant_id="student-1",
             )
 
+    def test_moderation_batch_above_legacy_256_reaches_trusted_server(self):
+        self.assertEqual(5000, MAX_MODERATION_COMMANDS)
+        teacher = ClassroomChatRpcClient(
+            room_id="room-1",
+            participant_id="teacher-1",
+            transport=BoundCall(
+                self.service, room_id="room-1", participant_id="teacher-1"
+            ),
+        )
+        commands = tuple(
+            ChatModerationCommand(
+                operation_id=f"bulk-{index}",
+                room_id="room-1",
+                actor_id="teacher-1",
+                target_id="student-2",
+                action=ChatModerationAction.SET_SEND_PERMISSION,
+                allowed=False,
+            )
+            for index in range(257)
+        )
+
+        teacher.apply_moderation(commands)
+
+        self.assertEqual(commands, self.backend.moderation_calls[-1])
+        self.assertEqual("teacher-1", self.backend.moderation_callers[-1])
+
     def test_moderation_batch_is_bounded_and_command_shape_is_closed(self):
         teacher = ClassroomChatRpcClient(
             room_id="room-1",
