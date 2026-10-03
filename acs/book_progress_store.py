@@ -479,9 +479,14 @@ class BookProgressStore:
         try:
             descriptor = os.open(path, flags)
         except FileNotFoundError:
-            if missing_ok:
+            if missing_ok and before is None:
                 self._require_active_lock_unlocked()
                 return None
+            if before is not None:
+                raise BookProgressStoreError(
+                    "book progress storage changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
             raise BookProgressStoreError(
                 "book progress recovery data is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
