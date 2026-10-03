@@ -519,11 +519,24 @@ class BookProgressStore:
 
             with os.fdopen(descriptor, "rb", closefd=False) as stream:
                 raw = stream.read(MAX_BOOK_PROGRESS_STORE_BYTES + 1)
-            if len(raw) > MAX_BOOK_PROGRESS_STORE_BYTES:
-                raise BookProgressStoreError(
-                    "book progress store exceeds the resource limit",
-                    code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
-                )
+                if len(raw) > MAX_BOOK_PROGRESS_STORE_BYTES:
+                    raise BookProgressStoreError(
+                        "book progress store exceeds the resource limit",
+                        code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+                    )
+                if os.name == "nt":
+                    # Windows pathname-stat ctime cannot be compared reliably
+                    # with descriptor fstat ctime. Confirm byte stability on the
+                    # already-authenticated open descriptor instead, so a
+                    # same-inode/same-size writer cannot hide an in-place change
+                    # merely by restoring mtime during this read.
+                    stream.seek(0)
+                    confirmed_raw = stream.read(MAX_BOOK_PROGRESS_STORE_BYTES + 1)
+                    if confirmed_raw != raw:
+                        raise BookProgressStoreError(
+                            "book progress storage changed while being read",
+                            code=BookProgressStoreErrorCode.IO_FAILURE,
+                        )
             final_metadata = os.fstat(descriptor)
             if (
                 not self._same_file_identity(opened, final_metadata)
