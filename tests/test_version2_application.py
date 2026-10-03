@@ -537,6 +537,31 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "board")
         self.assertEqual(projected[-1], before.current_fen)
 
+    def test_book_projection_recovery_return_is_storage_independent(self):
+        _book, origin = self._open_book_game()
+        self.assertEqual(
+            self.app.browser_command("books", "book.open_position")["kind"],
+            "delegated",
+        )
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+
+        self.app._board_position_projector = lambda _fen: {"ok": False}
+        with patch.object(
+            self.app.progress_store,
+            "save",
+            side_effect=AssertionError(
+                "read-only Board recovery return must not write Book progress"
+            ),
+        ) as save:
+            result = self.app.browser_command("review", "book.board_next_move")
+
+        self.assertEqual("error", result["kind"])
+        save.assert_not_called()
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
     def test_browser_path_payload_rejected_before_native_picker(self):
         self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
         result = self.app.browser_command("shell", "pgn.open", {"path": str(self.source)})
