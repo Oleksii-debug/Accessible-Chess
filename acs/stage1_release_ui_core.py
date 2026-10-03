@@ -554,12 +554,20 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 and remaining_ms <= low_time_seconds * 1000
                 and active_side not in self._low_time_warned_sides
             ):
-                self._low_time_warned_sides.add(active_side)
                 report = self._game_sounds.low_time()
+                delivered = bool(getattr(report, "delivered", ()))
+                failed = bool(getattr(report, "failures", ()))
+                disabled = bool(getattr(report, "disabled", False))
+                if delivered and not failed and not disabled:
+                    self._low_time_warned_sides.add(active_side)
+                    # The default aooga warning is longer than one 3.4-second
+                    # clock-pump interval. Do not let the next Tick restart the
+                    # shared Windows playback channel before it completes.
+                    self._clock_sound_not_before = time.monotonic() + 4.0
                 return {
-                    "ok": not bool(getattr(report, "failures", ())),
-                    "played": bool(getattr(report, "delivered", ())),
-                    "disabled": bool(getattr(report, "disabled", False)),
+                    "ok": not failed,
+                    "played": delivered,
+                    "disabled": disabled,
                     "event": "low_time",
                 }
 
