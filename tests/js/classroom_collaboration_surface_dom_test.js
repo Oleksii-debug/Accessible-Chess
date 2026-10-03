@@ -147,6 +147,7 @@ function collaboration(messages, unreadCount, moderation, sessionKey) {
       open_label: "Open",
       retry_label: "Retry",
       cancel_label: "Cancel",
+      progress_label: "File transfer progress",
       can_choose_upload: true,
       items: [{
         dom_id: "collaboration-file-a",
@@ -208,6 +209,79 @@ check(
   collaborationStatus.textContent === "" &&
   collaborationStatus.getAttribute("aria-live") === "off",
   "available collaboration must expose a visible non-live status transcript"
+);
+const fileProgressRegion = root.querySelector("#collaboration-file-transfer-progress");
+check(
+  fileProgressRegion !== null &&
+  fileProgressRegion.getAttribute("aria-live") === "off" &&
+  fileProgressRegion.getAttribute("aria-label") === "File transfer progress",
+  "file transfer progress must have a dedicated non-live semantic region"
+);
+const progressFocus = root.querySelector("#collaboration-file-choose");
+progressFocus.focus();
+const announcementsBeforeProgress = announcements.length;
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        name: "lesson.pgn",
+        transferred_bytes: 512,
+        total_bytes: 1024,
+        complete: false,
+        label: "File transfer progress",
+        text: "Transferred 512 B of 1.0 KB: lesson.pgn."
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+const progressMeter = root.querySelector("#collaboration-file-transfer-meter");
+check(
+  progressMeter !== null &&
+  progressMeter.tagName === "PROGRESS" &&
+  progressMeter.getAttribute("value") === "512" &&
+  progressMeter.getAttribute("max") === "1024" &&
+  progressMeter.getAttribute("aria-label") === "File transfer progress: lesson.pgn",
+  "trusted progress events must update a native progress element"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 512 B of 1.0 KB: lesson.pgn." &&
+  root.querySelector("#collaboration-file-transfer-text").getAttribute("aria-live") === "off",
+  "progress text must remain visible/selectable without creating live-region noise"
+);
+check(
+  document.activeElement === progressFocus && announcements.length === announcementsBeforeProgress,
+  "incremental progress must not steal focus or announce every byte sample"
+);
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "stale-session",
+        name: "lesson.pgn",
+        transferred_bytes: 900,
+        total_bytes: 1024,
+        complete: false,
+        label: "File transfer progress",
+        text: "stale"
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "512",
+  "progress from a retired browser session must be ignored"
 );
 check(
   root.querySelector("#collaboration-chat-retention-policy").textContent ===
