@@ -1072,7 +1072,14 @@ class Version2Application:
             try:
                 if not self._start_training_from_current_book():
                     raise ValueError("Training exercise is unavailable")
+                training_snapshot = self.training_workspace.snapshot()
+                if type(training_snapshot) is not dict:
+                    raise ValueError("Training presentation is unavailable")
             except Exception:
+                # start_current() may already have installed a transient Training
+                # workspace before presentation validation fails. Never retain a
+                # hidden/dead bridge after rejecting the native route transition.
+                self.training_workspace = self.training = None
                 # Native-menu/keyboard routing has already changed the shell.
                 # Recover to a coherent canonical owner instead of publishing a
                 # dead Training surface. Active Book Board ownership wins.
