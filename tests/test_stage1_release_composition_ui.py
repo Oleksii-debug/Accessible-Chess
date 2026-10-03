@@ -220,21 +220,31 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 move_variants = {
                     item["id"] for item in state["variants"][SoundEvent.MOVE.value]
                 }
+                start_variants = {
+                    item["id"] for item in state["variants"][SoundEvent.START.value]
+                }
                 self.assertEqual(move_variants, {"1", "2"})
+                self.assertEqual(start_variants, {"1", "3d"})
                 self.assertTrue(api.set_sound_variant("move", "2")["ok"])
+                self.assertTrue(api.set_sound_variant("start", "3d")["ok"])
 
                 preview = api.preview_sound("move")
+                start_preview = api.preview_sound("start")
 
                 self.assertTrue(preview["ok"], preview)
+                self.assertTrue(start_preview["ok"], start_preview)
                 self.assertEqual(len(adapters), 1)
+                self.assertIn(
+                    (SoundEvent.MOVE, 80, "2"),
+                    adapters[0].calls,
+                )
                 self.assertEqual(
                     adapters[0].calls[-1],
-                    (SoundEvent.MOVE, 80, "2"),
+                    (SoundEvent.START, 80, "3d"),
                 )
-                self.assertEqual(
-                    api.get_sound_settings()["selectedVariants"][SoundEvent.MOVE.value],
-                    "2",
-                )
+                selected = api.get_sound_settings()["selectedVariants"]
+                self.assertEqual(selected[SoundEvent.MOVE.value], "2")
+                self.assertEqual(selected[SoundEvent.START.value], "3d")
             finally:
                 api.close_analysis()
                 runtime.close()
@@ -258,14 +268,24 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                     restored["selectedVariants"][SoundEvent.MOVE.value],
                     "2",
                 )
+                self.assertEqual(
+                    restored["selectedVariants"][SoundEvent.START.value],
+                    "3d",
+                )
 
                 preview2 = api2.preview_sound("move")
+                start_preview2 = api2.preview_sound("start")
 
                 self.assertTrue(preview2["ok"], preview2)
+                self.assertTrue(start_preview2["ok"], start_preview2)
                 self.assertEqual(len(adapters), 2)
+                self.assertIn(
+                    (SoundEvent.MOVE, 80, "2"),
+                    adapters[1].calls,
+                )
                 self.assertEqual(
                     adapters[1].calls[-1],
-                    (SoundEvent.MOVE, 80, "2"),
+                    (SoundEvent.START, 80, "3d"),
                 )
             finally:
                 api2.close_analysis()
