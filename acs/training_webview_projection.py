@@ -232,6 +232,14 @@ class TrainingWebViewProjection:
         message = _safe_text(view.message, language=self._language, limit=1200)
         if view.completed and not message:
             message = labels["completed"]
+        continuation_available = self._continuation_available(view.completed)
+        canonical_focus = (
+            "training-answer"
+            if not view.completed
+            else "training-action-continue"
+            if continuation_available
+            else "training-action-reset"
+        )
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
@@ -257,16 +265,38 @@ class TrainingWebViewProjection:
                 "submit_label": labels["submit"],
                 "disabled": view.completed,
             },
+            "focus_target": canonical_focus,
             "actions": (
-                {"command": "training.hint", "label": labels["hint"], "enabled": not view.completed},
-                {"command": "training.reveal", "label": labels["reveal"], "enabled": not view.completed},
-                {"command": "training.retry", "label": labels["retry"], "enabled": not view.completed},
+                {
+                    "command": "training.hint",
+                    "focus_target": "training-action-hint",
+                    "label": labels["hint"],
+                    "enabled": not view.completed,
+                },
+                {
+                    "command": "training.reveal",
+                    "focus_target": "training-action-reveal",
+                    "label": labels["reveal"],
+                    "enabled": not view.completed,
+                },
+                {
+                    "command": "training.retry",
+                    "focus_target": "training-action-retry",
+                    "label": labels["retry"],
+                    "enabled": not view.completed,
+                },
                 {
                     "command": "training.continue",
+                    "focus_target": "training-action-continue",
                     "label": labels["continue"],
-                    "enabled": self._continuation_available(view.completed),
+                    "enabled": continuation_available,
                 },
-                {"command": "training.reset.request", "label": labels["reset"], "enabled": True},
+                {
+                    "command": "training.reset.request",
+                    "focus_target": "training-action-reset",
+                    "label": labels["reset"],
+                    "enabled": True,
+                },
             ),
             "reset_dialog": {
                 "title": labels["reset_title"],
@@ -293,15 +323,7 @@ class TrainingWebViewProjection:
     ) -> TrainingWebViewEvent:
         snapshot = self._snapshot_from_view(view)
         if focus_target == "training-answer" and snapshot["answer"]["disabled"]:
-            enabled_actions = {
-                item["command"]: item["enabled"]
-                for item in snapshot["actions"]
-            }
-            focus_target = (
-                "training-action-continue"
-                if enabled_actions.get("training.continue", False)
-                else "training-action-reset"
-            )
+            focus_target = snapshot["focus_target"]
         if type(clear_answer) is not bool:
             raise TypeError("training clear-answer flag must be boolean")
         if type(focus_target) is not str:
@@ -314,15 +336,7 @@ class TrainingWebViewProjection:
             allowed_focus.add("training-solution")
         for action in snapshot["actions"]:
             if action["enabled"]:
-                allowed_focus.add(
-                    {
-                        "training.hint": "training-action-hint",
-                        "training.reveal": "training-action-reveal",
-                        "training.retry": "training-action-retry",
-                        "training.continue": "training-action-continue",
-                        "training.reset.request": "training-action-reset",
-                    }[action["command"]]
-                )
+                allowed_focus.add(action["focus_target"])
         if focus_target not in allowed_focus:
             raise ValueError("training focus target is inconsistent with the snapshot")
         return TrainingWebViewEvent(
