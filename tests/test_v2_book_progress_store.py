@@ -359,6 +359,57 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
 
+    def test_save_rechecks_orphan_backup_after_temp_fsync_before_replace(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        backup_bytes = b'{"entries":{},"generation":7,"schema_version":2}'
+        real_mkstemp = tempfile.mkstemp
+        injected = False
+
+        def backup_appears_during_primary_temp_write(*args, **kwargs):
+            nonlocal injected
+            descriptor, name = real_mkstemp(*args, **kwargs)
+            if kwargs.get("prefix") == f".{self.path.name}.":
+                self.store.backup_path.write_bytes(backup_bytes)
+                injected = True
+            return descriptor, name
+
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=backup_appears_during_primary_temp_write,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:temp-window-orphan",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
+    def test_publish_orphan_guard_requires_exact_boolean(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        for invalid in (0, 1, None, "", object()):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaisesRegex(
+                    TypeError,
+                    "require_no_orphan_backup_before_replace must be a boolean",
+                ):
+                    self.store._atomic_publish_bytes_unlocked(
+                        self.path,
+                        b"{}",
+                        require_no_orphan_backup_before_replace=invalid,
+                    )
+        self.assertFalse(self.path.exists())
+
     def test_missing_primary_recovery_rejects_stale_backup_revision(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
