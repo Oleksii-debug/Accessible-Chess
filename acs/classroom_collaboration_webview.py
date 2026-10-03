@@ -338,6 +338,9 @@ class ClassroomCollaborationWebView:
         self._file_page_bucket: int | None = None
         self._removed_participant_ids: set[str] = set()
         self._prepared: dict[str, PreparedFile] = {}
+        # Ephemeral presentation state only. Durable transfer truth remains in the
+        # canonical collaboration store/provider; this merely survives DOM redraws.
+        self._file_progress: tuple[str, int, int, bool] | None = None
 
     @property
     def language(self) -> UILanguage:
@@ -379,6 +382,7 @@ class ClassroomCollaborationWebView:
         self._file_page_bucket = None
         self._removed_participant_ids.clear()
         self._prepared.clear()
+        self._file_progress = None
 
     def _label(self, participant_id: str) -> str:
         try:
@@ -829,6 +833,7 @@ class ClassroomCollaborationWebView:
                 "retry_label": labels["retry"],
                 "cancel_label": labels["cancel"],
                 "progress_label": labels["file_progress_label"],
+                "transfer_progress": self._file_progress_view(),
                 "can_choose_upload": self._file_picker is not None,
                 "items": tuple(self._file_view(item) for item in attachment_page),
             },
@@ -862,14 +867,30 @@ class ClassroomCollaborationWebView:
             payload["focus_target"] = focus_target
         return ClassroomCollaborationWebViewEvent("error", payload)
 
+    def _file_progress_view(self) -> dict[str, object] | None:
+        progress = self._file_progress
+        if progress is None:
+            return None
+        name, transferred_bytes, total_bytes, complete = progress
+        labels = _LABELS[self._language]
+        return {
+            "name": name,
+            "transferred_bytes": transferred_bytes,
+            "total_bytes": total_bytes,
+            "complete": complete,
+            "label": labels["file_progress_label"],
+            "text": labels["file_progress"].format(
+                done=self._size_label(transferred_bytes),
+                total=self._size_label(total_bytes),
+                name=name,
+            ),
+        }
+
     def _publish_file_progress(self, sample: FileTransferProgress) -> None:
         """Forward a secret-safe, session-bound progress event to the trusted host."""
 
         if type(sample) is not FileTransferProgress:
             raise TypeError("file transfer progress must be FileTransferProgress")
-        sink = self._file_progress_event_sink
-        if sink is None:
-            return
         attachment = next(
             (
                 item
@@ -880,23 +901,25 @@ class ClassroomCollaborationWebView:
         )
         if attachment is None or attachment.size_bytes != sample.total_bytes:
             raise RuntimeError("file transfer progress no longer matches local metadata")
-        labels = _LABELS[self._language]
+        self._file_progress = (
+            attachment.display_name,
+            sample.transferred_bytes,
+            sample.total_bytes,
+            sample.complete,
+        )
+        sink = self._file_progress_event_sink
+        if sink is None:
+            return
+        progress = self._file_progress_view()
+        if progress is None:
+            return
         sink(
             ClassroomCollaborationWebViewEvent(
                 "collaboration.file.progress",
                 {
                     "file_progress": {
                         "session_key": self._browser_session_key,
-                        "name": attachment.display_name,
-                        "transferred_bytes": sample.transferred_bytes,
-                        "total_bytes": sample.total_bytes,
-                        "complete": sample.complete,
-                        "label": labels["file_progress_label"],
-                        "text": labels["file_progress"].format(
-                            done=self._size_label(sample.transferred_bytes),
-                            total=self._size_label(sample.total_bytes),
-                            name=attachment.display_name,
-                        ),
+                        **progress,
                     }
                 },
             )
@@ -1385,6 +1408,8 @@ class ClassroomCollaborationWebView:
                 )
             )
         self._prepared.pop(attachment.attachment_id, None)
+        if self._file_progress is not None and self._file_progress[0] == attachment.display_name:
+            self._file_progress = None
         return self._event(
             "collaboration.file.cancelled",
             announcement=self._file_announcement("file_cancelled", attachment.display_name),
