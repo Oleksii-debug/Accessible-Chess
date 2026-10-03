@@ -363,8 +363,12 @@ class DurableChatDraftOutbox:
             message.message_id != draft.message_id
             or message.room_id != draft.room_id
             or message.sender_id != draft.sender_id
-            or message.body != draft.body
+            or (
+                not message.redacted
+                and message.body != draft.body
+            )
             or message.retention != draft.retention
+            or message.sent_at_unix_ms is None
         ):
             raise DurableChatOutboxError(
                 "chat outbox identity conflicts with durable chat metadata"
