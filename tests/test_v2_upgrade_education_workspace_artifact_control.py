@@ -11,6 +11,7 @@ import acs.version2_upgrade_base as upgrade_base
 from acs.version2_upgrade_base import (
     UpgradeLimits,
     UserDataLayout,
+    Version2UpgradeBusy,
     Version2UpgradeCoordinator,
     Version2UpgradeError,
 )
@@ -85,82 +86,52 @@ class V2UpgradeEducationWorkspaceArtifactControlTests(unittest.TestCase):
                 b'{"durable":"education"}\n',
             )
 
-    def test_persistent_peer_lock_is_control_state_but_nested_lookalike_is_preserved(self):
+    def test_active_workspace_lock_directory_blocks_upgrade_scan(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
+            lock = root / ".education-workspace.json.lock"
+            lock.mkdir()
             durable = root / "education-workspace.json"
-            durable.write_bytes(b"x")
-            peer_lock = root / ".EDUCATION-WORKSPACE.JSON.LOCK"
-            peer_lock.write_bytes(b"\0")
+            durable.write_bytes(b'{"durable":"education"}\n')
 
-            nested = root / "user-content"
-            nested.mkdir()
-            nested_lock = nested / ".education-workspace.json.lock"
-            nested_lock.write_bytes(b"nested-user-data")
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeBusy,
+                "education workspace store is busy during upgrade",
+            ):
+                coordinator._files()
 
-            coordinator = Version2UpgradeCoordinator(
-                UserDataLayout(root),
-                limits=UpgradeLimits(max_files=2, max_bytes=64),
+            self.assertTrue(lock.is_dir())
+            self.assertEqual(
+                durable.read_bytes(),
+                b'{"durable":"education"}\n',
             )
+
+    def test_regular_workspace_lock_lookalike_remains_preservation_backed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            lookalike = root / ".education-workspace.json.lock"
+            lookalike.write_bytes(b"user-owned-regular-file")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
             coordinator._ensure_roots()
             files = self._relative_files(coordinator)
+            self.assertIn(".education-workspace.json.lock", files)
 
-            self.assertIn("education-workspace.json", files)
-            self.assertNotIn(".EDUCATION-WORKSPACE.JSON.LOCK", files)
-            self.assertIn(
-                "user-content/.education-workspace.json.lock",
-                files,
+            backup, manifest = coordinator._create_backup(
+                "education-lock-regular-lookalike"
             )
-
-            backup, manifest = coordinator._create_backup("education-lock-derived")
             paths = {str(item["path"]) for item in manifest["entries"]}
-            self.assertNotIn(".EDUCATION-WORKSPACE.JSON.LOCK", paths)
-            self.assertIn(
-                "user-content/.education-workspace.json.lock",
-                paths,
-            )
+            self.assertIn(".education-workspace.json.lock", paths)
             self.assertEqual(
                 (
                     backup
                     / "data"
-                    / "user-content"
                     / ".education-workspace.json.lock"
                 ).read_bytes(),
-                b"nested-user-data",
-            )
-
-    def test_persistent_peer_lock_does_not_consume_backup_quota(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td) / "AccessibleChess"
-            root.mkdir()
-            (root / "education-workspace.json").write_bytes(b"x")
-            (root / ".education-workspace.json.lock").write_bytes(b"z" * 4096)
-
-            coordinator = Version2UpgradeCoordinator(
-                UserDataLayout(root),
-                limits=UpgradeLimits(max_files=1, max_bytes=8),
-            )
-            self.assertEqual(
-                self._relative_files(coordinator),
-                {"education-workspace.json"},
-            )
-
-    def test_legacy_peer_lock_directory_is_ignored_but_contents_are_preserved(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td) / "AccessibleChess"
-            root.mkdir()
-            lock_directory = root / ".education-workspace.json.lock"
-            lock_directory.mkdir()
-            (lock_directory / "keep.bin").write_bytes(b"directory-user-data")
-
-            files = self._relative_files(
-                Version2UpgradeCoordinator(UserDataLayout(root))
-            )
-
-            self.assertIn(
-                ".education-workspace.json.lock/keep.bin",
-                files,
+                b"user-owned-regular-file",
             )
 
     def test_exact_control_symlink_fails_closed(self):
