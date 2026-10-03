@@ -21,6 +21,7 @@ from .sound_pack_catalog import (
     SoundPackCatalogEntry,
     SoundPackDownloadPort,
     SoundPackInstallError,
+    SoundPackInstalledAudit,
     SoundPackManager,
     SoundPackSignatureVerifier,
 )
@@ -147,6 +148,17 @@ def _installed_pack_inventory(
         # make the whole shipping application unavailable.
         return {}
     return dict(installed)
+
+
+def _installed_pack_audit(
+    store: FilesystemSoundPackStore,
+) -> dict[str, SoundPackInstalledAudit]:
+    try:
+        return dict(store.installed_audit())
+    except Exception:
+        # Custom packs are optional. Preserve classic startup/settings even when
+        # the local custom-pack inventory is temporarily unreadable.
+        return {}
 
 
 def _playable_installed_packs(
@@ -287,7 +299,7 @@ def create_local_sound_composition(
         profiled,
         pack_coordinator=pack_coordinator,
         catalog=normalized_catalog,
-        installed_audit_provider=pack_store.installed_audit,
+        installed_audit_provider=lambda: _installed_pack_audit(pack_store),
         pack_compatibility_provider=_windows_pack_is_playable,
     )
     settings.reconcile_active_profile()
