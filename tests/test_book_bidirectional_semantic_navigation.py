@@ -277,6 +277,33 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertEqual(ua_actions["book.previous_position"], "Попередня позиція")
         self.assertEqual(ua_actions["book.previous_game"], "Попередня партія")
 
+    def test_language_render_failure_rolls_back_projection_and_presenter(self) -> None:
+        document = BookDocument(
+            title="Language rollback",
+            blocks=[Position(fen=Board.START, block_id="position")],
+        )
+        presenter = BookReaderPresenter(BookReader(document), language=UILanguage.EN)
+        projection = BookWebViewProjection(
+            presenter,
+            lambda *_: None,
+            language=UILanguage.EN,
+        )
+        bridge = BookWebViewBridge(projection)
+
+        with patch.object(
+            presenter,
+            "navigation_availability",
+            side_effect=RuntimeError("synthetic render failure"),
+        ):
+            result = bridge.dispatch("book.language", {"language": "ua"})
+
+        self.assertEqual(result.kind, "error")
+        self.assertEqual(projection.language, UILanguage.EN)
+        snapshot = projection.snapshot()
+        self.assertEqual(snapshot["document"]["lang"], "en")
+        self.assertEqual(snapshot["heading"], "Chess book reader")
+        self.assertEqual(snapshot["block"]["title"], "Position")
+
     def test_d01_shared_gate_preserves_product_stage1_and_books_successors(self) -> None:
         source = (
             Path(__file__).parents[1]
