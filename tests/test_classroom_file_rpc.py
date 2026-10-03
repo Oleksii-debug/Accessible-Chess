@@ -365,7 +365,7 @@ class ClassroomFileRpcTests(unittest.TestCase):
         mutations = (
             b"x",
             b"opaque\x00payload-extra",
-            b"same-length-bad",
+            b"same-length-no",
         )
         for index, replacement in enumerate(mutations):
             with self.subTest(index=index):
