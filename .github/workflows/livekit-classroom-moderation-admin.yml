@@ -45,20 +45,15 @@ jobs:
           test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-rpc-core-20261002"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
           git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          git fetch --no-tags origin "$EXPECTED_BASE_REF"
-          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
-          if ! git merge-base --is-ancestor "$base" HEAD; then
-            echo "Current moderation base $base is not an ancestor of HEAD; synchronize the stacked PR."
-            exit 1
-          fi
-          git diff --check "$base...HEAD"
-          changed="$(git diff --name-only "$base...HEAD" | sort)"
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
           allowed="$(printf '%s\n' \
             '.github/workflows/livekit-classroom-moderation-admin.yml' \
             'acs/livekit_classroom_moderation_admin.py' \
             'tests/test_livekit_classroom_moderation_admin.py' | sort)"
           test "$changed" = "$allowed"
-          git diff --quiet "$base" HEAD -- \
+          git diff --quiet "$EVENT_BASE_SHA" HEAD -- \
             acs/classroom_moderation_rpc.py \
             acs/classroom_realtime_media.py \
             acs/classroom_domain.py \
@@ -150,6 +145,47 @@ jobs:
           assert api.ServerErrorCode.NOT_FOUND == "not_found"
           assert api.TrackSource.SCREEN_SHARE_AUDIO != api.TrackSource.SCREEN_SHARE
           print("LIVEKIT_PINNED_ROOM_ADMIN_SCHEMA=PASS")
+          PY
+
+      - name: Prove recovery verifier is read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path("acs/livekit_classroom_moderation_admin.py")
+          tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+          owner = next(
+              node
+              for node in tree.body
+              if isinstance(node, ast.ClassDef)
+              and node.name == "LiveKitClassroomModerationAdmin"
+          )
+          verifier = next(
+              node
+              for node in owner.body
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and node.name == "moderation_effect_matches"
+          )
+          attributes = {
+              node.attr
+              for node in ast.walk(verifier)
+              if isinstance(node, ast.Attribute)
+          }
+          forbidden = {
+              "update_participant",
+              "mute_published_track",
+              "remove_participant",
+              "apply_moderation_command",
+          }
+          overlap = sorted(attributes & forbidden)
+          if overlap:
+              raise SystemExit(f"provider-state verifier mutates LiveKit: {overlap}")
+          if "get_participant" not in attributes and "_participant" not in attributes:
+              raise SystemExit("provider-state verifier has no participant read path")
+          print("LIVEKIT_MODERATION_STATE_VERIFIER_READ_ONLY=PASS")
           PY
 
       - name: Prove server-only least-privilege boundary

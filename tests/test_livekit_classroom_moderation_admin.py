@@ -185,6 +185,213 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
             admin.apply_moderation_command(room_id="room-1", command=value)
         )
 
+    def matches(self, admin, value):
+        return asyncio.run(
+            admin.moderation_effect_matches(room_id="room-1", command=value)
+        )
+
+    def test_state_verifier_reads_publish_permission_without_mutation(self):
+        admin, room = self.admin()
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                ),
+            )
+        )
+        self.assertFalse(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.SCREEN_SHARE,
+                    value=True,
+                    operation="op-screen",
+                ),
+            )
+        )
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.SCREEN_SHARE,
+                    value=False,
+                    operation="op-screen-off",
+                ),
+            )
+        )
+        self.assertEqual(room.updates, [])
+        self.assertEqual(room.mutes, [])
+        self.assertEqual(room.removals, [])
+
+    def test_state_verifier_reads_soft_mute_and_preserves_release_noop(self):
+        tracks = (
+            SimpleNamespace(
+                sid="mic-muted",
+                source=FakeTrackSource.MICROPHONE,
+                muted=True,
+            ),
+            SimpleNamespace(
+                sid="camera-open",
+                source=FakeTrackSource.CAMERA,
+                muted=False,
+            ),
+        )
+        room = FakeRoomService(participant(tracks=tracks))
+        admin, room = self.admin(room)
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.SOFT_MUTE,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                ),
+            )
+        )
+        room.participant.tracks.append(
+            SimpleNamespace(
+                sid="mic-open",
+                source=FakeTrackSource.MICROPHONE,
+                muted=False,
+            )
+        )
+        self.assertFalse(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.SOFT_MUTE,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                    operation="op-mute-open",
+                ),
+            )
+        )
+        lookups_before_release = len(room.lookups)
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.SOFT_MUTE,
+                    source=MediaSource.MICROPHONE,
+                    value=False,
+                    operation="op-release",
+                ),
+            )
+        )
+        self.assertEqual(len(room.lookups), lookups_before_release)
+        self.assertEqual(room.mutes, [])
+        self.assertEqual(room.updates, [])
+        self.assertEqual(room.removals, [])
+
+    def test_state_verifier_treats_absent_microphone_track_as_satisfied_noop(self):
+        room = FakeRoomService(
+            participant(
+                tracks=(
+                    SimpleNamespace(
+                        sid="camera-only",
+                        source=FakeTrackSource.CAMERA,
+                        muted=False,
+                    ),
+                )
+            )
+        )
+        admin, room = self.admin(room)
+
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.SOFT_MUTE,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                ),
+            )
+        )
+        self.assertEqual(room.mutes, [])
+        self.assertEqual(room.updates, [])
+        self.assertEqual(room.removals, [])
+
+    def test_state_verifier_requires_exact_boolean_microphone_state(self):
+        tracks = (
+            SimpleNamespace(
+                sid="mic-invalid",
+                source=FakeTrackSource.MICROPHONE,
+                muted=1,
+            ),
+        )
+        room = FakeRoomService(participant(tracks=tracks))
+        admin, room = self.admin(room)
+        with self.assertRaisesRegex(
+            LiveKitClassroomModerationAdminError,
+            "mute state is invalid",
+        ):
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.SOFT_MUTE,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                ),
+            )
+        self.assertEqual(room.mutes, [])
+
+    def test_state_verifier_confirms_remove_only_from_provider_not_found(self):
+        room = FakeRoomService(participant())
+        admin, room = self.admin(room)
+        remove = command(ModerationAction.REMOVE, value=True)
+        self.assertFalse(self.matches(admin, remove))
+        self.assertEqual(room.removals, [])
+
+        room.get_error = FakeServerError(
+            FakeServerErrorCode.NOT_FOUND,
+            "already gone",
+        )
+        self.assertTrue(self.matches(admin, remove))
+        self.assertEqual(room.removals, [])
+
+    def test_state_verifier_provider_failure_and_identity_mismatch_fail_closed(self):
+        secret = "provider-state-secret"
+        room = FakeRoomService(participant())
+        room.get_error = FakeServerError("internal", secret)
+        admin, room = self.admin(room)
+        with self.assertRaisesRegex(
+            LiveKitClassroomModerationAdminError,
+            "^LiveKit participant lookup failed$",
+        ) as caught:
+            self.matches(
+                admin,
+                command(ModerationAction.REMOVE, value=True),
+            )
+        self.assertNotIn(
+            secret,
+            "".join(traceback.format_exception(caught.exception)),
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(room.removals, [])
+
+        wrong_room = FakeRoomService(participant(identity="other"))
+        wrong_admin, wrong_room = self.admin(wrong_room)
+        with self.assertRaisesRegex(
+            LiveKitClassroomModerationAdminError,
+            "identity is not canonical",
+        ):
+            self.matches(
+                wrong_admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                ),
+            )
+        self.assertEqual(wrong_room.updates, [])
+        self.assertEqual(wrong_room.mutes, [])
+        self.assertEqual(wrong_room.removals, [])
+
     def test_disabling_one_source_preserves_other_explicit_provider_permission(self):
         admin, room = self.admin()
         self.apply(
