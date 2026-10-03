@@ -222,6 +222,11 @@ class SoundPackManifestTests(unittest.TestCase):
 
     def test_audio_path_windows_utf16_units_are_bounded(self) -> None:
         files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
+        files["move"] = "audio/" + ("😀" * 125) + ".wav"
+        pack = self._pack(files=files)
+        self.assertEqual(files["move"], pack.files["move"])
+
+        files = dict(files)
         files["move"] = "audio/" + ("😀" * 126) + ".wav"
         with self.assertRaisesRegex(ValueError, "resource limit"):
             self._pack(files=files)
