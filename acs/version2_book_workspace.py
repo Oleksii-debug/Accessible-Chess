@@ -116,12 +116,18 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 for comment in (safe(raw) for raw in item.comments)
                 if comment
             )
+            trailing_comments = tuple(
+                comment
+                for comment in (safe(raw) for raw in item.trailing_comments)
+                if comment
+            )
             rendered_items.append(
                 {
                     "kind": item.kind,
                     "depth": item.depth,
                     "label": label,
                     "comments": comments,
+                    "trailing_comments": trailing_comments,
                 }
             )
             previous_depth = item.depth

@@ -52,6 +52,7 @@ class PgnTreeItem:
     parent_id: str | None
     san: str | None = None
     comments: tuple[str, ...] = ()
+    trailing_comments: tuple[str, ...] = ()
     nags: tuple[str, ...] = ()
 
 
@@ -166,6 +167,9 @@ class PgnTreePresenter:
                     label=variation_label,
                     parent_id=parent_id,
                     comments=tuple(comment.text for comment in line.leading_comments),
+                    trailing_comments=tuple(
+                        comment.text for comment in line.trailing_comments
+                    ),
                 )
             )
             parent_id = line_id

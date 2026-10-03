@@ -103,6 +103,7 @@
 
     const lists = [rootList];
     const lastItems = [];
+    const deferredTrailingComments = [];
     let previousDepth = 0;
 
     items.forEach(function (item, index) {
@@ -134,6 +135,10 @@
       const listItem = node("li");
       listItem.appendChild(node("span", item.label));
       const comments = semanticTextArray(item.comments, "book semantic item comments");
+      const trailingComments = semanticTextArray(
+        item.trailing_comments,
+        "book semantic item trailing comments"
+      );
       if (comments.length) {
         const commentList = node("ul");
         commentList.setAttribute("aria-label", semantic.comments_label || "");
@@ -143,9 +148,23 @@
         listItem.appendChild(commentList);
       }
       lists[depth].appendChild(listItem);
+      if (trailingComments.length) {
+        deferredTrailingComments.push({ item: listItem, comments: trailingComments });
+      }
       lastItems[depth] = listItem;
       lastItems.length = depth + 1;
       previousDepth = depth;
+    });
+
+    deferredTrailingComments.forEach(function (entry) {
+      const commentList = node("ul");
+      commentList.setAttribute("aria-label", semantic.comments_label || "");
+      entry.comments.forEach(function (comment) {
+        commentList.appendChild(node("li", comment));
+      });
+      // Appending after the full depth walk keeps variation-tail comments
+      // after that variation's nested move list instead of before its moves.
+      entry.item.appendChild(commentList);
     });
 
     appendSemanticTextList(

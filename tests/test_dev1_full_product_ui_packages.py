@@ -55,7 +55,7 @@ class FullProductActionTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592",
+            "a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592|b0b92c755f23df170fe90cb2380baa10796028cd",
             source,
         )
         self.assertIn(
@@ -160,7 +160,7 @@ class PgnPresenterTests(unittest.TestCase):
 [Black \"Black\"]
 [Result \"*\"]
 
-1. e4 {main comment} e5 $1 (1... c5 {Sicilian} 2. Nf3 (2. Nc3)) 2. Nf3 *
+1. e4 {main comment} e5 $1 (1... c5 {Sicilian} 2. Nf3 (2. Nc3) * {branch tail}) 2. Nf3 *
 """
         self.games = tuple(parse_games(text))
 
@@ -171,7 +171,12 @@ class PgnPresenterTests(unittest.TestCase):
         self.assertTrue(any("e4" in item.label for item in view.items))
         self.assertTrue(any("$1" in item.label for item in view.items))
         self.assertTrue(any(item.comments and "main comment" in item.comments for item in view.items))
-        self.assertTrue(any(item.kind == "variation" and item.label == "Variation 1" for item in view.items))
+        variation = next(
+            item
+            for item in view.items
+            if item.kind == "variation" and item.label == "Variation 1"
+        )
+        self.assertEqual(("branch tail",), variation.trailing_comments)
         self.assertGreaterEqual(max(item.depth for item in view.items), 3)
 
     def test_keyboard_selection_parent_and_boundaries_are_explicit(self):

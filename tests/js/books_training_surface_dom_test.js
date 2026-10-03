@@ -169,7 +169,13 @@ function semanticGameSnapshot() {
     warnings: ["Recovered safely"],
     items: [
       { kind: "move", depth: 0, label: "1. e4", comments: ["Main <comment>"] },
-      { kind: "variation", depth: 1, label: "Variation 1", comments: [] },
+      {
+        kind: "variation",
+        depth: 1,
+        label: "Variation 1",
+        comments: [],
+        trailing_comments: ["Branch tail <b>literal</b>"]
+      },
       { kind: "move", depth: 2, label: "1. d4 $1", comments: ["<img onerror=bad()>"] },
       { kind: "move", depth: 2, label: "d5", comments: [] },
       { kind: "move", depth: 0, label: "e5", comments: [] }
@@ -385,9 +391,14 @@ async function run() {
   const branch = find(rootMoves.children[0], "OL");
   check(branch !== null && branch.children.length === 1,
     "variation branch is not nested below its parent move");
-  const branchMoves = find(branch.children[0], "OL");
+  const variationItem = branch.children[0];
+  const branchMoves = find(variationItem, "OL");
   check(branchMoves !== null && branchMoves.children.length === 2,
     "variation moves are not nested in authored order");
+  const variationTail = find(variationItem, "LI", "Branch tail <b>literal</b>");
+  check(variationTail !== null, "variation trailing comment is not visible");
+  check(variationItem.children[variationItem.children.length - 1].tagName === "UL",
+    "variation trailing comment must follow its nested move list");
   check(find(semanticBlock, "LI", "<img onerror=bad()>") !== null,
     "semantic comment must remain literal selectable text");
   check(semanticBlock.descendants().every((item) => item.tagName !== "IMG"),
