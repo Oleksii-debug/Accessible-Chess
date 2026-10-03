@@ -308,6 +308,27 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     package_preflight._sha256(target)
             self.assertTrue(swapped)
 
+    def test_tree_rechecks_checksums_after_hygiene_phase(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            target = root / "AccessibleChess" / "assets" / "content.dat"
+
+            def mutate_after_first_checksum(*_args, **_kwargs):
+                target.write_bytes(b"late mutation after initial checksum validation")
+
+            with patch.object(
+                package_preflight,
+                "_scan_text_hygiene",
+                side_effect=mutate_after_first_checksum,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package checksum mismatch: AccessibleChess/assets/content.dat",
+                ):
+                    _validate_tree(root)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
