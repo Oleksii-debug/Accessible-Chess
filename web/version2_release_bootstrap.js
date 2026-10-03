@@ -13,6 +13,7 @@
   let eventDrainInFlight = false;
   let eventDrainPending = false;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+  const MAX_NATIVE_EVENT_BATCH = 64;
 
   function validFocusId(value) {
     return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
@@ -339,7 +340,7 @@
       return;
     }
     Promise.resolve(drained).then(function (events) {
-      if (!Array.isArray(events) || !events.length) return;
+      if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
       let needsRefresh = false;
       let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
