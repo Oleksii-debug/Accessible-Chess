@@ -27,6 +27,8 @@ on:
       - 'tests/test_w3_p0f_starter_books_training_content.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_v2_shared_presentation_path_privacy.py'
+      - 'tests/test_dev1_books_training_web_asset.py'
+      - 'web/full_product_books_training.js'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/books-bidirectional-semantic-navigation.yml'
   workflow_dispatch:
@@ -76,8 +78,12 @@ jobs:
             expected_paths=(
               '.github/workflows/books-bidirectional-semantic-navigation.yml'
               'tests/test_book_bidirectional_semantic_navigation.py'
+              'tests/test_dev1_books_training_web_asset.py'
+              'web/full_product_books_training.js'
             )
             test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "bb34d6496a9481153440cb3bf449525728346f03"
+            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "0d0473af7402bf6f7239749af2591985cd967e42"
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "f5180eef9557f3d48ea39a75255918d80a71a2b2"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
             product_ref="refs/remotes/origin/$product_branch"
