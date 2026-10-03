@@ -11,6 +11,7 @@ from pathlib import Path
 import copy
 import logging
 import tempfile
+import time
 from typing import Any
 
 from .chesscore import parse_sq
@@ -73,6 +74,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_takeback_unsafe = False
         self._engine_thinking = False
         self._engine_clock_history: list[ClockSnapshot] = []
+        self._clock_sound_not_before = 0.0
+        self._suppress_next_engine_move_sound_for_start = False
 
     def _concise_error(self, uk: str, en: str) -> dict[str, Any]:
         return self._error(uk if self.lang == "uk" else en)
@@ -373,10 +376,22 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "message": self._sound_message("Звук відтворено.", "Sound played."),
         }
 
+    def _play_game_start_sound(self) -> None:
+        if self._game_sounds is None:
+            return
+        report = self._game_sounds.start()
+        if not getattr(report, "disabled", False) and not getattr(report, "failures", ()):
+            # Both supplied NEWGAME variants are a little over eight seconds.
+            # Keep the long clock ambience from taking over the same Windows
+            # playback channel before that cue has completed.
+            self._clock_sound_not_before = time.monotonic() + 8.7
+
     def clock_sound_pulse(self) -> dict[str, Any]:
         """Play one complete clock ambience segment when current policy allows it."""
 
         base = {"ok": True, "played": False, "disabled": False}
+        if time.monotonic() < self._clock_sound_not_before:
+            return base
         session = self._engine_session
         if (
             self._game_sounds is None
@@ -1013,8 +1028,6 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
 
         self._reset_engine_game_state()
         super().new_game()
-        if self._game_sounds is not None:
-            self._game_sounds.start()
         session = EngineGameSessionCoordinator(
             self._engine_play_service,
             fen_provider=self.board.fen,
@@ -1041,6 +1054,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_game_phase = "active"
         self._engine_game_error = None
         self._engine_clock_history = [snapshot.clock]
+        self._play_game_start_sound()
 
         human = "b" if snapshot.config.engine_side == "w" else "w"
         intro = (
@@ -1051,6 +1065,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             f"Level {snapshot.config.level.level}."
         )
         if snapshot.turn_state is EngineTurnState.ENGINE:
+            self._suppress_next_engine_move_sound_for_start = True
             replied, message = self._request_engine_reply()
             if not replied:
                 return self._error(f"{intro} {message}")
@@ -1254,8 +1269,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 return blocked
         self._reset_engine_game_state()
         result = super().new_game()
-        if result.get("ok") and self._game_sounds is not None:
-            self._game_sounds.start()
+        if result.get("ok"):
+            self._play_game_start_sound()
         return result
 
     def clear_board(self) -> dict[str, Any]:
