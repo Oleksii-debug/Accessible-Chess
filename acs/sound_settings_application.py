@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from .sound_pack_catalog import (
     SoundPackCatalogEntry,
+    SoundPackInstalledAudit,
     SoundPackRightsEvidence,
     SoundPackState,
 )
@@ -65,6 +66,9 @@ class SoundSettingsApplication:
         catalog: Mapping[str, SoundPackCatalogEntry] | None = None,
         installed_pack_provider: Callable[[], Mapping[str, SoundPackManifest]] | None = None,
         installed_rights_provider: Callable[[str], SoundPackRightsEvidence | None] | None = None,
+        installed_audit_provider: Callable[
+            [], Mapping[str, SoundPackInstalledAudit]
+        ] | None = None,
         pack_compatibility_provider: Callable[[SoundPackManifest], bool] | None = None,
     ) -> None:
         if not isinstance(profile_manager, SoundProfileManager):
@@ -94,6 +98,17 @@ class SoundSettingsApplication:
             installed_rights_provider
         ):
             raise TypeError("installed_rights_provider must be callable or None")
+        if installed_audit_provider is not None and not callable(
+            installed_audit_provider
+        ):
+            raise TypeError("installed_audit_provider must be callable or None")
+        if installed_audit_provider is not None and (
+            installed_pack_provider is not None
+            or installed_rights_provider is not None
+        ):
+            raise ValueError(
+                "installed_audit_provider cannot be combined with split installed providers"
+            )
         if pack_compatibility_provider is not None and not callable(
             pack_compatibility_provider
         ):
@@ -104,6 +119,7 @@ class SoundSettingsApplication:
         self._catalog = normalized
         self._installed_pack_provider = installed_pack_provider
         self._installed_rights_provider = installed_rights_provider
+        self._installed_audit_provider = installed_audit_provider
         self._pack_compatibility_provider = pack_compatibility_provider
 
     @staticmethod
@@ -115,22 +131,6 @@ class SoundSettingsApplication:
             raise SoundProfileWriteBlockedError(
                 "sound profile mutations are blocked by a newer schema"
             )
-
-    def _installed_local_packs(self) -> dict[str, SoundPackManifest]:
-        provider = self._installed_pack_provider
-        if provider is None:
-            return {}
-        raw = provider()
-        if not isinstance(raw, Mapping):
-            raise TypeError("installed pack provider must return a mapping")
-        result: dict[str, SoundPackManifest] = {}
-        for pack_id, manifest in raw.items():
-            if not isinstance(pack_id, str) or not isinstance(manifest, SoundPackManifest):
-                raise TypeError("installed pack provider returned an invalid mapping")
-            if pack_id != manifest.pack_id:
-                raise ValueError("installed pack key must equal manifest pack_id")
-            result[pack_id] = manifest
-        return result
 
     def _local_pack_rights(
         self,
@@ -150,6 +150,52 @@ class SoundSettingsApplication:
                 "installed rights evidence license must match installed manifest"
             )
         return rights
+
+    def _installed_local_audit(self) -> dict[str, SoundPackInstalledAudit]:
+        provider = self._installed_audit_provider
+        if provider is not None:
+            raw = provider()
+            if not isinstance(raw, Mapping):
+                raise TypeError("installed audit provider must return a mapping")
+            result: dict[str, SoundPackInstalledAudit] = {}
+            for pack_id, record in raw.items():
+                if type(pack_id) is not str or not isinstance(
+                    record,
+                    SoundPackInstalledAudit,
+                ):
+                    raise TypeError(
+                        "installed audit provider returned an invalid mapping"
+                    )
+                if pack_id != record.manifest.pack_id:
+                    raise ValueError(
+                        "installed audit key must equal manifest pack_id"
+                    )
+                result[pack_id] = record
+            return result
+
+        pack_provider = self._installed_pack_provider
+        if pack_provider is None:
+            return {}
+        raw = pack_provider()
+        if not isinstance(raw, Mapping):
+            raise TypeError("installed pack provider must return a mapping")
+        result: dict[str, SoundPackInstalledAudit] = {}
+        for pack_id, manifest in raw.items():
+            if not isinstance(pack_id, str) or not isinstance(manifest, SoundPackManifest):
+                raise TypeError("installed pack provider returned an invalid mapping")
+            if pack_id != manifest.pack_id:
+                raise ValueError("installed pack key must equal manifest pack_id")
+            result[pack_id] = SoundPackInstalledAudit(
+                manifest,
+                self._local_pack_rights(pack_id, manifest),
+            )
+        return result
+
+    def _installed_local_packs(self) -> dict[str, SoundPackManifest]:
+        return {
+            pack_id: record.manifest
+            for pack_id, record in self._installed_local_audit().items()
+        }
 
     def _local_pack_compatible(self, manifest: SoundPackManifest) -> bool:
         entry = self._catalog.get(manifest.pack_id)
@@ -275,7 +321,11 @@ class SoundSettingsApplication:
     def snapshot(self, *, language: str = "uk") -> dict[str, object]:
         lang = self._language(language)
         profile = self._profiles.current
-        installed_local = self._installed_local_packs()
+        installed_audit = self._installed_local_audit()
+        installed_local = {
+            pack_id: record.manifest
+            for pack_id, record in installed_audit.items()
+        }
         active_manifest = self._active_manifest(profile, installed_local)
         events: list[dict[str, object]] = []
         for event_id in self._visible_event_ids(profile, active_manifest):
@@ -302,9 +352,15 @@ class SoundSettingsApplication:
         if self._packs is not None:
             for pack_id in sorted(self._catalog):
                 entry = self._catalog[pack_id]
-                status = self._packs.status(entry)
                 manifest = entry.manifest
-                installed_manifest = installed_local.get(pack_id)
+                installed_record = installed_audit.get(pack_id)
+                installed_manifest = (
+                    None if installed_record is None else installed_record.manifest
+                )
+                status = self._packs.status_for_installed_manifest(
+                    entry,
+                    installed_manifest,
+                )
                 installed_compatible = (
                     None
                     if installed_manifest is None
@@ -317,8 +373,8 @@ class SoundSettingsApplication:
                 )
                 stored_rights = (
                     None
-                    if installed_manifest is None
-                    else self._local_pack_rights(pack_id, installed_manifest)
+                    if installed_record is None
+                    else installed_record.rights_evidence
                 )
                 rights = (
                     entry.rights_evidence
@@ -373,7 +429,7 @@ class SoundSettingsApplication:
             if pack_id == "classic" or pack_id in represented:
                 continue
             compatible = self._local_pack_compatible(manifest)
-            rights = self._local_pack_rights(pack_id, manifest)
+            rights = installed_audit[pack_id].rights_evidence
             packs.append(
                 {
                     "pack_id": manifest.pack_id,
