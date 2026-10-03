@@ -91,13 +91,13 @@ def _regular_file(path: Path, *, label: str, maximum: int) -> os.stat_result:
     return st
 
 
-def _direct_directory(path: Path) -> None:
+def _direct_directory(path: Path, *, label: str) -> None:
     try:
         st = path.lstat()
     except OSError as exc:
-        raise UserLibrarySeedError("user Library seed directory is unavailable") from exc
+        raise UserLibrarySeedError(f"{label} is unavailable") from exc
     if not stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode) or _is_reparse(st):
-        raise UserLibrarySeedError("user Library seed directory must be direct")
+        raise UserLibrarySeedError(f"{label} must be direct")
 
 
 def _unique_json(text: str) -> object:
@@ -138,7 +138,11 @@ def _portable_name(value: object) -> str:
 
 def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
     root = Path(root)
-    _direct_directory(root)
+    # The runtime contract is package-local. Checking only the final seed
+    # directory is insufficient because a junction/symlink at release-content
+    # can redirect the otherwise-direct child outside the package tree.
+    _direct_directory(root.parent, label="user Library seed parent directory")
+    _direct_directory(root, label="user Library seed directory")
     manifest_path = root / MANIFEST_NAME
     manifest_stat = _regular_file(
         manifest_path,
