@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from threading import Thread
 import unittest
 from unittest import mock
@@ -22,6 +23,9 @@ from acs.classroom_realtime_media import (
 
 
 NOW = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+LIVEKIT_ADAPTER = (
+    Path(__file__).resolve().parents[1] / "web" / "livekit_classroom_media.js"
+)
 
 
 class FakeRoster:
@@ -512,6 +516,37 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         session = ClassroomMediaSessionHandoffPort()
         with self.assertRaisesRegex(MediaSessionHandoffError, "local-source"):
             session.set_local_source(MediaSource.MICROPHONE, True)
+
+    def test_browser_payload_matches_current_livekit_session_method_contract(self):
+        source = LIVEKIT_ADAPTER.read_text(encoding="utf-8")
+        self.assertIn(
+            "async connect(credentialValue, enabledSourcesValue)",
+            source,
+        )
+        self.assertIn(
+            "async reconnect(credentialValue, enabledSourcesValue)",
+            source,
+        )
+        self.assertIn("async disconnect()", source)
+        self.assertIn(
+            'const allowed = ["participant_id", "room_id", "token"]',
+            source,
+        )
+
+        _controller, _composite, _session, host = self.make_host()
+        effect = host.prepare_join(
+            credential(),
+            now=NOW + timedelta(seconds=1),
+        )
+        payload = host.claim_browser_payload(effect.transaction_id)
+        self.assertEqual(
+            set(payload),
+            {"transaction_id", "operation", "credential", "enabled_sources"},
+        )
+        self.assertEqual(
+            set(payload["credential"]),
+            {"participant_id", "room_id", "token"},
+        )
 
     def test_unknown_transaction_ids_do_not_clear_pending(self):
         _controller, _composite, _session, host = self.make_host()
