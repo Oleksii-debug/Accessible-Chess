@@ -14,6 +14,7 @@ from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_document import PgnDocumentError, PgnDocumentErrorCode
 from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
+from acs.user_library_seed import BUNDLE_KIND as USER_SEED_BUNDLE_KIND, SCHEMA_VERSION as USER_SEED_SCHEMA_VERSION
 
 
 _STARTER_COUNT = 200
@@ -149,9 +150,12 @@ def _write_bundle(root: Path) -> None:
 
 
 class PackagedStarterApplicationTests(unittest.TestCase):
-    def _application(self, root: Path, bundle: Path):
+    def _application(self, root: Path, bundle: Path, user_seed: Path | None = None):
         database = AcsDatabase(root / "user-library.acsdb")
         analysis = AnalysisService(lambda: None)
+        kwargs = {}
+        if user_seed is not None:
+            kwargs["packaged_user_seed_root"] = user_seed
         app = Version2PackagedStarterApplication(
             database,
             packaged_starter_root=bundle,
@@ -159,8 +163,75 @@ class PackagedStarterApplicationTests(unittest.TestCase):
             engine_assistance=EngineAssistedWorkflowService(analysis),
             board_dispatch=lambda *_: None,
             board_position_projector=lambda _fen: {"ok": True},
+            **kwargs,
         )
         return app, database, analysis
+
+    def test_package_local_user_seed_is_imported_before_first_library_snapshot_and_reused(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-user-seed-runtime-") as raw:
+            root = Path(raw)
+            bundle = root / "package" / "release-content" / "w2-starter"
+            _write_bundle(bundle)
+            seed = root / "package" / "release-content" / "user-library-seed"
+            seed.mkdir(parents=True)
+            pgn = (
+                '[Event "Private studies"]\n'
+                '[White "Author"]\n'
+                '[Black "Solution"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {Study note} e5 (1... c5 $1) 2. Nf3 *\n'
+            ).encode("utf-8")
+            (seed / "studies.pgn").write_bytes(pgn)
+            (seed / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": USER_SEED_SCHEMA_VERSION,
+                        "bundle_kind": USER_SEED_BUNDLE_KIND,
+                        "runtime_network_required": False,
+                        "ai_required": False,
+                        "files": [
+                            {
+                                "file": "studies.pgn",
+                                "display_name": "Private studies",
+                                "bytes": len(pgn),
+                                "sha256": hashlib.sha256(pgn).hexdigest(),
+                            }
+                        ],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            app, database, analysis = self._application(root, bundle, seed)
+            try:
+                self.assertEqual(
+                    int(database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]),
+                    1,
+                )
+                seeded = app.snapshot()["library"]["packaged_user_library"]
+                self.assertEqual(seeded["source_count"], 1)
+                self.assertEqual(seeded["game_count"], 1)
+                self.assertEqual(seeded["reused_source_count"], 0)
+                self.assertFalse(seeded["network_required"])
+                self.assertFalse(seeded["ai_required"])
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
+
+            app, database, analysis = self._application(root, bundle, seed)
+            try:
+                self.assertEqual(
+                    int(database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]),
+                    1,
+                )
+                seeded = app.snapshot()["library"]["packaged_user_library"]
+                self.assertEqual(seeded["reused_source_count"], 1)
+            finally:
+                app.shutdown()
+                analysis.close()
+                database.close()
 
     def test_packaged_w2_actions_are_discoverable_and_open_through_canonical_pgn(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-p0f-w2-runtime-") as raw:
