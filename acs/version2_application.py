@@ -259,6 +259,26 @@ class Version2Application:
                     self._reload_book_progress_after_durability_ambiguity()
                 raise
 
+    def _repair_book_block_focus_after_rebind(self):
+        """Replace only a stale route-local Book block token after reader rebind.
+
+        Stable controls such as the bookmark input keep their remembered focus.
+        Block ids, however, encode the old reader index and can become invalid
+        when canonical recovery accepts a different valid BookReader snapshot.
+        """
+        if self.reader is None or self.books is None:
+            return
+        if self.shell.current_route.route_id != "books":
+            return
+        remembered = self.shell.restore_focus_target()
+        if type(remembered) is not str or not remembered.startswith("book-block-"):
+            return
+        canonical = f"book-block-{self.reader.index}"
+        if remembered == canonical:
+            return
+        self.shell.record_focus(canonical)
+        self._focus = canonical
+
     def _reload_book_progress_after_durability_ambiguity(self):
         """Rebind Books/Training to the canonical primary after uncertain commit."""
 
@@ -301,6 +321,10 @@ class Version2Application:
                     self._events.append(
                         {"kind": "route", "payload": {"route_id": "books"}}
                     )
+                # Canonical recovery may legitimately select a different Book
+                # block than the one remembered by the previous reader. Repair
+                # only index-bound block focus; persistent controls keep focus.
+                self._repair_book_block_focus_after_rebind()
                 return
             except Exception:
                 pass
