@@ -1015,6 +1015,130 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             second_runtime.store._path,
         )
 
+    def test_process_restart_recovers_ambiguous_file_from_authoritative_history(self) -> None:
+        store_path = self.root / "ambiguous-restart.sqlite3"
+        selected = self.root / "ambiguous-restart.bin"
+        selected.write_bytes(b"recover without local path")
+        committed: dict[str, object] | None = None
+        operations: list[str] = []
+
+        class Response:
+            status = 200
+
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+
+            def getheaders(self):
+                return [
+                    ("Content-Type", "application/json; charset=utf-8"),
+                    ("Content-Length", str(len(self.body))),
+                ]
+
+            def read(self, limit):
+                return self.body[:limit]
+
+        class Connection:
+            def __init__(self, host, port, timeout):
+                self.sent_parts = []
+
+            def putrequest(self, method, target, **kwargs):
+                return None
+
+            def putheader(self, name, value):
+                return None
+
+            def endheaders(self):
+                return None
+
+            def send(self, data):
+                self.sent_parts.append(bytes(data))
+
+            def getresponse(self):
+                nonlocal committed
+                (header_size,) = struct.unpack("!I", self.sent_parts[0])
+                if header_size != len(self.sent_parts[1]):
+                    raise AssertionError("file HTTP JSON frame length mismatch")
+                request = json.loads(self.sent_parts[1].decode("utf-8"))
+                operation = request["op"]
+                operations.append(operation)
+                if operation == "upload":
+                    metadata = dict(request["metadata"])
+                    authoritative = dict(metadata)
+                    authoritative["sequence_no"] = 0
+                    authoritative["transfer_state"] = "stored"
+                    authoritative["scan_state"] = "clean"
+                    committed = authoritative
+                    raise OSError("upload committed but acknowledgement was lost")
+                if operation == "history":
+                    if committed is None:
+                        raise AssertionError("history requested before committed upload")
+                    return Response(
+                        {
+                            "v": 1,
+                            "ok": True,
+                            "attachments": [committed],
+                            "snapshot_state_revision": None,
+                        }
+                    )
+                if operation == "state":
+                    return Response({"v": 1, "ok": True, "updates": []})
+                raise AssertionError(f"unexpected file operation: {operation}")
+
+            def close(self):
+                return None
+
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+                Connection,
+            ),
+        ):
+            first = self.bare_app()
+            first_runtime = self.configure(
+                first,
+                collaboration_store_path=store_path,
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                file_picker=lambda: selected,
+            )
+            failed = first.browser_command(
+                "classes",
+                "collaboration.file.choose_upload",
+                {},
+            )
+            self.assertEqual("error", failed["kind"])
+            failed_rows = first_runtime.store.room_attachments("room-1")
+            self.assertEqual(len(failed_rows), 1)
+            self.assertEqual(failed_rows[0].transfer_state, "failed")
+            first.unbind_classroom_collaboration()
+
+            second = self.bare_app()
+            second_runtime = self.configure(
+                second,
+                collaboration_store_path=store_path,
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+            )
+            before_sync = second_runtime.webview.safe_snapshot()["files"]["items"][0]
+            self.assertFalse(before_sync["can_retry"])
+            synced = second.refresh_classroom_files()
+
+        self.assertEqual("collaboration.file.synced", synced["kind"])
+        self.assertEqual(operations, ["upload", "history", "state"])
+        self.assertEqual(self.file_token_calls, 3)
+        recovered = second_runtime.store.room_attachments("room-1")
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(recovered[0].transfer_state, "stored")
+        self.assertEqual(recovered[0].scan_state, "clean")
+        self.assertEqual(recovered[0].sequence_no, 0)
+        self.assertEqual(
+            recovered[0].attachment_id,
+            failed_rows[0].attachment_id,
+        )
+
     def test_product_status_reports_http_only_for_owned_http_composition(self) -> None:
         app = self.bare_app()
         with (
