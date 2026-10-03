@@ -1046,7 +1046,7 @@
     });
     main.appendChild(form);
 
-    let effectiveFocus = requestedFocus || canonicalTrainingFocusTarget(snapshot);
+    let effectiveFocus = requestedFocus || "";
     if (effectiveFocus === "training-answer" && answerSpec.disabled) {
       effectiveFocus = canonicalTrainingFocusTarget(snapshot);
     }
