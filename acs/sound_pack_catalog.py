@@ -188,10 +188,11 @@ class SoundPackRightsEvidence:
 
 @dataclass(frozen=True)
 class SoundPackInstalledAudit:
-    """One coherent verified installed-version identity plus bound rights evidence."""
+    """One coherent verified installed-version identity, bytes and rights evidence."""
 
     manifest: SoundPackManifest
     rights_evidence: SoundPackRightsEvidence | None = None
+    asset_digests: Mapping[str, SoundAssetDigest] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.manifest, SoundPackManifest):
@@ -205,6 +206,32 @@ class SoundPackInstalledAudit:
                 raise ValueError(
                     "installed audit rights license must match manifest license_id"
                 )
+        if self.asset_digests is not None:
+            if not isinstance(self.asset_digests, Mapping):
+                raise TypeError(
+                    "installed audit asset_digests must be a mapping or null"
+                )
+            normalized: dict[str, SoundAssetDigest] = {}
+            for path, digest in self.asset_digests.items():
+                if type(path) is not str or not isinstance(digest, SoundAssetDigest):
+                    raise TypeError(
+                        "installed audit asset_digests must map text paths to SoundAssetDigest"
+                    )
+                key = _safe_audio_path(path)
+                if key != digest.path:
+                    raise ValueError(
+                        "installed audit asset digest key must match digest path"
+                    )
+                normalized[key] = digest
+            if set(normalized) != set(self.manifest.files.values()):
+                raise ValueError(
+                    "installed audit asset_digests must exactly cover manifest assets"
+                )
+            object.__setattr__(
+                self,
+                "asset_digests",
+                MappingProxyType(dict(sorted(normalized.items()))),
+            )
 
 
 @dataclass(frozen=True)
