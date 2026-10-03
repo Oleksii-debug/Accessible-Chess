@@ -14,6 +14,7 @@ from acs.classroom_collaboration import (
     ClassroomCollaborationController,
     CollaborationError,
     FileQuotaPolicy,
+    FileTransferProgress,
     PreparedFile,
 )
 from acs.classroom_collaboration_storage import (
@@ -146,6 +147,8 @@ class FakeFiles:
         self.state_override = None
         self.after_history = None
         self.server_max_room_bytes = None
+        self.progress_samples = ()
+        self.last_progress_callback = None
 
     def _server_room_bytes(self, room_id, *, excluding_attachment_id=None):
         return sum(
@@ -203,10 +206,13 @@ class FakeFiles:
         self.ordered.sort(key=lambda item: (item.room_id, item.sequence_no))
         return attachment
 
-    def upload(self, prepared):
+    def upload(self, prepared, *, on_progress):
         self.upload_calls.append(prepared)
+        self.last_progress_callback = on_progress
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
+        for sample in self.progress_samples:
+            on_progress(sample)
         self._enforce_server_identity(prepared)
         self._enforce_server_room_quota(prepared)
         current = self.attachments.get(prepared.metadata.attachment_id)
@@ -224,10 +230,13 @@ class FakeFiles:
             )
         )
 
-    def retry(self, prepared):
+    def retry(self, prepared, *, on_progress):
         self.retry_calls.append(prepared)
+        self.last_progress_callback = on_progress
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
+        for sample in self.progress_samples:
+            on_progress(sample)
         self._enforce_server_identity(prepared)
         self._enforce_server_room_quota(prepared)
         current = self.attachments.get(prepared.metadata.attachment_id)
@@ -3282,6 +3291,438 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertIsInstance(sent, PreparedFile)
         self.assertIsInstance(sent.local_path, Path)
         self.assertFalse(hasattr(sent, "content"))
+
+
+    def test_upload_progress_is_bounded_monotonic_and_terminal(self):
+        controller = self.controller()
+        payload = b"abcdef"
+        prepared = controller.prepare_file(
+            attachment_id="progress-a1",
+            local_path=self.make_file("progress-a1.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress("progress-a1", 0, len(payload)),
+            FileTransferProgress("progress-a1", 2, len(payload)),
+            FileTransferProgress("progress-a1", len(payload), len(payload)),
+            FileTransferProgress("progress-a1", len(payload), len(payload)),
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple(
+                (item.transferred_bytes, item.complete)
+                for item in observed
+            ),
+            (
+                (0, False),
+                (2, False),
+                (len(payload), False),
+                (len(payload), True),
+            ),
+        )
+        self.assertTrue(
+            all(item.attachment_id == "progress-a1" for item in observed)
+        )
+        self.assertTrue(
+            all(item.total_bytes == len(payload) for item in observed)
+        )
+
+
+    def test_late_provider_progress_cannot_regress_terminal_completion(self):
+        controller = self.controller()
+        payload = b"late-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-late",
+            local_path=self.make_file("progress-late.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress("progress-late", 4, len(payload)),
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertTrue(observed[-1].complete)
+        before = tuple(observed)
+        self.assertIsNotNone(self.files.last_progress_callback)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-late",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(before, tuple(observed))
+
+
+    def test_progress_observer_closes_after_provider_exception(self):
+        controller = self.controller()
+        payload = b"provider-exception"
+        prepared = controller.prepare_file(
+            attachment_id="progress-exception",
+            local_path=self.make_file("progress-exception.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        observed = []
+
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared, on_progress=observed.append)
+
+        self.assertEqual(
+            self.store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+        before = tuple(observed)
+        self.assertIsNotNone(self.files.last_progress_callback)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-exception",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(before, tuple(observed))
+
+
+    def test_progress_observer_closes_after_terminal_failed_result(self):
+        controller = self.controller()
+        payload = b"terminal-failed"
+        prepared = controller.prepare_file(
+            attachment_id="progress-terminal-failed",
+            local_path=self.make_file("progress-terminal-failed.bin", payload),
+            sequence_no=41,
+        )
+        observed = []
+        callback = None
+
+        def terminal_failed(candidate, *, on_progress):
+            nonlocal callback
+            callback = on_progress
+            on_progress(
+                FileTransferProgress(
+                    "progress-terminal-failed",
+                    3,
+                    len(payload),
+                )
+            )
+            return replace(
+                candidate.metadata,
+                transfer_state="failed",
+                scan_state="failed",
+            )
+
+        with patch.object(self.files, "upload", side_effect=terminal_failed):
+            failed = controller.upload_file(
+                prepared,
+                on_progress=observed.append,
+            )
+
+        self.assertEqual(failed.transfer_state, "failed")
+        self.assertFalse(any(item.complete for item in observed))
+        before = tuple(observed)
+        self.assertIsNotNone(callback)
+        callback(
+            FileTransferProgress(
+                "progress-terminal-failed",
+                len(payload),
+                len(payload),
+            )
+        )
+        callback(object())
+        self.assertEqual(before, tuple(observed))
+
+
+    def test_provider_cannot_forge_authoritative_progress_completion(self):
+        controller = self.controller()
+        payload = b"done"
+        prepared = controller.prepare_file(
+            attachment_id="progress-forged-complete",
+            local_path=self.make_file("progress-forged-complete.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-forged-complete",
+                len(payload),
+                len(payload),
+                complete=True,
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "cannot claim authoritative completion",
+        ):
+            controller.upload_file(prepared)
+
+        failed = self.store.room_attachments("room-1")[0]
+        self.assertEqual(failed.transfer_state, "failed")
+
+
+    def test_upload_progress_rejects_provider_identity_size_and_regression(self):
+        controller = self.controller()
+        payload = b"data"
+        cases = (
+            (
+                "wrong-id",
+                (FileTransferProgress("other-id", 1, len(payload)),),
+                "belongs to another attachment",
+            ),
+            (
+                "wrong-size",
+                (FileTransferProgress("progress-wrong-size", 1, len(payload) + 1),),
+                "changed attachment size",
+            ),
+            (
+                "backwards",
+                (
+                    FileTransferProgress("progress-backwards", 3, len(payload)),
+                    FileTransferProgress("progress-backwards", 2, len(payload)),
+                ),
+                "moved backwards",
+            ),
+        )
+        for suffix, samples, message in cases:
+            with self.subTest(suffix=suffix):
+                attachment_id = f"progress-{suffix}"
+                prepared = controller.prepare_file(
+                    attachment_id=attachment_id,
+                    local_path=self.make_file(f"{attachment_id}.bin", payload),
+                    sequence_no=91,
+                )
+                self.files.progress_samples = samples
+                with self.assertRaisesRegex(CollaborationError, message):
+                    controller.upload_file(prepared)
+                failed = tuple(
+                    item
+                    for item in self.store.room_attachments("room-1")
+                    if item.attachment_id == attachment_id
+                )
+                self.assertEqual(len(failed), 1)
+                self.assertEqual(failed[0].transfer_state, "failed")
+
+
+    def test_progress_bounds_and_consumer_failure_do_not_corrupt_transfer(self):
+        for transferred, total in (
+            (-1, 4),
+            (5, 4),
+            (0, -1),
+            (MAX_WIRE_INTEGER + 1, MAX_WIRE_INTEGER + 1),
+        ):
+            with self.subTest(transferred=transferred, total=total):
+                with self.assertRaises(CollaborationError):
+                    FileTransferProgress(
+                        "bounded-progress",
+                        transferred,
+                        total,
+                    )
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "completion marker must be boolean",
+        ):
+            FileTransferProgress("bounded-progress", 4, 4, complete=1)
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "must equal total bytes",
+        ):
+            FileTransferProgress("bounded-progress", 3, 4, complete=True)
+
+        controller = self.controller()
+        payload = b"consumer-safe"
+        prepared = controller.prepare_file(
+            attachment_id="progress-consumer",
+            local_path=self.make_file("progress-consumer.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-consumer",
+                3,
+                len(payload),
+            ),
+        )
+        consumer_calls = []
+
+        def broken_consumer(sample):
+            consumer_calls.append(sample)
+            raise RuntimeError("presentation callback failed")
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=broken_consumer,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertGreaterEqual(len(consumer_calls), 1)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (stored,),
+        )
+
+
+    def test_progress_consumer_validation_precedes_state_mutation(self):
+        controller = self.controller()
+        payload = b"consumer-validation"
+        prepared = controller.prepare_file(
+            attachment_id="progress-consumer-validation",
+            local_path=self.make_file(
+                "progress-consumer-validation.bin",
+                payload,
+            ),
+            sequence_no=0,
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.upload_file(
+                prepared,
+                on_progress="not-callable",
+            )
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        failed = self.store.room_attachments("room-1")[0]
+        self.assertEqual(failed.transfer_state, "failed")
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.retry_file(
+                prepared,
+                on_progress=object(),
+            )
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (failed,),
+        )
+
+
+    def test_progress_consumer_cannot_reentrantly_cancel_active_upload(self):
+        controller = self.controller()
+        payload = b"reentrant-upload"
+        prepared = controller.prepare_file(
+            attachment_id="progress-reentrant-upload",
+            local_path=self.make_file("progress-reentrant-upload.bin", payload),
+            sequence_no=0,
+        )
+        observed_errors = []
+
+        def reentrant_cancel(_sample):
+            try:
+                controller.cancel_file(prepared.metadata.attachment_id)
+            except CollaborationError as error:
+                observed_errors.append(str(error))
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=reentrant_cancel,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(self.files.upload_calls), 1)
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertTrue(observed_errors)
+        self.assertTrue(
+            all(
+                message == "file state cannot be mutated from a progress consumer"
+                for message in observed_errors
+            )
+        )
+        self.assertEqual(controller.sync_files(), ())
+
+    def test_progress_consumer_cannot_reentrantly_cancel_retry(self):
+        controller = self.controller()
+        payload = b"reentrant-retry"
+        prepared = controller.prepare_file(
+            attachment_id="progress-reentrant-retry",
+            local_path=self.make_file("progress-reentrant-retry.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+        observed_errors = []
+
+        def reentrant_cancel(_sample):
+            try:
+                controller.cancel_file(prepared.metadata.attachment_id)
+            except CollaborationError as error:
+                observed_errors.append(str(error))
+
+        stored = controller.retry_file(
+            prepared,
+            on_progress=reentrant_cancel,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(self.files.retry_calls), 1)
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertTrue(observed_errors)
+        self.assertTrue(
+            all(
+                message == "file state cannot be mutated from a progress consumer"
+                for message in observed_errors
+            )
+        )
+        self.assertEqual(controller.sync_files(), ())
+
+    def test_retry_reports_fresh_progress_sequence(self):
+        controller = self.controller()
+        payload = b"retry-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-retry",
+            local_path=self.make_file("progress-retry.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+
+        self.files.fail_upload = False
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-retry",
+                5,
+                len(payload),
+            ),
+        )
+        observed = []
+
+        stored = controller.retry_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple((item.transferred_bytes, item.complete) for item in observed),
+            (
+                (0, False),
+                (5, False),
+                (len(payload), True),
+            ),
+        )
 
 
 if __name__ == "__main__":
