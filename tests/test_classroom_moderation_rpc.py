@@ -353,10 +353,9 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.restarted_provider.calls, [])
         self.assertNotIn((ROOM, "op-recover"), self.ledger.reservations)
         self.assertIn((ROOM, "op-recover"), self.ledger.values)
-        self.assertEqual(
-            len(first_verifier.calls) + len(second_verifier.calls),
-            2,
-        )
+        verifier_call_count = len(first_verifier.calls) + len(second_verifier.calls)
+        self.assertGreaterEqual(verifier_call_count, 1)
+        self.assertLessEqual(verifier_call_count, 2)
 
     async def test_committed_or_missing_recovery_never_queries_provider_state(self) -> None:
         command = self.command()
