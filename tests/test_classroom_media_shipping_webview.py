@@ -227,7 +227,7 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIsNone(binder.active_lease)
 
     def test_join_dispatch_is_secret_free_and_credential_is_one_shot(self):
-        _controller, roster, _host, _sessions, _binder, _projection, transactions, _bridge = composition()
+        _controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
         event = transactions.prepare_join(
             credential(roster.local_id),
             now=NOW + timedelta(seconds=1),
@@ -251,6 +251,13 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
             {"transaction_id": transaction_id},
         )
         self.assertEqual(second.kind, "error")
+        self.assertTrue(second.payload["recovery_required"])
+        self.assertIn("snapshot", second.payload)
+        self.assertIsNone(second.payload["snapshot"])
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNotNone(binder.recovery_status)
+        self.assertFalse(binder.recovery_status.provider_outcome_unknown)
+        self.assertNotIn(transaction_id, transactions._focus_by_transaction)
         self.assertNotIn(TOKEN, repr(second))
 
     def test_multi_chunk_moderation_marks_boundary_only_on_first_dispatch(self):
@@ -295,6 +302,32 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIsNone(binder.active_lease)
         self.assertIsNone(host.pending_effect)
 
+    def test_malformed_callback_before_dispatch_retires_exact_lease(self):
+        controller, roster, host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+        before = controller.state
+        event = bridge.dispatch(
+            "media.local_source",
+            {"source": "microphone", "enabled": True},
+        )
+        transaction_id = event.payload["transaction_id"]
+        self.assertIsNotNone(binder.active_lease)
+        self.assertIsNotNone(host.pending_effect)
+
+        result = transactions.dispatch_provider(
+            "media.provider_effect_success",
+            {"transaction_id": transaction_id, "chunk_index": "not-an-int"},
+        )
+
+        self.assertEqual(result.kind, "error")
+        self.assertNotIn("recovery_required", result.payload)
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNone(binder.recovery_status)
+        self.assertIsNone(host.pending_effect)
+        self.assertEqual(controller.state, before)
+        self.assertNotIn(MediaSource.MICROPHONE, controller.state.desired_sources)
+        self.assertNotIn(transaction_id, transactions._focus_by_transaction)
+
     def test_malformed_callback_after_dispatch_enters_unknown_recovery(self):
         controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
         connect(controller, roster, transactions)
@@ -321,6 +354,7 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIsNotNone(binder.recovery_status)
         self.assertTrue(binder.recovery_status.provider_outcome_unknown)
         self.assertNotIn(MediaSource.MICROPHONE, controller.state.desired_sources)
+        self.assertNotIn(transaction_id, transactions._focus_by_transaction)
 
     def test_browser_provider_config_is_nonsecret_and_secure(self):
         _controller, _roster, _host, _sessions, _binder, _projection, transactions, _bridge = composition()
