@@ -6,12 +6,20 @@ on:
       - work/user-corpus-pgn-cp1251-20261003
     paths:
       - 'acs/pgn_streaming_import.py'
+      - 'acs/pgn_service.py'
       - 'tests/test_pgn_streaming_import.py'
+      - 'tests/test_pgn_service.py'
+      - 'tests/test_pgn_document.py'
+      - 'tests/test_dev4_pgn_encoding_quality.py'
       - '.github/workflows/user-corpus-pgn-cp1251.yml'
   pull_request:
     paths:
       - 'acs/pgn_streaming_import.py'
+      - 'acs/pgn_service.py'
       - 'tests/test_pgn_streaming_import.py'
+      - 'tests/test_pgn_service.py'
+      - 'tests/test_pgn_document.py'
+      - 'tests/test_dev4_pgn_encoding_quality.py'
       - '.github/workflows/user-corpus-pgn-cp1251.yml'
 
 permissions:
@@ -43,12 +51,18 @@ jobs:
         run: >-
           python -m py_compile
           acs/pgn_streaming_import.py
+          acs/pgn_service.py
           tests/test_pgn_streaming_import.py
+          tests/test_pgn_service.py
+          tests/test_pgn_document.py
 
       - name: Run streaming and semantic regressions
         run: >-
           python -m unittest -v
           tests.test_pgn_streaming_import
+          tests.test_pgn_service
+          tests.test_pgn_document
+          tests.test_dev4_pgn_encoding_quality
           tests.test_v2_pgn_semantic_fidelity
           tests.test_v2_pgn_nested_comment_recovery
 
