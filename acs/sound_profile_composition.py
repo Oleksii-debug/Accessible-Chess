@@ -10,13 +10,21 @@ back to the packaged ``classic`` authority.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 from typing import Any
 
 from .classroom_sound import ClassroomSoundRuntime
 from .sound_events import SoundEvent
+from .sound_pack_catalog import (
+    SoundPackCatalogEntry,
+    SoundPackDownloadPort,
+    SoundPackInstallError,
+    SoundPackManager,
+    SoundPackSignatureVerifier,
+)
+from .sound_pack_profile import SoundPackProfileCoordinator
 from .sound_pack_store import FilesystemSoundPackStore
 from .sound_profile_file_store import JsonSoundProfileStorage
 from .sound_profile_store import SoundProfileManager
@@ -37,10 +45,19 @@ from .sound_windows import PackagedSoundAssetResolver
 class LocalSoundComposition:
     profile_manager: SoundProfileManager
     pack_store: FilesystemSoundPackStore
+    pack_coordinator: SoundPackProfileCoordinator
     profiled_runtime: ProfiledSoundRuntime
     game_runtime: GameSoundRuntime
     classroom_runtime: ClassroomSoundRuntime
     settings: SoundSettingsApplication
+
+
+class _UnavailableSoundPackDownloader:
+    """Fail closed when no optional provider deployment is configured."""
+
+    def download(self, entry: SoundPackCatalogEntry, *, max_bytes: int):
+        del entry, max_bytes
+        raise SoundPackInstallError("sound pack download provider is unavailable")
 
 
 class _InjectedClassicPlaybackBridge:
@@ -138,6 +155,29 @@ def _local_pack_resolver(store: FilesystemSoundPackStore):
     return resolve
 
 
+def _provider_catalog(
+    catalog: Mapping[str, SoundPackCatalogEntry] | None,
+) -> dict[str, SoundPackCatalogEntry]:
+    if catalog is None:
+        return {}
+    if not isinstance(catalog, Mapping):
+        raise TypeError("sound pack catalog must be a mapping or None")
+    normalized: dict[str, SoundPackCatalogEntry] = {}
+    for pack_id, entry in catalog.items():
+        if type(pack_id) is not str or not isinstance(entry, SoundPackCatalogEntry):
+            raise TypeError(
+                "sound pack catalog must map text ids to SoundPackCatalogEntry"
+            )
+        if pack_id != entry.manifest.pack_id:
+            raise ValueError("sound pack catalog key must match manifest pack_id")
+        if pack_id == "classic":
+            raise ValueError("provider catalog cannot replace the packaged classic authority")
+        if not _windows_pack_is_playable(entry.manifest) and entry.compatible:
+            entry = replace(entry, compatible=False)
+        normalized[pack_id] = entry
+    return normalized
+
+
 def _legacy_profile(settings: Mapping[str, object] | None) -> SoundProfile | None:
     if settings is None:
         return None
@@ -159,6 +199,9 @@ def create_local_sound_composition(
     data_root: str | os.PathLike[str],
     legacy_settings: Mapping[str, object] | None = None,
     asset_playback: SoundAssetPlaybackPort | SoundPlaybackPort | None = None,
+    catalog: Mapping[str, SoundPackCatalogEntry] | None = None,
+    pack_downloader: SoundPackDownloadPort | None = None,
+    signature_verifier: SoundPackSignatureVerifier | None = None,
 ) -> LocalSoundComposition:
     """Create one durable local sound composition for the shipping application.
 
@@ -166,6 +209,20 @@ def create_local_sound_composition(
     yet exist. This preserves Stage1 ``sounds``/``volume`` choices on first V2
     profile migration without keeping two writable settings authorities.
     """
+
+    normalized_catalog = _provider_catalog(catalog)
+    if normalized_catalog and pack_downloader is None:
+        raise ValueError("sound pack catalog requires a download provider")
+    if pack_downloader is not None and (
+        isinstance(pack_downloader, type)
+        or not callable(getattr(pack_downloader, "download", None))
+    ):
+        raise TypeError("pack_downloader must expose download() or be None")
+    if signature_verifier is not None and (
+        isinstance(signature_verifier, type)
+        or not callable(getattr(signature_verifier, "verify", None))
+    ):
+        raise TypeError("signature_verifier must expose verify() or be None")
 
     app_dir = Path(application_dir)
     root = Path(data_root)
@@ -188,6 +245,14 @@ def create_local_sound_composition(
     )
     profile_manager.load()
 
+    pack_manager = SoundPackManager(
+        pack_downloader if pack_downloader is not None else _UnavailableSoundPackDownloader(),
+        pack_store,
+        signature_verifier=signature_verifier,
+        external_fallback_available=True,
+    )
+    pack_coordinator = SoundPackProfileCoordinator(pack_manager, profile_manager)
+
     playback = _asset_playback(
         asset_playback,
         application_dir=app_dir,
@@ -200,12 +265,15 @@ def create_local_sound_composition(
     settings = SoundSettingsApplication(
         profile_manager,
         profiled,
+        pack_coordinator=pack_coordinator,
+        catalog=normalized_catalog,
         installed_pack_provider=lambda: _playable_installed_packs(pack_store),
     )
     settings.reconcile_active_profile()
     return LocalSoundComposition(
         profile_manager=profile_manager,
         pack_store=pack_store,
+        pack_coordinator=pack_coordinator,
         profiled_runtime=profiled,
         game_runtime=game,
         classroom_runtime=classroom,
