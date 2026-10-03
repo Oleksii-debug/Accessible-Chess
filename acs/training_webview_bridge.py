@@ -1,7 +1,7 @@
 """Strict browser-command bridge for the accessible Training WebView surface."""
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 
 from .training_webview_projection import TrainingWebViewEvent, TrainingWebViewProjection
 
@@ -28,8 +28,8 @@ class TrainingWebViewBridge:
     def _payload(value: object) -> dict[str, object]:
         if value is None:
             return {}
-        if not isinstance(value, Mapping):
-            raise TypeError("training browser payload must be a mapping")
+        if type(value) is not dict:
+            raise TypeError("training browser payload must be an exact object")
         if len(value) > 2:
             raise ValueError("training browser payload has too many fields")
         out: dict[str, object] = {}
@@ -45,14 +45,14 @@ class TrainingWebViewBridge:
         return out
 
     @staticmethod
-    def _exact(payload: Mapping[str, object], allowed: set[str]) -> None:
+    def _exact(payload: dict[str, object], allowed: set[str]) -> None:
         if set(payload) != allowed:
             raise ValueError("training browser payload fields are invalid")
 
     def dispatch(
         self,
         command: object,
-        payload: Mapping[str, object] | None = None,
+        payload: dict[str, object] | None = None,
     ) -> TrainingWebViewEvent:
         try:
             if type(command) is not str:
