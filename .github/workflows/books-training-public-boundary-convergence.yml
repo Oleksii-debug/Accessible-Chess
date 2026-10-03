@@ -1,0 +1,89 @@
+name: Books Training Public DOM Boundary Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'web/full_product_books_training.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - '.github/workflows/books-training-public-boundary-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-training-public-boundary-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      EXACT_PARENT: 23703e1ecf92c9224de775df65aa622b0b8f03a3
+      SOURCE_PUBLIC_BOUNDARY: b9df4f1d9df28bd67443d359d0ea08d0c28fe076
+      WEB_BLOB: 272ad60be9358b92dff97f45f805366833c1dd48
+      DOM_TEST_BLOB: fb99de0f89f253e88b03d5ff7160b75ec91be06b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prove exact successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:web/full_product_books_training.js")" = "$WEB_BLOB"
+          test "$(git rev-parse "HEAD:tests/js/books_training_surface_dom_test.js")" = "$DOM_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/books-training-public-boundary-convergence.yml' \
+            'tests/js/books_training_surface_dom_test.js' \
+            'web/full_product_books_training.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+          echo "SOURCE_PUBLIC_BOUNDARY=$SOURCE_PUBLIC_BOUNDARY"
+
+      - name: Validate browser public boundaries
+        run: |
+          node --check web/full_product_books_training.js
+          node --check web/full_product_pgn.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Validate adjacent host and whole-product contracts
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_web_asset
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_books_training_ui_integration
+          tests.test_dev1_pgn_webview_projection
+          tests.test_training_authority_convergence
+          tests.test_version2_training_current_runtime
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_application
+          tests.test_version2_release_accessibility_contract
+
+      - name: Core selftest
+        run: python -m acs.selftest
