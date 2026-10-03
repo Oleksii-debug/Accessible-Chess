@@ -871,6 +871,47 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         with self.assertRaises(CollaborationStorageError):
             self.store.attachment_state_revision("room")
 
+    def test_integrity_check_rejects_semantic_corruption_when_pragma_is_ok(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata(
+                "m-integrity",
+                "room",
+                "teacher",
+                0,
+                "Semantic integrity",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_messages SET hidden=2 "
+                "WHERE message_id='m-integrity'"
+            )
+            self.assertEqual(
+                db.execute("PRAGMA integrity_check").fetchone()[0],
+                "ok",
+            )
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.integrity_check()
+
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_messages SET hidden=0 "
+                "WHERE message_id='m-integrity'"
+            )
+            db.execute(
+                "INSERT INTO collaboration_chat_state_cursors(room_id, revision) "
+                "VALUES('/invalid-room', 0)"
+            )
+            self.assertEqual(
+                db.execute("PRAGMA integrity_check").fetchone()[0],
+                "ok",
+            )
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.integrity_check()
+
     def test_hidden_state_requires_strict_boolean(self) -> None:
         self.store.append_message(
             ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
