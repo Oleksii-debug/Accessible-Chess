@@ -2,6 +2,7 @@ import codecs
 import unittest
 from unittest.mock import patch
 
+from acs import pgn_roundtrip as rt
 from acs.gametree import Comment, CommentStyle, MoveNode, PgnGame, VariationLine
 from acs.pgn_roundtrip import (
     PgnRoundTripError,
@@ -160,6 +161,26 @@ class D06PgnRoundTripTests(unittest.TestCase):
             with self.assertRaisesRegex(TypeError, "strict must be a boolean"):
                 parse_pgn_bytes(b"not decoded", strict=0)
             decode.assert_not_called()
+
+    def test_bytes_parse_runs_one_semantic_preflight_with_shared_budget(self):
+        payload = b'[Result "*"]\n\n1. e4 *\n'
+        with patch.object(
+            rt,
+            "_preflight_text",
+            wraps=rt._preflight_text,
+        ) as preflight:
+            games = parse_pgn_bytes(payload)
+        self.assertEqual(len(games), 1)
+        self.assertEqual(preflight.call_count, 1)
+
+        with patch.object(
+            rt,
+            "_preflight_text",
+            wraps=rt._preflight_text,
+        ) as preflight:
+            decoded = decode_pgn_bytes(payload)
+        self.assertIn('[Result "*"]', decoded)
+        self.assertEqual(preflight.call_count, 1)
 
     def test_invalid_unicode_scalars_fail_with_stable_text_and_model_errors(self):
         self.assert_code(
