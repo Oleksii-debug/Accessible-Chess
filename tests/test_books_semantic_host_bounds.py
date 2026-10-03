@@ -91,16 +91,17 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         before = reader.snapshot()
         game = self.semantic_game()
 
-        # One single-move browser snapshot contains exactly seven semantic text
-        # entries: section label, players label/value, result label/value, move
-        # label/result. Seven must pass; six must fail on the host before WebView.
+        # One single-move browser snapshot contains exactly eight semantic text
+        # entries: section label, players label/value, result label, variation-depth
+        # label, result value, move label/result. Eight must pass; seven must fail
+        # on the host before WebView.
         with (
             patch.object(
                 workflow,
                 "semantic_game_snapshot",
                 return_value=(BookBoardMode.GAME, game, ()),
             ),
-            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 7),
+            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 8),
         ):
             accepted = bridge.projection.snapshot()
         self.assertIsInstance(accepted["semantic_tree"], dict)
@@ -112,7 +113,7 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
                 "semantic_game_snapshot",
                 return_value=(BookBoardMode.GAME, game, ()),
             ),
-            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 6),
+            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 7),
         ):
             rejected = bridge.projection.snapshot()
 
@@ -142,6 +143,10 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
             (
                 book_workspace._MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
                 'semanticText(tree.players, "Book semantic players", false, 720);',
+            ),
+            (
+                book_workspace._MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS,
+                '"Book semantic variation depth label"',
             ),
             (
                 book_workspace._MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,

@@ -43,6 +43,7 @@ _SEMANTIC_LABELS = {
         "moves": "Ходи та варіанти",
         "players": "Гравці",
         "result": "Результат",
+        "variation_depth": "Рівень варіанта",
         "unknown": "невідомо",
         "reading_unavailable": "Ходи цієї партії неможливо безпечно показати; шахівниця залишається доступною.",
         "content_unavailable": "Шаховий вміст цієї партії недоступний або невалідний; відкриття на шахівниці вимкнено.",
@@ -51,6 +52,7 @@ _SEMANTIC_LABELS = {
         "moves": "Moves and variations",
         "players": "Players",
         "result": "Result",
+        "variation_depth": "Variation depth",
         "unknown": "unknown",
         "reading_unavailable": "This game's moves cannot be displayed safely; the board remains available.",
         "content_unavailable": "This game's chess content is unavailable or invalid; opening it on the board is disabled.",
@@ -213,6 +215,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             allow_empty=False,
             max_units=_MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS,
         )
+        variation_depth_label = safe(
+            labels["variation_depth"],
+            allow_empty=False,
+            max_units=_MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS,
+        )
         result_text = safe(
             result,
             allow_empty=False,
@@ -366,6 +373,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "players_label": players_label,
             "players": players,
             "result_label": result_label,
+            "variation_depth_label": variation_depth_label,
             "result": result_text,
             "intro_comments": intro_comments,
             "outro_comments": outro_comments,
