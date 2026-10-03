@@ -151,6 +151,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_NEWGAME_IMPACT_COUNT_INVALID", self.text)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH", self.text)
         self.assertIn("inventory.json", self.text)
+        self.assertIn("sound_root / 'manifest.json'", self.text)
         self.assertIn("SOUND_INVENTORY.json", self.text)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE_MISMATCH", self.text)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE=PASS", self.text)
