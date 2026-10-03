@@ -6,10 +6,14 @@ on:
       - work/v2-book-progress-production-repair-20260831
   pull_request:
     paths:
+      - '.github/workflows/book-progress-orphan-backup-recovery.yml'
+      - '.github/workflows/books-progress-backup-recovery.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
       - 'acs/book_progress_store.py'
+      - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
-      - '.github/workflows/v2-book-progress-production-repair.yml'
+      - 'tests/test_version2_application.py'
   workflow_dispatch:
 
 permissions:
@@ -29,12 +33,16 @@ jobs:
     timeout-minutes: 60
     env:
       STACK_PARENT_SHA: 5ec896f00615d10157c5ec52a1ef83917779a1b5
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
-      CURRENT_PROGRESS_OWNER: e3b233f603cefd3a513a5ba39c85e64e51aff557
-      CURRENT_STORE_BLOB: 3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
-      CURRENT_BASE_TEST_BLOB: 52cb2948ec6789b60775e1fa38cae44770baff7a
-      CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
+      CURRENT_BOOKS_BRANCH: work/books-bidirectional-semantic-navigation-20260927
+      CURRENT_PROGRESS_OWNER: a56abe4e68d58c7600b97c1a410ae64a42697aaa
+      CURRENT_STORE_BLOB: dd328b144d61dbb467d0b09bf131d76ca09617ec
+      CURRENT_APPLICATION_BLOB: 7c8d36a1547f5a7637ed384a94d8882ad71079c9
+      CURRENT_BASE_TEST_BLOB: 99b7dfa5bf959470b1a31c5ff7fcea9e06935347
+      CURRENT_APPLICATION_TEST_BLOB: 79c70573829999f37b5558d7158bfc74988ad869
+      CURRENT_PRODUCTION_TEST_BLOB: 1a25f83c051405fefd7ec09bc471fb89945bf6e5
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -116,6 +124,59 @@ jobs:
             fi
           fi
 
+          orphan_backup_successor=false
+          if git merge-base --is-ancestor "$current_product" HEAD; then
+            current_delta="$(git diff --name-only "$current_product" HEAD | sort)"
+            orphan_expected="$(printf '%s\n' \
+              '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+              '.github/workflows/books-progress-backup-recovery.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_version2_application.py' | sort)"
+            if [ "$current_delta" = "$orphan_expected" ]; then
+              test "$(git rev-parse "$current_product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
+              test "$(git rev-parse "$current_product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              orphan_backup_successor=true
+            fi
+          fi
+
+          current_books_recovery=false
+          current_books=''
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$PR_BASE_REF" = "$CURRENT_BOOKS_BRANCH" ]; then
+            test -n "$PR_BASE_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            books_ref="refs/remotes/origin/$CURRENT_BOOKS_BRANCH"
+            git fetch --no-tags origin "+refs/heads/$CURRENT_BOOKS_BRANCH:$books_ref"
+            current_books="$(git rev-parse "$books_ref")"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$current_books"
+            git merge-base --is-ancestor "$current_books" HEAD
+            test "$(git merge-base "$current_books" HEAD)" = "$current_books"
+            books_delta="$(git diff --name-only "$current_books" HEAD | sort)"
+            books_expected="$(printf '%s\n' \
+              '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+              '.github/workflows/books-progress-backup-recovery.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_version2_application.py' | sort)"
+            if [ "$books_delta" = "$books_expected" ]; then
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              current_books_recovery=true
+            fi
+          fi
+
           full_product_composition=false
           if [ "${{ github.event_name }}" = "pull_request" ] \
             && [ "${{ github.head_ref }}" = "$CURRENT_PRODUCT_BRANCH" ]; then
@@ -161,6 +222,22 @@ jobs:
               tests/test_v2_book_progress_store.py \
               tests/test_v2_book_progress_store_production.py
             echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_SUCCESSOR'
+          elif [ "$orphan_backup_successor" = true ]; then
+            git diff --check "$current_product" HEAD
+            # This successor changes only the missing-primary recovery authority,
+            # its exact qualification gates, and the base regression file.
+            git diff --quiet "$current_product" HEAD -- \
+              tests/test_v2_book_progress_store_production.py \
+              acs/bookreader.py \
+              acs/bookdocument.py \
+              acs/book_game_content.py \
+              acs/book_webview_bridge.py \
+              acs/book_webview_projection.py \
+              acs/version2_application.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=ORPHAN_BACKUP_SUCCESSOR'
+          elif [ "$current_books_recovery" = true ]; then
+            git diff --check "$current_books" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=CURRENT_BOOKS_RECOVERY'
           elif [ "$full_product_composition" = true ]; then
             # The repair is composed into the live Full Product. A broad Product
             # history is legitimate only on that exact canonical branch.
@@ -182,6 +259,10 @@ jobs:
           # and exact current owned blobs.
           git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
           test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+          if [ "$current_books_recovery" = true ]; then
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+          fi
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
           echo 'BOOK PROGRESS PRODUCTION OWNERSHIP PASS'

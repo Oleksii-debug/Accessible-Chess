@@ -53,6 +53,10 @@ class PgnTreeItem:
     san: str | None = None
     comments: tuple[str, ...] = ()
     nags: tuple[str, ...] = ()
+    trailing_comments: tuple[str, ...] = ()
+    comments_before: tuple[str, ...] = ()
+    comments_after: tuple[str, ...] = ()
+    result: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +170,10 @@ class PgnTreePresenter:
                     label=variation_label,
                     parent_id=parent_id,
                     comments=tuple(comment.text for comment in line.leading_comments),
+                    trailing_comments=tuple(
+                        comment.text for comment in line.trailing_comments
+                    ),
+                    result=line.result,
                 )
             )
             parent_id = line_id
@@ -173,11 +181,19 @@ class PgnTreePresenter:
         for move_index, move in enumerate(line.moves):
             node_id = f"{line_id}/m{move_index}"
             number = f"{move.move_number} " if move.move_number else ""
-            comments = tuple(
+            comments_before = tuple(
                 comment.text
-                for comment in (*move.comments_before, *move.comments_after)
+                for comment in move.comments_before
                 if comment.text.strip()
             )
+            comments_after = tuple(
+                comment.text
+                for comment in move.comments_after
+                if comment.text.strip()
+            )
+            # Keep the historical aggregate for PGN editing surfaces while
+            # exposing exact before/after slots to read-only semantic readers.
+            comments = comments_before + comments_after
             annotation = " ".join(move.nags)
             label = f"{number}{move.san}"
             if annotation:
@@ -192,6 +208,8 @@ class PgnTreePresenter:
                     san=move.san,
                     comments=comments,
                     nags=tuple(move.nags),
+                    comments_before=comments_before,
+                    comments_after=comments_after,
                 )
             )
             for variation_index, variation in enumerate(move.variations):
@@ -621,22 +639,66 @@ class TrainingView:
 class TrainingPresenter:
     """Explicit-action feedback over the canonical :class:`ExerciseSession`."""
 
+    _PRESENTATION_MESSAGES = {
+        "completed": ("Вправу завершено.", "Exercise completed."),
+        "accepted": ("Правильно. Наступний крок.", "Correct. Next step."),
+        "retry": ("Спробуйте ще раз.", "Try again."),
+        "no_hint": (
+            "Підказки для цього кроку немає.",
+            "No hint is available for this step.",
+        ),
+        "revealed": ("Розв’язок показано.", "Solution revealed."),
+    }
+
     def __init__(
         self,
         session: ExerciseSession,
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
+        message_key: str | None = None,
     ) -> None:
+        if not isinstance(message, str):
+            raise TypeError("training presenter message must be text")
+        if message_key is not None:
+            if not isinstance(message_key, str):
+                raise TypeError("training presenter message key must be text or None")
+            if message_key not in self._PRESENTATION_MESSAGES:
+                raise ValueError("training presenter message key is invalid")
         self._session = session
         self._language = language
-        self._message = ""
+        self._message_key = message_key
+        self._message = message
+        if message_key is not None:
+            self._set_presentation_message(message_key)
 
     @property
     def session(self) -> ExerciseSession:
         return self._session
 
+    @property
+    def message(self) -> str:
+        """Return transient accessible feedback without duplicating session state."""
+        return self._message
+
+    @property
+    def message_key(self) -> str | None:
+        """Identify presentation-owned feedback without exposing it to browser state."""
+        return self._message_key
+
+    def _set_presentation_message(self, key: str) -> None:
+        uk, en = self._PRESENTATION_MESSAGES[key]
+        self._message_key = key
+        self._message = _localized(self._language, uk, en)
+
+    def _set_authored_message(self, message: str) -> None:
+        self._message_key = None
+        self._message = message
+
     def set_language(self, language: UILanguage) -> None:
         self._language = language
+        if self._message_key is not None:
+            self._set_presentation_message(self._message_key)
 
     def view(self) -> TrainingView:
         total = len(self._session.definition.steps)
@@ -656,56 +718,39 @@ class TrainingPresenter:
     def submit(self, answer: str) -> tuple[ExerciseResult, TrainingView]:
         result = self._session.submit(answer)
         if result.completed:
-            self._message = _localized(
-                self._language,
-                "Вправу завершено.",
-                "Exercise completed.",
-            )
+            self._set_presentation_message("completed")
         elif result.accepted:
-            self._message = result.explanation or _localized(
-                self._language,
-                "Правильно. Наступний крок.",
-                "Correct. Next step.",
-            )
+            if result.explanation:
+                self._set_authored_message(result.explanation)
+            else:
+                self._set_presentation_message("accepted")
         else:
-            self._message = _localized(
-                self._language,
-                "Спробуйте ще раз.",
-                "Try again.",
-            )
+            self._set_presentation_message("retry")
         return result, self.view()
 
     def request_hint(self) -> tuple[HintResult, TrainingView]:
         hint = self._session.request_hint()
         if hint.available:
-            self._message = hint.hint or ""
+            self._set_authored_message(hint.hint or "")
         else:
-            self._message = _localized(
-                self._language,
-                "Підказки для цього кроку немає.",
-                "No hint is available for this step.",
-            )
+            self._set_presentation_message("no_hint")
         return hint, self.view()
 
     def reveal_solution(self) -> tuple[str, ...]:
         step = self._session.current_step()
         if step is None:
             return ()
-        self._message = _localized(
-            self._language,
-            "Розв’язок показано.",
-            "Solution revealed.",
-        )
+        self._set_presentation_message("revealed")
         return tuple(sorted(step.accepted_moves))
 
     def retry(self) -> TrainingView:
         """Clear transient UI feedback without changing canonical progress."""
-        self._message = ""
+        self._set_authored_message("")
         return self.view()
 
     def reset(self) -> TrainingView:
         self._session.reset()
-        self._message = ""
+        self._set_authored_message("")
         return self.view()
 
     def snapshot(self) -> dict[str, object]:
@@ -718,5 +763,12 @@ class TrainingPresenter:
         snapshot: Mapping[str, object],
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
+        message_key: str | None = None,
     ) -> "TrainingPresenter":
-        return cls(ExerciseSession.restore(definition, snapshot), language=language)
+        return cls(
+            ExerciseSession.restore(definition, snapshot),
+            language=language,
+            message=message,
+            message_key=message_key,
+        )
