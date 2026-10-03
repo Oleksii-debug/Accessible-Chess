@@ -29,9 +29,10 @@ class Version2PgnCommands:
             raise ValueError("no PGN document")
         return session
 
-    def _target(self, payload, *, require_current=True):
+    def _target(self, payload, *, require_current=True, workspace=None):
         request = PgnSelectionExportRequest.from_payload({key: payload[key] for key in _TARGET_FIELDS})
-        workspace = self._session().workspace
+        if workspace is None:
+            workspace = self._session().workspace
         view = workspace.view()
         if (request.game_index, request.content_revision, request.expected_record_digest) != (
             view.selected_game_index, view.content_revision, view.current_record_digest
@@ -44,9 +45,9 @@ class Version2PgnCommands:
             raise ValueError("PGN cursor is stale")
         return request, cursor
 
-    def selection_game(self, request: PgnSelectionExportRequest) -> PgnGame:
-        request, cursor = self._target(asdict(request))
-        game = self._session().workspace.current_game()
+    def _selection_game(self, request: PgnSelectionExportRequest, workspace) -> PgnGame:
+        request, cursor = self._target(asdict(request), workspace=workspace)
+        game = workspace.current_game()
         if not cursor.line_path:
             return game
         # A RAV begins before its owning move. The canonical legality projection
@@ -62,6 +63,10 @@ class Version2PgnCommands:
         tags = dict(game.tags)
         tags.update(SetUp="1", FEN=owner.fen_before, Result=line.result)
         return PgnGame(tags=tags, line=line, source_index=0)
+
+    def selection_game(self, request: PgnSelectionExportRequest) -> PgnGame:
+        workspace = self._session().workspace
+        return self._selection_game(request, workspace)
 
     def current_fen(self) -> str:
         workspace = self._session().workspace
@@ -82,17 +87,19 @@ class Version2PgnCommands:
         return report.start_fen
 
     def export_selected(self, request: PgnSelectionExportRequest, destination: Path):
-        game = self.selection_game(request)
-        expected = self._session().expected_destination_sha256(destination)
+        session = self._session()
+        game = self._selection_game(request, session.workspace)
+        expected = session.expected_destination_sha256(destination)
         return export_game_atomic(destination, game, overwrite=expected is not None, expected_sha256=expected)
 
     def __call__(self, action_id, payload):
-        workspace = self._session().workspace
+        session = self._session()
+        workspace = session.workspace
         if action_id in {"pgn.previous_game", "pgn.next_game"}:
             if payload:
                 if set(payload) != _TARGET_FIELDS:
                     raise ValueError("invalid PGN game navigation payload")
-                self._target(payload, require_current=True)
+                self._target(payload, require_current=True, workspace=workspace)
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
@@ -101,7 +108,11 @@ class Version2PgnCommands:
             allowed.update({"parent_path", "parent_move_index", "variation_index"})
         if set(payload) != allowed:
             raise ValueError("invalid PGN command payload")
-        request, cursor = self._target(payload, require_current=action_id not in navigation)
+        request, cursor = self._target(
+            payload,
+            require_current=action_id not in navigation,
+            workspace=workspace,
+        )
         if action_id in navigation:
             return workspace.set_cursor(cursor)
         if action_id in {"pgn.comment_edit", "pgn.comment_delete"}:
@@ -125,6 +136,6 @@ class Version2PgnCommands:
                 raise ValueError("variation selection changed")
             return workspace.delete_variation(target) if action_id.endswith("delete") else workspace.promote_variation(target)
         if action_id == "pgn.copy_selection":
-            self._copy_text(serialize_game(self.selection_game(request)))
+            self._copy_text(serialize_game(self._selection_game(request, workspace)))
             return None
         raise ValueError("unsupported PGN command")
