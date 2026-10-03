@@ -225,6 +225,60 @@ class AcsDatabaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.list_import_attempts(before_id=-1)
 
+    def test_persisted_row_identity_boundaries_reject_coercive_scalars(self):
+        report = self.db.import_pgn_text(
+            '[Event "Identity"]\n[Result "*"]\n\n1. e4 *',
+            'identity.pgn',
+        )
+        game_id = report.game_ids[0]
+
+        self.assertIsNotNone(self.db.get_game(game_id))
+        self.assertIsNotNone(self.db.get_source(report.source_id))
+        self.assertIsNotNone(self.db.get_import_attempt(report.attempt_id))
+
+        for bad in (True, False, 1.0, "1"):
+            with self.subTest(api="get_game", value=repr(bad)):
+                with self.assertRaises(TypeError):
+                    self.db.get_game(bad)
+            with self.subTest(api="get_source", value=repr(bad)):
+                with self.assertRaises(TypeError):
+                    self.db.get_source(bad)
+            with self.subTest(api="get_import_attempt", value=repr(bad)):
+                with self.assertRaises(TypeError):
+                    self.db.get_import_attempt(bad)
+
+        for bad in (0, -1, 2**63):
+            with self.subTest(api="get_game", value=bad):
+                with self.assertRaises(ValueError):
+                    self.db.get_game(bad)
+            with self.subTest(api="get_source", value=bad):
+                with self.assertRaises(ValueError):
+                    self.db.get_source(bad)
+            with self.subTest(api="get_import_attempt", value=bad):
+                with self.assertRaises(ValueError):
+                    self.db.get_import_attempt(bad)
+
+        fen = '8/8/8/8/8/8/8/8 w - - 0 1'
+        with self.assertRaises(TypeError):
+            self.db.record_position(True, 0, fen)
+        with self.assertRaises(ValueError):
+            self.db.record_position(0, 0, fen)
+        self.assertEqual(
+            self.db.conn.execute('SELECT COUNT(*) FROM positions').fetchone()[0],
+            0,
+        )
+
+        def must_not_iterate():
+            raise AssertionError("invalid game_id must fail before position iteration")
+            yield (0, fen)
+
+        with self.assertRaises(TypeError):
+            self.db.record_positions("1", must_not_iterate())
+        self.assertEqual(
+            self.db.conn.execute('SELECT COUNT(*) FROM positions').fetchone()[0],
+            0,
+        )
+
     def test_exact_position_reference_ignores_move_counters_only(self):
         report = self.db.import_pgn_text('[Event "P"]\n[Result "*"]\n\n1. e4 *', 'position.pgn')
         game_id = report.game_ids[0]
