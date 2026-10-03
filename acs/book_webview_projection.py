@@ -135,6 +135,11 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
 
 
 def _safe_visible_block_text(value: object, *, language: UILanguage) -> str:
+    # Imported Book content is already bounded by the same 12 MiB release
+    # envelope. Reject an oversized malformed presentation string from O(1)
+    # Python length metadata before NUL stripping/path redaction scan it.
+    if isinstance(value, str) and len(value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+        raise ValueError("book presentation block exceeds the visible-text budget")
     # Two UTF-16 units are enough to retain one complete non-BMP scalar beyond
     # the canonical WebView budget, making oversize detection exact without
     # slicing through a surrogate pair on the browser side.
@@ -279,7 +284,7 @@ class BookWebViewProjection:
             raise ValueError("book list items are invalid")
         if len(block.list_items) > _MAX_BOOK_LIST_ITEMS:
             raise ValueError("book presentation list exceeds the item-count budget")
-        if any(type(item) is not str or not item.strip() for item in block.list_items):
+        if any(type(item) is not str or not item for item in block.list_items):
             raise ValueError("book list items are invalid")
         if type(block.list_ordered) is not bool:
             raise ValueError("book list ordered flag is invalid")
