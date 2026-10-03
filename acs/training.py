@@ -13,6 +13,9 @@ TRAINING_SNAPSHOT_SCHEMA_VERSION = 4
 _MAX_EXERCISE_STEPS = 2048
 _MAX_ACCEPTED_MOVES_PER_STEP = 64
 _MAX_MOVE_TEXT = 64
+_MAX_IDENTITY_TEXT = 4096
+_MAX_DEFINITION_TAGS = 64
+_MAX_METADATA_ENTRIES = 64
 _TRAINING_SNAPSHOT_V4_FIELDS = frozenset(
     {
         "schema_version",
@@ -86,6 +89,10 @@ class ExerciseStep:
             raise TypeError("exercise hint must be a string or None")
         if self.explanation is not None and type(self.explanation) is not str:
             raise TypeError("exercise explanation must be a string or None")
+        if self.hint is not None and len(self.hint) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise hint is too long")
+        if self.explanation is not None and len(self.explanation) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise explanation is too long")
         object.__setattr__(self, "accepted_moves", normalized)
 
 
@@ -107,11 +114,15 @@ class ExerciseDefinition:
         exercise_id = self.exercise_id.strip()
         if not exercise_id:
             raise ValueError("exercise_id must not be empty")
+        if len(exercise_id) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise_id is too long")
         if type(self.start_fen) is not str:
             raise TypeError("start_fen must be a string")
         start_fen = self.start_fen.strip()
         if not start_fen:
             raise ValueError("start_fen must not be empty")
+        if len(start_fen) > _MAX_IDENTITY_TEXT:
+            raise ValueError("start_fen is too long")
         # Position syntax and legality belong to the shared canonical chess core.
         Board(start_fen)
         try:
@@ -126,25 +137,42 @@ class ExerciseDefinition:
             raise TypeError("exercise steps must contain ExerciseStep values")
         if type(self.title) is not str:
             raise TypeError("exercise title must be a string")
+        if len(self.title) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise title is too long")
         if isinstance(self.tags, str):
             raise TypeError("exercise tags must be a collection of strings")
+        try:
+            tags = tuple(self.tags)
+        except TypeError as exc:
+            raise TypeError("exercise tags must be a collection of strings") from exc
+        if len(tags) > _MAX_DEFINITION_TAGS:
+            raise ValueError("exercise has too many tags")
         if self.source_id is not None and type(self.source_id) is not str:
             raise TypeError("exercise source_id must be a string or None")
+        if self.source_id is not None and len(self.source_id) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise source_id is too long")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("exercise metadata must map strings to strings")
         try:
             metadata = dict(self.metadata)
         except Exception as exc:
             raise TypeError("exercise metadata must map strings to strings") from exc
+        if len(metadata) > _MAX_METADATA_ENTRIES:
+            raise ValueError("exercise metadata has too many entries")
         if any(
             type(key) is not str or type(value) is not str
             for key, value in metadata.items()
         ):
             raise TypeError("exercise metadata must map strings to strings")
+        if any(
+            len(key) > _MAX_IDENTITY_TEXT or len(value) > _MAX_IDENTITY_TEXT
+            for key, value in metadata.items()
+        ):
+            raise ValueError("exercise metadata text is too long")
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
         object.__setattr__(self, "steps", steps)
-        object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
+        object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in tags))
         # Snapshot once before validation/publication so a mutable or custom
         # Mapping cannot change between the checked and stored representations.
         # Keep a plain dict for dataclass/deepcopy compatibility; ExerciseSession
@@ -701,4 +729,6 @@ def _normalize_tag(value: str) -> str:
     text = value.strip().casefold()
     if not text:
         raise ValueError("exercise tag must not be empty")
+    if len(text) > _MAX_IDENTITY_TEXT:
+        raise ValueError("exercise tag is too long")
     return text
