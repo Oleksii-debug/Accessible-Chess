@@ -1,0 +1,78 @@
+name: Training Core Authority Reconvergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/training.py'
+      - 'tests/test_d08_training_canonical_resume.py'
+      - '.github/workflows/training-core-authority-reconvergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-core-authority-reconvergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      CURRENT_PARENT: 0575fca90034a28656d56e8996ee32df12784dcf
+      CORE_CONVERGENCE: 3a60b1c86403593c4d002e6a8bf3b2929e237720
+      TRAINING_BLOB: 8204a389b959bd2da367705959b6ee827d698dca
+      RESUME_TEST_BLOB: 7cd92e864ba4b845d58d46b364a8b3414fbccda4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove both histories and exact effective scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CURRENT_PARENT" HEAD
+          git merge-base --is-ancestor "$CORE_CONVERGENCE" HEAD
+          test "$(git rev-parse "HEAD:acs/training.py")" = "$TRAINING_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_d08_training_canonical_resume.py")" = "$RESUME_TEST_BLOB"
+          changed="$(git diff --name-only "$CURRENT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/training-core-authority-reconvergence.yml' \
+            'acs/training.py' \
+            'tests/test_d08_training_canonical_resume.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+
+      - name: Compile reconciled Training core
+        run: >-
+          python -m compileall -q
+          acs/training.py
+          tests/test_training.py
+          tests/test_d08_training_canonical_resume.py
+
+      - name: Canonical Training and recovery matrix
+        run: >-
+          python -m unittest -v
+          tests.test_training
+          tests.test_d08_training_canonical_resume
+          tests.test_d08_book_training_contract
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_version2_training_current_runtime
+
+      - name: Full core selftest and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
