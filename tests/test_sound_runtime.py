@@ -717,7 +717,7 @@ class PackagedSoundResolverTests(unittest.TestCase):
                 [(str(first), expected_flags), (str(second), expected_flags)],
             )
 
-    def test_long_start_and_clock_assets_use_non_blocking_windows_playback(self):
+    def test_start_clock_and_low_time_assets_use_non_blocking_windows_playback(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "long.wav"
             self._write_silent_wav(source)
@@ -744,13 +744,17 @@ class PackagedSoundResolverTests(unittest.TestCase):
             ):
                 adapter.play(SoundEvent.START, volume=100)
                 adapter.play(SoundEvent.TICK, volume=100)
+                adapter.play(SoundEvent.LOW_TIME, volume=100)
 
             expected = (
                 fake_winsound.SND_FILENAME
                 | fake_winsound.SND_NODEFAULT
                 | fake_winsound.SND_ASYNC
             )
-            self.assertEqual([flags for _sound, flags in calls], [expected, expected])
+            self.assertEqual(
+                [flags for _sound, flags in calls],
+                [expected, expected, expected],
+            )
 
     def test_windows_playback_uses_python312_compatible_synchronous_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
