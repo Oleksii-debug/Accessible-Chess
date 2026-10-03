@@ -201,8 +201,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         )
         self.assertNotIn("do-not-log-this-token", repr(effect))
         self.assertNotIn("do-not-log-this-token", repr(host.pending_effect))
+        self.assertNotIn("do-not-log-this-token", repr(host._pending))
 
         host.claim_browser_payload(effect.transaction_id)
+        self.assertNotIn("do-not-log-this-token", repr(host._pending))
         host.provider_failed(effect.transaction_id)
 
         status = host.recovery_status
@@ -210,6 +212,7 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         self.assertTrue(status.effect.credential_exposed)
         self.assertTrue(status.provider_outcome_unknown)
         self.assertNotIn("do-not-log-this-token", repr(status))
+        self.assertNotIn("do-not-log-this-token", repr(host._recovery))
 
     def test_reconnect_projects_only_current_desired_allowed_sources(self):
         controller, composite, _session, host = self.make_host()
