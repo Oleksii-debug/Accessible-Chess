@@ -13,6 +13,7 @@ from scripts.build_user_sound_pack import (
     EVENT_VARIANTS,
     NEW_GAME_3D_IMPACT_MS,
     NEW_GAME_IMPACT_MS,
+    SOUND_LAYERS,
     build_sound_pack,
 )
 
@@ -45,6 +46,12 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 for options in EVENT_VARIANTS.values()
                 for _variant_id, file_name, _uk, _en in options
             }
+            required.update(
+                Path(file_name.removeprefix("library/"))
+                for by_variant in SOUND_LAYERS.values()
+                for sequence in by_variant.values()
+                for file_name in sequence
+            )
             for relative in required:
                 self._write_wave(source / relative)
 
@@ -76,6 +83,7 @@ class UserSoundPackBuilderTests(unittest.TestCase):
 
             manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
             variants = json.loads((destination / "variants.json").read_text(encoding="utf-8"))
+            layers = json.loads((destination / "layers.json").read_text(encoding="utf-8"))
             impacts = json.loads((destination / "newgame_impacts.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["files"], DEFAULT_EVENT_FILES)
             self.assertEqual(impacts["schema_version"], 2)
@@ -106,6 +114,18 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             self.assertEqual(
                 [item["id"] for item in variants["events"]["promotion"]],
                 ["1", "2", "3"],
+            )
+            self.assertEqual(
+                layers["events"]["move"]["1"],
+                ["library/Board/MOVE.WAV", "library/Board/MOVEHIT1.WAV"],
+            )
+            self.assertEqual(
+                layers["events"]["capture"]["1"],
+                ["library/Board/CAPTURE.WAV", "library/Board/CAPHIT1.WAV"],
+            )
+            self.assertEqual(
+                layers["events"]["move"]["3d-1"],
+                ["library/Board3d/MOVE.WAV", "library/Board3d/MOVEHIT1.WAV"],
             )
 
             rebuilt = Path(td) / "rebuilt"
