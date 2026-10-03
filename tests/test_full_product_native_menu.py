@@ -25,9 +25,14 @@ class EventHook:
         self.handlers.append(handler)
         return self
 
-    def fire(self) -> None:
+    def __isub__(self, handler):
+        if handler in self.handlers:
+            self.handlers.remove(handler)
+        return self
+
+    def fire(self, sender=None, event=None) -> None:
         for handler in tuple(self.handlers):
-            handler(None, None)
+            handler(sender, event)
 
 
 class ItemCollection(list):
@@ -82,6 +87,8 @@ class FakeForm:
         self.MainMenuStrip = None
         self.InvokeRequired = False
         self.Controls = FakeControls(self)
+        self.KeyPreview = False
+        self.KeyDown = EventHook()
 
     def SuspendLayout(self) -> None:
         pass
@@ -191,6 +198,81 @@ class FullProductNativeMenuTests(unittest.TestCase):
         )
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
+
+    def test_native_alt_analysis_hotkey_uses_central_registry_and_marks_event_handled(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        event = SimpleNamespace(
+            KeyCode="D1",
+            Control=False,
+            Alt=True,
+            Shift=False,
+            Handled=False,
+            SuppressKeyPress=False,
+        )
+        form.KeyDown.fire(form, event)
+
+        self.assertTrue(form.KeyPreview)
+        self.assertTrue(event.Handled)
+        self.assertTrue(event.SuppressKeyPress)
+        self.assertEqual([("analysis.pv1", {})], calls)
+        self.assertEqual(commands[-1].kind, "delegated")
+        self.assertEqual(commands[-1].payload["action_id"], "analysis.pv1")
+
+    def test_native_router_never_steals_clipboard_or_plain_board_keys(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        for key, control, alt, shift in (
+            ("C", True, False, False),
+            ("A", True, False, False),
+            ("Left", False, False, False),
+            ("O", False, False, False),
+        ):
+            with self.subTest(key=key):
+                event = SimpleNamespace(
+                    KeyCode=key,
+                    Control=control,
+                    Alt=alt,
+                    Shift=shift,
+                    Handled=False,
+                    SuppressKeyPress=False,
+                )
+                before_calls = len(calls)
+                before_commands = len(commands)
+                form.KeyDown.fire(form, event)
+                self.assertFalse(event.Handled)
+                self.assertFalse(event.SuppressKeyPress)
+                self.assertEqual(len(calls), before_calls)
+                self.assertEqual(len(commands), before_commands)
+
+    def test_reinstall_replaces_native_hotkey_handler_instead_of_duplicating_it(self) -> None:
+        controller, calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+            self.assertEqual(len(form.KeyDown.handlers), 1)
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+            self.assertEqual(len(form.KeyDown.handlers), 1)
+
+        event = SimpleNamespace(
+            KeyCode="D2",
+            Control=False,
+            Alt=True,
+            Shift=False,
+            Handled=False,
+            SuppressKeyPress=False,
+        )
+        form.KeyDown.fire(form, event)
+        self.assertEqual([("analysis.pv2", {})], calls)
 
     def test_real_menu_installer_attaches_one_extended_menustrip_to_owner(self) -> None:
         controller, _calls, commands, _exits = make_controller()
