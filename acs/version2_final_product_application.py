@@ -479,11 +479,11 @@ class Version2FinalProductApplication(Version2Application):
                             and self.media_transactions.binder.recovery_status is not None
                         )
                     ),
-                    "remote_transport": (
-                        "livekit_transactional"
-                        if self.media_transactions is not None
-                        else "not_approved"
-                    ),
+                    # Composition is not an acceptance claim. Keep the
+                    # whole-product transport gate truthful until real packaged
+                    # two-client and NVDA qualification is recorded.
+                    "media_provider_composed": self.media_transactions is not None,
+                    "remote_transport": "not_approved",
                 },
             }
         )
