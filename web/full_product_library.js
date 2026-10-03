@@ -98,6 +98,24 @@
     return current;
   }
 
+  function invokeListboxKeyCommand(root, invoke, announce, snapshot, command, payload) {
+    // A rendered option remains alive until the canonical command returns and its
+    // replacement render has been applied. Browser key-repeat can otherwise fire
+    // several Arrow/Home/End/Enter events against that stale option and enqueue
+    // navigation or open commands that no longer belong to authoritative state.
+    if (root.__accessibleChessLibraryListboxKeyCommandPending) return null;
+    root.__accessibleChessLibraryListboxKeyCommandPending = true;
+    const current = invokeCommand(root, invoke, announce, snapshot, command, payload);
+    const release = function (value) {
+      root.__accessibleChessLibraryListboxKeyCommandPending = false;
+      return value;
+    };
+    return current.then(release, function (error) {
+      root.__accessibleChessLibraryListboxKeyCommandPending = false;
+      throw error;
+    });
+  }
+
   function appendOptions(select, options, selectedValue) {
     (Array.isArray(options) ? options : []).forEach(function (entry) {
       const option = node("option", entry.label || entry.value || "");
@@ -224,19 +242,19 @@
           // The listbox owns its local edge. Do not convert a normal keyboard
           // boundary into a backend LookupError / NVDA error announcement.
           if (targetIndex < 0 || targetIndex >= rows.length) return;
-          invokeCommand(root, invoke, announce, snapshot, "library.move", {
+          invokeListboxKeyCommand(root, invoke, announce, snapshot, "library.move", {
             delta: delta
           });
         } else if (event.key === "Home" || event.key === "End") {
           event.preventDefault();
           const targetIndex = event.key === "Home" ? 0 : rows.length - 1;
           if (targetIndex === index || targetIndex < 0) return;
-          invokeCommand(root, invoke, announce, snapshot, "library.select", {
+          invokeListboxKeyCommand(root, invoke, announce, snapshot, "library.select", {
             game_id: rows[targetIndex].game_id
           });
         } else if (event.key === "Enter") {
           event.preventDefault();
-          invokeCommand(root, invoke, announce, snapshot, "library.open_game", {});
+          invokeListboxKeyCommand(root, invoke, announce, snapshot, "library.open_game", {});
         }
       });
       list.appendChild(option);
