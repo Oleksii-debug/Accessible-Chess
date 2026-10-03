@@ -200,6 +200,30 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             ("license", "license_id", "unknown", "license identity is unresolved"),
             ("creator", "creator", "TBD", "creator identity is unresolved"),
             ("source", "source", r"C:\\private\\move.wav", "HTTPS URL or URN"),
+            (
+                "source-userinfo",
+                "source",
+                "https://user:secret@example.invalid/move.wav",
+                "stable HTTPS URL or URN",
+            ),
+            (
+                "source-query",
+                "source",
+                "https://example.invalid/move.wav?token=secret",
+                "query or fragment",
+            ),
+            (
+                "source-fragment",
+                "source",
+                "urn:accessible-chess:sound:move#private",
+                "query or fragment",
+            ),
+            (
+                "source-port",
+                "source",
+                "https://example.invalid:notaport/move.wav",
+                "stable HTTPS URL or URN",
+            ),
             ("file", "file", "other.wav", "does not match manifest"),
         )
         for label, field, value, expected in cases:
