@@ -1,0 +1,91 @@
+name: PGN Tree Keyboard Contract
+
+on:
+  push:
+    branches:
+      - fix/pgn-tree-keyboard-20261003
+    paths:
+      - 'web/full_product_pgn.js'
+      - 'tests/js/pgn_surface_dom_test.js'
+      - '.github/workflows/pgn-tree-keyboard-contract.yml'
+  pull_request:
+    branches:
+      - fix/pgn-toolbar-keyboard-20261003
+    paths:
+      - 'web/full_product_pgn.js'
+      - 'tests/js/pgn_surface_dom_test.js'
+      - '.github/workflows/pgn-tree-keyboard-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-tree-keyboard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXACT_PARENT: aa1d6771fbf510a20525a1964b189907140ce4b3
+  EXPECTED_WEB_BLOB: fb67da0858d249de92075c346f6b010adc9321e7
+  EXPECTED_DOM_TEST_BLOB: 6637c1f410a50312b4a9de887e57e439878e7bce
+  EXPECTED_BRIDGE_BLOB: c8f108c8dcc01c37503833abb5c626d89093145e
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact stacked scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            event_base='${{ github.event.pull_request.base.sha }}'
+            base_ref='${{ github.event.pull_request.base.ref }}'
+            test "$event_base" = "$EXACT_PARENT"
+            test "$base_ref" = 'fix/pgn-toolbar-keyboard-20261003'
+            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+            test "$(git rev-parse "refs/remotes/origin/$base_ref")" = "$EXACT_PARENT"
+          fi
+          git diff --check "$EXACT_PARENT" HEAD
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/pgn-tree-keyboard-contract.yml' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$EXPECTED_WEB_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "$EXPECTED_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$EXPECTED_BRIDGE_BLOB"
+          echo 'PGN_TREE_KEYBOARD_SCOPE=PASS'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run executable browser keyboard contract
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Retain PGN WebView authority regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_pgn_webview_atomicity
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
