@@ -58,9 +58,22 @@ class Version2BookWebViewProjection(BookWebViewProjection):
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
         result = self._dispatch(action, {})
         # A canonical router returns ActionDispatchResult; a composed callback
-        # may already unwrap it. Never treat a returned failure DTO as success.
+        # may already unwrap it. A transition is successful only when the event
+        # belongs to the action we dispatched and the canonical workflow reached
+        # the corresponding state. This prevents stale/misrouted success DTOs
+        # from producing false NVDA success announcements.
         result = getattr(result, "value", result)
-        return isinstance(result, BookBoardUiEvent) and result.kind is expected
+        if (
+            not isinstance(result, BookBoardUiEvent)
+            or result.kind is not expected
+            or result.action_id != action
+        ):
+            return False
+        if expected is BookBoardUiEventKind.BOARD_OPENED:
+            return self._workflow.active
+        if expected is BookBoardUiEventKind.RETURNED_TO_BOOK:
+            return not self._workflow.active
+        return True
 
     def open_position(self) -> BookWebViewEvent:
         if not self._workflow_action("book.open_position", BookBoardUiEventKind.BOARD_OPENED):
