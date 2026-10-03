@@ -347,7 +347,35 @@ class ClassroomCollaborationWebView:
         self._pending_chat_secret = secrets.token_bytes(32)
         self._pending_chat: dict[str, str] = {}
         if self._chat_outbox is not None:
+            local_messages = {
+                item.message_id: item
+                for item in self._store.room_messages(
+                    self._controller.room_id,
+                    include_hidden=True,
+                )
+            }
             for pending in self._chat_outbox.entries():
+                local = local_messages.get(pending.message_id)
+                if local is not None:
+                    if (
+                        local.sender_id != self._controller.local_participant_id
+                        or local.body != pending.body
+                        or local.retention != pending.retention
+                    ):
+                        raise RuntimeError(
+                            "durable pending chat conflicts with local message identity"
+                        )
+                    try:
+                        self._chat_outbox.discard(
+                            message_id=pending.message_id,
+                            body=pending.body,
+                            retention=pending.retention,
+                        )
+                    except ChatOutboxError:
+                        raise RuntimeError(
+                            "durable pending chat recovery state cannot be reconciled"
+                        ) from None
+                    continue
                 fingerprint = self._chat_draft_fingerprint(
                     pending.body,
                     retention=pending.retention,
