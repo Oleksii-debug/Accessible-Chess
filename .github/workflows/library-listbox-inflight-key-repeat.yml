@@ -1,0 +1,70 @@
+name: Library Listbox Inflight Key Repeat
+
+on:
+  pull_request:
+    branches:
+      - 'feature/library-listbox-home-end-20261003'
+    paths:
+      - 'web/full_product_library.js'
+      - 'tests/js/library_keyboard_boundary_dom_test.js'
+      - '.github/workflows/library-listbox-inflight-key-repeat.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-listbox-inflight-key-repeat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inflight-key-repeat:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          parent_branch='feature/library-listbox-home-end-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+
+          live_ref="refs/remotes/origin/$parent_branch"
+          git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+          live_parent="$(git rev-parse "$live_ref")"
+          event_base='${{ github.event.pull_request.base.sha }}'
+          test -n "$event_base"
+          git cat-file -e "$event_base^{commit}"
+          git merge-base --is-ancestor "$event_base" "$live_parent"
+          git merge-base --is-ancestor "$live_parent" HEAD
+          test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+          changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/library-listbox-inflight-key-repeat.yml' \
+            'tests/js/library_keyboard_boundary_dom_test.js' \
+            'web/full_product_library.js' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "cfcd9f15ab69be0bd175cbc68956d9c206020677"
+          test "$(git rev-parse HEAD:tests/js/library_keyboard_boundary_dom_test.js)" = "cc6e5bfa4059d612434f4b37b791a7f09131705a"
+          git diff --check "$live_parent" HEAD
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+
+      - name: Prove listbox key-repeat and retained keyboard behavior
+        run: node tests/js/library_keyboard_boundary_dom_test.js
+
+      - name: Prove retained Library ordering and focus contracts
+        run: >-
+          node tests/js/library_action_serialization_dom_test.js
+          && node tests/js/library_import_focus_fallback_dom_test.js
+          && node tests/js/library_surface_dom_test.js
