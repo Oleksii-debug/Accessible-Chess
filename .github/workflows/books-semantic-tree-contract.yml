@@ -67,9 +67,9 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
-          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "49364ad842916207f35ef980c4c1afb5f29babce"
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "b98d2f7bd6ca4f8c95c3698d5777c9d4618f0d08"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "10c487b3ff94464807eeca68e8238a9435c808c7"
-          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "879e59e4c94edfb642dc5025a724b4c029ed7771"
+          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "a94fa5cba8d53706f6f3b3e4687a4a3f3a39cf35"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "80a2b0cbeed29313b5365752c06ba7cd6bd723d3"
           test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "128c7b5c158a2cd0e5286d12c1bd52f99aa3189b"
 
