@@ -347,11 +347,16 @@ class Version2FinalProductApplication(Version2Application):
         ):
             raise TypeError("file_progress_event_sink must be callable")
 
-        path = (
-            Path(collaboration_store_path)
-            if collaboration_store_path is not None
-            else self.progress_store.path.parent / "classroom-collaboration.sqlite3"
-        )
+        if collaboration_store_path is None:
+            path = self.progress_store.path.parent / "classroom-collaboration.sqlite3"
+        elif isinstance(collaboration_store_path, Path):
+            path = collaboration_store_path
+        elif type(collaboration_store_path) is str and collaboration_store_path:
+            path = Path(collaboration_store_path)
+        else:
+            raise TypeError(
+                "collaboration_store_path must be a non-empty path"
+            )
         runtime = build_classroom_collaboration_http_runtime(
             room_id=room_id,
             participant_id=participant_id,
