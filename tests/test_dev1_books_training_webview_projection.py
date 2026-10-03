@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph
 from acs.bookreader import BookReader
@@ -85,6 +86,27 @@ class BookProjectionTests(unittest.TestCase):
         self.assertNotIn(FEN, repr(event))
         self.assertNotIn("SECRET", repr(event))
         self.assertNotIn("private", repr(event))
+
+    def test_board_handoff_does_not_dispatch_when_presentation_preflight_fails(self) -> None:
+        self.projection.next_position()
+        with patch.object(
+            self.projection,
+            "_result_announcement",
+            side_effect=ValueError("simulated announcement contract failure"),
+        ):
+            with self.assertRaises(ValueError):
+                self.projection.open_position()
+        self.assertEqual([], self.calls)
+
+        self.projection.next_game()
+        with patch.object(
+            self.projection,
+            "_result_announcement",
+            side_effect=ValueError("simulated announcement contract failure"),
+        ):
+            with self.assertRaises(ValueError):
+                self.projection.open_game()
+        self.assertEqual([], self.calls)
 
     def test_open_game_keeps_game_content_inside_python_dispatch_boundary(self) -> None:
         event = self.projection.next_game()
