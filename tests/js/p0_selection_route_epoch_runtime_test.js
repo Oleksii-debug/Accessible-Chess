@@ -423,6 +423,21 @@ assert.strictEqual(
   "a retained selection must not cross semantic-root identity merely because id/route/text are reused"
 );
 
+// Once the old snapshot is invalidated, a new user selection inside the
+// replacement workspace must bind to that current semantic root rather than
+// silently degrading to the outer main-content root.
+selectText(activeWorkspace, "semantic", 0);
+const replacementSnapshot = fakeWindow.AccessibleChessP0Runtime.captureSelection();
+assert.ok(replacementSnapshot, "replacement workspace selection must be capturable");
+assert.strictEqual(
+  replacementSnapshot.rootId,
+  "v2-workspace",
+  "new selections after root replacement must bind to the current workspace semantic root"
+);
+setContent("Final replacement semantic passage");
+assert.strictEqual(selection.toString(), "semantic", "current replacement-root selection must survive its own rerender");
+
 console.log("P0_SEMANTIC_ROOT_IDENTITY_EPOCH=PASS");
+console.log("P0_REPLACEMENT_ROOT_REBIND=PASS");
 console.log("P0_ROUTE_ATTRIBUTE_SELECTION_INVALIDATION=PASS");
 console.log("P0_RELOCATED_SELECTION_CONTEXT_REFRESH=PASS");
