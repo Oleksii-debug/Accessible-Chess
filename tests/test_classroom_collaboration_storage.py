@@ -104,6 +104,82 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             indexes,
         )
 
+    def test_v5_failed_upgrade_rolls_back_schema_and_version_atomically(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DROP INDEX uq_collaboration_attachments_authoritative_sequence"
+            )
+            db.execute(
+                """
+                CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
+                ON collaboration_attachments(room_id, sequence_no)
+                WHERE transfer_state='stored'
+                """
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=5 "
+                "WHERE key='schema_version'"
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "stored-a0",
+                    "room",
+                    "teacher",
+                    0,
+                    "stored.bin",
+                    None,
+                    1,
+                    "a" * 64,
+                    "rooms/room/stored-a0",
+                    "stored",
+                    "persistent",
+                    "clean",
+                ),
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "deleted-a0",
+                    "room",
+                    "teacher",
+                    0,
+                    "deleted.bin",
+                    None,
+                    1,
+                    "b" * 64,
+                    "rooms/room/deleted-a0",
+                    "deleted",
+                    "persistent",
+                    "clean",
+                ),
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            ClassroomCollaborationSQLiteStore(str(self.db_path))
+
+        with closing(sqlite3.connect(self.db_path)) as db:
+            version = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()[0]
+            indexes = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA index_list(collaboration_attachments)"
+                )
+            }
+
+        self.assertEqual(version, 5)
+        self.assertIn(
+            "uq_collaboration_attachments_stored_sequence",
+            indexes,
+        )
+        self.assertNotIn(
+            "uq_collaboration_attachments_authoritative_sequence",
+            indexes,
+        )
+
     def test_v1_message_schema_migrates_without_inventing_historical_timestamp(self) -> None:
         self.db_path.unlink()
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -314,6 +390,27 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             3,
         )
 
+    def test_attachment_snapshot_watermark_rejects_invalid_revision_atomically(self) -> None:
+        current = AttachmentMetadata(
+            "snapshot-invalid", "room", "teacher", 0, "snapshot.bin", None, 1,
+            "c" * 64, "rooms/room/snapshot-invalid", "stored", "persistent", "clean"
+        )
+        for revision in (True, -1, MAX_WIRE_INTEGER + 1):
+            with self.subTest(revision=revision):
+                with self.assertRaises(ValueError):
+                    self.store.reconcile_attachment_sync_atomic(
+                        room_id="room",
+                        attachments=(current,),
+                        updates=(),
+                        snapshot_state_revision=revision,
+                    )
+                self.assertEqual(self.store.room_attachments("room"), ())
+                self.assertIsNone(
+                    self.store.attachment_snapshot_state_revision(
+                        current.attachment_id
+                    )
+                )
+
     def test_attachment_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         record = AttachmentMetadata(
             "a-state",
@@ -395,6 +492,62 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         )
         self.assertEqual(deleted[0].transfer_state, "deleted")
         self.assertEqual(reopened.attachment_state_revision("room"), 1)
+
+    def test_message_sync_commits_history_and_state_in_one_transaction(self) -> None:
+        incoming = ChatMessageMetadata(
+            "sync-message",
+            "room",
+            "teacher",
+            0,
+            "Visible briefly",
+            sent_at_unix_ms=1700000000000,
+        )
+        hidden = ChatMessageStateUpdate(
+            "room",
+            incoming.message_id,
+            0,
+        )
+
+        persisted = self.store.reconcile_message_sync_atomic(
+            room_id="room",
+            messages=(incoming,),
+            updates=(hidden,),
+        )
+
+        self.assertEqual(persisted, (incoming,))
+        self.assertEqual(self.store.room_messages("room"), ())
+        stored = self.store.room_messages("room", include_hidden=True)
+        self.assertEqual(len(stored), 1)
+        self.assertTrue(stored[0].hidden)
+        self.assertEqual(self.store.chat_state_revision("room"), 0)
+
+    def test_message_sync_rolls_back_history_when_state_reconciliation_fails(self) -> None:
+        incoming = ChatMessageMetadata(
+            "sync-message",
+            "room",
+            "teacher",
+            0,
+            "Must roll back",
+            sent_at_unix_ms=1700000000000,
+        )
+        unknown = ChatMessageStateUpdate(
+            "room",
+            "missing-message",
+            0,
+        )
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.reconcile_message_sync_atomic(
+                room_id="room",
+                messages=(incoming,),
+                updates=(unknown,),
+            )
+
+        self.assertEqual(
+            self.store.room_messages("room", include_hidden=True),
+            (),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room"))
 
     def test_message_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         message = ChatMessageMetadata(
@@ -568,6 +721,14 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             ChatMessageMetadata("bad id", "room", "teacher", 0, "Hello")
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "x" * 4001)
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata(
+                "m1",
+                "room",
+                "teacher",
+                0,
+                "bad" + chr(0xD800),
+            )
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=True)
         with self.assertRaises(ValueError):
@@ -1157,6 +1318,130 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room"), (occupied,))
 
+    def test_authoritative_file_storage_rejects_sequence_gaps(self) -> None:
+        later = AttachmentMetadata(
+            "gap-a1",
+            "room",
+            "teacher",
+            1,
+            "gap.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/gap-a1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationSequenceGapError,
+            "attachment sequence has an unresolved gap",
+        ):
+            self.store.register_attachments_atomic((later,))
+        self.assertEqual(self.store.room_attachments("room"), ())
+
+        with self.assertRaisesRegex(
+            CollaborationSequenceGapError,
+            "attachment sequence has an unresolved gap",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(later,),
+                updates=(),
+            )
+        self.assertEqual(self.store.room_attachments("room"), ())
+
+    def test_direct_failed_upload_adoption_keeps_provisional_sequence(self) -> None:
+        provisional = AttachmentMetadata(
+            "failed-own",
+            "room",
+            "teacher",
+            77,
+            "failed.bin",
+            None,
+            1,
+            "c" * 64,
+            "rooms/room/failed-own",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        failed = AttachmentMetadata(
+            uploading.attachment_id,
+            uploading.room_id,
+            uploading.sender_id,
+            uploading.sequence_no,
+            uploading.display_name,
+            uploading.mime_type,
+            uploading.size_bytes,
+            uploading.sha256,
+            uploading.object_key,
+            "failed",
+            uploading.retention,
+            "failed",
+        )
+
+        self.assertEqual(
+            self.store.adopt_authoritative_attachment(failed),
+            failed,
+        )
+        self.assertEqual(
+            self.store.room_attachments("room"),
+            (failed,),
+        )
+
+    def test_direct_upload_adoption_rejects_missing_authoritative_prefix(self) -> None:
+        provisional = AttachmentMetadata(
+            "gap-own",
+            "room",
+            "teacher",
+            77,
+            "own.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/gap-own",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        authoritative = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            2,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationSequenceGapError,
+            "attachment sequence has an unresolved gap",
+        ):
+            self.store.adopt_authoritative_attachment(authoritative)
+
+        self.assertEqual(
+            self.store.room_attachments("room"),
+            (uploading,),
+        )
+
     def test_attachment_sync_adopts_authority_over_uncertain_local_transfer(self) -> None:
         for local_state in ("uploading", "failed"):
             with self.subTest(local_state=local_state):
@@ -1328,6 +1613,56 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             )
 
         self.assertEqual(self.store.room_attachments("room"), (uploading,))
+
+    def test_state_updates_require_authoritative_attachment_history(self) -> None:
+        provisional = AttachmentMetadata(
+            "state-only-a1",
+            "room-a",
+            "teacher-1",
+            77,
+            "state-only.bin",
+            "application/octet-stream",
+            4,
+            content_sha256(b"data"),
+            "rooms/room-a/state-only-a1",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        update = AttachmentStateUpdate(
+            room_id="room-a",
+            attachment_id=provisional.attachment_id,
+            revision=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+
+        for apply_update in (
+            lambda: self.store.apply_attachment_state_updates(
+                room_id="room-a",
+                updates=(update,),
+            ),
+            lambda: self.store.reconcile_attachment_sync_atomic(
+                room_id="room-a",
+                attachments=(),
+                updates=(update,),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                CollaborationStorageError,
+                "attachment state update requires authoritative history",
+            ):
+                apply_update()
+            self.assertEqual(
+                self.store.room_attachments("room-a"),
+                (uploading,),
+            )
+            self.assertIsNone(self.store.attachment_state_revision("room-a"))
 
     def test_attachment_sync_commits_history_and_state_in_one_transaction(self) -> None:
         incoming = AttachmentMetadata(
