@@ -1,0 +1,70 @@
+name: Library Delegated Route Atomicity
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_application.py'
+      - 'tests/test_version2_application.py'
+      - '.github/workflows/library-delegated-route-atomicity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-delegated-route-atomicity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  atomic-route:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Prove live Product ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          product_branch='work/full-product-teacher-education-reachability-20260911'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test '${{ github.event.pull_request.base.ref }}' = "$product_branch"
+
+          live_ref="refs/remotes/origin/$product_branch"
+          git fetch --no-tags origin "+refs/heads/$product_branch:$live_ref"
+          live_product="$(git rev-parse "$live_ref")"
+          event_base='${{ github.event.pull_request.base.sha }}'
+          test -n "$event_base"
+          git cat-file -e "$event_base^{commit}"
+          git merge-base --is-ancestor "$event_base" "$live_product"
+          git merge-base --is-ancestor "$live_product" HEAD
+          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+
+          changed="$(git diff --name-only "$live_product" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/library-delegated-route-atomicity.yml' \
+            'acs/version2_application.py' \
+            'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "8ec920b335a334550c69e8c2e23f27923615497c"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "e1bc45fbd9834012c65e8eb47e51b5f65b14eb48"
+          git diff --check "$live_product" HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile application boundary
+        run: python -m compileall -q acs/version2_application.py tests/test_version2_application.py
+
+      - name: Prove delegated Library and WebView focus behavior
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_dev1_full_product_webview_adapter
