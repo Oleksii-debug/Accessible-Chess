@@ -250,6 +250,12 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
                 "republish_enabled": False,
             },
         )
+        self.assertNotIn("camera-device-2", repr(event))
+        self.assertIn("<redacted>", repr(event))
+        self.assertEqual(
+            dict(event.payload["provider"])["device_id"],
+            "camera-device-2",
+        )
         self.assertEqual(controller.state, before)
 
         ready = transactions.dispatch_provider(
