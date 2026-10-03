@@ -345,7 +345,7 @@
     ) {
       throw new TypeError("PGN presentation token is invalid");
     }
-    root._pgnPresentationToken = presentationToken || "";
+    const committedPresentationToken = presentationToken || "";
     root._pgnRenderEpoch = Number(root._pgnRenderEpoch || 0) + 1;
     root._pgnCommandFlight = null;
     root._pgnErrorMessage = typeof snapshot.error_message === "string" && snapshot.error_message
@@ -358,6 +358,7 @@
       main.appendChild(node("p", snapshot.empty_message || ""));
       fragment.appendChild(main);
       root.replaceChildren(fragment);
+      root._pgnPresentationToken = committedPresentationToken;
       return;
     }
     if (snapshot.status === "unavailable") {
@@ -376,6 +377,7 @@
       main.appendChild(refresh);
       fragment.appendChild(main);
       root.replaceChildren(fragment);
+      root._pgnPresentationToken = committedPresentationToken;
       if (
         requestedFocus === refresh.id
         && typeof refresh.focus === "function"
@@ -397,6 +399,7 @@
     main.appendChild(commentDialog.dialog);
     fragment.appendChild(main);
     root.replaceChildren(fragment);
+    root._pgnPresentationToken = committedPresentationToken;
     focusTarget(root, requestedFocus || "");
   }
 
