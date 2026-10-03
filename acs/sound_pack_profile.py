@@ -82,9 +82,18 @@ class SoundPackProfileCoordinator:
         return self._packs.resolve_usable_pack(pack_id)
 
     def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
-        """Project catalog/install status without exposing storage internals."""
+        """Project catalog/install status from the current storage authority."""
 
         return self._packs.status(entry)
+
+    def status_for_installed_manifest(
+        self,
+        entry: SoundPackCatalogEntry,
+        manifest: SoundPackManifest | None,
+    ) -> SoundPackCatalogStatus:
+        """Project state from a caller-owned coherent installed-version snapshot."""
+
+        return self._packs.status_for_installed_manifest(entry, manifest)
 
     def install(
         self,
