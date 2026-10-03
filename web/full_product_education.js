@@ -270,6 +270,7 @@
     }
     if (previous.transfer_key === next.transfer_key) {
       return (
+        previous.name === next.name &&
         previous.total_bytes === next.total_bytes &&
         next.transferred_bytes >= previous.transferred_bytes &&
         (
