@@ -16,6 +16,13 @@ on:
       - 'tests/test_v2_book_progress_store_production.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_v2_book_training_route_rollback.py'
+      - 'acs/training_webview_projection.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_dev1_books_training_webview_projection.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - 'web/full_product_books_training.js'
+      - 'web/version2_release_bootstrap.js'
   workflow_dispatch:
 
 permissions:
@@ -58,8 +65,15 @@ jobs:
       DURABILITY_FOCUS_BOOTSTRAP_DOM_TEST_BLOB: 34df9e717adf52dcb41cd2caf1ee79e7a8dff37f
       DURABILITY_FOCUS_ACCESSIBILITY_TEST_BLOB: a9d6d065777156c3fe2327b2183df5d8898dc2cb
       DURABILITY_FOCUS_TRAINING_ROUTE_TEST_BLOB: 1e9b0e03c5c81ef187234a748bbd23c2759ad4cb
-      INGRESS_FOCUS_APPLICATION_BLOB: 50ac6ffeec7306d950efdd7afc005d0057461282
-      INGRESS_FOCUS_APPLICATION_TEST_BLOB: b4239938ee07911133befd00c1347ae34bf34b7f
+      INGRESS_FOCUS_APPLICATION_BLOB: 67cd47c361e617fa22a3029555af6fcdc572fab7
+      INGRESS_FOCUS_APPLICATION_TEST_BLOB: 78c0f464c463cad57c11726db07d8357b0537037
+      INGRESS_FOCUS_BOOTSTRAP_DOM_TEST_BLOB: 95419bcfb4962d6db9bf1d83d82b1aec070ca007
+      INGRESS_FOCUS_ACCESSIBILITY_TEST_BLOB: 6a87f000bb2d6e3b39c07a8d2d22021776d56d48
+      INGRESS_FOCUS_TRAINING_PROJECTION_BLOB: b91ec11dd370f7c1e30d3670f003ac2970c3f540
+      INGRESS_FOCUS_TRAINING_SURFACE_BLOB: 2385b9748995f7dfdc97b10bf42ea916bb8ba46e
+      INGRESS_FOCUS_RELEASE_BOOTSTRAP_BLOB: 3ee6e5224538af82044f55fb7b817934b413a8a8
+      INGRESS_FOCUS_SURFACE_DOM_TEST_BLOB: 66ee8f2f4f560070fc320079ab7dfdf93a938693
+      INGRESS_FOCUS_PROJECTION_TEST_BLOB: 9d46c93f16dc92b0e1991086bc6442c1d53cf3c4
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -236,11 +250,16 @@ jobs:
               '.github/workflows/books-ingress-focus-convergence.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/full_product_ui_shell.py' \
+              'acs/training_webview_projection.py' \
               'acs/version2_application.py' \
+              'tests/js/books_training_surface_dom_test.js' \
               'tests/js/version2_release_bootstrap_dom_test.js' \
+              'tests/test_dev1_books_training_webview_projection.py' \
               'tests/test_v2_book_training_route_rollback.py' \
               'tests/test_version2_application.py' \
-              'tests/test_version2_release_accessibility_contract.py' | sort)"
+              'tests/test_version2_release_accessibility_contract.py' \
+              'web/full_product_books_training.js' \
+              'web/version2_release_bootstrap.js' | sort)"
             test "$ingress_changed" = "$ingress_expected"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
@@ -248,9 +267,14 @@ jobs:
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$INGRESS_FOCUS_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$INGRESS_FOCUS_APPLICATION_TEST_BLOB"
             test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "$DURABILITY_FOCUS_SHELL_BLOB"
-            test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$DURABILITY_FOCUS_BOOTSTRAP_DOM_TEST_BLOB"
-            test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "$DURABILITY_FOCUS_ACCESSIBILITY_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$INGRESS_FOCUS_BOOTSTRAP_DOM_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "$INGRESS_FOCUS_ACCESSIBILITY_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "$DURABILITY_FOCUS_TRAINING_ROUTE_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "$INGRESS_FOCUS_TRAINING_PROJECTION_BLOB"
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "$INGRESS_FOCUS_TRAINING_SURFACE_BLOB"
+            test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$INGRESS_FOCUS_RELEASE_BOOTSTRAP_BLOB"
+            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "$INGRESS_FOCUS_SURFACE_DOM_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "$INGRESS_FOCUS_PROJECTION_TEST_BLOB"
             ingress_focus_convergence=true
           fi
 
