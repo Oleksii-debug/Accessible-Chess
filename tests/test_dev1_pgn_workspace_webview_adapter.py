@@ -303,13 +303,39 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual("selection", event.kind)
         self.assertEqual(1, self.workspace.selected_game_index)
         self.assertEqual(1, event.payload["snapshot"]["game"]["index"])
+        next_action, next_payload = self.calls[-1]
+        self.assertEqual("pgn.next_game", next_action)
+        self.assertEqual(
+            {
+                "game_index",
+                "line_path",
+                "move_index",
+                "expected_record_digest",
+                "expected_content_digest",
+                "content_revision",
+            },
+            set(next_payload),
+        )
+        self.assertEqual(0, next_payload["game_index"])
+        self.assertEqual((), next_payload["line_path"])
+        self.assertIsNone(next_payload["move_index"])
+        self.assertEqual("a" * 64, next_payload["expected_record_digest"])
+        self.assertEqual("b" * 64, next_payload["expected_content_digest"])
+        self.assertEqual(7, next_payload["content_revision"])
+
         back = self.bridge.dispatch("pgn.previous_game", {})
         self.assertEqual(0, self.workspace.selected_game_index)
         self.assertEqual(0, back.payload["snapshot"]["game"]["index"])
+        previous_action, previous_payload = self.calls[-1]
+        self.assertEqual("pgn.previous_game", previous_action)
+        self.assertEqual(1, previous_payload["game_index"])
         self.assertEqual(
             ["pgn.next_game", "pgn.previous_game"],
             [action for action, _ in self.calls[-2:]],
         )
+        self.assertNotIn("content_revision", repr(back.payload))
+        self.assertNotIn("expected_record_digest", repr(back.payload))
+        self.assertNotIn("expected_content_digest", repr(back.payload))
 
     def test_committed_navigation_refresh_failure_replaces_stale_view_and_recovers(self) -> None:
         before = self.projection.snapshot()

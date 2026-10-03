@@ -284,6 +284,22 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             },
         )
 
+    def _trusted_current_target(self) -> dict[str, object]:
+        identity = self._view_identity(self._workspace.view())
+        cursor = identity[2]
+        assert isinstance(cursor, GameTreeCursor)
+        return {
+            "game_index": identity[1],
+            "line_path": tuple(
+                (step.parent_move_index, step.variation_index)
+                for step in cursor.line_path
+            ),
+            "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
+            "expected_record_digest": identity[6],
+            "expected_content_digest": identity[5],
+            "content_revision": identity[4],
+        }
+
     def _trusted_target(
         self,
         node_id: str,
@@ -306,6 +322,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             "line_path": line_path,
             "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
             "expected_record_digest": identity[6],
+            "expected_content_digest": identity[5],
             "content_revision": identity[4],
         }
         if extra:
@@ -332,6 +349,11 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             require_current=True,
             extra={key: value for key, value in payload.items() if key not in {"game_index", "node_id"}},
         )
+        # The Windows export port has its own strict PgnSelectionExportRequest
+        # contract. Keep that exact payload unchanged until that owner gains a
+        # document-level CAS field in its own lineage.
+        if action_id == "pgn.export_selection":
+            trusted.pop("expected_content_digest", None)
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             if not cursor.line_path:
                 raise ValueError("main line is not a variation target")
@@ -414,16 +436,18 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         rejected = self._prepare_browser_action()
         if rejected is not None:
             return rejected
+        payload = self._trusted_current_target()
         return self._operate_and_render(
-            lambda: self._dispatch_registered("pgn.previous_game", {})
+            lambda: self._dispatch_registered("pgn.previous_game", payload)
         )
 
     def next_game(self) -> PgnWebViewEvent:
         rejected = self._prepare_browser_action()
         if rejected is not None:
             return rejected
+        payload = self._trusted_current_target()
         return self._operate_and_render(
-            lambda: self._dispatch_registered("pgn.next_game", {})
+            lambda: self._dispatch_registered("pgn.next_game", payload)
         )
 
     def _mutate_and_render(self, operation: Callable[[], PgnWebViewEvent]) -> PgnWebViewEvent:
