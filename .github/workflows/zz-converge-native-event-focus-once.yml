@@ -17,14 +17,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12.10'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: Three-way apply reviewed native-event delta
         shell: bash
         run: |
@@ -48,16 +40,14 @@ jobs:
           git apply --3way --index /tmp/native-event-focus.patch
 
           rm .github/workflows/zz-converge-native-event-focus-once.yml
-
           runtime_blob="$(git hash-object web/version2_release_bootstrap.js)"
           test_blob="$(git hash-object tests/js/version2_release_bootstrap_dom_test.js)"
 
           python - "$parent" "$source_head" "$runtime_blob" "$test_blob" <<'PY'
           from pathlib import Path
-          import sys
-
+          import sys, textwrap
           parent, source, runtime_blob, test_blob = sys.argv[1:]
-          content = f'''name: V2 Native Event Focus Current Convergence
+          template = r'''name: V2 Native Event Focus Current Convergence
 
           on:
             push:
@@ -76,7 +66,7 @@ jobs:
             contents: read
 
           concurrency:
-            group: v2-native-event-focus-current-${{{{ github.ref }}}}
+            group: v2-native-event-focus-current-${{ github.ref }}
             cancel-in-progress: true
 
           jobs:
@@ -85,26 +75,18 @@ jobs:
                 fail-fast: false
                 matrix:
                   os: [ubuntu-22.04, windows-2025]
-              runs-on: ${{{{ matrix.os }}}}
+              runs-on: ${{ matrix.os }}
               timeout-minutes: 55
               env:
-                EXACT_PARENT: {parent}
-                SOURCE_NATIVE_EVENT_AUTHORITY: {source}
-                RELEASE_BOOTSTRAP_BLOB: {runtime_blob}
-                RELEASE_DOM_TEST_BLOB: {test_blob}
+                EXACT_PARENT: __PARENT__
+                SOURCE_NATIVE_EVENT_AUTHORITY: __SOURCE__
+                RELEASE_BOOTSTRAP_BLOB: __RUNTIME__
+                RELEASE_DOM_TEST_BLOB: __TEST__
               steps:
                 - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
                   with:
                     fetch-depth: 0
-                    ref: ${{{{ github.event.pull_request.head.sha || github.sha }}}}
-
-                - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-                  with:
-                    python-version: '3.12.10'
-
-                - uses: actions/setup-node@v4
-                  with:
-                    node-version: '22'
+                    ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
                 - name: Prove current-stack scope and source ancestry
                   shell: bash
@@ -115,9 +97,9 @@ jobs:
                     test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$RELEASE_BOOTSTRAP_BLOB"
                     test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$RELEASE_DOM_TEST_BLOB"
                     changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
-                    expected="$(printf '%s\\n' \\
-                      '.github/workflows/v2-native-event-focus-current-convergence.yml' \\
-                      'tests/js/version2_release_bootstrap_dom_test.js' \\
+                    expected="$(printf '%s\n' \
+                      '.github/workflows/v2-native-event-focus-current-convergence.yml' \
+                      'tests/js/version2_release_bootstrap_dom_test.js' \
                       'web/version2_release_bootstrap.js' | sort)"
                     test "$changed" = "$expected"
                     git diff --check "$EXACT_PARENT" HEAD
@@ -144,11 +126,10 @@ jobs:
                 - name: Core selftest
                   run: python -m acs.selftest
           '''
-          # Dedent the embedded YAML while preserving run-block indentation.
-          import textwrap
-          Path('.github/workflows/v2-native-event-focus-current-convergence.yml').write_text(
-              textwrap.dedent(content), encoding='utf-8'
-          )
+          content = textwrap.dedent(template)
+          content = content.replace('__PARENT__', parent).replace('__SOURCE__', source)
+          content = content.replace('__RUNTIME__', runtime_blob).replace('__TEST__', test_blob)
+          Path('.github/workflows/v2-native-event-focus-current-convergence.yml').write_text(content, encoding='utf-8')
           PY
 
           git add -A \
