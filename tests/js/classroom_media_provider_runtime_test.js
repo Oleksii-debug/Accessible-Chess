@@ -410,6 +410,64 @@ async function testFailedConnectSubmitsExactCleanupSnapshot() {
   ]);
 }
 
+async function testMismatchedExecutorReceiptEntersRecoveryWithoutCanonicalAck() {
+  const calls = [];
+  const globals = runtimeGlobal();
+  globals.AccessibleChessClassroomMediaHostExecutor = {
+    ClassroomMediaHostExecutor: class {
+      constructor() {}
+      async execute(payload) {
+        return {
+          transaction_id: payload.transaction_id,
+          operation: payload.operation,
+          status: "success",
+          chunk_index: payload.chunk_index + 1,
+          provider_snapshot: snapshot()
+        };
+      }
+    }
+  };
+  const runtime = new ClassroomMediaProviderRuntime({
+    globalObject: globals,
+    invoke: async function (command, payload) {
+      calls.push(command);
+      if (command === "media.provider_config") return providerConfigEvent();
+      if (command === "media.provider_dispatched") {
+        return {
+          kind: "provider-ready",
+          payload: { transaction_id: HOST_ID }
+        };
+      }
+      if (command === "media.provider_not_started") {
+        assert.strictEqual(payload.transaction_id, HOST_ID);
+        return {
+          kind: "error",
+          payload: {
+            message: "safe",
+            snapshot: null,
+            recovery_required: true,
+            transaction_id: HOST_ID
+          }
+        };
+      }
+      if (command === "media.provider_effect_success") {
+        throw new Error("mismatched receipt must not acknowledge canonical effect");
+      }
+      throw new Error("unexpected command " + command);
+    }
+  });
+
+  const result = await runtime.settle(effectDispatch(0, 2));
+
+  assert.strictEqual(result.kind, "error");
+  assert.strictEqual(result.payload.recovery_required, true);
+  assert.deepStrictEqual(calls, [
+    "media.provider_config",
+    "media.provider_dispatched",
+    "media.provider_not_started"
+  ]);
+}
+
 async function testRuntimeRejectsConcurrentSettle() {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -443,6 +501,7 @@ async function main() {
   await testUnavailablePackagedRuntimeCancelsBeforeProviderBoundary();
   await testLostReadyAfterCredentialUsesFailClosedNotStartedCallback();
   await testFailedConnectSubmitsExactCleanupSnapshot();
+  await testMismatchedExecutorReceiptEntersRecoveryWithoutCanonicalAck();
   await testRuntimeRejectsConcurrentSettle();
   process.stdout.write("CLASSROOM_MEDIA_PROVIDER_RUNTIME_TEST=PASS\n");
 }
