@@ -395,6 +395,46 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         )
         self.assertNotIn(MediaSource.MICROPHONE, controller.state.desired_sources)
 
+    def test_new_mutation_preserves_existing_provider_recovery_state(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+
+        first = bridge.dispatch(
+            "media.local_source",
+            {"source": "microphone", "enabled": True},
+        )
+        transaction_id = first.payload["transaction_id"]
+        transactions.dispatch_provider(
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+        latched = transactions.dispatch_provider(
+            "media.provider_effect_success",
+            {"transaction_id": transaction_id, "chunk_index": "invalid"},
+        )
+        self.assertTrue(latched.payload["recovery_required"])
+        self.assertIsNotNone(binder.recovery_status)
+
+        retry = bridge.dispatch(
+            "media.local_source",
+            {"source": "camera", "enabled": True},
+        )
+
+        self.assertEqual(retry.kind, "error")
+        self.assertTrue(retry.payload["recovery_required"])
+        self.assertIsNone(retry.payload["snapshot"])
+        self.assertEqual(retry.payload["transaction_id"], transaction_id)
+        self.assertEqual(
+            retry.payload["focus_target"],
+            "media-own-camera-toggle",
+        )
+        self.assertIsNone(binder.active_lease)
+        self.assertEqual(
+            binder.recovery_status.lease.transaction_id,
+            transaction_id,
+        )
+        self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
+
     def test_browser_provider_config_is_nonsecret_and_secure(self):
         _controller, _roster, _host, _sessions, _binder, _projection, transactions, _bridge = composition()
         result = transactions.dispatch_provider("media.provider_config", {})
