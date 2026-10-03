@@ -815,6 +815,54 @@ class TrainingProjectionTests(unittest.TestCase):
             self.projection.submit("😀" * 65)
         self.assertEqual(before, self.presenter.snapshot())
 
+    def test_real_overbudget_explanation_render_rolls_back_canonical_move(self) -> None:
+        definition = ExerciseDefinition(
+            exercise_id="overbudget-explanation",
+            start_fen=FEN,
+            steps=(
+                ExerciseStep(
+                    frozenset({"e4"}),
+                    explanation="x" * 1201,
+                ),
+            ),
+            title="Rollback explanation",
+        )
+        presenter = TrainingPresenter(ExerciseSession(definition), language=UILanguage.EN)
+        projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
+        before = presenter.snapshot()
+
+        with self.assertRaisesRegex(ValueError, "training presentation text is too long"):
+            projection.submit("e4")
+
+        self.assertEqual(before, presenter.snapshot())
+        self.assertEqual("", presenter.message)
+        self.assertEqual(0, presenter.session.step_index)
+        self.assertEqual(0, presenter.session.attempts)
+        self.assertEqual((), presenter.session.accepted_path)
+
+    def test_real_overbudget_hint_render_rolls_back_hint_counter(self) -> None:
+        definition = ExerciseDefinition(
+            exercise_id="overbudget-hint",
+            start_fen=FEN,
+            steps=(
+                ExerciseStep(
+                    frozenset({"e4"}),
+                    hint="x" * 1201,
+                ),
+            ),
+            title="Rollback hint",
+        )
+        presenter = TrainingPresenter(ExerciseSession(definition), language=UILanguage.EN)
+        projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
+        before = presenter.snapshot()
+
+        with self.assertRaisesRegex(ValueError, "training presentation text is too long"):
+            projection.hint()
+
+        self.assertEqual(before, presenter.snapshot())
+        self.assertEqual("", presenter.message)
+        self.assertEqual(0, presenter.session.hints_used)
+
     def test_failed_submit_render_restores_progress_message_and_session_identity(self) -> None:
         before = self.presenter.snapshot()
         before_message = self.presenter.message
