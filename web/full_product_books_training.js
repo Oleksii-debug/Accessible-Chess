@@ -274,11 +274,37 @@
     const block = snapshot.block;
     const semanticKind = block.kind === "Game" ? "game" :
       (block.kind === "VariationTree" ? "variation" : "");
-    if (tree === undefined || tree === null) {
+    const hasSemanticTree = Object.prototype.hasOwnProperty.call(
+      snapshot, "semantic_tree"
+    );
+    if (!semanticKind) {
+      if (hasSemanticTree) {
+        throw new TypeError("Non-semantic Book block carries semantic tree state");
+      }
       return;
     }
-    if (!semanticKind || typeof tree !== "object" || Array.isArray(tree)) {
+    if (!hasSemanticTree || tree === undefined) {
+      throw new TypeError("Semantic Book block is missing semantic tree state");
+    }
+    if (tree === null) {
+      if (!block.warning) {
+        throw new TypeError("Semantic Book fallback requires an accessible warning");
+      }
+      return;
+    }
+    if (typeof tree !== "object" || Array.isArray(tree)) {
       throw new TypeError("Book semantic tree is invalid for this block");
+    }
+    const expectedTreeFields = [
+      "kind", "label", "players_label", "players", "result_label", "result",
+      "intro_comments", "outro_comments", "items"
+    ];
+    const treeFields = Object.keys(tree);
+    if (treeFields.length !== expectedTreeFields.length ||
+        expectedTreeFields.some(function (field) {
+          return !Object.prototype.hasOwnProperty.call(tree, field);
+        })) {
+      throw new TypeError("Book semantic tree fields are invalid");
     }
     if (tree.kind !== semanticKind) {
       throw new TypeError("Book semantic tree kind is inconsistent");
@@ -334,6 +360,17 @@
     tree.items.forEach(function (item, index) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("Book semantic item is invalid");
+      }
+      const expectedItemFields = [
+        "kind", "depth", "parent_index", "label", "leading_comments",
+        "comments_before", "comments_after", "trailing_comments", "result"
+      ];
+      const itemFields = Object.keys(item);
+      if (itemFields.length !== expectedItemFields.length ||
+          expectedItemFields.some(function (field) {
+            return !Object.prototype.hasOwnProperty.call(item, field);
+          })) {
+        throw new TypeError("Book semantic item fields are invalid");
       }
       if (item.kind !== "move" && item.kind !== "variation") {
         throw new TypeError("Book semantic item kind is invalid");
@@ -537,15 +574,25 @@
     requireBookSemanticTree(snapshot);
     if (hasBoardState) {
       const boardActive = snapshot.board_active;
-      // The host may safely disable a semantically matching Board handoff when
-      // canonical content validation says that exact Game/Variation cannot be
-      // opened. Browser validation must reject impossible enables, not reject a
-      // fail-closed disable and thereby discard the readable Book fallback.
+      const hasReadableSemanticTree =
+        snapshot.semantic_tree !== undefined && snapshot.semantic_tree !== null;
+      // The host may safely disable a matching Board handoff only when semantic
+      // content failed closed and the snapshot carries the explicit warning
+      // required above. A readable canonical tree must retain its matching
+      // Book -> Board continuation while the Board is inactive.
       if (openPosition.enabled && (!block.has_position || boardActive)) {
         throw new TypeError("Book open-position action disagrees with board state");
       }
       if (openGame.enabled && (block.kind !== "Game" || boardActive)) {
         throw new TypeError("Book open-game action disagrees with board state");
+      }
+      if (!boardActive && hasReadableSemanticTree &&
+          block.kind === "VariationTree" && !openPosition.enabled) {
+        throw new TypeError("Readable variation lost its Board handoff");
+      }
+      if (!boardActive && hasReadableSemanticTree &&
+          block.kind === "Game" && !openGame.enabled) {
+        throw new TypeError("Readable game lost its Board handoff");
       }
       if (returnFromBoard.enabled !== boardActive) {
         throw new TypeError("Book return action disagrees with board state");
