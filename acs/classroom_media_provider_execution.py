@@ -254,6 +254,14 @@ class ClassroomMediaProviderExecutionArbiter:
             raise TypeError("provider outcome unknown flag must be boolean")
         with self._lock:
             active = self._require_active(lease_id)
+            if active.transaction_id is None:
+                raise MediaProviderExecutionError(
+                    "media provider recovery requires a bound transaction"
+                )
+            if provider_outcome_unknown and not active.provider_boundary_crossed:
+                raise MediaProviderExecutionError(
+                    "unknown provider outcome requires a crossed provider boundary"
+                )
             self._active = None
             recovery = _RecoveryState(
                 lease=active,
