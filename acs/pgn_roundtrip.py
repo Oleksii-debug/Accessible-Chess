@@ -438,7 +438,16 @@ def _preflight_text(
                 index += 1
                 continue
             if character == "$":
-                # Numeric NAG is one token; malformed '                raise PgnRoundTripError(
+                # Numeric NAG is one token; a malformed dollar is one WARNING,
+                # and any following non-digits are scanned as their own token.
+                flush_token()
+                index += 1
+                while index < len(line) and line[index].isdigit():
+                    index += 1
+                _claim_token(token_count, source_budget)
+                continue
+            if character == "[" and token_length == 0:
+                raise PgnRoundTripError(
                     "PGN tag marker appears inside movetext",
                     code=PgnRoundTripErrorCode.MALFORMED_HEADER,
                 )
