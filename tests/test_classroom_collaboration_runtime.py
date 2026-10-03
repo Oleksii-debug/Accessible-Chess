@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
+import hashlib
 import json
 import struct
 from types import SimpleNamespace
@@ -8,12 +10,24 @@ import tempfile
 import unittest
 from unittest import mock
 
+from acs.classroom_chat_http_endpoint import ClassroomChatHttpEndpoint
+from acs.classroom_chat_rpc import ClassroomChatRpcService
+from acs.classroom_collaboration_chat_server import (
+    ClassroomChatServerSQLiteStore,
+    ClassroomChatServerService,
+)
 from acs.classroom_collaboration import CollaborationError, FileQuotaPolicy
 from acs.classroom_collaboration_runtime import (
     ClassroomCollaborationRuntime,
     build_classroom_collaboration_http_runtime,
 )
 from acs.classroom_collaboration_storage import ChatMessageMetadata
+from acs.classroom_file_http_transport import ClassroomFileHttpEndpoint
+from acs.classroom_file_rpc import ClassroomFileRpcService
+from acs.classroom_file_server import (
+    ClassroomFileServerSQLiteStore,
+    ClassroomFileServerService,
+)
 from acs.classroom_file_rpc import MAX_RPC_UPLOAD_BYTES
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_application import Version2Application
@@ -677,6 +691,329 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertEqual(attachments[0].transfer_state, "stored")
         self.assertEqual(attachments[0].scan_state, "clean")
         self.assertEqual(attachments[0].sequence_no, 0)
+
+    def test_two_final_apps_share_chat_and_files_through_production_http_authorities(self) -> None:
+        room = "room-1"
+        selected = self.root / "two-client-shared.pgn"
+        selected.write_bytes(b"1. e4 e5 *")
+
+        class ChatAuthorization:
+            def __init__(self, members):
+                self.members = set(members)
+
+            def _require(self, room_id, participant_id):
+                if (participant_id, room_id) not in self.members:
+                    raise RuntimeError("not a room member")
+
+            def authorize_chat_send(self, *, room_id, caller_identity, sender_id):
+                self._require(room_id, caller_identity)
+                if sender_id != caller_identity:
+                    raise RuntimeError("sender mismatch")
+                return None
+
+            def authorize_chat_history(self, *, room_id, caller_identity):
+                self._require(room_id, caller_identity)
+                return None
+
+            def authorize_chat_moderation(self, *, room_id, caller_identity, commands):
+                self._require(room_id, caller_identity)
+                return None
+
+        class FileAuthorization:
+            def __init__(self, members):
+                self.members = set(members)
+
+            def authorize_file_action(
+                self,
+                *,
+                trusted_caller_identity,
+                room_id,
+                action,
+                attachment_id,
+                retention,
+            ):
+                return (trusted_caller_identity, room_id) in self.members
+
+        class CleanScanner:
+            def scan(self, **kwargs):
+                return "clean"
+
+        class ObjectStore:
+            def __init__(self):
+                self.objects = {}
+
+            def stored_sha256(self, *, object_key):
+                content = self.objects.get(object_key)
+                return (
+                    None
+                    if content is None
+                    else hashlib.sha256(content).hexdigest()
+                )
+
+            def put(self, *, object_key, content, expected_sha256):
+                if hashlib.sha256(content).hexdigest() != expected_sha256:
+                    raise RuntimeError("hash mismatch")
+                self.objects[object_key] = bytes(content)
+
+            def issue_read_token(self, *, object_key, participant_id, ttl_seconds):
+                if object_key not in self.objects:
+                    raise RuntimeError("missing object")
+                return f"read-{participant_id}-{ttl_seconds}"
+
+            def delete(self, *, object_key):
+                self.objects.pop(object_key, None)
+
+        class BearerAuthenticator:
+            def __init__(self, identities):
+                self.identities = dict(identities)
+                self.calls = []
+
+            async def authenticate_bearer(self, bearer_token):
+                self.calls.append(bearer_token)
+                try:
+                    return self.identities[bearer_token]
+                except KeyError:
+                    raise RuntimeError("invalid token") from None
+
+        class AsgiResponse:
+            def __init__(self, sent):
+                if len(sent) != 2:
+                    raise AssertionError("ASGI response must contain start and body")
+                start, body = sent
+                self.status = start["status"]
+                self._body = body["body"]
+                self._headers = [
+                    (
+                        name.decode("ascii"),
+                        value.decode("ascii"),
+                    )
+                    for name, value in start["headers"]
+                ]
+
+            def getheaders(self):
+                return list(self._headers)
+
+            def read(self, limit):
+                return self._body[:limit]
+
+        def invoke_asgi(endpoint, *, target, body, headers):
+            scope = {
+                "type": "http",
+                "scheme": "https",
+                "http_version": "1.1",
+                "method": "POST",
+                "path": target,
+                "raw_path": target.encode("ascii"),
+                "query_string": b"",
+                "headers": [
+                    (
+                        str(name).lower().encode("ascii"),
+                        str(value).encode("ascii"),
+                    )
+                    for name, value in headers
+                ],
+                "server": ("203.0.113.10", 443),
+                "client": ("198.51.100.20", 41000),
+            }
+            events = [
+                {
+                    "type": "http.request",
+                    "body": bytes(body),
+                    "more_body": False,
+                }
+            ]
+            sent = []
+
+            async def receive():
+                if events:
+                    return events.pop(0)
+                return {"type": "http.disconnect"}
+
+            async def send(event):
+                sent.append(event)
+
+            asyncio.run(endpoint(scope, receive, send))
+            return AsgiResponse(sent)
+
+        members = {
+            ("student-1", room),
+            ("student-2", room),
+        }
+        chat_server = ClassroomChatServerService(
+            store=ClassroomChatServerSQLiteStore(
+                self.root / "two-client-chat-server.sqlite3"
+            ),
+            authorization=ChatAuthorization(members),
+            clock_unix_ms=lambda: 1700000000000,
+        )
+        chat_auth = BearerAuthenticator(
+            {
+                "chat-student-1": (room, "student-1"),
+                "chat-student-2": (room, "student-2"),
+            }
+        )
+        chat_endpoint = ClassroomChatHttpEndpoint(
+            service=ClassroomChatRpcService(backend=chat_server),
+            authenticator=chat_auth,
+        )
+        object_store = ObjectStore()
+        file_server = ClassroomFileServerService(
+            store=ClassroomFileServerSQLiteStore(
+                str(self.root / "two-client-file-server.sqlite3")
+            ),
+            authorization=FileAuthorization(members),
+            scanner=CleanScanner(),
+            object_store=object_store,
+        )
+        file_auth = BearerAuthenticator(
+            {
+                "file-student-1": (room, "student-1"),
+                "file-student-2": (room, "student-2"),
+            }
+        )
+        file_endpoint = ClassroomFileHttpEndpoint(
+            service=ClassroomFileRpcService(backend=file_server),
+            authenticator=file_auth,
+        )
+
+        class ChatConnection:
+            endpoint = chat_endpoint
+
+            def __init__(self, host, port, timeout):
+                self.closed = False
+                self.request_data = None
+
+            def request(self, method, target, *, body, headers):
+                self.request_data = (method, target, bytes(body), dict(headers))
+
+            def getresponse(self):
+                if self.request_data is None:
+                    raise AssertionError("chat request was not sent")
+                method, target, body, headers = self.request_data
+                if method != "POST":
+                    raise AssertionError("unexpected chat method")
+                return invoke_asgi(
+                    self.endpoint,
+                    target=target,
+                    body=body,
+                    headers=headers.items(),
+                )
+
+            def close(self):
+                self.closed = True
+
+        class FileConnection:
+            endpoint = file_endpoint
+
+            def __init__(self, host, port, timeout):
+                self.closed = False
+                self.request_line = None
+                self.headers = []
+                self.parts = []
+
+            def putrequest(self, method, target, **kwargs):
+                self.request_line = (method, target)
+
+            def putheader(self, name, value):
+                self.headers.append((name, value))
+
+            def endheaders(self):
+                return None
+
+            def send(self, data):
+                self.parts.append(bytes(data))
+
+            def getresponse(self):
+                if self.request_line is None:
+                    raise AssertionError("file request was not started")
+                method, target = self.request_line
+                if method != "POST":
+                    raise AssertionError("unexpected file method")
+                return invoke_asgi(
+                    self.endpoint,
+                    target=target,
+                    body=b"".join(self.parts),
+                    headers=self.headers,
+                )
+
+            def close(self):
+                self.closed = True
+
+        first = self.bare_app()
+        second = self.bare_app()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+                ChatConnection,
+            ),
+            mock.patch(
+                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+                FileConnection,
+            ),
+        ):
+            first_runtime = self.configure(
+                first,
+                participant_id="student-1",
+                collaboration_store_path=self.root / "client-one.sqlite3",
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                chat_bearer_token_provider=lambda: "chat-student-1",
+                file_bearer_token_provider=lambda: "file-student-1",
+                file_picker=lambda: selected,
+                allow_insecure_loopback=False,
+            )
+            second_runtime = self.configure(
+                second,
+                participant_id="student-2",
+                collaboration_store_path=self.root / "client-two.sqlite3",
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                chat_bearer_token_provider=lambda: "chat-student-2",
+                file_bearer_token_provider=lambda: "file-student-2",
+                allow_insecure_loopback=False,
+            )
+
+            sent = first.browser_command(
+                "classes",
+                "collaboration.chat.send",
+                {"body": "Shared over production HTTP"},
+            )
+            self.assertEqual("collaboration.chat.sent", sent["kind"])
+            second.refresh_classroom_chat()
+
+            uploaded = first.browser_command(
+                "classes",
+                "collaboration.file.choose_upload",
+                {},
+            )
+            self.assertEqual("collaboration.file.sent", uploaded["kind"])
+            second.refresh_classroom_files()
+
+            first.unbind_classroom_collaboration()
+            second.unbind_classroom_collaboration()
+
+        self.assertEqual(
+            ("Shared over production HTTP",),
+            tuple(
+                item.body
+                for item in second_runtime.store.room_messages(room)
+            ),
+        )
+        remote_files = second_runtime.store.room_attachments(room)
+        self.assertEqual(1, len(remote_files))
+        self.assertEqual("two-client-shared.pgn", remote_files[0].display_name)
+        self.assertEqual("stored", remote_files[0].transfer_state)
+        self.assertEqual("clean", remote_files[0].scan_state)
+        self.assertEqual(b"1. e4 e5 *", object_store.objects[remote_files[0].object_key])
+        self.assertIn("chat-student-1", chat_auth.calls)
+        self.assertIn("chat-student-2", chat_auth.calls)
+        self.assertIn("file-student-1", file_auth.calls)
+        self.assertIn("file-student-2", file_auth.calls)
+        self.assertNotEqual(
+            first_runtime.store._path,
+            second_runtime.store._path,
+        )
 
     def test_product_status_reports_http_only_for_owned_http_composition(self) -> None:
         app = self.bare_app()
