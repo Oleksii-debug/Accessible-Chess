@@ -117,10 +117,9 @@
       container.appendChild(node("p", String(semantic.players_label || "Players") + ": " + semantic.players));
     }
 
+    // Validate the root result before building the semantic move tree, but
+    // publish it only after the root move list to preserve PGN reading order.
     const gameResult = semanticResult(semantic.result, "book semantic result");
-    if (gameResult) {
-      container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + gameResult));
-    }
 
     appendSemanticMetadata(
       container,
@@ -256,6 +255,12 @@
         entry.item.appendChild(commentList);
       }
     });
+
+    if (gameResult) {
+      container.appendChild(
+        node("p", String(semantic.result_label || "Result") + ": " + gameResult)
+      );
+    }
 
     appendSemanticTextList(
       container,
