@@ -1007,10 +1007,14 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 {"body": "Shared over production HTTP"},
             )
             self.assertEqual("collaboration.chat.sent", sent["kind"])
-            second.refresh_classroom_chat()
+            initial_refresh = second.refresh_classroom_chat()
             initial_remote_message = second_runtime.store.room_messages(room)[0]
             self.assertEqual("Shared over production HTTP", initial_remote_message.body)
             self.assertFalse(initial_remote_message.redacted)
+            self.assertEqual(
+                1,
+                initial_refresh["payload"]["collaboration"]["chat"]["unread_count"],
+            )
 
             redaction_updates = chat_server.redact_retention(
                 room_id=room,
@@ -1018,13 +1022,28 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             )
             self.assertEqual(1, len(redaction_updates))
             self.assertTrue(redaction_updates[0].redacted)
-            second.refresh_classroom_chat()
+            redacted_refresh = second.refresh_classroom_chat()
             redacted_remote_message = second_runtime.store.room_messages(room)[0]
             self.assertEqual("", redacted_remote_message.body)
             self.assertTrue(redacted_remote_message.redacted)
+            self.assertNotIn("announcement", redacted_refresh["payload"])
+            redacted_chat = redacted_refresh["payload"]["collaboration"]["chat"]
+            self.assertEqual(0, redacted_chat["unread_count"])
+            self.assertEqual(1, len(redacted_chat["messages"]))
+            tombstone = redacted_chat["messages"][0]
+            self.assertTrue(tombstone["redacted"])
+            self.assertFalse(tombstone["unread"])
+            self.assertEqual(
+                "Message content is no longer available.",
+                tombstone["redacted_label"],
+            )
+            self.assertEqual(
+                "Student two: Message content is no longer available.",
+                tombstone["action_message"],
+            )
             self.assertNotIn(
                 "Shared over production HTTP",
-                repr(second_runtime.webview.safe_snapshot()),
+                repr(redacted_refresh),
             )
 
             uploaded = first.browser_command(
