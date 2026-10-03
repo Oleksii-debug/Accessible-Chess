@@ -23,6 +23,7 @@ _MAX_BOOKMARK_NAME = 80
 _MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024
 _MAX_BOOK_LIST_ITEMS = 65536
 _MAX_BOOK_HEADING_PATH_PARTS = 6
+_MAX_JS_SAFE_INTEGER = (1 << 53) - 1
 _BOOK_ROLE_BY_KIND = {
     "Heading": "heading",
     "Paragraph": "paragraph",
@@ -222,7 +223,11 @@ class BookWebViewProjection:
     def _snapshot_from_block(self, block: BookBlockView) -> dict[str, object]:
         if not isinstance(block, BookBlockView):
             raise TypeError("BookReaderPresenter must return BookBlockView")
-        if type(block.index) is not int or block.index < 0:
+        if (
+            type(block.index) is not int
+            or block.index < 0
+            or block.index > _MAX_JS_SAFE_INTEGER
+        ):
             raise ValueError("book block index is invalid")
         if block.heading_level is not None and (
             type(block.heading_level) is not int or not 1 <= block.heading_level <= 6
@@ -251,7 +256,9 @@ class BookWebViewProjection:
         if type(block.list_ordered) is not bool:
             raise ValueError("book list ordered flag is invalid")
         if block.list_start is not None and (
-            type(block.list_start) is not int or block.list_start < 1
+            type(block.list_start) is not int
+            or block.list_start < 1
+            or block.list_start > _MAX_JS_SAFE_INTEGER
         ):
             raise ValueError("book list start is invalid")
         if block.list_start is not None and not block.list_ordered:
