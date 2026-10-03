@@ -798,6 +798,58 @@ class ClassroomMediaPolicyProviderAdmin:
     def __repr__(self) -> str:
         return "ClassroomMediaPolicyProviderAdmin(provider=<redacted>)"
 
+    async def _await_provider_terminal(
+        self,
+        *,
+        room_id: str,
+        command: ModerationCommand,
+    ) -> asyncio.CancelledError | None:
+        """Keep caller cancellation from abandoning an in-flight provider effect.
+
+        The provider task is shielded from caller cancellation.  If cancellation
+        arrives, remember it and continue consuming later cancellation requests
+        until the provider reaches a known terminal outcome.  The caller can then
+        re-propagate cancellation only after any required durable post-provider
+        publication is complete and while the effect mutex is still held.
+        """
+
+        operation = asyncio.create_task(
+            self._provider_admin.apply_moderation_command(
+                room_id=room_id,
+                command=command,
+            )
+        )
+        cancelled: asyncio.CancelledError | None = None
+        provider_failed = False
+        while not operation.done():
+            try:
+                await asyncio.shield(operation)
+            except asyncio.CancelledError as error:
+                if operation.done() and operation.cancelled():
+                    provider_failed = True
+                    break
+                if cancelled is None:
+                    cancelled = error
+            except Exception:
+                provider_failed = True
+                break
+
+        if operation.cancelled():
+            provider_failed = True
+        elif not provider_failed:
+            try:
+                operation.result()
+            except Exception:
+                provider_failed = True
+
+        if provider_failed:
+            if cancelled is not None:
+                raise cancelled from None
+            raise ClassroomMediaPolicyError(
+                "media policy provider operation failed"
+            ) from None
+        return cancelled
+
     async def apply_moderation_command(
         self,
         *,
@@ -839,15 +891,10 @@ class ClassroomMediaPolicyProviderAdmin:
                     command=command,
                 )
 
-            try:
-                await self._provider_admin.apply_moderation_command(
-                    room_id=room_id,
-                    command=command,
-                )
-            except Exception:
-                raise ClassroomMediaPolicyError(
-                    "media policy provider operation failed"
-                ) from None
+            cancelled = await self._await_provider_terminal(
+                room_id=room_id,
+                command=command,
+            )
 
             if restore_after_provider:
                 # A failed provider grant must never become a reconnect grant.
@@ -858,6 +905,11 @@ class ClassroomMediaPolicyProviderAdmin:
                     room_id=room_id,
                     command=command,
                 )
+
+            if cancelled is not None:
+                # The requested cancellation becomes observable only after the
+                # provider outcome and any durable restore are both committed.
+                raise cancelled
 
 
 def _role(roster: ClassroomRosterPort, participant_id: str) -> ClassroomRole:

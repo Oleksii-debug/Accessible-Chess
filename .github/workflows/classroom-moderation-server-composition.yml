@@ -16,6 +16,7 @@ on:
       - 'acs/classroom_media_policy_authority.py'
       - 'tests/test_classroom_media_policy_authority.py'
       - 'tests/test_classroom_effect_lock_cross_process.py'
+      - 'tests/test_classroom_provider_cancellation_atomicity.py'
       - '.github/workflows/classroom-distinct-moderation-serialization.yml'
       - 'tests/test_classroom_moderation_server_composition.py'
       - 'tests/test_classroom_distinct_moderation_composition.py'
@@ -54,7 +55,7 @@ jobs:
           LEDGER_OWNER_SHA: e7366ce87e56f4c2580f5212972f4b42dc4465f9
           CURRENT_LEDGER_OWNER_SHA: 86b3e5f18d2c153beef7eabd5d89c99a1278ffcc
           ADMIN_OWNER_SHA: b0b15666127599aed88d007533e4d622042674bf
-          POLICY_OWNER_SHA: 82442d42c214dcee827a799599f1bbc48531b99d
+          POLICY_OWNER_SHA: 724eb8e3d2476b5c2787f041b20fd417a3920518
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
@@ -96,6 +97,7 @@ jobs:
             acs/classroom_media_policy_authority.py \
             tests/test_classroom_media_policy_authority.py \
             tests/test_classroom_effect_lock_cross_process.py \
+            tests/test_classroom_provider_cancellation_atomicity.py \
             .github/workflows/classroom-distinct-moderation-serialization.yml
           do
             test "$(git rev-parse "$POLICY_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
@@ -117,6 +119,7 @@ jobs:
             'tests/test_classroom_effect_lock_cross_process.py' \
             'tests/test_classroom_media_policy_authority.py' \
             'tests/test_classroom_moderation_server_composition.py' \
+            'tests/test_classroom_provider_cancellation_atomicity.py' \
             'tests/test_livekit_classroom_moderation_admin.py' \
             'tests/test_sqlite_classroom_moderation_ledger.py' | sort)"
           test "$changed" = "$allowed"
@@ -143,6 +146,7 @@ jobs:
           tests/test_classroom_moderation_server_composition.py
           tests/test_classroom_distinct_moderation_composition.py
           tests/test_classroom_effect_lock_cross_process.py
+          tests/test_classroom_provider_cancellation_atomicity.py
 
       - name: Run exact combined moderation contracts
         run: >-
@@ -153,6 +157,7 @@ jobs:
           tests.test_livekit_classroom_moderation_admin
           tests.test_classroom_media_policy_authority
           tests.test_classroom_effect_lock_cross_process
+          tests.test_classroom_provider_cancellation_atomicity
           tests.test_classroom_moderation_rpc
           tests.test_classroom_realtime_media
 

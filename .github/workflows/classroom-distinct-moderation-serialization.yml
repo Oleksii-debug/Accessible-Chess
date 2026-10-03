@@ -8,6 +8,7 @@ on:
       - 'acs/classroom_media_policy_authority.py'
       - 'tests/test_classroom_media_policy_authority.py'
       - 'tests/test_classroom_effect_lock_cross_process.py'
+      - 'tests/test_classroom_provider_cancellation_atomicity.py'
       - '.github/workflows/classroom-distinct-moderation-serialization.yml'
   workflow_dispatch:
 
@@ -60,8 +61,11 @@ jobs:
             '.github/workflows/classroom-distinct-moderation-serialization.yml' \
             'acs/classroom_media_policy_authority.py' \
             'tests/test_classroom_effect_lock_cross_process.py' \
-            'tests/test_classroom_media_policy_authority.py' | sort)"
+            'tests/test_classroom_media_policy_authority.py' \
+            'tests/test_classroom_provider_cancellation_atomicity.py' | sort)"
           test "$changed" = "$allowed"
+          test "$(git rev-parse HEAD:acs/classroom_media_policy_authority.py)" = "831f702944aa71685c4a5edccc0654e53d0ff4dc"
+          test "$(git rev-parse HEAD:tests/test_classroom_provider_cancellation_atomicity.py)" = "b05dfe1c1e5dd9de7f2787adee9815e1b2e62a44"
 
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -74,12 +78,14 @@ jobs:
           acs/classroom_media_policy_authority.py
           tests/test_classroom_media_policy_authority.py
           tests/test_classroom_effect_lock_cross_process.py
+          tests/test_classroom_provider_cancellation_atomicity.py
 
       - name: Run durable policy and join contracts
         run: >-
           python -m unittest -v
           tests.test_classroom_media_policy_authority
           tests.test_classroom_effect_lock_cross_process
+          tests.test_classroom_provider_cancellation_atomicity
           tests.test_classroom_join_credentials
           tests.test_classroom_realtime_media
 
@@ -91,11 +97,15 @@ jobs:
           grep -Fq 'BEGIN IMMEDIATE' acs/classroom_media_policy_authority.py
           grep -Fq 'asyncio.to_thread' acs/classroom_media_policy_authority.py
           grep -Fq 'async with self._authority.provider_effect_scope' acs/classroom_media_policy_authority.py
+          grep -Fq 'asyncio.shield(operation)' acs/classroom_media_policy_authority.py
           ! grep -Fq 'self._effect_lock = asyncio.Lock' acs/classroom_media_policy_authority.py
           grep -Fq 'op-lock-camera-distinct' tests/test_classroom_media_policy_authority.py
           grep -Fq 'op-lock-microphone-distinct' tests/test_classroom_media_policy_authority.py
           grep -Fq 'self.assertEqual(provider.sources, set())' tests/test_classroom_media_policy_authority.py
           grep -Fq 'CancelledError' tests/test_classroom_media_policy_authority.py
+          grep -Fq 'op-restore-cancelled' tests/test_classroom_provider_cancellation_atomicity.py
+          grep -Fq 'op-restore-cancelled-failure' tests/test_classroom_provider_cancellation_atomicity.py
+          grep -Fq 'self.assertFalse(task.done())' tests/test_classroom_provider_cancellation_atomicity.py
           grep -Fq 'multiprocessing.get_context("spawn")' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq '("blocked", None)' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq '("acquired", None)' tests/test_classroom_effect_lock_cross_process.py
