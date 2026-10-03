@@ -115,7 +115,7 @@ jobs:
           expected = {
               'web/full_product_pgn.js': 2,
               'web/full_product_library.js': 2,
-              'web/full_product_books_training.js': 4,
+              'web/full_product_books_training.js': 12,
               'web/full_product_education.js': 2,
               'web/full_product_teacher.js': 2,
           }
