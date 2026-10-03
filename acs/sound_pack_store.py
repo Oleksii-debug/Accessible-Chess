@@ -306,6 +306,41 @@ def _decode_json(raw: bytes, label: str) -> Mapping[str, object]:
     return value
 
 
+def _highest_version_name_for_rollback(versions_dir: Path) -> str | None:
+    """Conservatively recover anti-rollback authority from version entry names."""
+
+    if not os.path.lexists(versions_dir):
+        return None
+    _require_real_dir_chain(versions_dir, "sound pack versions directory")
+    _require_real_dir(versions_dir, "sound pack versions directory")
+    versions: list[str] = []
+    try:
+        with os.scandir(versions_dir) as candidates:
+            for index, entry in enumerate(candidates, start=1):
+                if index > _MAX_SOUND_PACK_VERSION_ENTRIES:
+                    raise SoundPackStoreError(
+                        "sound pack version inventory exceeds the resource limit"
+                    )
+                try:
+                    version = _stable_version(entry.name)
+                except (TypeError, ValueError):
+                    continue
+                # Published version directories always use canonical SemVer
+                # names. Count the name even when its contents are corrupt:
+                # integrity failure must not erase downgrade protection.
+                if version == entry.name:
+                    versions.append(version)
+    except SoundPackStoreError:
+        raise
+    except OSError as exc:
+        raise SoundPackStoreError(
+            "sound pack version rollback authority is unavailable"
+        ) from exc
+    if not versions:
+        return None
+    return max(versions, key=_semantic_version_key)
+
+
 def _expected_directories(files: set[str]) -> set[str]:
     expected: set[str] = set()
     for relative in files:
@@ -1250,11 +1285,23 @@ class FilesystemSoundPackStore:
             _require_real_dir(pack_dir, "sound pack identity directory")
             active_path = pack_dir / _ACTIVE_NAME
             if os.path.lexists(active_path):
-                active_id, current_version = self._read_active(pack_dir)
-                if active_id != manifest.pack_id:
-                    raise SoundPackStoreError(
-                        "sound pack active pointer id does not match directory"
+                try:
+                    active_id, current_version = self._read_active(pack_dir)
+                except SoundPackStoreError:
+                    # A malformed/torn active pointer makes the pack
+                    # uninstalled for playback, but it must not erase rollback
+                    # history or make recovery impossible. Conservatively use
+                    # the highest canonical published version name as the floor;
+                    # a successful same/newer install will atomically republish
+                    # a valid pointer.
+                    current_version = _highest_version_name_for_rollback(
+                        pack_dir / "versions"
                     )
+                else:
+                    if active_id != manifest.pack_id:
+                        raise SoundPackStoreError(
+                            "sound pack active pointer id does not match directory"
+                        )
         if (
             current_version is not None
             and _semantic_version_key(current_version)
