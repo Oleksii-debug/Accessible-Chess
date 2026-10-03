@@ -36,7 +36,7 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
         self.assertIn("tests/test_v2_windows_*.py", pull)
         self.assertIn(".github/workflows/version2-windows-composition.yml", pull)
 
-    def test_checkout_and_pr_geometry_use_immutable_event_shas(self) -> None:
+    def test_geometry_uses_live_product_only_for_product_based_prs(self) -> None:
         self.assertIn("fetch-depth: 0", self.workflow)
         self.assertIn(
             "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
@@ -51,20 +51,53 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
+            "PR_BASE_REF: ${{ github.event.pull_request.base.ref }}",
+            self.workflow,
+        )
+        self.assertIn(
+            f"PRODUCT_BRANCH: {CURRENT_PRODUCT_BRANCH}",
+            self.workflow,
+        )
+        self.assertIn(
             "PUSH_BASE_SHA: ${{ github.event.before }}",
             self.workflow,
         )
-        self.assertNotIn("PR_BASE_REF", self.workflow)
         self.assertNotIn("refs/remotes/origin/$PR_BASE_REF", self.workflow)
         self.assertIn('test "$(git rev-parse HEAD)" = "$expected_head"', self.workflow)
-        self.assertIn('push_base="${PUSH_BASE_SHA:-}"', self.workflow)
-        self.assertIn("zero_sha='0000000000000000000000000000000000000000'", self.workflow)
-        self.assertIn('scope_base="$push_base"', self.workflow)
-        self.assertIn('git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"', self.workflow)
-        self.assertIn('scope_base="$(git rev-parse HEAD^)"', self.workflow)
+        self.assertIn('event_base="${PR_BASE_SHA:-}"', self.workflow)
+        self.assertIn('base_ref="${PR_BASE_REF:-}"', self.workflow)
+        self.assertIn('if [ "$base_ref" = "$PRODUCT_BRANCH" ]; then', self.workflow)
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
+            self.workflow,
+        )
+        self.assertIn(
+            'live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"',
+            self.workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$live_product"',
+            self.workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_product" HEAD',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$live_product" HEAD)" = "$live_product"',
+            self.workflow,
+        )
+        self.assertIn('scope_base="$live_product"', self.workflow)
+        self.assertIn('scope_base="$event_base"', self.workflow)
         self.assertIn('git merge-base --is-ancestor "$scope_base" HEAD', self.workflow)
         self.assertIn('test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"', self.workflow)
         self.assertIn('git diff --check "$scope_base" HEAD', self.workflow)
+
+    def test_push_geometry_keeps_immutable_batch_boundary(self) -> None:
+        self.assertIn('push_base="${PUSH_BASE_SHA:-}"', self.workflow)
+        self.assertIn("zero_sha='0000000000000000000000000000000000000000'", self.workflow)
+        self.assertIn('scope_base="$push_base"', self.workflow)
+        self.assertIn('scope_base="$(git rev-parse HEAD^)"', self.workflow)
 
     def test_upstream_and_protected_release_authorities_remain_fail_closed(self) -> None:
         for token in (

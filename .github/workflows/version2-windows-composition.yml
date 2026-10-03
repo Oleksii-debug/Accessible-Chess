@@ -80,6 +80,8 @@ jobs:
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
           PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
@@ -91,8 +93,27 @@ jobs:
             test "$(git rev-parse HEAD)" = "$expected_head"
           fi
 
-          scope_base="${PR_BASE_SHA:-}"
-          if [ -z "$scope_base" ]; then
+          event_base="${PR_BASE_SHA:-}"
+          base_ref="${PR_BASE_REF:-}"
+          if [ -n "$event_base" ]; then
+            git cat-file -e "$event_base^{commit}" || git fetch --no-tags origin "$event_base"
+            if [ "$base_ref" = "$PRODUCT_BRANCH" ]; then
+              git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+              live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+              git cat-file -e "$live_product^{commit}"
+              git merge-base --is-ancestor "$event_base" "$live_product"
+              git merge-base --is-ancestor "$live_product" HEAD
+              test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+              scope_base="$live_product"
+              echo "V2_COMPOSITION_EVENT_BASE=$event_base"
+              echo "V2_COMPOSITION_PRODUCT_PARENT=$live_product"
+            else
+              scope_base="$event_base"
+              git merge-base --is-ancestor "$scope_base" HEAD
+              test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+              echo "V2_COMPOSITION_STACKED_PARENT=$scope_base"
+            fi
+          else
             push_base="${PUSH_BASE_SHA:-}"
             zero_sha='0000000000000000000000000000000000000000'
             if [ -n "$push_base" ] && [ "$push_base" != "$zero_sha" ]; then
@@ -100,10 +121,10 @@ jobs:
             else
               scope_base="$(git rev-parse HEAD^)"
             fi
+            git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"
+            git merge-base --is-ancestor "$scope_base" HEAD
+            test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
           fi
-          git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"
-          git merge-base --is-ancestor "$scope_base" HEAD
-          test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
           git diff --check "$scope_base" HEAD
 
           actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
