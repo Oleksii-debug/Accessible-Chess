@@ -94,6 +94,38 @@ class LibraryImportResult:
     last_game_id: int
     reused: bool = False
 
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("attempt_id", self.attempt_id),
+            ("source_id", self.source_id),
+            ("game_count", self.game_count),
+            ("warning_count", self.warning_count),
+            ("first_game_id", self.first_game_id),
+            ("last_game_id", self.last_game_id),
+        ):
+            if type(value) is not int:
+                raise TypeError(f"{name} must be an integer")
+            if value > _SQLITE_INTEGER_MAX:
+                raise ValueError(f"{name} exceeds SQLite integer range")
+
+        for name, value in (
+            ("attempt_id", self.attempt_id),
+            ("source_id", self.source_id),
+            ("first_game_id", self.first_game_id),
+            ("last_game_id", self.last_game_id),
+        ):
+            if value < 1:
+                raise ValueError(f"{name} must be positive")
+
+        if self.game_count < 1:
+            raise ValueError("game_count must be positive")
+        if self.warning_count < 0:
+            raise ValueError("warning_count must be non-negative")
+        if self.first_game_id > self.last_game_id:
+            raise ValueError("first_game_id must not exceed last_game_id")
+        if type(self.reused) is not bool:
+            raise TypeError("reused must be a boolean")
+
 
 CancelCheck = Callable[[], bool]
 ProgressCallback = Callable[[LibraryImportProgress], None]
