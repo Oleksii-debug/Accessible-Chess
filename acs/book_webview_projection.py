@@ -174,8 +174,13 @@ def _safe_visible_list_items(
 
 
 def _bookmark_name(value: object) -> str:
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise TypeError("bookmark name must be text")
+    # Browser maxLength already constrains this field to 80 UTF-16 units. Apply
+    # the raw Python-character bound before split/join so direct host ingress
+    # cannot make bookmark normalization scan an arbitrarily large value.
+    if len(value) > _MAX_BOOKMARK_NAME:
+        raise ValueError("bookmark name is invalid")
     if "\x00" in value:
         raise ValueError("bookmark name contains NUL")
     token = " ".join(value.split())
