@@ -62,13 +62,13 @@ jobs:
             'tests/test_library_pagination_atomicity.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = "0aebf54578be33fcb78ae01abf588212b0713513"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "376317c95d5a91fcb812033cd7abf281fbf9f8fb"
           test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "7c7dd6755a600731b25244d7e233e428a605f556"
-          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "025f53231180f66ff582483ebe0bf5123e605239"
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "3f26ed95253f65f79215ac062e7f61d3dd041f2f"
           test "$(git rev-parse HEAD:acs/library_export_webview_projection.py)" = "d730f47510c007b4fec5ccd9086a49b86bd80722"
-          test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = "83102076d953cbaf66aef2db236843d4d998b0a3"
+          test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = "e8b7cbd5b0ed3e209446c29fc3185e271298c4cd"
           test "$(git rev-parse HEAD:tests/test_library_pagination_atomicity.py)" = "9a744d7f4ee1fcba810efd75775a90aa9d82eac1"
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "285a4aba422fa4e69c06ce29183b728307f0075c"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "96e0b2007e70ca44d1ba798db9dd3a8d4f854cd8"
           git diff --check "$live_product" HEAD
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065

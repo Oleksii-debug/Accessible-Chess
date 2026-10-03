@@ -625,10 +625,17 @@ class LibraryWebViewProjection:
                 raise ValueError("unsupported UI language") from None
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
-        self._language = language
-        self._presenter.set_language(language)
-        self._import.set_language(language)
-        return self._render_event(self._presenter.view(), announce=False)
+        previous = self._language
+        try:
+            self._language = language
+            self._presenter.set_language(language)
+            self._import.set_language(language)
+            return self._render_event(self._presenter.view(), announce=False)
+        except Exception:
+            self._language = previous
+            self._presenter.set_language(previous)
+            self._import.set_language(previous)
+            raise
 
     def safe_call(self, method: Callable[[], LibraryWebViewEvent]) -> LibraryWebViewEvent:
         try:
