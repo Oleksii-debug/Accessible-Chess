@@ -5,6 +5,7 @@ import unittest
 from acs.sound_events import SoundEvent
 from acs.sound_profiles import (
     CORE_SOUND_EVENTS,
+    SOUND_PACK_SCHEMA1_REQUIRED_EVENTS,
     SOUND_PROFILE_SCHEMA_VERSION,
     SoundEventPreference,
     SoundPackManifest,
@@ -100,6 +101,28 @@ class SoundEventAuthorityTests(unittest.TestCase):
         self.assertEqual("start", CORE_SOUND_EVENTS[0])
         self.assertLess(CORE_SOUND_EVENTS.index("end"), CORE_SOUND_EVENTS.index("tick"))
         self.assertEqual("low_time", CORE_SOUND_EVENTS[-1])
+
+
+class SoundPackSchemaCompatibilityTests(unittest.TestCase):
+    def test_schema1_manifest_remains_valid_with_frozen_required_event_set(self) -> None:
+        manifest = SoundPackManifest(
+            pack_id="legacy.schema1",
+            version="1.0.0",
+            title="Legacy schema 1",
+            license_id="CC0-1.0",
+            files={
+                event_id: f"audio/{event_id}.wav"
+                for event_id in SOUND_PACK_SCHEMA1_REQUIRED_EVENTS
+            },
+            author="Accessible Chess tests",
+            provenance="schema1 compatibility fixture",
+        )
+
+        self.assertEqual(
+            set(SOUND_PACK_SCHEMA1_REQUIRED_EVENTS),
+            set(manifest.files),
+        )
+        self.assertTrue(set(SOUND_PACK_SCHEMA1_REQUIRED_EVENTS) <= set(CORE_SOUND_EVENTS))
 
 
 class SoundPackManifestTests(unittest.TestCase):
