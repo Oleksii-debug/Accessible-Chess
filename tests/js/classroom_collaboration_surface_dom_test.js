@@ -630,6 +630,25 @@ check(
   "an unrelated stale redraw must not move the same transfer backwards"
 );
 
+const stalePreTransferRedraw = collaboration([], 0, false, "session-a");
+stalePreTransferRedraw.files.progress_revision = 2;
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.synced",
+    payload: { collaboration: stalePreTransferRedraw }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "768" &&
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 768 B of 2.0 KB: second.pgn.",
+  "a pre-transfer snapshot without progress must not clear a newer active transfer"
+);
+
 const authoritativeProgressClear = collaboration([], 0, false, "session-a");
 authoritativeProgressClear.files.progress_revision = 5;
 window.AccessibleChessEducationSurface.apply(
@@ -646,6 +665,32 @@ check(
   root.querySelector("#collaboration-file-transfer-meter") === null &&
   root.querySelector("#collaboration-file-transfer-text") === null,
   "trusted file sync without transfer progress must authoritatively clear the presentation meter"
+);
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        transfer_key: transferKeyB,
+        progress_revision: 4,
+        name: "second.pgn",
+        transferred_bytes: 768,
+        total_bytes: 2048,
+        complete: false,
+        label: "File transfer progress",
+        text: "Delayed pre-clear transfer sample"
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter") === null,
+  "a delayed progress event older than an authoritative clear must not resurrect the transfer"
 );
 
 const zeroProgressRoot = new FakeElement("div");
