@@ -227,12 +227,16 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
                             command()
                         self.assertEqual(before, reader.location())
 
-    def test_navigation_availability_scans_each_direction_at_most_once(self) -> None:
+    def test_navigation_availability_scans_each_direction_exactly_once(self) -> None:
         document = self.make_document()
         reader = BookReader(document)
-        counted = CountingBlocks(document.blocks)
-        document.blocks = counted
         reader.go_to(3)
+
+        # BookReader navigates its detached indexed revision, not the mutable
+        # source BookDocument. Instrument the exact collection the scan reads;
+        # wrapping document.blocks here would be a false-green counter.
+        counted = CountingBlocks(reader._indexed_document.blocks)
+        reader._indexed_document.blocks = counted
         counted.reads = 0
 
         availability = reader.navigation_availability()
@@ -243,7 +247,10 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertFalse(availability["next_heading"])
         self.assertTrue(availability["next_position"])
         self.assertTrue(availability["next_game"])
-        self.assertLessEqual(counted.reads, 2 * (len(counted) - 1))
+        # Cursor 3 has three blocks on each side. Because each side is missing
+        # one semantic class, both scans must reach the boundary: exactly six
+        # indexed block reads, not zero and not repeated per semantic class.
+        self.assertEqual(counted.reads, 6)
 
     def test_presenter_never_rereads_live_block_after_location_validation(self) -> None:
         document = self.make_document()
