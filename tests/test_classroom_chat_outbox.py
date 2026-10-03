@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import sys
+import tempfile
 import unittest
 
 from acs.classroom_chat_outbox import ChatOutboxError, SecretStoreChatOutbox
+from acs.secret_store import WindowsDpapiSecretStore
 
 
 class MemorySecretStore:
@@ -197,6 +201,48 @@ class ClassroomChatOutboxTests(unittest.TestCase):
         with self.assertRaises(ChatOutboxError) as caught:
             outbox.entries()
         self.assertNotIn("SUPER-SECRET", str(caught.exception))
+
+
+@unittest.skipUnless(sys.platform == "win32", "real encrypted outbox qualification requires Windows")
+class WindowsDpapiChatOutboxIntegrationTests(unittest.TestCase):
+    def test_pending_chat_round_trip_is_dpapi_encrypted_at_rest(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            secret_store = WindowsDpapiSecretStore(Path(td) / "secure")
+            outbox = SecretStoreChatOutbox(
+                secret_store,
+                "room-1",
+                "student-1",
+            )
+            body = "Sensitive pending classroom draft"
+            reserved = outbox.reserve(
+                message_id="message-dpapi-one",
+                body=body,
+                retention="session",
+            )
+            ciphertext_path = secret_store._path(outbox.slot_name)
+            ciphertext = ciphertext_path.read_bytes()
+
+            self.assertGreater(len(ciphertext), 0)
+            self.assertNotIn(body.encode("utf-8"), ciphertext)
+            self.assertNotIn(reserved.message_id.encode("utf-8"), ciphertext)
+
+            reopened = SecretStoreChatOutbox(
+                WindowsDpapiSecretStore(Path(td) / "secure"),
+                "room-1",
+                "student-1",
+            )
+            recovered = reopened.find(body=body, retention="session")
+            self.assertIsNotNone(recovered)
+            assert recovered is not None
+            self.assertEqual(recovered.message_id, "message-dpapi-one")
+            self.assertTrue(
+                reopened.discard(
+                    message_id=recovered.message_id,
+                    body=recovered.body,
+                    retention=recovered.retention,
+                )
+            )
+            self.assertFalse(ciphertext_path.exists())
 
 
 if __name__ == "__main__":
