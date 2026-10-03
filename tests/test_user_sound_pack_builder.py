@@ -91,6 +91,17 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 build_sound_pack(archive, Path(td) / "pack")
             self.assertFalse((Path(td).parent / "escape.wav").exists())
 
+    def test_failed_build_removes_partial_destination(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source" / "library"
+            self._write_wave(source / "Board" / "MOVE.WAV")
+            destination = Path(td) / "pack"
+
+            with self.assertRaises(Exception):
+                build_sound_pack(Path(td) / "source", destination)
+
+            self.assertFalse(destination.exists())
+
     def test_legacy_procedural_sound_generator_cannot_return(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "acs" / "sound.py").read_text(encoding="utf-8")
