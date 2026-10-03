@@ -275,6 +275,50 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             "manifest-declared owner sound must remain custom-pack playback",
         )
 
+    def test_future_canonical_owner_event_without_localized_label_stays_reachable(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+        future_event = "future.alert"
+        owner_events = tuple(
+            type("OwnerEvent", (), {"value": event_id})()
+            for event_id in (*CORE_SOUND_EVENTS, future_event)
+        )
+        optional_owner_events = (*OPTIONAL_OWNER_SOUND_EVENTS, future_event)
+
+        with (
+            mock.patch(
+                "acs.sound_settings_application.SoundEvent",
+                owner_events,
+            ),
+            mock.patch(
+                "acs.sound_settings_application.OPTIONAL_OWNER_SOUND_EVENTS",
+                optional_owner_events,
+            ),
+        ):
+            snapshot = app.snapshot(language="en")
+            item = next(
+                item
+                for item in snapshot["events"]
+                if item["event_id"] == future_event
+            )
+            changed = app.set_event(
+                future_event,
+                enabled=False,
+                volume_percent=42,
+                language="en",
+            )
+
+        self.assertEqual(future_event, item["label"])
+        changed_item = next(
+            item
+            for item in changed.snapshot["events"]
+            if item["event_id"] == future_event
+        )
+        self.assertFalse(changed_item["enabled"])
+        self.assertEqual(42, changed_item["volume_percent"])
+        self.assertEqual(future_event, changed_item["label"])
+        self.assertFalse(manager.current.preference_for(future_event).enabled)
+
     def test_master_and_per_event_edits_persist_through_single_profile_manager(self) -> None:
         storage, manager, _playback, runtime = self._profile_runtime()
         app = SoundSettingsApplication(manager, runtime)
