@@ -13,6 +13,7 @@ from enum import Enum
 import re
 from types import MappingProxyType
 from typing import Mapping, Protocol
+from urllib.parse import urlsplit
 
 from .sound_profiles import (
     SoundPackManifest,
@@ -24,6 +25,8 @@ from .sound_profiles import (
 
 DEFAULT_MAX_SOUND_PACK_BYTES = 32 * 1024 * 1024
 _MAX_SOUND_PACK_SIGNATURE_CHARS = 16 * 1024
+_MAX_RIGHTS_EVIDENCE_URI_CHARS = 4096
+_MAX_RIGHTS_EVIDENCE_LICENSE_CHARS = 256
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -52,6 +55,76 @@ class SoundAssetDigest:
         object.__setattr__(self, "sha256", digest)
 
 
+def _auditable_rights_uri(label: str, value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"sound pack rights {label} must be text")
+    text = value.strip()
+    if not text:
+        raise ValueError(f"sound pack rights {label} is required")
+    if len(text) > _MAX_RIGHTS_EVIDENCE_URI_CHARS:
+        raise ValueError(f"sound pack rights {label} exceeds the resource limit")
+    if any(
+        ord(ch) < 32 or ord(ch) == 127 or ch in {"\u2028", "\u2029"}
+        for ch in text
+    ):
+        raise ValueError(f"sound pack rights {label} contains control characters")
+    parsed = urlsplit(text)
+    if parsed.scheme == "https":
+        if not parsed.netloc or parsed.username is not None or parsed.password is not None:
+            raise ValueError(
+                f"sound pack rights {label} must be an auditable HTTPS URL or URN"
+            )
+    elif parsed.scheme == "urn":
+        if parsed.netloc or not parsed.path:
+            raise ValueError(
+                f"sound pack rights {label} must be an auditable HTTPS URL or URN"
+            )
+    else:
+        raise ValueError(
+            f"sound pack rights {label} must be an auditable HTTPS URL or URN"
+        )
+    return text
+
+
+@dataclass(frozen=True)
+class SoundPackRightsEvidence:
+    """Catalog-level auditable license/provenance references.
+
+    The manifest remains the downloaded metadata authority.  This record is
+    separate so a provider cannot make arbitrary non-empty prose satisfy the
+    install-time redistribution/provenance gate.
+    """
+
+    license_id: str
+    source_uri: str
+    license_uri: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.license_id, str):
+            raise TypeError("sound pack rights license_id must be text")
+        license_id = self.license_id.strip()
+        if not license_id:
+            raise ValueError("sound pack rights license_id is required")
+        if len(license_id) > _MAX_RIGHTS_EVIDENCE_LICENSE_CHARS:
+            raise ValueError("sound pack rights license_id exceeds the resource limit")
+        if any(
+            ord(ch) < 32 or ord(ch) == 127 or ch in {"\u2028", "\u2029"}
+            for ch in license_id
+        ):
+            raise ValueError("sound pack rights license_id contains control characters")
+        object.__setattr__(self, "license_id", license_id)
+        object.__setattr__(
+            self,
+            "source_uri",
+            _auditable_rights_uri("source_uri", self.source_uri),
+        )
+        object.__setattr__(
+            self,
+            "license_uri",
+            _auditable_rights_uri("license_uri", self.license_uri),
+        )
+
+
 @dataclass(frozen=True)
 class SoundPackCatalogEntry:
     manifest: SoundPackManifest
@@ -59,6 +132,7 @@ class SoundPackCatalogEntry:
     total_bytes: int
     compatible: bool = True
     signature: str | None = None
+    rights_evidence: SoundPackRightsEvidence | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.manifest, SoundPackManifest):
@@ -88,6 +162,13 @@ class SoundPackCatalogEntry:
             raise ValueError("catalog asset digests must exactly cover manifest audio files")
         if sum(item.size_bytes for item in normalized.values()) != self.total_bytes:
             raise ValueError("catalog total_bytes must equal the sum of asset sizes")
+        if self.rights_evidence is not None:
+            if not isinstance(self.rights_evidence, SoundPackRightsEvidence):
+                raise TypeError("rights_evidence must be SoundPackRightsEvidence or null")
+            if self.rights_evidence.license_id != self.manifest.license_id:
+                raise ValueError(
+                    "sound pack rights license_id must match manifest license_id"
+                )
         if self.signature is not None and not isinstance(self.signature, str):
             raise TypeError("signature must be text or null")
         signature = None if self.signature is None else self.signature.strip()
@@ -221,6 +302,10 @@ class SoundPackManager:
     def install(self, entry: SoundPackCatalogEntry) -> SoundPackManifest:
         if not entry.compatible:
             raise SoundPackInstallError("sound pack is incompatible with this application")
+        if entry.rights_evidence is None:
+            raise SoundPackInstallError(
+                "sound pack lacks auditable license/provenance evidence"
+            )
         if entry.total_bytes > self._max_bytes:
             raise SoundPackInstallError("sound pack exceeds the configured size limit")
         current = dict(self._storage.installed()).get(entry.manifest.pack_id)
