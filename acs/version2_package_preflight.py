@@ -153,6 +153,7 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_teacher.js",
     "AccessibleChess/web/full_product_education.js",
     "AccessibleChess/web/livekit_classroom_media.js",
+    "AccessibleChess/web/classroom_media_host_executor.js",
     _REQUIRED_LIVEKIT_BUNDLE,
     _REQUIRED_LIVEKIT_LICENSE,
     _REQUIRED_LIVEKIT_NOTICE,
