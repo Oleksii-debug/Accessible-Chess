@@ -176,6 +176,23 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("EXPECTED_SOURCE_INVENTORY_SHA256", self.text)
         self.assertIn("EXPECTED_SOURCE_WAV_COUNT", self.text)
 
+    def test_fresh_extraction_exercises_exact_sound_runtime_before_exe_diagnostic(self) -> None:
+        extract = self.text.index("Expand-Archive")
+        preflight = self.text.index("FRESH_EXTRACTION_PREFLIGHT=PASS")
+        runtime = self.text.index("FRESH_PACKAGED_SOUND_RUNTIME_TRANSFORM=PASS")
+        diagnostic = self.text.index("PACKAGED_EXE_P0F_DIAGNOSTIC=PASS")
+        self.assertLess(extract, preflight)
+        self.assertLess(preflight, runtime)
+        self.assertLess(runtime, diagnostic)
+        self.assertIn("WindowsSoundPlaybackAdapter", self.text)
+        self.assertIn("PackagedSoundAssetResolver", self.text)
+        self.assertIn("adapter.play(event, volume=80)", self.text)
+        self.assertIn("FRESH_PACKAGED_SOUND_RUNTIME_CALL_COUNT_MISMATCH", self.text)
+        self.assertIn("FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_COUNT_MISMATCH", self.text)
+        self.assertIn("FRESH_PACKAGED_SOUND_RUNTIME_NODEFAULT_FLAG_MISSING", self.text)
+        self.assertIn("FRESH_PACKAGED_SOUND_RUNTIME_CACHE_MISSING", self.text)
+        self.assertIn("FRESH_PACKAGED_SOUND_RUNTIME_DEFAULT_VOLUME=80", self.text)
+
     def test_fresh_extraction_precedes_packaged_machine_acceptance(self) -> None:
         extract = self.text.index("Expand-Archive")
         preflight = self.text.index("FRESH_EXTRACTION_PREFLIGHT=PASS")
