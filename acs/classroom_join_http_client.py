@@ -30,6 +30,7 @@ from .classroom_realtime_media import ClassroomMediaError, JoinCredential
 
 
 _HEADER_NAME_RE = re.compile(rb"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 class ClassroomJoinHttpClientError(RuntimeError):
@@ -89,10 +90,12 @@ class ClassroomJoinHttpClient:
         room_id: str,
         participant_id: str,
     ) -> JoinCredential:
+        room = _canonical_identifier(room_id, "room id")
+        participant = _canonical_identifier(participant_id, "participant id")
         request = {
             "version": JOIN_REQUEST_VERSION,
-            "room_id": room_id,
-            "participant_id": participant_id,
+            "room_id": room,
+            "participant_id": participant,
         }
         try:
             body = json.dumps(
@@ -163,7 +166,7 @@ class ClassroomJoinHttpClient:
             raise ClassroomJoinHttpClientError(
                 "join credential response version is invalid"
             )
-        if payload["room_id"] != room_id or payload["participant_id"] != participant_id:
+        if payload["room_id"] != room or payload["participant_id"] != participant:
             raise ClassroomJoinHttpClientError(
                 "join credential response identity does not match request"
             )
@@ -186,6 +189,14 @@ class ClassroomJoinHttpClient:
             raise ClassroomJoinHttpClientError(
                 "join credential response is invalid"
             ) from None
+
+
+def _canonical_identifier(value: object, label: str) -> str:
+    if type(value) is not str or _IDENTIFIER_RE.fullmatch(value) is None:
+        raise ClassroomJoinHttpClientError(
+            f"join credential request {label} is invalid"
+        )
+    return value
 
 
 def _validated_endpoint(
