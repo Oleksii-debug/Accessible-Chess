@@ -437,6 +437,48 @@ class BookTrainingWireContractTests(unittest.TestCase):
                     BookTrainingErrorCode.INVALID_FIELD,
                 )
 
+    def test_oversized_persisted_text_fields_fail_closed_before_domain_parsing(self):
+        oversized = "x" * 4097
+        cases = []
+
+        for field in ("exercise_id", "start_fen", "title", "source_id"):
+            payload = copy.deepcopy(self.payload)
+            payload["definition"][field] = oversized
+            cases.append((field, payload))
+
+        accepted_move = copy.deepcopy(self.payload)
+        accepted_move["definition"]["steps"][0]["accepted_moves"] = [oversized]
+        cases.append(("accepted-move", accepted_move))
+
+        hint = copy.deepcopy(self.payload)
+        hint["definition"]["steps"][0]["hint"] = oversized
+        cases.append(("hint", hint))
+
+        explanation = copy.deepcopy(self.payload)
+        explanation["definition"]["steps"][0]["explanation"] = oversized
+        cases.append(("explanation", explanation))
+
+        tag = copy.deepcopy(self.payload)
+        tag["definition"]["tags"] = [oversized]
+        cases.append(("tag", tag))
+
+        metadata_key = copy.deepcopy(self.payload)
+        metadata_key["definition"]["metadata"] = {oversized: "value"}
+        cases.append(("metadata-key", metadata_key))
+
+        metadata_value = copy.deepcopy(self.payload)
+        metadata_value["definition"]["metadata"] = {"key": oversized}
+        cases.append(("metadata-value", metadata_value))
+
+        for label, payload in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
+
     def test_tampered_move_and_origin_digest_fail_closed(self):
         tampered_move = copy.deepcopy(self.payload)
         tampered_move["definition"]["steps"][0]["accepted_moves"] = ["d4"]
