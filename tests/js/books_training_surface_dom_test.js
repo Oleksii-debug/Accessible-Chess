@@ -679,8 +679,38 @@ async function run() {
     "stale rejected action left the Book surface busy"
   );
 
+  const inconsistentListRoot = new FakeElement("div");
+  const inconsistentListAnnouncements = [];
+  const inconsistentSnapshot = bookSnapshot(18, "Inconsistent list");
+  inconsistentSnapshot.block.role = "group";
+  inconsistentSnapshot.block.list = { ordered: false, start: null, items: ["item"] };
+  window.AccessibleChessBookSurface.render(
+    inconsistentListRoot,
+    bookSnapshot(18, "Stable before malformed list"),
+    () => ({
+      kind: "render",
+      payload: { snapshot: inconsistentSnapshot, focus_target: "book-block-18" }
+    }),
+    (message) => inconsistentListAnnouncements.push(String(message)),
+    "book-block-18",
+    "Book list failed"
+  );
+  const inconsistentBefore = inconsistentListRoot.querySelector("#book-block-18");
+  find(inconsistentListRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    inconsistentListRoot.querySelector("#book-block-18") === inconsistentBefore,
+    "inconsistent Book list metadata replaced the stable render"
+  );
+  check(
+    inconsistentListAnnouncements.length === 1 &&
+      inconsistentListAnnouncements[0] === "Book list failed",
+    "inconsistent Book list metadata did not fail closed accessibly"
+  );
+
   const listSnapshot = bookSnapshot(4, "List");
-  listSnapshot.block.role = "group";
+  listSnapshot.block.role = "list";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
   window.AccessibleChessBookSurface.render(bookRoot, listSnapshot, bookInvoke, announce, "book-block-4", "Action failed");
   const list = bookRoot.querySelector("#book-block-4");
