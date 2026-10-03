@@ -457,6 +457,18 @@ class ExerciseSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different exercise"):
             ExerciseSession.restore(other, snapshot)
 
+    def test_snapshot_counters_must_remain_browser_safe_integers(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        unsafe = 1 << 53
+
+        for field in ("step_index", "attempts", "mistakes", "hints_used"):
+            with self.subTest(field=field):
+                forged = dict(snapshot)
+                forged[field] = unsafe
+                with self.assertRaisesRegex(ValueError, "invalid exercise counters"):
+                    ExerciseSession.restore(definition, forged)
+
     def test_invalid_snapshot_cannot_claim_false_completion(self):
         definition = self.make_definition()
         snapshot = ExerciseSession(definition).snapshot()
