@@ -21,6 +21,7 @@ dispatch; its diagnostic representation intentionally omits arguments.
 """
 
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import datetime
 from threading import RLock, get_ident
@@ -237,6 +238,32 @@ class ClassroomMediaBrowserBinder:
     @property
     def recovery_status(self) -> MediaProviderExecutionRecoveryStatus | None:
         return self._arbiter.recovery_status
+
+    def pending_browser_payload(self, lease_id: str) -> dict[str, object]:
+        """Return an isolated non-secret provider request for the active transaction."""
+
+        self._assert_owner_thread()
+        with self._lock:
+            active = self._require_active(lease_id)
+            prepared = active.prepared
+            payload = (
+                self._session.pending_browser_payload
+                if prepared.owner is MediaProviderExecutionOwner.SESSION
+                else self._effects.pending_browser_payload
+            )
+            if (
+                payload is None
+                or payload.get("transaction_id") != prepared.transaction_id
+            ):
+                raise ClassroomMediaBrowserBinderError(
+                    "provider coordinator has no matching browser payload"
+                )
+            copied = deepcopy(dict(payload))
+            if "token" in copied or "credential" in copied:
+                raise ClassroomMediaBrowserBinderError(
+                    "public provider payload exposed secret credential material"
+                )
+            return copied
 
     def prepare_join(
         self,
