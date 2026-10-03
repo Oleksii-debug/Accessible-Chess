@@ -408,7 +408,7 @@ def _windows_reserved_path_component(part: str) -> bool:
     return bool(
         len(basename) == 4
         and basename[:3] in {"com", "lpt"}
-        and basename[3] in "123456789"
+        and basename[3] in "123456789¹²³"
     )
 
 
