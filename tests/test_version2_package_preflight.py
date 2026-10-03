@@ -205,11 +205,17 @@ def _write_inventory_wave(
             writer.writeframes(bytes([sample]) * 16)
         elif sample_width == 2:
             writer.writeframes(int(sample).to_bytes(2, "little", signed=True) * 16)
+        elif sample_width == 3:
+            writer.writeframes(int(sample).to_bytes(3, "little", signed=True) * 16)
         else:
-            raise ValueError("test WAV sample width must be 1 or 2")
+            raise ValueError("test WAV sample width must be 1, 2 or 3")
 
 
-def _enable_full_sound_inventory(root: Path) -> tuple[int, str, Path]:
+def _enable_full_sound_inventory(
+    root: Path,
+    *,
+    alt_sample_width: int = 1,
+) -> tuple[int, str, Path]:
     sounds = root / "AccessibleChess" / "assets" / "sounds"
     manifest_path = sounds / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -233,7 +239,7 @@ def _enable_full_sound_inventory(root: Path) -> tuple[int, str, Path]:
         provenance["events"][event.value]["sha256"] = _sha256(sounds / new_name)
 
     alt = library / "move-alt.wav"
-    _write_inventory_wave(alt, sample=177, sample_width=1)
+    _write_inventory_wave(alt, sample=177, sample_width=alt_sample_width)
     variants = {
         "schema_version": 1,
         "events": {
@@ -493,6 +499,30 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 self.assertRaisesRegex(
                     Version2PackagePreflightError,
                     "sound inventory SHA-256 mismatch",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_inventory_bound_runtime_variant_rejects_24bit_pcm(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(
+                root,
+                alt_sample_width=3,
+            )
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "runtime sound asset must be uncompressed 8-bit or 16-bit PCM",
                 ),
             ):
                 _validate_tree(root)
