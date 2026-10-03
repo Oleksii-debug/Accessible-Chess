@@ -488,7 +488,13 @@ class BookProgressStore:
                 )
             return raw
         finally:
-            os.close(descriptor)
+            # Reading/identity validation is the operation authority. A late
+            # close failure on this read-only descriptor cannot invalidate
+            # bytes already read and must not replace a stable store result.
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
     @staticmethod
     def _decode_payload(raw: bytes) -> dict[str, object]:
@@ -689,7 +695,13 @@ class BookProgressStore:
                 )
             return descriptor
         except BaseException:
-            os.close(descriptor)
+            # Preserve the validation failure as the public authority; cleanup
+            # of a descriptor opened only for the failed acquisition is
+            # best-effort and must never mask that error.
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
             raise
 
     def _cleanup_stale_temps_unlocked(self) -> None:
