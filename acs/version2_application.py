@@ -253,6 +253,9 @@ class Version2Application:
         books = self.books
         key = self.book_key
         training_was_active = self.training_workspace is not None or self.training is not None
+        book_board_was_active = (
+            self.book_workflow is not None and self.book_workflow.active
+        )
         if reader is not None and books is not None and key is not None:
             language = books.projection.language
             bookmark_name = books.projection.bookmark_name
@@ -264,13 +267,27 @@ class Version2Application:
                     bookmark_name=bookmark_name,
                     restore_training=training_was_active,
                 )
+                # Book Board is transient state over the old reader/workflow and
+                # is not part of the durable BookReader snapshot. If ambiguity
+                # recovery replaced that owner while Board was visible, return
+                # to the canonical Books surface instead of leaving keyboard
+                # focus on a stale/dead Board route.
+                if (
+                    book_board_was_active
+                    and self.shell.current_route.route_id == "board"
+                ):
+                    self._focus = self.shell.open_route("books")
+                    self._events.append(
+                        {"kind": "route", "payload": {"route_id": "books"}}
+                    )
                 return
             except Exception:
                 pass
 
         # The durable primary cannot be re-read safely. Continuing to expose the
         # old or speculative reader would split UI authority from disk. Fail the
-        # Books/Training surfaces closed and move focus to a stable route.
+        # Book-owned surfaces closed and move focus to a stable route. A visible
+        # PGN Board is unrelated and is intentionally left alone.
         self.reader = None
         self.book_key = None
         self.book_workflow = None
@@ -278,7 +295,10 @@ class Version2Application:
         self.books = None
         self.training_workspace = None
         self.training = None
-        if self.shell.current_route.route_id in {"books", "training"}:
+        current_route = self.shell.current_route.route_id
+        if current_route in {"books", "training"} or (
+            current_route == "board" and book_board_was_active
+        ):
             self._focus = self.shell.open_route("library")
             self._events.append(
                 {"kind": "route", "payload": {"route_id": "library"}}
