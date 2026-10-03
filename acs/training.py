@@ -398,7 +398,7 @@ class ExerciseSession:
     def _bound_definition(self) -> ExerciseDefinition:
         if self.definition is not self._definition_authority:
             raise ValueError("exercise definition authority was replaced during session")
-        definition = _canonical_definition_snapshot(self._definition_authority)
+        definition = _canonical_session_definition(self._definition_authority)
         if _definition_authority_digest(definition) != self._definition_authority_digest:
             raise ValueError("exercise definition changed during session")
         return definition
@@ -586,22 +586,20 @@ def _validate_reachable_state(
 def _snapshot_field_names(snapshot: Mapping[str, object]) -> tuple[str, ...]:
     if not isinstance(snapshot, Mapping):
         raise TypeError("exercise snapshot must be a mapping")
+    max_fields = max(
+        len(_TRAINING_SNAPSHOT_V2_FIELDS),
+        len(_TRAINING_SNAPSHOT_V3_FIELDS),
+    )
     try:
-        field_count = len(snapshot)
+        field_names = tuple(islice(iter(snapshot), max_fields + 1))
     except TypeError as exc:
-        raise TypeError("exercise snapshot must be a finite mapping") from exc
+        raise TypeError("exercise snapshot must expose finite field names") from exc
     allowed_counts = {
         len(_TRAINING_SNAPSHOT_V2_FIELDS),
         len(_TRAINING_SNAPSHOT_V3_FIELDS),
     }
-    if field_count not in allowed_counts:
+    if len(field_names) not in allowed_counts:
         raise ValueError("invalid exercise snapshot field count")
-    try:
-        field_names = tuple(islice(iter(snapshot), field_count + 1))
-    except TypeError as exc:
-        raise TypeError("exercise snapshot must expose finite field names") from exc
-    if len(field_names) != field_count:
-        raise ValueError("exercise snapshot fields changed during validation")
     for field_name in field_names:
         if type(field_name) is not str:
             raise TypeError("exercise snapshot field names must be strings")
@@ -658,6 +656,23 @@ def _canonical_definition_snapshot(definition: ExerciseDefinition) -> ExerciseDe
         source_id=normalized.source_id,
         metadata=normalized.metadata,
     )
+
+
+def _canonical_session_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
+    if type(definition) is not ExerciseDefinition:
+        raise ValueError("exercise definition authority type changed during session")
+    if type(definition.steps) is not tuple:
+        raise ValueError("exercise definition steps changed during session")
+    if type(definition.tags) is not tuple:
+        raise ValueError("exercise definition tags changed during session")
+    if type(definition.metadata) is not dict:
+        raise ValueError("exercise definition metadata changed during session")
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise ValueError("exercise definition step authority changed during session")
+        if type(step.accepted_moves) is not frozenset:
+            raise ValueError("exercise accepted move authority changed during session")
+    return _canonical_definition_snapshot(definition)
 
 
 def _definition_authority_digest(definition: ExerciseDefinition) -> str:
