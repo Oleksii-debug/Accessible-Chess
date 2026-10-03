@@ -293,41 +293,132 @@ class BookTrainingMaterial:
 
 
 def _definition_to_dict(definition: ExerciseDefinition) -> dict[str, object]:
-    if not isinstance(definition, ExerciseDefinition):
-        raise TypeError("definition must be an ExerciseDefinition")
-    if type(definition.title) is not str:
-        raise BookTrainingError(
-            "exercise title must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
+    if type(definition) is not ExerciseDefinition:
+        raise TypeError("definition must be an exact ExerciseDefinition")
+
+    exercise_id = definition.exercise_id
+    start_fen = definition.start_fen
+    title = definition.title
+    source_id = definition.source_id
+    if (
+        type(exercise_id) is not str
+        or type(start_fen) is not str
+        or len(exercise_id) > _MAX_DEFINITION_AUX_TEXT
+        or len(start_fen) > _MAX_DEFINITION_AUX_TEXT
+        or type(title) is not str
+        or len(title) > _MAX_DEFINITION_AUX_TEXT
+        or (
+            source_id is not None
+            and (
+                type(source_id) is not str
+                or len(source_id) > _MAX_DEFINITION_AUX_TEXT
+            )
         )
-    if type(definition.tags) is not tuple or any(type(tag) is not str for tag in definition.tags):
-        raise BookTrainingError(
-            "exercise tags must be a tuple of text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if not isinstance(definition.metadata, Mapping) or any(
-        type(key) is not str or type(value) is not str
-        for key, value in definition.metadata.items()
     ):
         raise BookTrainingError(
-            "exercise metadata must map text keys to text values",
+            "exercise scalar fields exceed the wire safety contract",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    return {
-        "exercise_id": definition.exercise_id,
-        "start_fen": definition.start_fen,
-        "steps": [
+
+    steps = definition.steps
+    if (
+        type(steps) is not tuple
+        or not steps
+        or len(steps) > _MAX_EXERCISE_STEPS
+    ):
+        raise BookTrainingError(
+            "exercise steps must be a bounded non-empty tuple",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    rendered_steps: list[dict[str, object]] = []
+    for step in steps:
+        if type(step) is not ExerciseStep:
+            raise BookTrainingError(
+                "exercise steps must contain exact ExerciseStep values",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        accepted = step.accepted_moves
+        if (
+            type(accepted) is not frozenset
+            or not accepted
+            or len(accepted) > _MAX_ACCEPTED_MOVES_PER_STEP
+        ):
+            raise BookTrainingError(
+                "exercise accepted moves exceed the wire safety contract",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        for move in accepted:
+            if type(move) is not str or len(move) > _MAX_MOVE_TEXT:
+                raise BookTrainingError(
+                    "exercise accepted moves must contain bounded exact text",
+                    code=BookTrainingErrorCode.INVALID_FIELD,
+                )
+        hint = step.hint
+        explanation = step.explanation
+        if (
+            hint is not None
+            and (
+                type(hint) is not str
+                or len(hint) > _MAX_DEFINITION_AUX_TEXT
+            )
+        ) or (
+            explanation is not None
+            and (
+                type(explanation) is not str
+                or len(explanation) > _MAX_DEFINITION_AUX_TEXT
+            )
+        ):
+            raise BookTrainingError(
+                "exercise step auxiliary text exceeds the wire safety contract",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        rendered_steps.append(
             {
-                "accepted_moves": sorted(step.accepted_moves),
-                "hint": step.hint,
-                "explanation": step.explanation,
+                "accepted_moves": sorted(accepted),
+                "hint": hint,
+                "explanation": explanation,
             }
-            for step in definition.steps
-        ],
-        "title": definition.title,
-        "tags": list(definition.tags),
-        "source_id": definition.source_id,
-        "metadata": dict(sorted(definition.metadata.items())),
+        )
+
+    tags = definition.tags
+    if type(tags) is not tuple or len(tags) > _MAX_DEFINITION_TAGS:
+        raise BookTrainingError(
+            "exercise tags exceed the wire safety contract",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for tag in tags:
+        if type(tag) is not str or len(tag) > _MAX_DEFINITION_AUX_TEXT:
+            raise BookTrainingError(
+                "exercise tags must contain bounded exact text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+
+    metadata = definition.metadata
+    if type(metadata) is not dict or len(metadata) > _MAX_DEFINITION_METADATA_ITEMS:
+        raise BookTrainingError(
+            "exercise metadata exceeds the wire safety contract",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for key, value in metadata.items():
+        if (
+            type(key) is not str
+            or type(value) is not str
+            or len(key) > _MAX_DEFINITION_AUX_TEXT
+            or len(value) > _MAX_DEFINITION_AUX_TEXT
+        ):
+            raise BookTrainingError(
+                "exercise metadata must map bounded exact text to bounded exact text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+
+    return {
+        "exercise_id": exercise_id,
+        "start_fen": start_fen,
+        "steps": rendered_steps,
+        "title": title,
+        "tags": list(tags),
+        "source_id": source_id,
+        "metadata": dict(sorted(metadata.items())),
     }
 
 
