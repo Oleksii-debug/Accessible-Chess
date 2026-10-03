@@ -193,6 +193,18 @@ class GameSoundRuntime:
     def tick(self) -> SoundPlaybackReport:
         return self._runtime.dispatch(SoundEventPolicy.clock_tick())
 
+    def checkmate(self) -> SoundPlaybackReport:
+        if self._ended:
+            return SoundPlaybackReport((), (), ())
+        self._ended = True
+        return self._runtime.dispatch(SoundEventPolicy.checkmate())
+
+    def draw(self) -> SoundPlaybackReport:
+        if self._ended:
+            return SoundPlaybackReport((), (), ())
+        self._ended = True
+        return self._runtime.dispatch(SoundEventPolicy.draw())
+
     def end(self) -> SoundPlaybackReport:
         if self._ended:
             return SoundPlaybackReport((), (), ())
