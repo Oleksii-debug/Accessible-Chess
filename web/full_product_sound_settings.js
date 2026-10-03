@@ -343,6 +343,11 @@
           "; метадані каталогу конфліктують із встановленою версією",
           "; catalog metadata conflicts with the installed version"
         );
+      } else if (item.state === "rights_conflict") {
+        installed += text(
+          "; докази прав каталогу конфліктують із перевіреними правами встановленої версії",
+          "; catalog rights evidence conflicts with the verified installed-version rights"
+        );
       } else if (item.state === "catalog_older") {
         installed += text(
           "; версія в каталозі старіша за встановлену",
@@ -364,7 +369,8 @@
       catalogVersion != null &&
       (
         catalogVersion !== String(item.version || "") ||
-        item.state === "version_conflict"
+        item.state === "version_conflict" ||
+        item.state === "rights_conflict"
       )
     ) {
       const catalogRightsMetadata = item.catalog_rights_auditable === true
