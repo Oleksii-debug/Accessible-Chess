@@ -89,7 +89,12 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
             attempts.append("undo")
             raise RuntimeError("injected partial Board failure")
 
-        session, state = self._session(undo=partial_undo)
+        # This assertion verifies transactional restoration, not wall-clock
+        # passage. Use the same deterministic clock seam as the adjacent
+        # clock-atomicity test so Windows timer granularity cannot manufacture
+        # a state difference while the Board rollback itself is exact.
+        now = _Time()
+        session, state = self._session(undo=partial_undo, now=now)
         state_ref["state"] = state
         before_state = dict(state)
         before = session.snapshot()

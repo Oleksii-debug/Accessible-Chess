@@ -38,12 +38,16 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
           git checkout-index --force --all
-          core_expected=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
-            core_expected=b579ca0f59ba20f6b69b3a4b7d89589256d54852
-          fi
           git cat-file blob "HEAD:acs/stage1_release_ui_core.py" > acs/stage1_release_ui_core.py
-          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$core_expected"
+          core_actual="$(git hash-object --no-filters acs/stage1_release_ui_core.py)"
+          case "$core_actual" in
+            b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|b579ca0f59ba20f6b69b3a4b7d89589256d54852)
+              ;;
+            *)
+              printf 'Unexpected Stage1 core blob after materialization: %s\n' "$core_actual" >&2
+              exit 1
+              ;;
+          esac
           git cat-file blob "HEAD:acs/webapp_keymap_core.py" > acs/webapp_keymap_core.py
           test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = 0ba06f548d39dad7372e0339b3e121fd1717cc05
 
@@ -54,13 +58,61 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove bounded test-only scope
+      - name: Prove bounded W3 scope
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
+          product_ref="work/full-product-teacher-education-reachability-20260911"
+          if [ "${{ github.event.pull_request.base.ref }}" = "$product_ref" ]; then
+            # The workflow checks out the immutable candidate head rather than
+            # GitHub's synthetic merge. A queued PR event can therefore keep an
+            # older event-base while independent serial intake advances Product.
+            # Prove both lines still descend monotonically from that event-base,
+            # then scope this immutable candidate against the base it was built on.
+            # Integration still requires a fresh Product reread/reconvergence.
+            event_base="${{ github.event.pull_request.base.sha }}"
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "+refs/heads/$product_ref:refs/remotes/origin/$product_ref"
+            live_product="$(git rev-parse "refs/remotes/origin/$product_ref")"
+            git cat-file -e "$live_product^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_product"
+            test "$(git merge-base "$event_base" "$live_product")" = "$event_base"
+            git merge-base --is-ancestor "$event_base" HEAD
+            test "$(git merge-base "$event_base" HEAD)" = "$event_base"
+            base="$event_base"
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/w3-takeback-clock-oracle-determinism.yml' \
+              'tests/test_dev3_takeback_atomicity.py' | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected current Product W3 scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            git diff --quiet "$base" HEAD -- acs web tools || {
+              echo 'W3 Product convergence must not mutate runtime source ownership' >&2
+              exit 1
+            }
+            echo "W3_EVENT_BASE=$event_base"
+            echo "W3_LIVE_PRODUCT=$live_product"
+            echo "W3_CANDIDATE_HEAD=$(git rev-parse HEAD)"
+          elif [ "${{ github.event.pull_request.head.ref }}" = "$product_ref" ]; then
+            # Retained W3 qualification on the long-lived Product PR: do not
+            # reinterpret the entire historical Product diff as a W3 change.
+            # Bind the integrated owner state to the qualified clock/takeback
+            # identities, including the deterministic rollback-oracle successor.
+            integrated_product=3f30f0d093fc19afe60e8262a70ccfdb3702d614
+            git merge-base --is-ancestor "$integrated_product" HEAD
+            test "$(git rev-parse HEAD:tests/test_dev3_takeback_atomicity.py)" = 92cf78c27358a1c81a0224a285a842e2737a7984
+            test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 02cc2238a0ee3582707f8c926fc8e089faaeccc7
+            test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
+            test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
+            echo 'W3 retained Product authority PASS'
+          elif [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
+            # Historical stacked integration remains exactly reproducible.
             base="${{ github.event.pull_request.base.sha }}"
-            test "${{ github.event.pull_request.base.ref }}" = "work/full-product-teacher-education-reachability-20260911"
+            test "${{ github.event.pull_request.base.ref }}" = "$product_ref"
             expected="$(printf '%s\n' \
               '.github/workflows/chess-clock-switch-boundary.yml' \
               '.github/workflows/clock-engine-serial-acceptance.yml' \
@@ -83,22 +135,27 @@ jobs:
               'tests/test_game_lifecycle.py' \
               'tests/test_stage1_engine_play_ui.py' \
               'tests/test_stage1_saturation_refactor_contract.py' | sort)"
-          else
-            base=d135f517d6f1c98da97134222182260d717095d9
-            expected="$(printf '%s\n' '.github/workflows/w3-takeback-clock-oracle-determinism.yml' 'tests/test_dev3_takeback_atomicity.py' | sort)"
-          fi
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base" HEAD | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
+            git merge-base --is-ancestor "$base" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected historical integration scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
             test "$(git rev-parse HEAD:tests/test_dev3_takeback_atomicity.py)" = 60df98fc2138baa1ece727bac3eef4f8379a8e64
             test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 02cc2238a0ee3582707f8c926fc8e089faaeccc7
             test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
           else
+            # Preserve the original isolated W3 lane contract.
+            base=d135f517d6f1c98da97134222182260d717095d9
+            expected="$(printf '%s\n' '.github/workflows/w3-takeback-clock-oracle-determinism.yml' 'tests/test_dev3_takeback_atomicity.py' | sort)"
+            git merge-base --is-ancestor "$base" HEAD
+            git diff --check "$base" HEAD
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected isolated W3 scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
             git diff --quiet "$base" HEAD -- acs web tools
           fi
 
