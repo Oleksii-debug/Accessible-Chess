@@ -187,7 +187,7 @@ function ensureVisualPieceStyle() {
     style.id = 'stage1-visual-piece-style';
     style.textContent = [
         '#board-grid [role="gridcell"]{position:relative;min-height:4.5rem;overflow:visible}',
-        '.stage1-visual-piece{display:block;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:2.25rem;line-height:1.05;pointer-events:none;transform-origin:50% 65%;will-change:transform,opacity}',
+        '.stage1-visual-piece{position:relative;display:block;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:2.25rem;line-height:1.05;pointer-events:none;transform-origin:50% 65%;will-change:transform,opacity}',
         '#board-grid.stage1-new-game-animating .stage1-visual-piece{z-index:3}'
     ].join('');
     document.head.appendChild(style);
