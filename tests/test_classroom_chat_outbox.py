@@ -133,8 +133,9 @@ class ClassroomChatOutboxTests(unittest.TestCase):
         self.secrets.values[self.outbox.slot_name] = (
             b'{"v":1,"v":1,"room_id":"room-1","participant_id":"student-1","entries":[]}'
         )
-        with self.assertRaisesRegex(ChatOutboxError, "JSON object"):
+        with self.assertRaisesRegex(ChatOutboxError, "JSON object") as duplicate:
             self.outbox.entries()
+        self.assertIsNone(duplicate.exception.__cause__)
 
         self.secrets.values[self.outbox.slot_name] = (
             b'{"v":1,"room_id":"room-1","participant_id":"student-1","entries":[],"extra":1}'
@@ -201,6 +202,8 @@ class ClassroomChatOutboxTests(unittest.TestCase):
         with self.assertRaises(ChatOutboxError) as caught:
             outbox.entries()
         self.assertNotIn("SUPER-SECRET", str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertIsNone(caught.exception.__context__)
 
 
 @unittest.skipUnless(sys.platform == "win32", "real encrypted outbox qualification requires Windows")
