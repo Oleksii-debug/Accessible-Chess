@@ -30,6 +30,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
         "moves": "Ходи та варіанти",
+        "players": "Гравці",
         "result": "Результат",
         "comments": "Коментарі",
         "intro_comments": "Коментарі перед ходами",
@@ -39,6 +40,7 @@ _SEMANTIC_TREE_LABELS = {
     },
     UILanguage.EN: {
         "moves": "Moves and variations",
+        "players": "Players",
         "result": "Result",
         "comments": "Comments",
         "intro_comments": "Comments before moves",
@@ -134,9 +136,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             for warning in (safe(raw) for raw in workflow_warnings)
             if warning
         )
+        players = safe(view.title)
+        if players == "? — ?":
+            players = ""
+
         return {
             "kind": mode.value,
             "label": labels["moves"],
+            "players_label": labels["players"],
+            "players": players,
             "result_label": labels["result"],
             "result": safe(view.result),
             "comments_label": labels["comments"],

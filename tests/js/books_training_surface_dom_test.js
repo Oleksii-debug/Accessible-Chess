@@ -156,6 +156,8 @@ function semanticGameSnapshot() {
   snapshot.block.semantic_tree = {
     kind: "game",
     label: "Moves and variations",
+    players_label: "Players",
+    players: "Alpha — Beta",
     result_label: "Result",
     result: "*",
     comments_label: "Comments",
@@ -369,6 +371,8 @@ async function run() {
     "semantic Game title lacks a deterministic id");
   check(semanticBlock.attributes["aria-labelledby"] === semanticTitle.id,
     "semantic Game focus target lacks an accessible name");
+  check(find(semanticBlock, "P", "Players: Alpha — Beta") !== null,
+    "semantic Game player identity is missing");
   check(find(semanticBlock, "H4", "Moves and variations") !== null,
     "semantic move heading is missing");
   check(find(semanticBlock, "SPAN", "1. e4") !== null,

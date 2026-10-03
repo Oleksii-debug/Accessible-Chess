@@ -68,11 +68,18 @@
       throw new TypeError("book semantic tree kind is invalid");
     }
 
+    if (semantic.players) {
+      if (typeof semantic.players !== "string") {
+        throw new TypeError("book semantic players must be text");
+      }
+      container.appendChild(node("p", String(semantic.players_label || "Players") + ": " + semantic.players));
+    }
+
     if (semantic.result) {
       if (typeof semantic.result !== "string") {
         throw new TypeError("book semantic result must be text");
       }
-      container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + String(semantic.result)));
+      container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + semantic.result));
     }
 
     appendSemanticTextList(

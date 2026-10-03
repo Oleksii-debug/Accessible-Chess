@@ -42,13 +42,13 @@ class Version2BookWorkspaceTests(unittest.TestCase):
     def test_game_and_variation_blocks_project_readable_semantic_move_trees(self):
         cases = (
             Game(
-                pgn='[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. e4 {C:\\private\\secret.txt} (1. d4 $1 d5) e5 * {Outro C:\\private\\tail.txt}',
+                pgn='[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. e4 {C:\\private\\secret.txt} (1. d4 $1 d5) e5 * {Outro C:\\private\\tail.txt}',
                 title="Annotated game",
                 block_id="game",
             ),
             VariationTree(
                 root_fen=Board.START,
-                pgn='[Result "*"]\n\n{Intro variation} 1. e4 {Main} (1. d4 $1 d5) e5 * {Outro variation}',
+                pgn='[White "Gamma"]\n[Black "Delta"]\n[Result "*"]\n\n{Intro variation} 1. e4 {Main} (1. d4 $1 d5) e5 * {Outro variation}',
                 title="Variation study",
                 block_id="variation",
             ),
@@ -64,6 +64,8 @@ class Version2BookWorkspaceTests(unittest.TestCase):
 
                 self.assertIsInstance(tree, dict)
                 self.assertEqual(tree["result"], "*")
+                self.assertIn(" — ", tree["players"])
+                self.assertNotIn("?", tree["players"])
                 self.assertEqual(len(tree["intro_comments"]), 1)
                 self.assertIn("Intro", tree["intro_comments"][0])
                 self.assertEqual(len(tree["outro_comments"]), 1)
