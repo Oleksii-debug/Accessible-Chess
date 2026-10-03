@@ -199,6 +199,49 @@ class ClassroomHttpJoinCompositionTests(unittest.TestCase):
         self.assertNotIn("account-bearer", repr(app))
         self.assertNotIn("provider-short-lived-token", repr(app))
 
+    def test_combined_join_route_malformed_bearer_uses_join_challenge_only(self):
+        chat, files = self.services()
+        collaboration_auth = CollaborationAuthenticator()
+        join_auth = JoinAuthenticator()
+        join, authorization = join_service()
+        app = ClassroomCollaborationHttpApplication(
+            chat_service=chat,
+            file_service=files,
+            authenticator=collaboration_auth,
+            join_service=join,
+            join_authenticator=join_auth,
+        )
+        body = json.dumps(
+            {
+                "version": 1,
+                "room_id": "room-1",
+                "participant_id": "student-1",
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        request_scope = scope(body)
+        request_scope["headers"] = [
+            (b"authorization", b"Bearer abc\x7fdef"),
+            (b"content-type", b"application/json; charset=utf-8"),
+            (b"content-length", str(len(body)).encode("ascii")),
+        ]
+
+        events = asyncio.run(invoke(app, request_scope, body))
+
+        self.assertEqual(status(events), 401)
+        start = next(
+            item for item in events if item["type"] == "http.response.start"
+        )
+        headers = dict(start["headers"])
+        self.assertEqual(
+            headers[b"www-authenticate"],
+            b'Bearer realm="accessible-chess-classroom"',
+        )
+        self.assertEqual(response(events), {"error": "unauthorized"})
+        self.assertEqual(join_auth.calls, [])
+        self.assertEqual(collaboration_auth.calls, [])
+        self.assertEqual(authorization.calls, [])
+
     def test_join_route_is_absent_unless_both_join_authorities_are_bound(self):
         chat, files = self.services()
         collaboration_auth = CollaborationAuthenticator()
