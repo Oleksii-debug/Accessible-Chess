@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import multiprocessing
 from multiprocessing.connection import Connection
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -91,6 +92,30 @@ def _effect_lock_worker(path: str, connection: Connection) -> None:
         connection.close()
 
 
+def _crashing_effect_lock_owner(path: str, connection: Connection) -> None:
+    """Acquire the production mutex, then die without running async cleanup."""
+
+    authority = SqliteClassroomMediaPolicyAuthority(
+        Path(path),
+        roster_resolver=_RosterResolver(),
+        join_identity_resolver=_JoinIdentityResolver(),
+        timeout_seconds=5.0,
+    )
+
+    async def crash_while_locked() -> None:
+        scope = authority.provider_effect_scope(
+            room_id="room-1",
+            participant_id="student-1",
+        )
+        await scope.__aenter__()
+        connection.send(("locked", None))
+        # Deliberately bypass __aexit__, finally blocks and Python-level close.
+        # The next process must rely on OS/SQLite crash cleanup only.
+        os._exit(23)
+
+    asyncio.run(crash_while_locked())
+
+
 def _receive(connection: Connection, timeout: float = 8.0):
     if not connection.poll(timeout):
         raise AssertionError("spawned moderation-lock worker did not respond")
@@ -151,6 +176,41 @@ class ClassroomEffectLockCrossProcessTests(unittest.TestCase):
                 process.join(timeout=8.0)
                 self.assertFalse(process.is_alive())
                 self.assertEqual(process.exitcode, 0)
+            finally:
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=5.0)
+                parent_connection.close()
+
+    def test_crashed_lock_owner_releases_effect_mutex_for_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            policy_path = Path(directory) / "policy.sqlite3"
+            retry_authority = SqliteClassroomMediaPolicyAuthority(
+                policy_path,
+                roster_resolver=_RosterResolver(),
+                join_identity_resolver=_JoinIdentityResolver(),
+                timeout_seconds=5.0,
+            )
+            context = multiprocessing.get_context("spawn")
+            parent_connection, child_connection = context.Pipe(duplex=True)
+            process = context.Process(
+                target=_crashing_effect_lock_owner,
+                args=(str(policy_path), child_connection),
+                name="classroom-effect-lock-crash-proof",
+            )
+            process.start()
+            child_connection.close()
+
+            try:
+                self.assertEqual(_receive(parent_connection), ("locked", None))
+                process.join(timeout=8.0)
+                self.assertFalse(process.is_alive())
+                self.assertEqual(process.exitcode, 23)
+
+                # The crashed process never executed __aexit__. The OS must
+                # release its SQLite writer lock so a later service participant
+                # can retry through the same production scope.
+                asyncio.run(_attempt_effect_scope(retry_authority))
             finally:
                 if process.is_alive():
                     process.terminate()

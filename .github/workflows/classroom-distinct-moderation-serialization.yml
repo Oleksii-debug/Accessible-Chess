@@ -99,6 +99,8 @@ jobs:
           grep -Fq 'multiprocessing.get_context("spawn")' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq '("blocked", None)' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq '("acquired", None)' tests/test_classroom_effect_lock_cross_process.py
+          grep -Fq 'os._exit(23)' tests/test_classroom_effect_lock_cross_process.py
+          grep -Fq 'test_crashed_lock_owner_releases_effect_mutex_for_retry' tests/test_classroom_effect_lock_cross_process.py
 
       - name: Core selftest
         run: python -m acs.selftest
