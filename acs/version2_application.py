@@ -31,7 +31,7 @@ from .library_webview_projection import LibraryImportPhase
 from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
-from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
+from .pgn_document_webview_projection import PgnDocumentWebViewProjection
 from .position_editor import PositionState
 from .report_paths import report_safe_name
 from .search_service import GameSearchQuery
@@ -160,7 +160,7 @@ class Version2Application:
             raise ValueError("return to the book before replacing the PGN document")
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
             raise ValueError("PGN replacement cancelled")
-        projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
+        projection = PgnDocumentWebViewProjection(session, self.router, language=self.shell.language)
         bridge = PgnWebViewBridge(projection)
         # Route publication can fail (for example if shell invariants reject the
         # transition).  Keep the previous document authoritative until every
