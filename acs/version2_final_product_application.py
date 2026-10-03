@@ -452,6 +452,10 @@ class Version2FinalProductApplication(Version2Application):
         result = super().snapshot()
         media_snapshot: dict[str, object] | None = None
         media_recovery_required = False
+        media_transaction_active = (
+            self.media_transactions is not None
+            and self.media_transactions.binder.active_lease is not None
+        )
         provider_recovery_required = (
             self.media_transactions is not None
             and self.media_transactions.binder.recovery_status is not None
@@ -461,6 +465,11 @@ class Version2FinalProductApplication(Version2Application):
             # not export a stale projection containing actionable media buttons
             # while reconciliation is required.
             media_recovery_required = True
+        elif media_transaction_active:
+            # A provider mutation is still in flight.  Independent snapshot
+            # refreshes must not repaint fresh action buttons around the one
+            # globally serialized provider lease.
+            pass
         elif self.media is not None:
             try:
                 media_snapshot = self.media.projection.snapshot()
@@ -488,6 +497,7 @@ class Version2FinalProductApplication(Version2Application):
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
                     "media_binding_active": self.media is not None,
+                    "media_transaction_active": media_transaction_active,
                     "media_recovery_required": media_recovery_required,
                     # Composition is not an acceptance claim. Keep the
                     # whole-product transport gate truthful until real packaged
