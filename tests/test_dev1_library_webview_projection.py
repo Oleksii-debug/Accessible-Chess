@@ -5,6 +5,7 @@ import unittest
 
 from acs.full_product_presenters import LibraryPresenter, SurfaceStatus
 from acs.full_product_ui_shell import UILanguage
+from acs.library_export_webview_projection import LibraryExportWebViewProjection
 from acs.library_webview_bridge import LibraryWebViewBridge
 from acs.library_webview_projection import LibraryWebViewProjection
 from acs.search_service import GameSearchItem, GameSearchPage, GameSearchQuery
@@ -211,6 +212,49 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         self.assertEqual("error", failed.payload["snapshot"]["status"])
         self.assertEqual(committed_query, projection.query)
         self.assertEqual(before, projection.snapshot())
+
+    def test_failed_export_search_preserves_export_selection_and_committed_query(self) -> None:
+        service = FakeSearchService()
+        presenter = LibraryPresenter(service, language=UILanguage.EN)
+        projection = LibraryExportWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        projection.search(committed_query)
+        projection.toggle_export_selection(2)
+        self.assertEqual((2,), projection.export_game_ids)
+
+        def fail_search(_query):
+            raise PermissionError(r"C:\\Users\\BlindTeacher\\private-library.sqlite")
+
+        service.search = fail_search
+        failed = projection.search(GameSearchQuery(player="Changed", limit=25))
+        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        self.assertEqual((2,), projection.export_game_ids)
+        self.assertEqual(committed_query, projection.query)
+        committed = projection.snapshot()
+        self.assertEqual(1, committed["export_selection_count"])
+        selected = next(row for row in committed["rows"] if row["game_id"] == 2)
+        self.assertTrue(selected["export_selected"])
+
+    def test_successful_export_search_clears_prior_export_selection(self) -> None:
+        service = FakeSearchService()
+        presenter = LibraryPresenter(service, language=UILanguage.EN)
+        projection = LibraryExportWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+        projection.search(GameSearchQuery(player="Alpha", limit=2))
+        projection.toggle_export_selection(2)
+        self.assertEqual((2,), projection.export_game_ids)
+
+        completed = projection.search(GameSearchQuery(player="Gamma", limit=2))
+        self.assertEqual("ready", completed.payload["snapshot"]["status"])
+        self.assertEqual((), projection.export_game_ids)
+        self.assertEqual(0, completed.payload["snapshot"]["export_selection_count"])
 
     def test_bridge_rejects_cursor_and_unknown_fields_without_reflecting_values(self) -> None:
         _service, _presenter, _projection, bridge, _calls = self.build()
