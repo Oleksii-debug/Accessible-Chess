@@ -6,6 +6,7 @@ on:
       - 'acs/training.py'
       - 'acs/full_product_presenters.py'
       - 'acs/training_webview_projection.py'
+      - 'acs/version2_training_workspace.py'
       - 'acs/book_webview_bridge.py'
       - 'acs/training_webview_bridge.py'
       - 'tests/test_training_authority_convergence.py'
@@ -31,10 +32,11 @@ jobs:
       EXACT_PARENT: 3a60b1c86403593c4d002e6a8bf3b2929e237720
       TRAINING_BLOB: 14ef14908011fb567a37fc18e10d342ef12e5faf
       PRESENTER_BLOB: 9e1b11341359a17c80739e122d3265dd474c0d58
-      PROJECTION_BLOB: 23077191cd2b1cfbb3722cea12b6a578c47c00c0
+      PROJECTION_BLOB: d048fc83829a86b27f4412d7d183a04235b691d7
+      WORKSPACE_BLOB: 7b42dc35de2901c89f111dd8a59b6b9a4c2a2851
       BOOK_BRIDGE_BLOB: 247b7d4bbd2d9e0e7d7fc6a89c5cef45e63e65e7
       TRAINING_BRIDGE_BLOB: c3e6e52873f2ec1e2d5bdbc70d227a402963405b
-      CONVERGENCE_TEST_BLOB: 291211e441f66266a3bb662d7c303ca33c61f4f8
+      CONVERGENCE_TEST_BLOB: a42faa33d1022b3794493584109699ad160c689b
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +56,7 @@ jobs:
           test "$(git rev-parse "HEAD:acs/training.py")" = "$TRAINING_BLOB"
           test "$(git rev-parse "HEAD:acs/full_product_presenters.py")" = "$PRESENTER_BLOB"
           test "$(git rev-parse "HEAD:acs/training_webview_projection.py")" = "$PROJECTION_BLOB"
+          test "$(git rev-parse "HEAD:acs/version2_training_workspace.py")" = "$WORKSPACE_BLOB"
           test "$(git rev-parse "HEAD:acs/book_webview_bridge.py")" = "$BOOK_BRIDGE_BLOB"
           test "$(git rev-parse "HEAD:acs/training_webview_bridge.py")" = "$TRAINING_BRIDGE_BLOB"
           test "$(git rev-parse "HEAD:tests/test_training_authority_convergence.py")" = "$CONVERGENCE_TEST_BLOB"
@@ -65,6 +68,7 @@ jobs:
             'acs/training.py' \
             'acs/training_webview_bridge.py' \
             'acs/training_webview_projection.py' \
+            'acs/version2_training_workspace.py' \
             'tests/test_training_authority_convergence.py' | sort)"
           test "$changed" = "$expected"
           git diff --check
@@ -75,6 +79,7 @@ jobs:
           acs/training.py
           acs/full_product_presenters.py
           acs/training_webview_projection.py
+          acs/version2_training_workspace.py
           acs/book_webview_bridge.py
           acs/training_webview_bridge.py
           tests/test_training_authority_convergence.py
@@ -92,6 +97,8 @@ jobs:
           tests.test_dev1_books_training_webview_bridge
           tests.test_books_training_ui_integration
           tests.test_version2_training_current_runtime
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_application
 
       - name: Core selftest
         run: python -m acs.selftest
