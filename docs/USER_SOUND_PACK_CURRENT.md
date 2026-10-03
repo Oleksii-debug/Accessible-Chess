@@ -16,6 +16,14 @@ This file records the exact sound source requested by the repository owner for t
 
 The builder scripts/build_user_sound_pack.py is bound to this exact extracted inventory and fails closed if a different 330-file tree is supplied.
 
+Release integrity is closed over the same 330-file authority:
+
+- `assets/sounds/inventory.json` records every retained WAV path, SHA-256, byte count and decoded WAV metadata.
+- Version 2 release preparation re-hashes the complete library, recomputes the canonical inventory fingerprint, and requires every runtime default, selectable variant and ordered layer to resolve to an inventory-bound WAV.
+- The prepared notices publish the normalized full-library record as `THIRD_PARTY_NOTICES/SOUND_INVENTORY.json`.
+- Final package preflight requires the runtime inventory and audit notice to be identical, independently re-hashes all inventory-bound WAVs, and repeats runtime catalog coverage checks. Regenerating `SHA256SUMS.txt` after replacing a valid alternate WAV therefore cannot make the substitution pass.
+- The fresh Windows candidate workflow rechecks the same inventory/notice identity after ZIP extraction and before packaged EXE, UIA and combined P0 acceptance.
+
 ## Product defaults
 
 Variant 1 is the default for every semantic sound event.
