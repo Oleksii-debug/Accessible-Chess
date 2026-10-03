@@ -44,6 +44,7 @@ _INTEGRITY_NAME = "integrity.json"
 _RIGHTS_NAME = "rights.json"
 _ACTIVE_NAME = "active.json"
 _MAX_METADATA_BYTES = 128 * 1024
+_MAX_SOUND_PACK_TREE_DIRECTORIES = 8192
 
 _PROCESS_MUTATION_LOCKS_GUARD = threading.Lock()
 _PROCESS_MUTATION_LOCKS: dict[str, threading.RLock] = {}
@@ -249,22 +250,57 @@ def _expected_directories(files: set[str]) -> set[str]:
     return expected
 
 
-def _scan_exact_tree(root: Path, label: str) -> tuple[set[str], set[str]]:
+def _scan_exact_tree(
+    root: Path,
+    label: str,
+    *,
+    max_files: int,
+    max_directories: int,
+) -> tuple[set[str], set[str]]:
     _require_real_dir(root, label)
+    if (
+        isinstance(max_files, bool)
+        or not isinstance(max_files, int)
+        or max_files < 0
+        or isinstance(max_directories, bool)
+        or not isinstance(max_directories, int)
+        or not 0 <= max_directories <= _MAX_SOUND_PACK_TREE_DIRECTORIES
+    ):
+        raise SoundPackStoreError(f"{label} topology exceeds the resource limit")
+
     files: set[str] = set()
     directories: set[str] = set()
+    pending = [root]
     try:
-        walker = os.walk(root, topdown=True, followlinks=False)
-        for current, dirnames, filenames in walker:
-            current_path = Path(current)
-            for name in dirnames:
-                child = current_path / name
-                _require_real_dir(child, f"{label} directory")
-                directories.add(child.relative_to(root).as_posix())
-            for name in filenames:
-                child = current_path / name
-                _require_regular_file(child, f"{label} file")
-                files.add(child.relative_to(root).as_posix())
+        while pending:
+            current_path = pending.pop()
+            with os.scandir(current_path) as entries:
+                for entry in entries:
+                    child = Path(entry.path)
+                    metadata = os.lstat(child)
+                    if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata):
+                        raise SoundPackStoreError(f"{label} contains redirected content")
+                    relative = child.relative_to(root).as_posix()
+                    if stat.S_ISDIR(metadata.st_mode):
+                        directories.add(relative)
+                        if len(directories) > max_directories:
+                            raise SoundPackStoreError(
+                                f"{label} topology exceeds the resource limit"
+                            )
+                        pending.append(child)
+                        continue
+                    if stat.S_ISREG(metadata.st_mode):
+                        files.add(relative)
+                        if len(files) > max_files:
+                            raise SoundPackStoreError(
+                                f"{label} topology exceeds the resource limit"
+                            )
+                        continue
+                    raise SoundPackStoreError(
+                        f"{label} contains non-regular filesystem content"
+                    )
+    except SoundPackStoreError:
+        raise
     except OSError as exc:
         raise SoundPackStoreError(f"{label} could not be inspected") from exc
     return files, directories
@@ -764,13 +800,21 @@ class FilesystemSoundPackStore:
             source,
             "downloaded sound pack staging directory",
         )
-        files, directories = _scan_exact_tree(
-            source, "downloaded sound pack staging directory"
-        )
         expected_files = set(digests)
+        expected_directories = _expected_directories(expected_files)
+        if len(expected_directories) > _MAX_SOUND_PACK_TREE_DIRECTORIES:
+            raise SoundPackStoreError(
+                "downloaded sound pack staging topology exceeds the resource limit"
+            )
+        files, directories = _scan_exact_tree(
+            source,
+            "downloaded sound pack staging directory",
+            max_files=len(expected_files),
+            max_directories=len(expected_directories),
+        )
         if (
             files != expected_files
-            or directories != _expected_directories(expected_files)
+            or directories != expected_directories
         ):
             raise SoundPackStoreError(
                 "downloaded sound pack staging topology does not match declared assets"
@@ -1006,12 +1050,20 @@ class FilesystemSoundPackStore:
         }
         if rights_evidence is not None:
             expected_files.add(_RIGHTS_NAME)
+        expected_directories = _expected_directories(expected_files)
+        if len(expected_directories) > _MAX_SOUND_PACK_TREE_DIRECTORIES:
+            raise SoundPackStoreError(
+                "installed sound pack topology exceeds the resource limit"
+            )
         files, directories = _scan_exact_tree(
-            version_dir, "installed sound pack version"
+            version_dir,
+            "installed sound pack version",
+            max_files=len(expected_files),
+            max_directories=len(expected_directories),
         )
         if (
             files != expected_files
-            or directories != _expected_directories(expected_files)
+            or directories != expected_directories
         ):
             raise SoundPackStoreError(
                 "installed sound pack contains undeclared filesystem content"
