@@ -608,6 +608,9 @@ check(
     "Refreshing files…",
   "pending file refresh must remain visible for review as well as announced"
 );
+// Native Windows dialogs can temporarily return WebView without an active
+// element. The pending action anchor must still recover deterministic focus.
+document.activeElement = null;
 window.AccessibleChessEducationSurface.apply(
   fileProgressRoot,
   {
