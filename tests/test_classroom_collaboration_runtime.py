@@ -178,6 +178,31 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
         self.assertEqual(self.file_token_calls, 0)
 
 
+    def test_invalid_host_adapters_and_retention_fail_before_local_store_creation(self) -> None:
+        cases = (
+            ("file_picker", object(), TypeError),
+            ("file_saver", object(), TypeError),
+            ("file_opener", object(), TypeError),
+            ("file_progress_event_sink", object(), TypeError),
+            ("moderation_allowed", object(), TypeError),
+            ("participant_moderation", object(), TypeError),
+            ("chat_retention", "forever", ValueError),
+            ("file_retention", "", ValueError),
+        )
+        for index, (name, value, error_type) in enumerate(cases):
+            with self.subTest(name=name):
+                path = self.root / f"invalid-host-{index}.sqlite3"
+                with self.assertRaises(error_type):
+                    self.build(
+                        store_path=path,
+                        **{name: value},
+                    )
+                self.assertFalse(path.exists())
+                self.assertEqual(self.chat_token_calls, 0)
+                self.assertEqual(self.file_token_calls, 0)
+
+
+
 class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
