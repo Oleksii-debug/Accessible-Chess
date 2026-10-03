@@ -235,6 +235,20 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 build_sound_pack(archive, destination)
             self.assertFalse(destination.exists())
 
+    def test_direct_source_relative_paths_must_be_windows_portable(self):
+        root = Path("root")
+        cases = (
+            root / "Board" / "CON.wav",
+            root / "Board" / "trailing.",
+            root / "Board" / "bad\x01.wav",
+        )
+        for candidate in cases:
+            with self.subTest(candidate=str(candidate)), self.assertRaisesRegex(
+                Exception,
+                "Windows-portable",
+            ):
+                sound_builder._safe_relative(candidate, root)
+
     def test_failed_build_removes_partial_destination(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / "source" / "library"
