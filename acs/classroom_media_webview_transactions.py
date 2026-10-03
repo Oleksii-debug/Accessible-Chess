@@ -60,6 +60,16 @@ class ClassroomMediaBrowserProviderConfig:
         }
 
 
+class _ProviderBrowserPayload(dict[str, object]):
+    """Ordinary serializable mapping with privacy-safe diagnostic formatting."""
+
+    def __repr__(self) -> str:
+        visible = dict(self)
+        if "device_id" in visible:
+            visible["device_id"] = "<redacted>"
+        return repr(visible)
+
+
 class ClassroomMediaTransactionalWebView:
     """Prepare browser provider work and reconcile it through one global binder."""
 
@@ -147,7 +157,7 @@ class ClassroomMediaTransactionalWebView:
             "provider-dispatch",
             {
                 "transaction_id": transaction_id,
-                "provider": dict(provider),
+                "provider": _ProviderBrowserPayload(provider),
                 "provider_boundary_crossed": lease.provider_boundary_crossed,
                 "focus_target": focus_target,
             },
@@ -627,7 +637,7 @@ class ClassroomMediaTransactionalWebView:
                         "provider-dispatch",
                         {
                             "transaction_id": transaction_id,
-                            "provider": dict(provider),
+                            "provider": _ProviderBrowserPayload(provider),
                             "provider_boundary_crossed": (
                                 self._binder.active_lease.provider_boundary_crossed
                             ),
