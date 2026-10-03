@@ -793,6 +793,61 @@ class BookEpubImportTests(unittest.TestCase):
                     import_epub_book(raw, source_name="bad-rootfiles-count.epub")
                 self.assertEqual(raised.exception.code, BookEpubImportErrorCode.MALFORMED_PACKAGE)
 
+    def test_container_canonical_children_keep_required_order_and_content_model(self) -> None:
+        valid_rootfiles = '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>'
+        cases = (
+            f"<links/>{valid_rootfiles}",
+            f"{valid_rootfiles}<bogus/>",
+            f"{valid_rootfiles}<links/><links/>",
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/><bogus/></rootfiles>',
+            '<rootfiles>text<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>',
+        )
+        for markup in cases:
+            with self.subTest(markup=markup):
+                container = (
+                    '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    f"{markup}</container>"
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={"OEBPS/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>"},
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="bad-container-structure.epub")
+                self.assertEqual(raised.exception.code, BookEpubImportErrorCode.MALFORMED_PACKAGE)
+
+    def test_container_foreign_extensions_are_removed_before_structure_validation(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0"
+ xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
+ xmlns:x="urn:example:foreign">
+  <x:ignored><rootfile full-path="WRONG/content.opf" media-type="application/oebps-package+xml"/></x:ignored>
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml">
+      <x:extension><x:data/></x:extension>
+    </rootfile>
+  </rootfiles>
+  <links/>
+</container>'''
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={"OEBPS/chapter.xhtml": b"<html><body><p>Foreign extension safe.</p></body></html>"},
+            container=container,
+        )
+        result = import_epub_book(raw, source_name="foreign-extension.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Foreign extension safe.",
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+        )
+
     def test_multiple_valid_rootfiles_preserve_first_rendition_policy(self) -> None:
         container = b'''<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
