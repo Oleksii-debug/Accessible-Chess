@@ -44,6 +44,10 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 
 
 class Version2Application:
+    _MAX_BROWSER_AREA_CHARS = 16
+    _MAX_BROWSER_COMMAND_CHARS = 128
+    _MAX_CANONICAL_BOARD_POSITION_CHARS = 4096
+
     # Some canonical shutdown/recovery tests deliberately construct a minimal
     # application via __new__ instead of __init__. Keep optional Training state
     # absent-safe on those valid pre-Training construction paths.
@@ -138,7 +142,7 @@ class Version2Application:
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
         self.session, self.pgn = session, PgnWebViewBridge(projection)
         self.pgn_board_active = False
-        self.shell.open_route("pgn")
+        self._focus = self.shell.open_route("pgn")
 
     def open_book(self, source: Path):
         self._assert_thread()
@@ -174,7 +178,7 @@ class Version2Application:
         self._persist_book_progress(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
-        self.shell.open_route("books")
+        self._focus = self.shell.open_route("books")
         return len(imported.warnings)
 
     def _persist_book_progress(self, book_key, reader):
@@ -290,11 +294,23 @@ class Version2Application:
             before = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
-            result = self.books.dispatch(command, payload)
+            result = self.books.dispatch(command_id, payload)
             if result.kind == "error":
                 return result
             try:
                 self.save_book_progress()
+            except BookProgressStoreError as error:
+                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    self._restore_book_progress(
+                        before,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                    )
+                # On ambiguous durability the save path already rebound to the
+                # visible canonical primary. Do not restore speculative history.
+                if self.books is None:
+                    return self._error()
+                return self.books.projection.generic_error()
             except Exception:
                 self._restore_book_progress(
                     before,
@@ -303,7 +319,7 @@ class Version2Application:
                 )
                 return self.books.projection.generic_error()
             return result
-        result = self.books.dispatch(command, payload)
+        result = self.books.dispatch(command_id, payload)
         if result.kind != "error":
             self.save_book_progress()
         return result
@@ -324,7 +340,15 @@ class Version2Application:
         projector = self._board_position_projector
         if projector is None:
             raise RuntimeError("release board position projector is unavailable")
-        if not isinstance(position, str) or not position.strip():
+        # The board projector is a release-boundary sink. Fail closed before
+        # invoking subclass hooks or scanning an unbounded malformed token.
+        if type(position) is not str:
+            raise RuntimeError("canonical board position is unavailable")
+        if (
+            len(position) > self._MAX_CANONICAL_BOARD_POSITION_CHARS
+            or "\x00" in position
+            or not position.strip()
+        ):
             raise RuntimeError("canonical board position is unavailable")
         result = projector(position)
         if not isinstance(result, dict) or result.get("ok") is not True:
@@ -352,21 +376,31 @@ class Version2Application:
                 self.book_workflow.return_to_book()
             except Exception:
                 return
-            self.shell.open_route("books")
-            self.save_book_progress()
+            self._focus = self.shell.open_route("books")
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "books"}}
+            )
 
     def _delegate(self, action, payload):
+        # Route-changing delegated PGN actions must respect modal focus before
+        # they mutate Board projection or ownership flags. Otherwise open_route()
+        # can reject the transition after domain state has already moved.
+        if (
+            action in {"pgn.open_on_board", "pgn.return"}
+            and self.shell.active_dialog_id is not None
+        ):
+            raise ValueError("close the active dialog before changing PGN Board state")
         # Native menus enter the same projection commands as keyboard buttons.
         if action == "pgn.open_on_board":
             if payload: raise ValueError("PGN board accepts no payload")
             self._project_pgn_position()
             self.pgn_board_active = True
-            self.shell.open_route("board")
+            self._focus = self.shell.open_route("board")
             return None
         if action == "pgn.return":
             if payload: raise ValueError("PGN return accepts no payload")
             self.pgn_board_active = False
-            self.shell.open_route("pgn")
+            self._focus = self.shell.open_route("pgn")
             return None
         if action in {"pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation"}:
             if payload or not self.pgn_board_active: raise ValueError("no PGN board review")
@@ -404,7 +438,7 @@ class Version2Application:
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
         if action in {"library.search", "library.reset_filters"}:
-            self.shell.open_route("library")
+            self._focus = self.shell.open_route("library")
             return self.library.projection.search(self.library.projection.query) if action.endswith("search") else self.library.projection.reset_filters()
         if action == "library.next_page": return self.library.projection.next_page()
         if action == "library.previous_page": return self.library.projection.previous_page()
@@ -478,6 +512,20 @@ class Version2Application:
     def browser_command(self, area, command, payload=None):
         self._assert_thread()
         try:
+            # Browser ingress is a scalar trust boundary before any equality,
+            # hashing, startswith or strip operation in the per-surface routers.
+            if (
+                type(area) is not str
+                or not area
+                or len(area) > self._MAX_BROWSER_AREA_CHARS
+            ):
+                raise ValueError("invalid browser command area")
+            if (
+                type(command) is not str
+                or not command
+                or len(command) > self._MAX_BROWSER_COMMAND_CHARS
+            ):
+                raise ValueError("invalid browser command")
             if area == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
@@ -540,9 +588,15 @@ class Version2Application:
 
     def record_focus(self, token):
         self._assert_thread()
-        if type(token) is str and len(token) <= 160 and all(c.isalnum() or c in "-_" for c in token):
-            self._focus = token
-            self.shell.record_focus(token)
+        if type(token) is not str:
+            return
+        if not token:
+            return
+        # AccessibleShellState owns the one canonical DOM focus-ID contract.
+        # Validate there before publishing the token to native-menu ingress so
+        # _focus can never diverge from the route-local shell memory.
+        self.shell.record_focus(token)
+        self._focus = token
 
     def import_ui_ready(self, mailbox):
         self._assert_thread()
