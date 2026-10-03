@@ -123,6 +123,37 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
         self.assertEqual(document.blocks[0].source_anchor, "note-a")
 
+    def test_index_bounds_generated_semantic_target_keys_before_materialization(self):
+        block_limit = "b" * (4096 - len("block:"))
+        source_limit = "s" * (4096 - len("source:"))
+
+        at_limit = BookIndex(
+            BookDocument(
+                title="Target bounds",
+                blocks=[
+                    Paragraph(text="Block", block_id=block_limit),
+                    Paragraph(text="Source", source_anchor=source_limit),
+                ],
+            )
+        )
+        self.assertEqual(len(at_limit.entries[0].target.key), 4096)
+        self.assertEqual(len(at_limit.entries[1].target.key), 4096)
+
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            BookIndex(
+                BookDocument(
+                    title="Oversized block target",
+                    blocks=[Paragraph(text="Block", block_id=block_limit + "x")],
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            BookIndex(
+                BookDocument(
+                    title="Oversized source target",
+                    blocks=[Paragraph(text="Source", source_anchor=source_limit + "x")],
+                )
+            )
+
     def test_stable_target_prefers_block_id_then_source_anchor(self):
         index = BookIndex(self.make_document())
         self.assertEqual(index.entries[0].target.key, "block:h1")
