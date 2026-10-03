@@ -343,8 +343,8 @@ def _endpoint(value: object) -> str:
 
 
 def _loopback_host(host: str) -> bool:
-    if host.lower() == "localhost":
-        return True
+    # Plain HTTP is a development-only escape hatch. Require a literal IP so
+    # DNS/hosts-file rebinding cannot redirect explicit backend credentials.
     try:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
