@@ -44,14 +44,16 @@ _SEMANTIC_LABELS = {
         "players": "Гравці",
         "result": "Результат",
         "unknown": "невідомо",
-        "unavailable": "Ходи цієї партії неможливо безпечно показати; шахівниця залишається доступною.",
+        "reading_unavailable": "Ходи цієї партії неможливо безпечно показати; шахівниця залишається доступною.",
+        "content_unavailable": "Шаховий вміст цієї партії недоступний або невалідний; відкриття на шахівниці вимкнено.",
     },
     UILanguage.EN: {
         "moves": "Moves and variations",
         "players": "Players",
         "result": "Result",
         "unknown": "unknown",
-        "unavailable": "This game's moves cannot be displayed safely; the board remains available.",
+        "reading_unavailable": "This game's moves cannot be displayed safely; the board remains available.",
+        "content_unavailable": "This game's chess content is unavailable or invalid; opening it on the board is disabled.",
     },
 }
 
@@ -378,14 +380,14 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 }:
                     raise
                 snapshot["semantic_tree"] = None
-                snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["unavailable"]
+                snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["content_unavailable"]
                 if isinstance(semantic, Game):
                     can_open_game = False
                 else:
                     can_open_position = False
             except (_BookSemanticProjectionError, AttributeError, TypeError, ValueError):
                 snapshot["semantic_tree"] = None
-                snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["unavailable"]
+                snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["reading_unavailable"]
         actions = []
         for original in snapshot["actions"]:
             action = dict(original)
