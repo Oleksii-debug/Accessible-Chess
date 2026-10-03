@@ -156,6 +156,9 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             )
             try:
                 self.assertTrue(api.set_sound_volume(35)["ok"])
+                animation = api.set_newgame_animation_enabled(False)
+                self.assertTrue(animation["ok"], animation)
+                self.assertFalse(animation["newGameAnimation"])
                 clock_mode = api.set_clock_sound_policy("both")
                 self.assertTrue(clock_mode["ok"], clock_mode)
                 self.assertEqual(clock_mode["tickPolicy"], "both")
@@ -186,6 +189,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             try:
                 restored = api2.get_sound_settings()
                 self.assertFalse(restored["enabled"])
+                self.assertFalse(restored["newGameAnimation"])
                 self.assertEqual(restored["volume"], 35)
                 self.assertEqual(restored["tickPolicy"], "both")
                 self.assertEqual(restored["tickLastSeconds"], 25)
@@ -383,6 +387,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertEqual(js_by_variant["1"], NEW_GAME_IMPACT_MS)
         self.assertEqual(js_by_variant["3d"], NEW_GAME_3D_IMPACT_MS)
         self.assertIn("currentSoundState.selectedVariants.start", text)
+        self.assertIn("currentSoundState.newGameAnimation === false", text)
         self.assertIn("function startNewGameVisualSequence()", text)
         self.assertIn("function finishNewGameVisualSequence()", text)
         self.assertIn("prefers-reduced-motion: reduce", text)
@@ -408,7 +413,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
     def test_webview_bootstrap_exposes_accessible_sound_controls_without_new_live_region(self) -> None:
         text = self.bootstrap
         for element_id in (
-            "sound-settings", "sound-enabled", "sound-volume",
+            "sound-settings", "sound-enabled", "sound-newgame-animation", "sound-volume",
             "sound-tick-policy", "sound-tick-last-seconds",
             "sound-preview-event", "sound-variant", "sound-preview",
             "sound-settings-status",
@@ -416,6 +421,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             self.assertIn(element_id, text)
         self.assertIn("a.get_sound_settings", text)
         self.assertIn("a.set_sound_enabled", text)
+        self.assertIn("a.set_newgame_animation_enabled", text)
         self.assertIn("a.set_sound_volume", text)
         self.assertIn("a.set_clock_sound_policy", text)
         self.assertIn("a.set_clock_sound_last_seconds", text)
