@@ -3,7 +3,7 @@ name: Classroom collaboration UI contract
 on:
   pull_request:
     branches:
-      - feature/classroom-file-progress-contract-20261003
+      - feature/classroom-file-http-transport-20261003
     paths:
       - 'acs/classroom_collaboration_webview.py'
       - 'acs/version2_final_product_application.py'
@@ -28,7 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -44,18 +44,19 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          test "$BASE_REF" = "feature/classroom-file-progress-contract-20261003"
+          test "$BASE_REF" = "feature/classroom-file-http-transport-20261003"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
           git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-          BASE_TIP="$(git rev-parse "origin/$BASE_REF")"
-          STACK_BASE="$(git merge-base "$BASE_TIP" HEAD)"
-          git cat-file -e "$STACK_BASE^{commit}"
-          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$STACK_BASE"
-          git merge-base --is-ancestor "$STACK_BASE" HEAD
-          git merge-base --is-ancestor "$STACK_BASE" "$BASE_TIP"
-          git diff --check "$STACK_BASE" HEAD
-          mapfile -t actual < <(git diff --name-only "$STACK_BASE" HEAD | LC_ALL=C sort)
+          LIVE_BASE="$(git rev-parse "refs/remotes/origin/$BASE_REF")"
+          if ! git merge-base --is-ancestor "$LIVE_BASE" HEAD; then
+            echo "Current file HTTP base $LIVE_BASE is not an ancestor of HEAD; synchronize the convergence stack."
+            exit 1
+          fi
+          test "$(git merge-base "$LIVE_BASE" HEAD)" = "$LIVE_BASE"
+          git diff --check "$LIVE_BASE...HEAD"
+          mapfile -t actual < <(git diff --name-only "$LIVE_BASE...HEAD" | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-collaboration-ui-contract.yml'
             'acs/classroom_collaboration_webview.py'
@@ -78,21 +79,32 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile collaboration UI boundaries
+      - name: Compile converged collaboration boundaries
         run: >-
           python -m py_compile
+          acs/classroom_file_http_transport.py
+          acs/classroom_file_rpc.py
+          acs/classroom_file_server.py
+          acs/classroom_collaboration.py
+          acs/classroom_collaboration_storage.py
           acs/classroom_collaboration_webview.py
           acs/version2_final_product_application.py
+          tests/test_classroom_file_http_transport.py
+          tests/test_classroom_file_rpc.py
+          tests/test_classroom_file_server.py
           tests/test_classroom_collaboration_webview.py
           tests/test_classroom_collaboration_final_product.py
 
-      - name: Run collaboration UI and adjacent contracts
+      - name: Run converged HTTP, RPC, server and accessible UI contracts
         run: >-
           python -m unittest -v
-          tests.test_classroom_collaboration_webview
-          tests.test_classroom_collaboration_final_product
+          tests.test_classroom_file_http_transport
+          tests.test_classroom_file_rpc
+          tests.test_classroom_file_server
           tests.test_classroom_collaboration
           tests.test_classroom_collaboration_storage
+          tests.test_classroom_collaboration_webview
+          tests.test_classroom_collaboration_final_product
           tests.test_version2_education_class_create
 
       - name: Run semantic DOM regressions
