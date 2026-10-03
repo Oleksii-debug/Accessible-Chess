@@ -33,6 +33,7 @@ MAX_FILE_HTTP_JSON_BYTES = 512 * 1024
 MAX_FILE_HTTP_RESPONSE_BYTES = 64 * 1024 * 1024
 MAX_REQUEST_BODY_EVENTS = 128 * 1024
 MAX_FILE_HTTP_REQUEST_BYTES = 4 + MAX_FILE_HTTP_JSON_BYTES + MAX_RPC_UPLOAD_BYTES
+_UPLOAD_SEND_CHUNK_BYTES = 1024 * 1024
 
 _BEARER_CHALLENGE = (
     (
@@ -251,7 +252,16 @@ class ClassroomFileHttpRpcCall:
             "bearer_token_provider=<bound>)"
         )
 
-    def call(self, request: Mapping[str, object]) -> Mapping[str, object]:
+    def call(
+        self,
+        request: Mapping[str, object],
+        *,
+        on_upload_progress: Callable[[int], None] | None = None,
+    ) -> Mapping[str, object]:
+        if on_upload_progress is not None and not callable(on_upload_progress):
+            raise ClassroomFileHttpClientError(
+                "file HTTP upload progress consumer must be callable"
+            )
         if type(request) is not dict:
             raise ClassroomFileHttpClientError(
                 "classroom file HTTP request must be a canonical object"
@@ -296,10 +306,26 @@ class ClassroomFileHttpRpcCall:
             connection.send(prefix)
             connection.send(header_bytes)
             if content:
-                connection.send(content)
+                if on_upload_progress is not None:
+                    on_upload_progress(0)
+                view = memoryview(content)
+                transferred = 0
+                while transferred < len(content):
+                    next_offset = min(
+                        transferred + _UPLOAD_SEND_CHUNK_BYTES,
+                        len(content),
+                    )
+                    connection.send(view[transferred:next_offset])
+                    transferred = next_offset
+                    if on_upload_progress is not None:
+                        on_upload_progress(transferred)
+            elif request.get("op") == "upload" and on_upload_progress is not None:
+                on_upload_progress(0)
             response = connection.getresponse()
             return _read_client_response(response)
         except ClassroomFileHttpClientError:
+            raise
+        except ClassroomFileRpcError:
             raise
         except Exception:
             raise ClassroomFileHttpClientError(
