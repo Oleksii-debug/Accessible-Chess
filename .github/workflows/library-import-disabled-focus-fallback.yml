@@ -1,0 +1,69 @@
+name: Library Import Disabled Focus Fallback
+
+on:
+  pull_request:
+    branches:
+      - 'fix/library-listbox-keyboard-boundary-20261003'
+    paths:
+      - 'web/full_product_library.js'
+      - 'tests/js/library_import_focus_fallback_dom_test.js'
+      - '.github/workflows/library-import-disabled-focus-fallback.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-import-disabled-focus-fallback-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  import-focus:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          parent_branch='fix/library-listbox-keyboard-boundary-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+
+          live_ref="refs/remotes/origin/$parent_branch"
+          git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+          live_parent="$(git rev-parse "$live_ref")"
+          event_base='${{ github.event.pull_request.base.sha }}'
+          test -n "$event_base"
+          git cat-file -e "$event_base^{commit}"
+          git merge-base --is-ancestor "$event_base" "$live_parent"
+          git merge-base --is-ancestor "$live_parent" HEAD
+          test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+          changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/library-import-disabled-focus-fallback.yml' \
+            'tests/js/library_import_focus_fallback_dom_test.js' \
+            'web/full_product_library.js' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "dd9e7e44904c1db4122e3fe3c40084fe6d228c7f"
+          test "$(git rev-parse HEAD:tests/js/library_import_focus_fallback_dom_test.js)" = "e8e4305793141509c2a1f75e774d8ac54f75188e"
+          git diff --check "$live_parent" HEAD
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+
+      - name: Prove disabled import focus fallback
+        run: node tests/js/library_import_focus_fallback_dom_test.js
+
+      - name: Prove retained Library DOM contracts
+        run: >-
+          node tests/js/library_keyboard_boundary_dom_test.js
+          && node tests/js/library_surface_dom_test.js
