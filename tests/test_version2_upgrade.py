@@ -398,7 +398,7 @@ class Version2UpgradeTests(unittest.TestCase):
             self.assertFalse((backup / "data" / "PROFILE.JSON.LOCK").exists())
             self.assertTrue(profile_lock.exists())
 
-    def test_profile_lock_named_directory_is_preserved_as_user_data(self):
+    def test_profile_lock_named_directory_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
@@ -412,18 +412,14 @@ class Version2UpgradeTests(unittest.TestCase):
 
             coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
             coordinator._ensure_roots()
-            files = coordinator._files()
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "control entry must be a regular file",
+            ):
+                coordinator._files()
 
-            self.assertIn(payload, files)
-            backup, manifest = coordinator._create_backup("profile-lock-directory")
-            entries = manifest["entries"]
-            self.assertIsInstance(entries, list)
-            paths = {item["path"] for item in entries}
-            self.assertIn("profile.json.lock/keep.bin", paths)
-            self.assertEqual(
-                (backup / "data" / "profile.json.lock" / "keep.bin").read_bytes(),
-                b"user-data",
-            )
+            self.assertTrue(lock_named_directory.is_dir())
+            self.assertEqual(payload.read_bytes(), b"user-data")
     def test_interrupted_recovery_never_restores_profile_mutation_lock(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
