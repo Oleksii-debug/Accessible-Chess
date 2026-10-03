@@ -436,6 +436,77 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         )
         self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
 
+    def test_provider_transport_loss_preserves_reconnect_intent_and_retires_controls(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+
+        source = bridge.dispatch(
+            "media.local_source",
+            {"source": "camera", "enabled": True},
+        )
+        source_transaction = source.payload["transaction_id"]
+        transactions.dispatch_provider(
+            "media.provider_dispatched",
+            {"transaction_id": source_transaction},
+        )
+        transactions.dispatch_provider(
+            "media.provider_effect_success",
+            {"transaction_id": source_transaction, "chunk_index": 0},
+        )
+        self.assertIn(MediaSource.CAMERA, controller.state.desired_sources)
+
+        lost = transactions.dispatch_provider(
+            "media.provider_transport_lost",
+            {"snapshot": snapshot(None, connected=False)},
+        )
+
+        self.assertEqual(lost.kind, "media-updated")
+        self.assertFalse(controller.state.connected)
+        self.assertEqual(controller.state.room_id, "room-1")
+        self.assertIn(MediaSource.CAMERA, controller.state.desired_sources)
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNone(binder.recovery_status)
+
+        reconnect = transactions.prepare_reconnect(
+            credential(roster.local_id),
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertEqual(reconnect.kind, "provider-dispatch")
+        self.assertEqual(reconnect.payload["provider"]["operation"], "reconnect")
+        self.assertEqual(
+            reconnect.payload["provider"]["enabled_sources"],
+            ["camera"],
+        )
+        reconnect_transaction = reconnect.payload["transaction_id"]
+        retired = transactions.dispatch_provider(
+            "media.provider_not_started",
+            {"transaction_id": reconnect_transaction},
+        )
+        self.assertEqual(retired.kind, "error")
+        self.assertIsNone(binder.active_lease)
+
+    def test_provider_transport_loss_rejects_nonclean_snapshot(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
+        connect(controller, roster, transactions)
+        before = controller.state
+
+        result = transactions.dispatch_provider(
+            "media.provider_transport_lost",
+            {
+                "snapshot": snapshot(
+                    roster.local_id,
+                    connected=True,
+                    microphone=True,
+                )
+            },
+        )
+
+        self.assertEqual(result.kind, "error")
+        self.assertEqual(controller.state, before)
+        self.assertTrue(controller.state.connected)
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNone(binder.recovery_status)
+
     def test_browser_provider_config_is_nonsecret_and_secure(self):
         _controller, _roster, _host, _sessions, _binder, _projection, transactions, _bridge = composition()
         result = transactions.dispatch_provider("media.provider_config", {})
