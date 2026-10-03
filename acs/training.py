@@ -529,9 +529,16 @@ class ExerciseSession:
         path_value = snapshot["accepted_path"]
         if type(path_value) is not list:
             raise TypeError("exercise snapshot accepted_path must be a list")
-        path_items = tuple(path_value)
-        if len(path_items) != common[0]:
+        expected_path_length = common[0]
+        # Reject impossible persisted paths before duplicating their storage.
+        # step_index is already bounded by the validated exercise definition
+        # (and therefore by _MAX_EXERCISE_STEPS), so an oversized list is
+        # malformed input rather than state that needs materialization.
+        if len(path_value) != expected_path_length:
             raise ValueError("exercise snapshot accepted_path does not match step_index")
+        path_items = tuple(path_value)
+        if len(path_items) != expected_path_length:
+            raise ValueError("exercise snapshot accepted_path changed while being read")
         accepted_path = tuple(_snapshot_move(value) for value in path_items)
 
         board = Board(definition.start_fen)
