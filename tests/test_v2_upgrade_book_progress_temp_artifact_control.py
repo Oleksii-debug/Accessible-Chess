@@ -30,7 +30,7 @@ class V2UpgradeBookProgressTempArtifactControlTests(unittest.TestCase):
 
             canonical = (
                 root / ".book-progress.json.abcd_123.tmp",
-                root / ".book-progress.json.bak.xy_987.tmp",
+                root / ".book-progress.json.bak.xy_98765.tmp",
             )
             for path in canonical:
                 path.write_bytes(b"writer-temp")
@@ -44,6 +44,10 @@ class V2UpgradeBookProgressTempArtifactControlTests(unittest.TestCase):
                 root / ".book-progress.json.bak..tmp",
                 root / "book-progress.json.abcd_123.tmp",
                 root / ".book-progress.json.abcd_123.tmp.keep",
+                root / ".book-progress.json.abc1234.tmp",
+                root / ".book-progress.json.abc123456.tmp",
+                root / ".book-progress.json.bak.abc1234.tmp",
+                root / ".book-progress.json.bak.abc123456.tmp",
             )
             for path in near_misses:
                 path.write_bytes(b"user-data")
@@ -54,12 +58,12 @@ class V2UpgradeBookProgressTempArtifactControlTests(unittest.TestCase):
                 nested / ".book-progress.json.abcd_123.tmp"
             ).write_bytes(b"nested-user-data")
 
-            canonical_named_directory = (
+            near_miss_named_directory = (
                 root / ".book-progress.json.zz_123.tmp"
             )
-            canonical_named_directory.mkdir()
+            near_miss_named_directory.mkdir()
             (
-                canonical_named_directory / "keep.bin"
+                near_miss_named_directory / "keep.bin"
             ).write_bytes(b"directory-user-data")
 
             coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
@@ -86,7 +90,7 @@ class V2UpgradeBookProgressTempArtifactControlTests(unittest.TestCase):
             durable = root / "book-progress.json"
             durable.write_bytes(b'{"durable":"progress"}\n')
             owned_primary = root / ".book-progress.json.a1_b2c3d.tmp"
-            owned_backup = root / ".book-progress.json.bak.d4_e5f6.tmp"
+            owned_backup = root / ".book-progress.json.bak.d4_e5f67.tmp"
             owned_primary.write_bytes(b"primary-temp")
             owned_backup.write_bytes(b"backup-temp")
             user_file = root / ".book-progress.json.user.data.tmp"
@@ -118,7 +122,7 @@ class V2UpgradeBookProgressTempArtifactControlTests(unittest.TestCase):
                 root / ".book-progress.json.abcd_123.tmp"
             ).write_bytes(b"z" * 4096)
             (
-                root / ".book-progress.json.bak.xy_987.tmp"
+                root / ".book-progress.json.bak.xy_98765.tmp"
             ).write_bytes(b"z" * 4096)
 
             coordinator = Version2UpgradeCoordinator(
@@ -143,7 +147,7 @@ class V2UpgradeBookProgressTempArtifactControlTests(unittest.TestCase):
             root.mkdir()
             (root / "settings.json").write_bytes(b"x")
             (
-                root / ".book-progress.json.bad.token.tmp"
+                root / ".book-progress.json.abc1234.tmp"
             ).write_bytes(b"user-data")
 
             coordinator = Version2UpgradeCoordinator(
