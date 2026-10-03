@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from .sound_pack_catalog import (
+    MAX_SOUND_PACK_CATALOG_ENTRIES,
     SoundPackCatalogEntry,
     SoundPackInstallError,
     SoundPackInstalledAudit,
@@ -99,6 +100,8 @@ class SoundSettingsApplication:
             catalog = {}
         if not isinstance(catalog, Mapping):
             raise TypeError("catalog must be a mapping")
+        if len(catalog) > MAX_SOUND_PACK_CATALOG_ENTRIES:
+            raise ValueError("sound pack catalog exceeds the resource limit")
         normalized: dict[str, SoundPackCatalogEntry] = {}
         for pack_id, entry in catalog.items():
             if not isinstance(pack_id, str) or not isinstance(entry, SoundPackCatalogEntry):
