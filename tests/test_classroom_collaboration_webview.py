@@ -834,6 +834,42 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertTrue(item["can_save"])
         self.assertTrue(item["can_open"])
 
+    def test_file_sync_clears_terminal_progress_after_authoritative_tombstone(self) -> None:
+        self.selected_file = self.root / "deleted-after-upload.pgn"
+        self.selected_file.write_bytes(b"1234")
+        self.files.scan_state = "clean"
+        view = self.webview(file_progress_event_sink=lambda _event: None)
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("collaboration.file.sent", uploaded.kind)
+        self.assertIsNotNone(
+            uploaded.payload["collaboration"]["files"]["transfer_progress"]
+        )
+        attachment = self.store.room_attachments("room-1")[0]
+
+        def delete_authoritatively():
+            self.store.update_attachment_state(
+                attachment.attachment_id,
+                transfer_state="deleted",
+                scan_state=attachment.scan_state,
+            )
+            return ()
+
+        with mock.patch.object(
+            self.controller,
+            "sync_files",
+            side_effect=delete_authoritatively,
+        ):
+            synced = view.dispatch("collaboration.file.sync", {})
+
+        self.assertEqual("collaboration.files.synced", synced.kind)
+        self.assertEqual((), synced.payload["collaboration"]["files"]["items"])
+        self.assertIsNone(
+            synced.payload["collaboration"]["files"]["transfer_progress"]
+        )
+        self.assertIsNone(view._file_progress)
+        self.assertIsNone(view._file_progress_attempt_token)
+
     def test_file_sync_bad_state_revision_fails_closed_without_partial_projection(self) -> None:
         self.store.register_attachment(
             AttachmentMetadata(
