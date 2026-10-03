@@ -1048,12 +1048,12 @@ class BookProgressStore:
                 dir=target.parent,
             )
             temp_path = Path(temp_name)
-            if active_directory is not None:
-                self._require_storage_directory_unlocked(active_directory)
-            created_identity = os.fstat(descriptor)
-            temp_identity = created_identity
-            self._require_private_temp_metadata(created_identity)
             with os.fdopen(descriptor, "wb") as stream:
+                created_identity = os.fstat(stream.fileno())
+                temp_identity = created_identity
+                self._require_private_temp_metadata(created_identity)
+                if active_directory is not None:
+                    self._require_storage_directory_unlocked(active_directory)
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
