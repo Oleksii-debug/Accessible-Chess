@@ -274,6 +274,7 @@ def create_local_sound_composition(
         pack_coordinator=pack_coordinator,
         catalog=normalized_catalog,
         installed_pack_provider=lambda: _installed_pack_inventory(pack_store),
+        installed_rights_provider=pack_store.rights_evidence,
         pack_compatibility_provider=_windows_pack_is_playable,
     )
     settings.reconcile_active_profile()
