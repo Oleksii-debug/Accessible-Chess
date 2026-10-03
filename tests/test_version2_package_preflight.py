@@ -510,6 +510,51 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     )
             self.assertTrue(swapped)
 
+    def test_sound_asset_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            event = next(iter(SoundEvent))
+            target = root / "AccessibleChess" / "assets" / "sounds" / f"{event.value}.wav"
+            replacement = base / "replacement.wav"
+            replacement.write_bytes(target.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    f"packaged sound asset {event.value} changed while being opened",
+                ):
+                    _validate_tree(root)
+            self.assertTrue(swapped)
+
+    def test_truncated_declared_sound_frames_are_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            event = next(iter(SoundEvent))
+            target = root / "AccessibleChess" / "assets" / "sounds" / f"{event.value}.wav"
+            payload = target.read_bytes()
+            target.write_bytes(payload[:-2])
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                f"packaged sound asset is truncated: {event.value}",
+            ):
+                _validate_tree(root)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
