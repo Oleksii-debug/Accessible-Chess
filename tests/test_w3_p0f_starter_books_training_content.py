@@ -244,7 +244,6 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                         fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
                         prompt="Exercise",
                         answer_text="e4",
-                        hint="Use the king pawn.",
                         block_id="exercise",
                     )
                 ],
@@ -285,12 +284,27 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
             with patch.object(
                 store,
                 "save",
-                wraps=store.save,
+                side_effect=AssertionError(
+                    "no-op Book Training hint must not write progress"
+                ),
             ) as save:
                 hinted = workspace.dispatch(" training.hint ", {})
 
             self.assertEqual("render", hinted.kind)
-            self.assertEqual(1, workspace.session.hints_used)
+            self.assertEqual(0, workspace.session.hints_used)
+            self.assertEqual(before, workspace.session.snapshot())
+            save.assert_not_called()
+
+            with patch.object(
+                store,
+                "save",
+                wraps=store.save,
+            ) as save:
+                wrong = workspace.dispatch(" training.submit ", {"answer": "d4"})
+
+            self.assertEqual("render", wrong.kind)
+            self.assertEqual(1, workspace.session.attempts)
+            self.assertEqual(1, workspace.session.mistakes)
             save.assert_called_once()
 
     def test_whitespace_command_cannot_bypass_completed_training_action_fence(self) -> None:
