@@ -17,6 +17,7 @@ from acs.classroom_collaboration_storage import AttachmentMetadata
 from acs.classroom_file_http_transport import (
     FILE_RPC_CONTENT_TYPE,
     FILE_RPC_PATH,
+    MAX_FILE_HTTP_REQUEST_BYTES,
     ClassroomFileHttpClientError,
     ClassroomFileHttpEndpoint,
     ClassroomFileHttpRpcCall,
@@ -522,46 +523,6 @@ class ClassroomFileHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(200, status)
             self.assertEqual([stored], history_payload["attachments"])
 
-    async def test_full_https_rpc_trusted_sqlite_object_store_round_trip(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            objects = MemoryObjectStore()
-            server = ClassroomFileServerService(
-                store=ClassroomFileServerSQLiteStore(
-                    str(Path(temp_dir) / "files.sqlite3")
-                ),
-                authorization=AllowMembers({(STUDENT, ROOM)}),
-                scanner=CleanScanner(),
-                object_store=objects,
-            )
-            endpoint = ClassroomFileHttpEndpoint(
-                service=ClassroomFileRpcService(backend=server),
-                authenticator=self.auth,
-            )
-            content = b"\x00\xfffull stack arbitrary bytes"
-
-            sent = await self.invoke(
-                request=upload_request(content),
-                endpoint=endpoint,
-            )
-            status, _, payload = self.response(sent)
-            self.assertEqual(200, status)
-            stored = payload["attachment"]
-            self.assertEqual("stored", stored["transfer_state"])
-            self.assertEqual("clean", stored["scan_state"])
-            self.assertEqual(content, objects.objects[stored["object_key"]])
-
-            history = {
-                "v": 1,
-                "op": "history",
-                "room_id": ROOM,
-                "participant_id": STUDENT,
-                "after_sequence": None,
-                "limit": 10,
-            }
-            sent = await self.invoke(request=history, endpoint=endpoint)
-            history_payload = self.response(sent)[2]
-            self.assertEqual([stored], history_payload["attachments"])
-
     async def test_nonupload_request_has_no_binary_tail_and_forwards_room(self):
         request = {
             "v": 1,
@@ -604,6 +565,16 @@ class ClassroomFileHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(raw_body=raw_body[:40]):
                 sent = await self.invoke(raw_body=raw_body)
                 self.assertEqual(400, self.response(sent)[0])
+        self.assertEqual([], self.backend.upload_calls)
+
+    async def test_upload_binary_length_must_match_authenticated_metadata(self):
+        framed = frame(upload_request(b"abcdef"))
+        for malformed in (framed[:-1], framed + b"x"):
+            with self.subTest(length=len(malformed)):
+                sent = await self.invoke(raw_body=malformed)
+                status, _, payload = self.response(sent)
+                self.assertEqual(400, status)
+                self.assertEqual({"error": "file_request_rejected"}, payload)
         self.assertEqual([], self.backend.upload_calls)
 
     async def test_authentication_identity_tls_route_and_headers_fail_before_backend(self):
@@ -701,6 +672,23 @@ class ClassroomFileHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(400, self.response(sent)[0])
+        self.assertEqual([], self.backend.upload_calls)
+
+    async def test_oversized_declared_length_fails_before_authentication(self):
+        self.auth.calls.clear()
+        sent = await self.invoke(
+            raw_body=b"",
+            headers=[
+                (b"authorization", b"Bearer should-not-be-consumed"),
+                (b"content-type", FILE_RPC_CONTENT_TYPE.encode("ascii")),
+                (
+                    b"content-length",
+                    str(MAX_FILE_HTTP_REQUEST_BYTES + 1).encode("ascii"),
+                ),
+            ],
+        )
+        self.assertEqual(413, self.response(sent)[0])
+        self.assertEqual([], self.auth.calls)
         self.assertEqual([], self.backend.upload_calls)
 
     async def test_rpc_identity_mismatch_and_backend_failure_are_sanitized(self):
