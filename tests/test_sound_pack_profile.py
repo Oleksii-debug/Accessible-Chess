@@ -57,10 +57,17 @@ class PackStorage:
         if self.commit_then_fail_install:
             raise OSError("pack install failed after active publication")
 
-    def uninstall(self, pack_id):
+    def uninstall(self, pack_id, *, expected_manifest=None):
         self.operations.append(("pack.uninstall", pack_id))
         if self.fail_uninstall:
             raise OSError("pack uninstall failed")
+        current = self.items.get(pack_id)
+        if (
+            expected_manifest is not None
+            and current is not None
+            and current != expected_manifest
+        ):
+            raise OSError("sound pack changed before conditional uninstall")
         self.items.pop(pack_id, None)
         if self.commit_then_fail_uninstall:
             raise OSError("pack uninstall failed after removal")
