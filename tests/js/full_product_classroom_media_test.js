@@ -79,6 +79,7 @@ class FakeElement {
   _matches(selector) {
     if (selector === "[id]") return Boolean(this.id);
     if (selector === "main") return this.tagName === "MAIN";
+    if (selector === "button") return this.tagName === "BUTTON";
     if (selector.startsWith("#")) return this.id === selector.slice(1);
     return false;
   }
@@ -341,6 +342,67 @@ async function run() {
   assert.equal(recoveryHeading.tabIndex, -1);
   assert.equal(documentRef.activeElement, recoveryHeading);
   assert.deepEqual(recoveryAnnouncements, ["Media state updated."]);
+
+  // If the provider runtime is unavailable before any provider call, the
+  // exact Python transaction must be retired instead of leaving its global
+  // provider lease stranded active.
+  const unavailableRuntimeButtonId = rowId + "-runtime-unavailable";
+  const unavailableCalls = [];
+  surface.mount(
+    root,
+    mediaSnapshot([
+      {
+        id: unavailableRuntimeButtonId,
+        command: "media.soft_mute",
+        label: "Provider runtime unavailable",
+        payload: { participant_key: key, muted: true }
+      }
+    ]),
+    (command, payload) => {
+      unavailableCalls.push([command, payload]);
+      if (command === "media.soft_mute") {
+        return Promise.resolve({
+          kind: "provider-dispatch",
+          payload: {
+            transaction_id: "host-" + "4".repeat(32),
+            provider: {
+              transaction_id: "host-" + "4".repeat(32),
+              operation: "apply_moderation",
+              chunk_index: 0,
+              chunk_count: 1,
+              commands: []
+            },
+            focus_target: unavailableRuntimeButtonId
+          }
+        });
+      }
+      if (command === "media.provider_not_started") {
+        return Promise.resolve({
+          kind: "error",
+          payload: {
+            message: "Media controls are temporarily unavailable.",
+            snapshot: null,
+            recovery_required: true,
+            focus_target: "classroom-media-heading"
+          }
+        });
+      }
+      throw new Error("unexpected media command " + command);
+    },
+    () => {},
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+  const unavailableRuntimeButton = root.querySelector("#" + unavailableRuntimeButtonId);
+  assert.ok(unavailableRuntimeButton);
+  unavailableRuntimeButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    unavailableCalls.map((item) => item[0]),
+    ["media.soft_mute", "media.provider_not_started"]
+  );
+  assert.equal(root.querySelector("#" + unavailableRuntimeButtonId), null);
+  assert.match(root.textContent, /Media controls are temporarily unavailable/);
 
   // Provider-backed actions must remain disabled until the complete async
   // provider transaction settles, not merely until Python prepares it.
