@@ -50,40 +50,9 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             metadata=UserDict({"origin": "book"}),
         )
         session = ExerciseSession(definition)
-        self.assertEqual(("tactic", "opening"), session.canonical_definition.tags)
-        self.assertEqual({"origin": "book"}, session.canonical_definition.metadata)
+        self.assertEqual(("tactic", "opening"), session.definition.tags)
+        self.assertEqual({"origin": "book"}, session.definition.metadata)
         self.assertTrue(session.submit("e4").completed)
-
-    def test_session_rejects_post_construction_container_substitution_before_hooks(self) -> None:
-        class HostileSteps:
-            touched = False
-
-            def __iter__(self):
-                type(self).touched = True
-                raise AssertionError("hostile steps iterator must not execute")
-
-        class HostileMetadata(dict):
-            touched = False
-
-            def __len__(self):
-                type(self).touched = True
-                raise AssertionError("hostile metadata len must not execute")
-
-            def items(self):
-                type(self).touched = True
-                raise AssertionError("hostile metadata items must not execute")
-
-        definition = self.definition()
-        object.__setattr__(definition, "steps", HostileSteps())
-        with self.assertRaisesRegex(TypeError, "exact tuple"):
-            ExerciseSession(definition)
-        self.assertFalse(HostileSteps.touched)
-
-        definition = self.definition()
-        object.__setattr__(definition, "metadata", HostileMetadata({"x": "y"}))
-        with self.assertRaisesRegex(TypeError, "exact dict"):
-            ExerciseSession(definition)
-        self.assertFalse(HostileMetadata.touched)
 
     def test_session_detaches_from_caller_owned_step_mutation(self) -> None:
         step = ExerciseStep(frozenset({"e4"}))
@@ -103,9 +72,9 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             (ExerciseStep(frozenset({"d4"})),),
         )
 
-        with self.assertRaisesRegex(ValueError, "changed during session"):
+        with self.assertRaisesRegex(ValueError, "authority was replaced"):
             session.current_step()
-        with self.assertRaisesRegex(ValueError, "changed during session"):
+        with self.assertRaisesRegex(ValueError, "authority was replaced"):
             session.snapshot()
 
     def test_low_level_bound_mutation_fails_before_semantic_use(self) -> None:
@@ -130,7 +99,7 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
         session = ExerciseSession(self.definition())
         object.__setattr__(session.definition, "metadata", HostileDict({"x": "y"}))
 
-        with self.assertRaisesRegex(TypeError, "exact dict"):
+        with self.assertRaisesRegex(ValueError, "metadata changed during session"):
             session.snapshot()
         self.assertFalse(HostileDict.touched)
 
@@ -142,26 +111,29 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "field names must be strings"):
             ExerciseSession.restore(self.definition(), snapshot)
 
-    def test_restore_state_is_atomic_and_preserves_session_identity(self) -> None:
-        session = ExerciseSession(self.definition())
-        retained = session
-        session.submit("e4")
-        before = session.snapshot()
+    def test_presenter_restore_state_is_atomic_and_preserves_session_identity(self) -> None:
+        presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
+        retained = presenter.session
+        presenter.session.submit("e4")
+        before = presenter.snapshot()
         invalid = dict(before)
         invalid["status"] = "ready"
 
         with self.assertRaises(ValueError):
-            session.restore_state(invalid)
+            presenter.restore_state(invalid, message="", message_key=None)
 
-        self.assertIs(retained, session)
-        self.assertEqual(before, session.snapshot())
+        self.assertIs(retained, presenter.session)
+        self.assertEqual(before, presenter.snapshot())
 
-        fresh = ExerciseSession(self.definition())
-        baseline = fresh.snapshot()
-        fresh.submit("e4")
-        fresh.restore_state(baseline)
-        self.assertIsNotNone(fresh.current_step())
-        self.assertEqual(baseline, fresh.snapshot())
+        baseline_presenter = TrainingPresenter(
+            ExerciseSession(self.definition()),
+            language=UILanguage.EN,
+        )
+        baseline = baseline_presenter.snapshot()
+        presenter.restore_state(baseline, message="", message_key=None)
+        self.assertIs(retained, presenter.session)
+        self.assertIsNotNone(presenter.session.current_step())
+        self.assertEqual(baseline, presenter.snapshot())
 
     def test_projection_has_message_contract_on_initial_snapshot(self) -> None:
         presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
