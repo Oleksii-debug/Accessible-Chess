@@ -1265,7 +1265,9 @@ class FilesystemSoundPackStore:
         encoded = _canonical_json(
             FilesystemSoundPackStore._active_payload(pack_id, version)
         )
+        active_path = pack_dir / _ACTIVE_NAME
         temp_path: Path | None = None
+        descriptor: int | None = None
         try:
             descriptor, temp_name = tempfile.mkstemp(
                 prefix=".active-",
@@ -1273,15 +1275,50 @@ class FilesystemSoundPackStore:
                 dir=pack_dir,
             )
             temp_path = Path(temp_name)
-            with os.fdopen(descriptor, "wb") as stream:
+            opened = os.fstat(descriptor)
+            if (
+                stat.S_ISLNK(opened.st_mode)
+                or _is_reparse_point(opened)
+                or not stat.S_ISREG(opened.st_mode)
+                or int(getattr(opened, "st_nlink", 1)) != 1
+            ):
+                raise SoundPackStoreError(
+                    "sound pack active pointer temporary is not a private regular file"
+                )
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temp_path, pack_dir / _ACTIVE_NAME)
+            written = os.fstat(descriptor)
+            current = os.lstat(temp_path)
+            if (
+                stat.S_ISLNK(current.st_mode)
+                or _is_reparse_point(current)
+                or not stat.S_ISREG(current.st_mode)
+                or int(getattr(current, "st_nlink", 1)) != 1
+                or _regular_identity(current) != _regular_identity(written)
+            ):
+                raise SoundPackStoreError(
+                    "sound pack active pointer temporary changed before publication"
+                )
+            os.replace(temp_path, active_path)
             temp_path = None
             _fsync_directory(pack_dir)
-            observed = FilesystemSoundPackStore._read_active(pack_dir)
+            try:
+                observed = FilesystemSoundPackStore._read_active(pack_dir)
+            except SoundPackStoreError:
+                try:
+                    FilesystemSoundPackStore._remove_without_following(active_path)
+                    _fsync_directory(pack_dir)
+                except SoundPackStoreError:
+                    pass
+                raise
             if observed != (pack_id, version):
+                try:
+                    FilesystemSoundPackStore._remove_without_following(active_path)
+                    _fsync_directory(pack_dir)
+                except SoundPackStoreError:
+                    pass
                 raise SoundPackStoreError(
                     "sound pack active pointer readback did not match publication"
                 )
@@ -1290,6 +1327,11 @@ class FilesystemSoundPackStore:
                 "sound pack active pointer could not be published atomically"
             ) from exc
         finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
             if temp_path is not None:
                 try:
                     temp_path.unlink(missing_ok=True)
