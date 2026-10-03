@@ -145,6 +145,36 @@ class Version2ApplicationTests(unittest.TestCase):
         restored = self.app.progress_store.restore(key, self.app.reader.document)
         self.assertEqual(restored.snapshot(), before)
 
+    def test_book_webview_game_handoff_uses_canonical_board_and_exact_return(self):
+        book, origin = self._open_book_game()
+        self.projected_positions.clear()
+
+        actions = {
+            action["command"]: action["enabled"]
+            for action in self.app.books.projection.snapshot()["actions"]
+        }
+        self.assertFalse(actions["book.open_position"])
+        self.assertTrue(actions["book.open_game"])
+        self.assertFalse(actions["book.return_from_board"])
+
+        opened = self.app.browser_command("books", "book.open_game")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertEqual(opened["payload"]["action"], "book.open_game")
+        self.assertEqual(opened["payload"]["announcement"], "Партію відкрито на дошці.")
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.projected_positions[-1], Board.START)
+
+        returned = self.app.browser_command("books", "book.return_from_board")
+        self.assertEqual(returned["kind"], "render")
+        self.assertEqual(returned["payload"]["announcement"], "Повернуто до місця читання.")
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.location(), origin)
+
+        self.app.open_book(book)
+        self.assertEqual(self.app.reader.location(), origin)
+
     def test_book_native_open_board_exact_return_and_persistent_resume(self):
         book, origin = self._open_book_game()
         self.projected_positions.clear()

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
+from unittest.mock import patch
 
-from acs.bookdocument import BookDocument, Diagram, Heading, Paragraph
+from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph
 from acs.bookreader import BookReader
 from acs.book_webview_projection import BookWebViewProjection
 from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
@@ -28,6 +30,11 @@ class BookProjectionTests(unittest.TestCase):
                     source_anchor=r"C:\\Users\\Oleksii\\private\\book-source.docx",
                 ),
                 Paragraph(text="After the board.", source_anchor="chapter-1:p2"),
+                Game(
+                    pgn='[Result "*"]\n\n1. e4 *',
+                    title="Private game",
+                    block_id="game-1",
+                ),
             ],
         )
         self.calls = []
@@ -56,6 +63,71 @@ class BookProjectionTests(unittest.TestCase):
         self.assertNotIn(FEN, repr(diagram))
         self.assertNotIn("Users", repr(diagram))
 
+    def test_snapshot_rejects_semantic_contract_drift_before_browser_publication(self) -> None:
+        block = self.presenter.current()
+
+        with self.assertRaisesRegex(ValueError, "kind/role"):
+            self.projection._snapshot_from_block(replace(block, role="group"))
+        with self.assertRaisesRegex(ValueError, "heading path"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=("a", "b", "c", "d", "e", "f", "g"))
+            )
+        with self.assertRaisesRegex(ValueError, "position presence"):
+            self.projection._snapshot_from_block(
+                replace(block, kind="Position", role="group", position_fen=None)
+            )
+
+    def test_snapshot_rejects_heading_and_navigation_contract_drift(self) -> None:
+        paragraph = self.presenter.next_block()
+        with self.assertRaisesRegex(ValueError, "non-heading"):
+            self.projection._snapshot_from_block(replace(paragraph, heading_level=2))
+
+        with patch.object(
+            self.presenter,
+            "navigation_availability",
+            return_value={"previous": True},
+        ):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
+                self.projection.snapshot()
+
+        invalid_flags = {
+            "previous": False,
+            "next": True,
+            "previous_heading": False,
+            "next_heading": True,
+            "previous_position": False,
+            "next_position": True,
+            "previous_game": False,
+            "next_game": 1,
+        }
+        with patch.object(
+            self.presenter,
+            "navigation_availability",
+            return_value=invalid_flags,
+        ):
+            with self.assertRaisesRegex(ValueError, "navigation availability flags"):
+                self.projection.snapshot()
+
+    def test_snapshot_rejects_numbers_that_webview_cannot_represent_exactly(self) -> None:
+        block = self.presenter.current()
+        too_large = 1 << 53
+
+        with self.assertRaisesRegex(ValueError, "block index"):
+            self.projection._snapshot_from_block(replace(block, index=too_large))
+
+        with self.assertRaisesRegex(ValueError, "list start"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=("item",),
+                    list_ordered=True,
+                    list_start=too_large,
+                )
+            )
+
     def test_open_position_keeps_fen_inside_python_dispatch_boundary(self) -> None:
         self.projection.next_position()
         event = self.projection.open_position()
@@ -65,6 +137,41 @@ class BookProjectionTests(unittest.TestCase):
         self.assertNotIn(FEN, repr(event))
         self.assertNotIn("SECRET", repr(event))
         self.assertNotIn("private", repr(event))
+
+    def test_board_handoff_does_not_dispatch_when_presentation_preflight_fails(self) -> None:
+        self.projection.next_position()
+        with patch.object(
+            self.projection,
+            "_result_announcement",
+            side_effect=ValueError("simulated announcement contract failure"),
+        ):
+            with self.assertRaises(ValueError):
+                self.projection.open_position()
+        self.assertEqual([], self.calls)
+
+        self.projection.next_game()
+        with patch.object(
+            self.projection,
+            "_result_announcement",
+            side_effect=ValueError("simulated announcement contract failure"),
+        ):
+            with self.assertRaises(ValueError):
+                self.projection.open_game()
+        self.assertEqual([], self.calls)
+
+    def test_open_game_keeps_game_content_inside_python_dispatch_boundary(self) -> None:
+        event = self.projection.next_game()
+        self.assertEqual("Game", event.payload["snapshot"]["block"]["kind"])
+        delegated = self.projection.open_game()
+        self.assertEqual("delegated", delegated.kind)
+        self.assertEqual(("book.open_game", {}), self.calls[-1])
+        self.assertNotIn("1. e4", repr(delegated))
+        self.assertNotIn("SECRET", repr(delegated))
+        self.assertNotIn("private", repr(delegated).lower())
+
+        self.projection.previous()
+        returned = self.projection.return_from_board()
+        self.assertEqual(4, returned.payload["snapshot"]["block"]["index"])
 
     def test_bookmark_and_board_return_restore_exact_reading_location(self) -> None:
         saved = self.projection.save_bookmark("chapter start")

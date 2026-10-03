@@ -47,12 +47,28 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         ])
         reader, workflow, bridge, events = self.compose(document)
         origin = reader.go_to(1)
-        action = next(a for a in bridge.projection.snapshot()["actions"] if a["command"] == "book.open_position")
-        self.assertTrue(action["enabled"], "Game must be reachable even without a literal FEN")
-        opened = bridge.dispatch("book.open_position")
+        before_actions = {
+            action["command"]: action["enabled"]
+            for action in bridge.projection.snapshot()["actions"]
+        }
+        self.assertFalse(before_actions["book.open_position"])
+        self.assertTrue(before_actions["book.open_game"])
+        self.assertFalse(before_actions["book.return_from_board"])
+        self.assertFalse(bridge.projection.snapshot()["board_active"])
+
+        opened = bridge.dispatch("book.open_game")
         self.assertEqual(opened.kind, "delegated")
-        self.assertEqual(opened.payload["announcement"], "Позицію відкрито на дошці.")
+        self.assertEqual(opened.payload["announcement"], "Партію відкрито на дошці.")
         self.assertTrue(workflow.active)
+        active_snapshot = bridge.projection.snapshot()
+        active_actions = {
+            action["command"]: action["enabled"]
+            for action in active_snapshot["actions"]
+        }
+        self.assertTrue(active_snapshot["board_active"])
+        self.assertFalse(active_actions["book.open_position"])
+        self.assertFalse(active_actions["book.open_game"])
+        self.assertTrue(active_actions["book.return_from_board"])
         workflow.dispatch("book_board.next_move")
         self.assertNotEqual(workflow.board_snapshot().fen(), Board.START)
         reader.go_to(2)
@@ -62,6 +78,14 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertEqual(reader.location(), origin)
         self.assertFalse(workflow.active)
         self.assertEqual(returned.payload["focus_target"], "book-block-1")
+        after_snapshot = bridge.projection.snapshot()
+        after_actions = {
+            action["command"]: action["enabled"]
+            for action in after_snapshot["actions"]
+        }
+        self.assertFalse(after_snapshot["board_active"])
+        self.assertTrue(after_actions["book.open_game"])
+        self.assertFalse(after_actions["book.return_from_board"])
         self.assertEqual(len(events), 2)
         # A second return must fail, never revive a separate presenter return stack.
         self.assertEqual(bridge.dispatch("book.return_from_board").kind, "error")
@@ -166,6 +190,12 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         result = bridge.dispatch("book.open_position")
         self.assertEqual(result.kind, "error")
         self.assertNotIn("announcement", result.payload)
+        self.assertFalse(workflow.active)
+        self.assertEqual(reader.location(), origin)
+
+        explicit_game = bridge.dispatch("book.open_game")
+        self.assertEqual(explicit_game.kind, "error")
+        self.assertNotIn("announcement", explicit_game.payload)
         self.assertFalse(workflow.active)
         self.assertEqual(reader.location(), origin)
 
