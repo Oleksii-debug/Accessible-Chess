@@ -514,12 +514,20 @@ class ClassroomMediaProviderBinder:
         return result
 
     def commit_effect_success(self, transaction_id: str) -> Any:
-        result = self.acknowledge_effect_chunk_success(transaction_id, 0)
-        if self._host.pending_effect is not None:
+        self._require_active(
+            transaction_id,
+            owner=MediaProviderExecutionOwner.EFFECT,
+        )
+        effect = self._host.pending_effect
+        if (
+            effect is None
+            or effect.transaction_id != transaction_id
+            or effect.browser_payload_count() != 1
+        ):
             raise MediaProviderExecutionError(
                 "multi-chunk media effect requires per-chunk acknowledgement"
             )
-        return result
+        return self.acknowledge_effect_chunk_success(transaction_id, 0)
 
     def resolve_recovery(self, transaction_id: str) -> None:
         status = self._arbiter.recovery_status
