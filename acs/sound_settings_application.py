@@ -560,20 +560,13 @@ class SoundSettingsApplication:
         if pack_id == "classic":
             pass
         else:
-            installed = self._installed_local_packs()
-            manifest = installed.get(pack_id)
-            if manifest is not None and not self._local_pack_compatible(manifest):
-                raise ValueError("sound pack is incompatible with this application")
-            if manifest is None and self._packs is not None and pack_id in self._catalog:
-                entry = self._catalog[pack_id]
-                status = self._packs.status(entry)
-                if status.state is not SoundPackState.CURRENT:
-                    raise ValueError("sound pack catalog version is not the installed version")
-                if self._packs.resolve_usable_pack(pack_id) != pack_id:
-                    raise ValueError("sound pack is not installed")
-                manifest = entry.manifest
+            if self._packs is None:
+                raise RuntimeError("sound pack management is unavailable")
+            manifest = self._packs.installed_manifest(pack_id)
             if manifest is None:
                 raise ValueError("unknown sound pack")
+            if not self._local_pack_compatible(manifest):
+                raise ValueError("sound pack is incompatible with this application")
         self._save_pack_profile(pack_id, manifest)
         message = "Sound pack selected." if language == "en" else "Набір звуків вибрано."
         return self._result(message, language=language)
@@ -609,13 +602,17 @@ class SoundSettingsApplication:
         self._require_writable()
         if self._packs is None:
             raise RuntimeError("sound pack management is unavailable")
-        installed_local = self._installed_local_packs()
-        if pack_id not in self._catalog and pack_id not in installed_local:
-            raise ValueError("unknown sound pack")
         if self._packs.fallback_pack_id != "classic":
             raise RuntimeError("unsupported sound pack fallback authority")
-        self._packs.uninstall(pack_id)
-        message = "Sound pack removed." if language == "en" else "Набір звуків видалено."
+        result = self._packs.uninstall(pack_id)
+        if result.removed:
+            message = "Sound pack removed." if language == "en" else "Набір звуків видалено."
+        else:
+            message = (
+                "Sound pack is already absent."
+                if language == "en"
+                else "Набір звуків уже відсутній."
+            )
         return self._result(message, language=language)
 
 
