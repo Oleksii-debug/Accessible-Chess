@@ -376,6 +376,45 @@ class MalformedAndResourceBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "field names must be strings"):
             ExerciseSession.restore(definition, non_text_key)
 
+    def test_restore_state_preserves_session_identity_and_restores_progress(self):
+        definition = ExerciseDefinition(
+            "in-place-restore",
+            Board.START,
+            (
+                ExerciseStep(frozenset({"e4"})),
+                ExerciseStep(frozenset({"e5"})),
+            ),
+        )
+        session = ExerciseSession(definition)
+        retained_reference = session
+        before = session.snapshot()
+
+        session.submit("e4")
+        self.assertEqual(1, session.step_index)
+        session.restore_state(before)
+
+        self.assertIs(retained_reference, session)
+        self.assertEqual(before, session.snapshot())
+        self.assertEqual(Board.START, session.current_fen)
+        self.assertEqual((), session.accepted_path)
+
+    def test_restore_state_validates_detached_candidate_before_live_mutation(self):
+        definition = ExerciseDefinition(
+            "atomic-in-place-restore",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+        session.submit("e4")
+        before = session.snapshot()
+        invalid = dict(before)
+        invalid["status"] = "ready"
+
+        with self.assertRaises(ValueError):
+            session.restore_state(invalid)
+
+        self.assertEqual(before, session.snapshot())
+
     def test_constructor_raw_move_and_metadata_resources_are_bounded(self):
         with self.assertRaisesRegex(ValueError, "too long"):
             ExerciseStep(frozenset({"e4" + (" " * 63)}))
