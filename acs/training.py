@@ -437,7 +437,8 @@ class ExerciseSession:
         definition = _validated_definition(definition)
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
-        fields = _snapshot_fields(snapshot)
+        snapshot = _canonical_snapshot(snapshot)
+        fields = frozenset(snapshot)
         if not fields:
             raise ValueError("invalid exercise snapshot field count")
         if "schema_version" not in fields:
@@ -716,6 +717,14 @@ def _snapshot_value(snapshot: Mapping[str, object], key: str) -> object:
     if isinstance(snapshot, dict):
         return dict.__getitem__(snapshot, key)
     return snapshot[key]
+
+
+def _canonical_snapshot(snapshot: Mapping[str, object]) -> dict[str, object]:
+    fields = _snapshot_fields(snapshot)
+    return {
+        key: _snapshot_value(snapshot, key)
+        for key in sorted(fields)
+    }
 
 
 def _require_snapshot_fields(
