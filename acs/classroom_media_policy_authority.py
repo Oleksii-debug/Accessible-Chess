@@ -473,6 +473,7 @@ class SqliteClassroomMediaPolicyAuthority:
             connection.close()
 
     def _connect(self) -> sqlite3.Connection:
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(
                 str(self._path),
@@ -487,6 +488,11 @@ class SqliteClassroomMediaPolicyAuthority:
             )
             return connection
         except sqlite3.Error:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
             raise ClassroomMediaPolicyError(
                 "media policy storage is unavailable"
             ) from None
