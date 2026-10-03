@@ -14,6 +14,12 @@
     date: true,
     round: true
   });
+  const BOOK_SEMANTIC_HIDDEN_DETAIL_LABELS = Object.freeze({
+    White: true,
+    Black: true,
+    Result: true,
+    FEN: true
+  });
   const BOOK_SEMANTIC_RESULTS = Object.freeze({
     "1-0": true,
     "0-1": true,
@@ -269,7 +275,15 @@
       const label = semanticRequiredText(
         item.label, "book semantic detail label", budget
       );
-      if (customKind && kind.slice(customPrefix.length) !== label) {
+      if (
+        customKind &&
+        (
+          kind.slice(customPrefix.length) !== label ||
+          Object.prototype.hasOwnProperty.call(
+            BOOK_SEMANTIC_HIDDEN_DETAIL_LABELS, label
+          )
+        )
+      ) {
         throw new TypeError("book semantic custom detail identity is invalid");
       }
       const detailValue = semanticText(
