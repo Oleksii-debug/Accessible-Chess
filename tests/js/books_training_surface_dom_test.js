@@ -316,12 +316,38 @@ async function run() {
     "malformed Book host result left the surface busy"
   );
 
+  const malformedBookSnapshotRoot = new FakeElement("div");
+  const malformedBookSnapshotAnnouncements = [];
+  window.AccessibleChessBookSurface.render(
+    malformedBookSnapshotRoot,
+    bookSnapshot(15, "Malformed Book snapshot probe"),
+    () => ({ kind: "render", payload: { snapshot: {} } }),
+    (message) => malformedBookSnapshotAnnouncements.push(String(message)),
+    "book-block-15",
+    "Book snapshot failed"
+  );
+  const malformedBookSnapshotBefore =
+    malformedBookSnapshotRoot.querySelector("#book-block-15");
+  find(malformedBookSnapshotRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedBookSnapshotRoot.querySelector("#book-block-15") ===
+      malformedBookSnapshotBefore,
+    "malformed Book snapshot replaced the current render"
+  );
+  check(
+    malformedBookSnapshotAnnouncements.length === 1 &&
+      malformedBookSnapshotAnnouncements[0] === "Book snapshot failed",
+    "malformed Book snapshot did not fail closed accessibly"
+  );
+
   const malformedTrainingRoot = new FakeElement("div");
   const malformedTrainingAnnouncements = [];
   window.AccessibleChessTrainingSurface.render(
     malformedTrainingRoot,
     trainingSnapshot(),
-    () => ({ kind: "render", payload: {} }),
+    () => ({ kind: "render", payload: { snapshot: {} } }),
     (message) => malformedTrainingAnnouncements.push(String(message)),
     "training-answer",
     "Training action failed",
