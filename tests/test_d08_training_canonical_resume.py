@@ -1,4 +1,5 @@
 import unittest
+from collections.abc import Mapping
 
 from acs.chesscore import Board
 from acs.training import (
@@ -460,6 +461,42 @@ class MalformedAndResourceBoundaryTests(unittest.TestCase):
         snapshot = session.snapshot()
         restored = ExerciseSession.restore(definition, _BombDict(snapshot))
         self.assertEqual(snapshot, restored.snapshot())
+
+    def test_generic_snapshot_mapping_is_detached_before_replay(self):
+        definition = ExerciseDefinition(
+            "snapshot-mapping",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+        session.submit("e4")
+        raw = session.snapshot()
+
+        class ReadOnceMapping(Mapping):
+            def __init__(self, data):
+                self._data = data
+                self.iter_calls = 0
+                self.value_calls = 0
+
+            def __len__(self):
+                return len(self._data)
+
+            def __iter__(self):
+                self.iter_calls += 1
+                if self.iter_calls > 1:
+                    raise AssertionError("snapshot mapping must be iterated once")
+                return iter(self._data)
+
+            def __getitem__(self, key):
+                self.value_calls += 1
+                return self._data[key]
+
+        wrapped = ReadOnceMapping(raw)
+        restored = ExerciseSession.restore(definition, wrapped)
+
+        self.assertEqual(raw, restored.snapshot())
+        self.assertEqual(1, wrapped.iter_calls)
+        self.assertEqual(len(raw), wrapped.value_calls)
 
     def test_snapshot_scalar_resources_are_bounded_before_replay(self):
         definition = ExerciseDefinition(
