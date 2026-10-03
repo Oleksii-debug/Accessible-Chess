@@ -107,6 +107,7 @@ class SoundProfileManager:
         )
         self._current: SoundProfile | None = None
         self._writes_blocked = False
+        self._refresh_required = False
 
     @property
     def current(self) -> SoundProfile:
@@ -148,6 +149,7 @@ class SoundProfileManager:
                 profile = self._reconcile_pack(self._default, reasons)
                 self._current = profile
                 self._writes_blocked = True
+                self._refresh_required = False
                 return SoundProfileLoadResult(
                     profile,
                     (
@@ -175,8 +177,17 @@ class SoundProfileManager:
             persist = True
         profile = reconciled
         if persist:
-            self._persist(profile)
+            try:
+                self._persist(profile)
+            except Exception:
+                # A storage adapter can fail after its atomic publication has
+                # already committed (for example during post-commit readback).
+                # Never leave this process claiming stale in-memory authority.
+                self._current = None
+                self._refresh_required = True
+                raise
         self._current = profile
+        self._refresh_required = False
         return SoundProfileLoadResult(
             profile,
             tuple(reasons),
@@ -206,11 +217,12 @@ class SoundProfileManager:
         profile = self._reconcile_pack(profile, reasons)
         try:
             self._persist(profile)
-        except SoundProfileConflictError:
-            self.load()
+        except Exception:
+            self._refresh_after_persist_failure()
             raise
         self._current = profile
         self._writes_blocked = False
+        self._refresh_required = False
         return profile
 
     def set_master(
@@ -259,6 +271,10 @@ class SoundProfileManager:
         return self.save(replace(self.current, events=events))
 
     def _ensure_writable(self) -> None:
+        if self._refresh_required:
+            # Resolve an earlier uncertain persistence outcome before accepting
+            # another mutation. If storage is still unreadable, fail closed.
+            self.load()
         if self._writes_blocked:
             raise SoundProfileWriteBlockedError(
                 "sound profile uses a newer schema; explicit replacement is required"
@@ -274,14 +290,26 @@ class SoundProfileManager:
         profile = self._reconcile_pack(profile, reasons)
         try:
             self._persist(profile)
-        except SoundProfileConflictError:
-            # Do not replay the stale mutation. Refresh this process to the
-            # authoritative winner so the next user action starts from current
-            # durable state instead of repeatedly conflicting.
-            self.load()
+        except Exception:
+            # Do not replay a stale or uncertain mutation. Refresh from durable
+            # storage if possible; otherwise invalidate the cached authority so
+            # subsequent reads/writes must retry storage instead of using stale
+            # process state.
+            self._refresh_after_persist_failure()
             raise
         self._current = profile
+        self._refresh_required = False
         return profile
+
+    def _refresh_after_persist_failure(self) -> None:
+        self._current = None
+        self._refresh_required = True
+        try:
+            self.load()
+        except Exception:
+            # Preserve the primary persistence failure. _refresh_required stays
+            # set so no later direct save can bypass authoritative re-read.
+            return
 
     def _resolve_pack(self, requested_pack_id: str) -> str:
         resolver = self._pack_resolver
