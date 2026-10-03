@@ -147,12 +147,20 @@ function stableBoardAccessibleName(cell) {
 
 const STANDARD_START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-const NEW_GAME_IMPACT_MS = Object.freeze([
-    160, 374, 748, 853, 1112, 1302, 1427, 1532,
-    1766, 1906, 2504, 2599, 2869, 3143, 3751, 4106,
-    4455, 4600, 4804, 4904, 5148, 5647, 5792, 5897,
-    6276, 6455, 6610, 7074, 7588, 7797, 8062, 8231
-]);
+const NEW_GAME_IMPACTS_BY_VARIANT = Object.freeze({
+    '1': Object.freeze([
+        160, 374, 748, 853, 1112, 1302, 1427, 1532,
+        1766, 1906, 2504, 2599, 2869, 3143, 3751, 4106,
+        4455, 4600, 4804, 4904, 5148, 5647, 5792, 5897,
+        6276, 6455, 6610, 7074, 7588, 7797, 8062, 8231
+    ]),
+    '3d': Object.freeze([
+        145, 254, 424, 549, 698, 848, 943, 1048,
+        1287, 1402, 1566, 1751, 1876, 2075, 2185, 2669,
+        3098, 3522, 3766, 4021, 4200, 4505, 5158, 5907,
+        6121, 6415, 6620, 6959, 7278, 7418, 7907, 8012
+    ])
+});
 
 const VISUAL_PIECE_NAMES = Object.freeze([
     ['білий король', '♔'], ['white king', '♔'],
@@ -257,8 +265,13 @@ function startNewGameVisualSequence() {
     }
 
     decorateVisibleBoardPieces(grid);
+    const startVariant = currentSoundState && currentSoundState.selectedVariants
+        ? String(currentSoundState.selectedVariants.start || '1')
+        : '1';
+    const impactTimes = NEW_GAME_IMPACTS_BY_VARIANT[startVariant]
+        || NEW_GAME_IMPACTS_BY_VARIANT['1'];
     const pieces = [...grid.querySelectorAll('.stage1-visual-piece')];
-    if (pieces.length !== 32) {
+    if (pieces.length !== 32 || impactTimes.length !== 32) {
         finishNewGameVisualSequence();
         return false;
     }
@@ -293,7 +306,7 @@ function startNewGameVisualSequence() {
     requestAnimationFrame(() => {
         if (generation !== newGameAnimationGeneration) return;
         pieces.forEach((piece, index) => {
-            const impact = NEW_GAME_IMPACT_MS[index];
+            const impact = impactTimes[index];
             const duration = Math.min(300, Math.max(150, impact));
             const delay = Math.max(0, impact - duration);
             piece.style.transition =
@@ -314,7 +327,7 @@ function startNewGameVisualSequence() {
             delete piece.dataset.newGameAnimating;
         });
         newGameAnimationEndTimer = null;
-    }, 8500);
+    }, Math.max(...impactTimes) + 300);
     return true;
 }
 
