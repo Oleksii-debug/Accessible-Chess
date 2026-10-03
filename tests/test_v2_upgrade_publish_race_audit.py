@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -13,6 +15,7 @@ import acs.version2_upgrade as upgrade_module
 import acs.version2_upgrade_base as upgrade_base_module
 from acs.version2_upgrade import (
     UserDataLayout,
+    Version2UpgradeBusy,
     Version2UpgradeCoordinator,
     Version2UpgradeError,
 )
@@ -52,6 +55,155 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             ]
         finally:
             connection.close()
+
+    def test_guard_creation_rejects_target_inode_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b"original-settings")
+            real_link = upgrade_base_module.os.link
+            injected = False
+
+            def racing_link(source: object, destination: object) -> None:
+                nonlocal injected
+                real_link(source, destination)
+                if not injected:
+                    injected = True
+                    replacement = root / "replacement-settings.json"
+                    replacement.write_bytes(b"original-settings")
+                    os.replace(replacement, settings)
+
+            with mock.patch.object(
+                upgrade_base_module.os, "link", side_effect=racing_link
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeBusy,
+                    "changed while guard was created",
+                ):
+                    upgrade_base_module._publication_guard(settings)
+
+            self.assertTrue(injected)
+            self.assertEqual(settings.read_bytes(), b"original-settings")
+            self.assertFalse(
+                any(root.glob(".settings.json.publish-guard-*")),
+                "failed guard creation left coordination residue",
+            )
+
+    def test_guard_creation_does_not_unlink_substituted_guard_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b"original-settings")
+            real_link = upgrade_base_module.os.link
+            substituted_guard: Path | None = None
+
+            def racing_link(source: object, destination: object) -> None:
+                nonlocal substituted_guard
+                real_link(source, destination)
+                substituted_guard = Path(destination)
+                replacement = root / "guard-user-bytes.bin"
+                replacement.write_bytes(b"user-owned-guard-path")
+                os.replace(replacement, substituted_guard)
+
+            with mock.patch.object(
+                upgrade_base_module.os, "link", side_effect=racing_link
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeBusy,
+                    "changed while guard was created",
+                ):
+                    upgrade_base_module._publication_guard(settings)
+
+            self.assertIsNotNone(substituted_guard)
+            assert substituted_guard is not None
+            self.assertEqual(
+                substituted_guard.read_bytes(),
+                b"user-owned-guard-path",
+                "creation cleanup deleted a substituted pathname",
+            )
+            self.assertEqual(settings.read_bytes(), b"original-settings")
+
+    def test_guard_hash_rejects_same_bytes_path_substitution(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b"original-settings")
+            guard = upgrade_base_module._publication_guard(settings)
+            substitute = root / "substitute.bin"
+            substitute.write_bytes(b"original-settings")
+            os.replace(substitute, guard.path)
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "publication guard changed unexpectedly",
+            ):
+                upgrade_base_module._publication_guard_hash(guard)
+
+            self.assertEqual(guard.path.read_bytes(), b"original-settings")
+
+    def test_guard_cleanup_does_not_delete_substituted_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b"original-settings")
+            guard = upgrade_base_module._publication_guard(settings)
+            substitute = root / "substitute.bin"
+            substitute.write_bytes(b"user-owned-substitute")
+            os.replace(substitute, guard.path)
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "publication guard changed unexpectedly",
+            ):
+                upgrade_base_module._remove_publication_guard(guard)
+
+            self.assertEqual(
+                guard.path.read_bytes(),
+                b"user-owned-substitute",
+            )
+
+    def test_settings_publication_rejects_guard_path_substitution(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_text(
+                json.dumps({"language": "en", "volume": 10}),
+                encoding="utf-8",
+            )
+            original_bytes = settings.read_bytes()
+            real_atomic_bytes = upgrade_module._atomic_bytes
+            injected = False
+
+            def race_atomic_bytes(path: Path, payload: bytes) -> None:
+                nonlocal injected
+                if Path(path) == settings and not injected:
+                    guards = list(root.glob(".settings.json.publish-guard-*"))
+                    self.assertEqual(len(guards), 1)
+                    replacement = root / "guard-substitute.bin"
+                    replacement.write_bytes(guards[0].read_bytes())
+                    os.replace(replacement, guards[0])
+                    injected = True
+                real_atomic_bytes(path, payload)
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_atomic_bytes",
+                side_effect=race_atomic_bytes,
+            ):
+                with self.assertRaises(Version2UpgradeError):
+                    Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                settings.read_bytes(),
+                original_bytes,
+                "guard substitution allowed migration to commit silently",
+            )
 
     def test_settings_writer_after_final_reauth_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -148,6 +300,48 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             retry = Settings(settings)
             retry.set("volume", 97)
             self.assertEqual(Settings(settings).get("volume"), 97)
+
+    def test_library_publication_rejects_guard_path_substitution(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+            original_sources = self._source_names(library)
+            real_replace = upgrade_module.os.replace
+            injected = False
+
+            def race_replace(source: object, destination: object) -> None:
+                nonlocal injected
+                source_path = Path(source)
+                destination_path = Path(destination)
+                if (
+                    destination_path == library
+                    and ".library-publish-" in source_path.name
+                    and not injected
+                ):
+                    guards = list(root.glob(".library.acsdb.publish-guard-*"))
+                    self.assertEqual(len(guards), 1)
+                    substitute = root / "library-guard-substitute.acsdb"
+                    shutil.copyfile(guards[0], substitute)
+                    real_replace(substitute, guards[0])
+                    injected = True
+                real_replace(source, destination)
+
+            with mock.patch.object(
+                upgrade_module.os,
+                "replace",
+                side_effect=race_replace,
+            ):
+                with self.assertRaises(Version2UpgradeError):
+                    Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                self._source_names(library),
+                original_sources,
+                "guard substitution allowed migrated Library state to commit silently",
+            )
 
     def test_library_writer_after_final_reauth_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
