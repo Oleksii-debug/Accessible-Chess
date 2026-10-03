@@ -185,10 +185,13 @@ class SoundSettingsApplication:
                 raise TypeError("installed pack provider returned an invalid mapping")
             if pack_id != manifest.pack_id:
                 raise ValueError("installed pack key must equal manifest pack_id")
-            result[pack_id] = SoundPackInstalledAudit(
-                manifest,
-                self._local_pack_rights(pack_id, manifest),
-            )
+            # Split manifest/rights providers are retained only as a
+            # compatibility boundary. Validate the legacy rights provider, but
+            # do not promote evidence assembled across two independent reads to
+            # version-bound audit authority. Shipping composition uses the
+            # coherent installed_audit_provider instead.
+            self._local_pack_rights(pack_id, manifest)
+            result[pack_id] = SoundPackInstalledAudit(manifest, None)
         return result
 
     def _installed_local_packs(self) -> dict[str, SoundPackManifest]:
