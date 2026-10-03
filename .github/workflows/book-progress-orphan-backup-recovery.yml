@@ -96,6 +96,7 @@ jobs:
             '.github/workflows/books-progress-backup-recovery.yml' \
             '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/book_progress_store.py' \
+            'acs/version2_application.py' \
             'tests/test_v2_book_progress_store.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
@@ -106,6 +107,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/book_progress_store.py
+          acs/version2_application.py
           tests/test_v2_book_progress_store.py
 
       - name: Focused Books persistence and importer regressions
