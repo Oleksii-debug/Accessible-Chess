@@ -382,7 +382,9 @@ def _looks_like_windows_1251_pgn(
     saw_header = False
     saw_cyrillic_run = False
     previous_cyrillic = False
+    saw_nul = False
     bytes_read = 0
+    digest = hashlib.sha256()
     tail = b""
     try:
         while True:
@@ -397,8 +399,9 @@ def _looks_like_windows_1251_pgn(
                     code=StreamingPgnErrorCode.SOURCE_CHANGED,
                     accepted_games=accepted_games,
                 )
+            digest.update(chunk)
             if b"\x00" in chunk:
-                return False
+                saw_nul = True
 
             probe = (tail + chunk).lower()
             if any(anchor in probe for anchor in _WINDOWS_1251_PGN_HEADER_ANCHORS):
@@ -411,10 +414,16 @@ def _looks_like_windows_1251_pgn(
                     saw_cyrillic_run = True
                 previous_cyrillic = current_cyrillic
 
-            # Do not return early after positive evidence. The fallback contract
-            # also requires the *entire* source to be NUL-free, so later chunks
-            # must still be scanned before legacy decoding is admitted.
-        return saw_header and saw_cyrillic_run
+            # Do not return early after positive evidence or NUL detection.
+            # The encoding decision is valid only for the exact fingerprinted
+            # byte snapshot, so the complete candidate must be hashed.
+        if bytes_read != source.size or digest.hexdigest() != source.sha256:
+            raise StreamingPgnImportError(
+                "PGN source changed during encoding detection",
+                code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                accepted_games=accepted_games,
+            )
+        return not saw_nul and saw_header and saw_cyrillic_run
     finally:
         os.close(fd)
 
