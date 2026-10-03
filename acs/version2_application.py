@@ -998,6 +998,10 @@ class Version2Application:
             self._focus = self.shell.restore_focus_target()
             self._repair_book_block_focus_after_rebind()
         event = asdict(value)
+        if value.kind == "route":
+            event_payload = event.get("payload")
+            if isinstance(event_payload, dict):
+                event_payload["focus_target"] = self._focus
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")
             if isinstance(payload, dict):
