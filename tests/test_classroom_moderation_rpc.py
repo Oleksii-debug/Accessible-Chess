@@ -252,6 +252,25 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(response)["accepted_operation_ids"], ["op-recover"])
         self.assertEqual(self.restarted_provider.calls, [])
 
+    async def test_exact_retry_after_restart_auto_reconciles_verified_pending(self) -> None:
+        wire = await self.leave_ambiguous_pending()
+        restarted = self.restarted()
+
+        response = await restarted.handle_rpc(
+            trusted_room_id=ROOM,
+            trusted_caller_identity=CALLER,
+            payload=wire,
+        )
+
+        self.assertEqual(
+            json.loads(response)["accepted_operation_ids"],
+            ["op-recover"],
+        )
+        self.assertEqual(len(self.verifier.calls), 1)
+        self.assertEqual(self.restarted_provider.calls, [])
+        self.assertNotIn((ROOM, "op-recover"), self.ledger.reservations)
+        self.assertIn((ROOM, "op-recover"), self.ledger.values)
+
     async def test_unconfirmed_provider_state_remains_pending_and_fail_closed(self) -> None:
         wire = await self.leave_ambiguous_pending()
         pending_before = self.ledger.reservations[(ROOM, "op-recover")]
@@ -275,7 +294,7 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.restarted_provider.calls, [])
         with self.assertRaisesRegex(
             ClassroomModerationRpcError,
-            "pending in another service participant",
+            "does not confirm pending operation",
         ):
             await restarted.handle_rpc(
                 trusted_room_id=ROOM,
@@ -427,9 +446,14 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 trusted_caller_identity=CALLER,
             ).commands[0]
 
-            await restarted.reconcile_verified_pending(
-                room_id=ROOM,
-                command=command,
+            response = await restarted.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=wire,
+            )
+            self.assertEqual(
+                json.loads(response)["accepted_operation_ids"],
+                ["op-sqlite-restart"],
             )
 
             reopened = SqliteClassroomModerationLedger(ledger_path)
