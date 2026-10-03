@@ -59,9 +59,11 @@ jobs:
           git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
           live_target="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
           git cat-file -e "$live_target^{commit}"
-          test "$EVENT_BASE_SHA" = "$live_target"
-          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$EVENT_HEAD_SHA"
-          test "$(git merge-base "$EVENT_BASE_SHA" "$EVENT_HEAD_SHA")" = "$EVENT_BASE_SHA"
+          # A queued pull_request event may retain the base SHA from enqueue time while
+          # GitHub refreshes refs/pull/<n>/merge against a newer target. Accept only a
+          # monotonic target advance: rewind/divergence remains fail-closed.
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_target"
+          test "$(git merge-base "$EVENT_BASE_SHA" "$live_target")" = "$EVENT_BASE_SHA"
           if test "$EVENT_HEAD_REF" = "$PRODUCT_BRANCH"; then
             test "$EVENT_HEAD_SHA" = "$live_product" || {
               printf 'Current Product PR head is stale: live_product=%s event_head=%s\n' \
@@ -72,16 +74,24 @@ jobs:
           else
             # The exact live target branch is the authority for ordinary and stacked PRs.
             # It may itself be a canonical lineage that legitimately diverged from Product.
-            diff_base="$EVENT_BASE_SHA"
+            diff_base="$live_target"
           fi
           git cat-file -e "$diff_base^{commit}"
-          git merge-base --is-ancestor "$diff_base" "$EVENT_HEAD_SHA"
           parents="$(git show -s --format=%P HEAD)"
-          test "$parents" = "$EVENT_BASE_SHA $EVENT_HEAD_SHA"
-          git diff --check "$diff_base..$EVENT_HEAD_SHA"
+          test "$parents" = "$live_target $EVENT_HEAD_SHA"
+          if test "$EVENT_HEAD_REF" = "$PRODUCT_BRANCH"; then
+            git merge-base --is-ancestor "$diff_base" "$EVENT_HEAD_SHA"
+            git diff --check "$diff_base..$EVENT_HEAD_SHA"
+          else
+            # Check the exact synthesized merge result relative to the target parent.
+            # This remains correct even when the PR head does not yet contain a target
+            # advance that GitHub has already folded into refs/pull/<n>/merge.
+            git diff --check "$live_target..$CHECKED_SHA"
+          fi
           echo "P0_TRIAD_PRODUCT_PARENT=$live_product"
           echo "P0_TRIAD_TARGET_BRANCH=$EVENT_BASE_REF"
-          echo "P0_TRIAD_TARGET_BASE=$EVENT_BASE_SHA"
+          echo "P0_TRIAD_EVENT_BASE=$EVENT_BASE_SHA"
+          echo "P0_TRIAD_TARGET_BASE=$live_target"
           echo "P0_TRIAD_PR_HEAD=$EVENT_HEAD_SHA"
           echo "P0_TRIAD_DIFF_BASE=$diff_base"
       - name: Set up Python
