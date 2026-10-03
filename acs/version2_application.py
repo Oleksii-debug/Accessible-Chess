@@ -206,7 +206,19 @@ class Version2Application:
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self.shell.open_route("books")
-        return len(imported.warnings)
+        warning_count = len(imported.warnings)
+        if warning_count:
+            announcement = (
+                f"Книгу відкрито з попередженнями імпорту: {warning_count}."
+                if self.shell.language is UILanguage.UA
+                else f"Book opened with import warnings: {warning_count}."
+            )
+            # Importer diagnostics remain trusted-host data. Publish only the
+            # bounded count through the existing path-free status event.
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
+        return warning_count
 
     def _persist_book_progress(self, book_key, reader):
         """Publish Book progress, offering only explicit bounded backup rollback."""
