@@ -274,11 +274,37 @@
     const block = snapshot.block;
     const semanticKind = block.kind === "Game" ? "game" :
       (block.kind === "VariationTree" ? "variation" : "");
-    if (tree === undefined || tree === null) {
+    const hasSemanticTree = Object.prototype.hasOwnProperty.call(
+      snapshot, "semantic_tree"
+    );
+    if (!semanticKind) {
+      if (hasSemanticTree) {
+        throw new TypeError("Non-semantic Book block carries semantic tree state");
+      }
       return;
     }
-    if (!semanticKind || typeof tree !== "object" || Array.isArray(tree)) {
+    if (!hasSemanticTree || tree === undefined) {
+      throw new TypeError("Semantic Book block is missing semantic tree state");
+    }
+    if (tree === null) {
+      if (!block.warning) {
+        throw new TypeError("Semantic Book fallback requires an accessible warning");
+      }
+      return;
+    }
+    if (typeof tree !== "object" || Array.isArray(tree)) {
       throw new TypeError("Book semantic tree is invalid for this block");
+    }
+    const expectedTreeFields = [
+      "kind", "label", "players_label", "players", "result_label", "result",
+      "intro_comments", "outro_comments", "items"
+    ];
+    const treeFields = Object.keys(tree);
+    if (treeFields.length !== expectedTreeFields.length ||
+        expectedTreeFields.some(function (field) {
+          return !Object.prototype.hasOwnProperty.call(tree, field);
+        })) {
+      throw new TypeError("Book semantic tree fields are invalid");
     }
     if (tree.kind !== semanticKind) {
       throw new TypeError("Book semantic tree kind is inconsistent");
@@ -301,9 +327,12 @@
       if (!Array.isArray(values)) {
         throw new TypeError(name + " must be an array");
       }
-      values.forEach(function (value) {
-        semanticText(value, name + " item", false, MAX_BOOK_BLOCK_VISIBLE_CHARS);
-      });
+      for (let index = 0; index < values.length; index += 1) {
+        if (!Object.prototype.hasOwnProperty.call(values, index)) {
+          throw new TypeError(name + " must be dense");
+        }
+        semanticText(values[index], name + " item", false, MAX_BOOK_BLOCK_VISIBLE_CHARS);
+      }
     }
 
     semanticText(tree.label, "Book semantic label", false, 360);
@@ -320,9 +349,28 @@
     if (!Array.isArray(tree.items) || tree.items.length > MAX_BOOK_SEMANTIC_ITEMS) {
       throw new TypeError("Book semantic items are invalid");
     }
+    for (let index = 0; index < tree.items.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(tree.items, index)) {
+        throw new TypeError("Book semantic items must be dense");
+      }
+    }
+
+    const expectedItemFields = [
+      "kind", "depth", "parent_index", "label", "leading_comments",
+      "comments_before", "comments_after", "trailing_comments", "result"
+    ];
+    const activeAncestorIndices = [];
+    let previousDepth = 0;
     tree.items.forEach(function (item, index) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("Book semantic item is invalid");
+      }
+      const itemFields = Object.keys(item);
+      if (itemFields.length !== expectedItemFields.length ||
+          expectedItemFields.some(function (field) {
+            return !Object.prototype.hasOwnProperty.call(item, field);
+          })) {
+        throw new TypeError("Book semantic item fields are invalid");
       }
       if (item.kind !== "move" && item.kind !== "variation") {
         throw new TypeError("Book semantic item kind is invalid");
@@ -336,6 +384,13 @@
           (item.kind === "variation" && item.depth % 2 !== 1)) {
         throw new TypeError("Book semantic item kind/depth is inconsistent");
       }
+      if (index === 0 && item.depth !== 0) {
+        throw new TypeError("Book semantic root depth is invalid");
+      }
+      if (index > 0 && item.depth > previousDepth + 1) {
+        throw new TypeError("Book semantic item depth jumps unexpectedly");
+      }
+
       if (item.depth === 0) {
         if (item.parent_index !== null) {
           throw new TypeError("Book semantic root parent is invalid");
@@ -347,17 +402,41 @@
             tree.items[item.parent_index].depth !== item.depth - 1) {
           throw new TypeError("Book semantic item parent is invalid");
         }
+        if (activeAncestorIndices.length < item.depth ||
+            activeAncestorIndices[item.depth - 1] !== item.parent_index) {
+          throw new TypeError("Book semantic parent does not match active ancestry");
+        }
+        const parentKind = tree.items[item.parent_index].kind;
+        const expectedParentKind = item.kind === "variation" ? "move" : "variation";
+        if (parentKind !== expectedParentKind) {
+          throw new TypeError("Book semantic parent kind is invalid");
+        }
       }
+
       semanticText(item.label, "Book semantic item label", false, 1200);
       semanticComments(item.leading_comments, "Book semantic leading comments");
       semanticComments(item.comments_before, "Book semantic comments before");
       semanticComments(item.comments_after, "Book semantic comments after");
       semanticComments(item.trailing_comments, "Book semantic trailing comments");
+      if (item.kind === "move") {
+        if (item.leading_comments.length || item.trailing_comments.length) {
+          throw new TypeError("Book semantic move carries line-level comments");
+        }
+        if (item.result !== "") {
+          throw new TypeError("Book semantic move carries a line result");
+        }
+      } else if (item.comments_before.length || item.comments_after.length) {
+        throw new TypeError("Book semantic variation carries move comment slots");
+      }
       if (item.result !== "" &&
           ["1-0", "0-1", "1/2-1/2", "*"].indexOf(item.result) < 0) {
         throw new TypeError("Book semantic item result is invalid");
       }
       semanticText(item.result, "Book semantic item result", true, 16);
+
+      activeAncestorIndices.length = item.depth;
+      activeAncestorIndices.push(index);
+      previousDepth = item.depth;
     });
   }
 
@@ -495,11 +574,25 @@
     requireBookSemanticTree(snapshot);
     if (hasBoardState) {
       const boardActive = snapshot.board_active;
-      if (openPosition.enabled !== (block.has_position && !boardActive)) {
+      const hasReadableSemanticTree =
+        snapshot.semantic_tree !== undefined && snapshot.semantic_tree !== null;
+      // The host may safely disable a matching Board handoff only when semantic
+      // content failed closed and the snapshot carries the explicit warning
+      // required above. A readable canonical tree must retain its matching
+      // Book -> Board continuation while the Board is inactive.
+      if (openPosition.enabled && (!block.has_position || boardActive)) {
         throw new TypeError("Book open-position action disagrees with board state");
       }
-      if (openGame.enabled !== (block.kind === "Game" && !boardActive)) {
+      if (openGame.enabled && (block.kind !== "Game" || boardActive)) {
         throw new TypeError("Book open-game action disagrees with board state");
+      }
+      if (!boardActive && hasReadableSemanticTree &&
+          block.kind === "VariationTree" && !openPosition.enabled) {
+        throw new TypeError("Readable variation lost its Board handoff");
+      }
+      if (!boardActive && hasReadableSemanticTree &&
+          block.kind === "Game" && !openGame.enabled) {
+        throw new TypeError("Readable game lost its Board handoff");
       }
       if (returnFromBoard.enabled !== boardActive) {
         throw new TypeError("Book return action disagrees with board state");
@@ -592,10 +685,12 @@
     });
   }
 
-  function renderBookSemanticTree(host, tree) {
+  function renderBookSemanticTree(host, tree, blockDomId) {
     const section = node("section");
-    section.setAttribute("aria-label", tree.label);
-    section.appendChild(node("h4", tree.label));
+    const heading = node("h4", tree.label);
+    heading.id = String(blockDomId || "") + "-semantic-heading";
+    section.setAttribute("aria-labelledby", heading.id);
+    section.appendChild(heading);
     section.appendChild(node("p", tree.players_label + ": " + tree.players));
     appendSemanticComments(section, tree.intro_comments);
 
@@ -647,6 +742,7 @@
     section.appendChild(node("p", tree.result_label + ": " + tree.result));
     appendSemanticComments(section, tree.outro_comments);
     host.appendChild(section);
+    return heading.id;
   }
 
   function renderBookBlock(host, block, semanticTree) {
@@ -684,9 +780,17 @@
     } else {
       content = node("section");
       content.setAttribute("role", "group");
-      if (block.title) content.appendChild(node("h3", block.title));
+      if (block.title) {
+        const title = node("h3", block.title);
+        title.id = String(block.dom_id || "") + "-title";
+        content.setAttribute("aria-labelledby", title.id);
+        content.appendChild(title);
+      }
       if (semanticTree) {
-        renderBookSemanticTree(content, semanticTree);
+        const semanticHeadingId = renderBookSemanticTree(
+          content, semanticTree, block.dom_id
+        );
+        if (!block.title) content.setAttribute("aria-labelledby", semanticHeadingId);
       } else if (block.text) {
         content.appendChild(node("p", block.text));
       }
