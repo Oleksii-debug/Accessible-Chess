@@ -1,0 +1,71 @@
+name: Classroom Media Browser Binder Integration
+
+on:
+  push:
+    branches:
+      - integrate/classroom-media-browser-binder-20261003
+    paths:
+      - 'web/classroom_media_host_executor.js'
+      - 'tests/js/classroom_media_host_executor_test.js'
+      - 'acs/version2_final_release.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_final_release_binding.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_v2_package_required_resources.py'
+      - '.github/workflows/classroom-media-browser-binder-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-media-browser-binder-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+
+      - name: Check integration diff
+        run: git diff --check HEAD^
+
+      - name: Run browser executor and adapter contracts
+        run: |
+          node tests/js/classroom_media_host_executor_test.js
+          node tests/js/livekit_classroom_media_adapter_test.js
+
+      - name: Run focused release and package regressions
+        run: |
+          python -m unittest \
+            tests.test_version2_final_release_binding \
+            tests.test_version2_release_payload \
+            tests.test_version2_package_preflight \
+            tests.test_v2_package_required_resources
+
+      - name: Prove executor authority remains bounded
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'AccessibleChessClassroomMediaHostExecutor' web/classroom_media_host_executor.js
+          grep -Fq 'credential handoff failed' web/classroom_media_host_executor.js
+          ! grep -Eq 'console\.|localStorage|sessionStorage|document\.|fetch\(|XMLHttpRequest|WebSocket' web/classroom_media_host_executor.js
+          grep -Fq 'Classroom media host executor' acs/version2_final_release.py
+          grep -Fq 'classroom_media_host_executor.js' acs/version2_release_payload.py
+          grep -Fq 'classroom_media_host_executor.js' acs/version2_package_preflight.py
+          echo 'CLASSROOM_MEDIA_BROWSER_BINDER_INTEGRATION=PASS'
