@@ -408,11 +408,24 @@ def create_version2_release_application(
             language = UILanguage(language_value)
         except (TypeError, ValueError):
             language = UILanguage.UA
+        sound_assets = PackagedSoundAssetResolver(app_dir)
+
+        def selected_sound_variant(event):
+            choice = str(settings.get(f"sound_{event.value}_variant", "1"))
+            try:
+                available = {
+                    option.variant_id for option in sound_assets.variants_for(event)
+                }
+            except Exception:
+                return "1"
+            return choice if choice in available else "1"
+
         playback = sound_playback
         if playback is None:
             playback = WindowsSoundPlaybackAdapter(
-                PackagedSoundAssetResolver(app_dir),
+                sound_assets,
                 cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
+                variant_provider=selected_sound_variant,
             )
         sound_runtime = SoundRuntime(
             playback,
@@ -425,6 +438,7 @@ def create_version2_release_application(
             game_sounds=game_sounds,
             sound_runtime=sound_runtime,
             settings=settings,
+            sound_asset_resolver=sound_assets,
             engine_play_service=engine_play,
             lang=language.value,
         )
