@@ -1185,7 +1185,20 @@ class ClassroomCollaborationWebView:
         )
         self._unread_message_ids.update(item.message_id for item in new_remote)
         announcement = ""
-        if len(new_remote) == 1:
+        if pending_recovered and new_remote:
+            sent = _LABELS[self._language]["sent"]
+            if len(new_remote) == 1:
+                item = new_remote[0]
+                compact_body = self._announcement_body(item.body)
+                announcement = (
+                    f"{sent} {self._label(item.sender_id)}: {compact_body}"
+                )
+            else:
+                announcement = (
+                    f"{sent} "
+                    f"{_LABELS[self._language]['new_many'].format(count=len(new_remote))}"
+                )
+        elif len(new_remote) == 1:
             item = new_remote[0]
             compact_body = self._announcement_body(item.body)
             announcement = f"{self._label(item.sender_id)}: {compact_body}"
