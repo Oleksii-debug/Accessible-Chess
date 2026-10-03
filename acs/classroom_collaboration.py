@@ -164,10 +164,21 @@ class ChatTransportPort(Protocol):
 
 
 class FileTransferPort(Protocol):
-    """Server-authoritative file metadata plus opaque-byte transfer boundary."""
+    """Server-authoritative file metadata plus opaque-byte transfer boundary.
+
+    The transport owns authoritative room-quota enforcement. It must atomically
+    reject a new upload with CollaborationQuotaError when accepting that
+    attachment would exceed its server-configured room quota. Client-side quota
+    checks are advisory safety only and must not be trusted as room authority.
+    Retry of the same attachment must not double-count already stored bytes.
+
+    attachment_id is a server idempotency key: immutable identity (room, sender,
+    display name, media type, size, hash, object key and retention) must never be
+    replaced by a different payload under the same ID.
+    """
 
     def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
-        """Upload bytes and return authoritative metadata, including room sequence."""
+        """Upload bytes, enforce server policy, and return authoritative metadata."""
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
@@ -311,9 +322,9 @@ class ClassroomCollaborationController:
             raise CollaborationError("received chat message has invalid type")
         if message.room_id != self.room_id:
             raise CollaborationError("received chat message belongs to another room")
-        if message.hidden or message.redacted:
+        if message.hidden:
             raise CollaborationError(
-                "live chat message cannot carry mutable state"
+                "live chat message cannot carry moderation state"
             )
         self._require_member(message.sender_id)
         _chat_body(message.body)
@@ -354,8 +365,7 @@ class ClassroomCollaborationController:
             # Current membership is enforced for the local reader and live receive,
             # while replay trusts the room-scoped transport's historical sender ID.
             _id(message.sender_id, "sender id")
-            if not message.redacted:
-                _chat_body(message.body)
+            _chat_body(message.body)
             self._require_transport_timestamp(message)
             previous = message.sequence_no
 
@@ -487,7 +497,6 @@ class ClassroomCollaborationController:
             if (
                 message.message_id not in existing_ids
                 and not current_by_id[message.message_id].hidden
-                and not current_by_id[message.message_id].redacted
             )
         )
 
@@ -667,6 +676,14 @@ class ClassroomCollaborationController:
         try:
             result = self._files.upload(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                uploading.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 uploading.attachment_id,
@@ -703,6 +720,14 @@ class ClassroomCollaborationController:
         try:
             result = self._files.retry(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                current.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 current.attachment_id,
@@ -1190,10 +1215,7 @@ class ClassroomCollaborationController:
             or message.message_id != draft.message_id
             or message.room_id != draft.room_id
             or message.sender_id != draft.sender_id
-            or (
-                not message.redacted
-                and message.body != draft.body
-            )
+            or message.body != draft.body
             or message.retention != draft.retention
             or message.sent_at_unix_ms is None
         ):
@@ -1215,7 +1237,6 @@ class ClassroomCollaborationController:
             or message.body != draft.body
             or message.retention != draft.retention
             or message.hidden
-            or message.redacted
             or message.sent_at_unix_ms is None
         ):
             raise CollaborationError("chat transport changed immutable message identity")
