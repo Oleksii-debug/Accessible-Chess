@@ -24,12 +24,14 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 sdk.LIVEKIT_CLIENT_LICENSE_ID,
                 sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
+                sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
             (
                 release_payload._LIVEKIT_CLIENT_VERSION,
                 release_payload._LIVEKIT_CLIENT_LICENSE_ID,
                 release_payload._LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 release_payload._LIVEKIT_CLIENT_NPM_INTEGRITY,
+                release_payload._LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
         )
         self.assertEqual(
@@ -38,13 +40,19 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 sdk.LIVEKIT_CLIENT_LICENSE_ID,
                 sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
+                sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
             (
                 package_preflight._LIVEKIT_CLIENT_VERSION,
                 package_preflight._LIVEKIT_CLIENT_LICENSE_ID,
                 package_preflight._LIVEKIT_CLIENT_SOURCE,
                 package_preflight._LIVEKIT_CLIENT_INTEGRITY,
+                package_preflight._LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
+        )
+        self.assertEqual(
+            sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
+            "7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d",
         )
 
     def setUp(self) -> None:
