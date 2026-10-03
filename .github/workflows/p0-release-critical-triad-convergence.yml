@@ -39,12 +39,30 @@ jobs:
           case "$base" in
             codex/v2-runtime-completion-20260907|fix/p0f-packaged-starter-diagnostic-20260926|work/full-product-teacher-education-reachability-20260911|fix/convergence-full-suite-regressions-20260927|converge/p0-release-critical-to-full-product-20260926|release/w4-v2-current-p0-candidate-20260926)
               ;;
+            fix/training-continue-render-atomicity-20260929)
+              test "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-r2-20261003"
+              expected="$(printf '%s\n' \
+                '.github/workflows/d01-pgn-workspace-webview.yml' \
+                '.github/workflows/p0-release-critical-triad-convergence.yml' \
+                '.github/workflows/v2-book-progress-production-repair.yml' \
+                'acs/full_product_actions.py' \
+                'acs/full_product_ui_shell.py' \
+                'acs/version2_application.py' \
+                'tests/js/version2_release_bootstrap_dom_test.js' \
+                'tests/test_dev1_full_product_webview_adapter.py' \
+                'tests/test_version2_application.py' \
+                'tests/test_version2_book_board_refresh_focus_order_evidence.py' \
+                'tests/test_version2_release_accessibility_contract.py' \
+                'web/version2_release_bootstrap.js' | sort)"
+              actual="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | sort)"
+              test "$actual" = "$expected"
+              ;;
             *)
               echo "unexpected convergence base: $base" >&2
               exit 1
               ;;
           esac
-          git diff --check HEAD^
+          git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
