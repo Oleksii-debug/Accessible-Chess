@@ -34,8 +34,10 @@ jobs:
       CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
       CURRENT_BOOKS_BRANCH: work/books-bidirectional-semantic-navigation-20260927
       CURRENT_PROGRESS_OWNER: a56abe4e68d58c7600b97c1a410ae64a42697aaa
-      CURRENT_STORE_BLOB: ae880d0eb9ec99028f2b7e2dddff57f162211618
+      CURRENT_STORE_BLOB: 3dd04cbcafb4219738acf4568a3a6e436a9aa1ef
+      CURRENT_APPLICATION_BLOB: a54e1ceb5102d13d6439ab82c686679ee061fade
       CURRENT_BASE_TEST_BLOB: ae85ba96da66f339a530e2ddbbf311161fb9832e
+      CURRENT_APPLICATION_TEST_BLOB: aa2c2e0e3c81882e296b3de255fc1550682ded5b
       CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -126,13 +128,16 @@ jobs:
               '.github/workflows/books-progress-backup-recovery.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
               'tests/test_version2_application.py' | sort)"
             if [ "$current_delta" = "$orphan_expected" ]; then
               test "$(git rev-parse "$current_product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
               test "$(git rev-parse "$current_product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
               test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
               orphan_backup_successor=true
             fi
@@ -155,11 +160,14 @@ jobs:
               '.github/workflows/books-progress-backup-recovery.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
               'tests/test_version2_application.py' | sort)"
             if [ "$books_delta" = "$books_expected" ]; then
               test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
               current_books_recovery=true
             fi
@@ -247,6 +255,10 @@ jobs:
           # and exact current owned blobs.
           git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
           test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+          if [ "$current_books_recovery" = true ]; then
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+          fi
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
           echo 'BOOK PROGRESS PRODUCTION OWNERSHIP PASS'
