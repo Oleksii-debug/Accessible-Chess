@@ -44,6 +44,7 @@ _DERIVED_ROOT_DIRECTORIES = {
 _DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
 )
+_EDUCATION_WORKSPACE_LOCK_DIRECTORY = ".education-workspace.json.lock"
 
 
 def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
@@ -761,6 +762,21 @@ class Version2UpgradeCoordinator:
         ):
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
+            if (
+                len(relative_path.parts) == 1
+                and relative_path.parts[0].casefold()
+                == _EDUCATION_WORKSPACE_LOCK_DIRECTORY
+            ):
+                lock_info = _safe_stat(path, "education workspace publication lock")
+                if stat.S_ISDIR(lock_info.st_mode):
+                    # EducationWorkspaceStore owns this exact root directory as
+                    # its live publication lock. It does not participate in the
+                    # upgrade lock, so migration must not race an active save.
+                    raise Version2UpgradeBusy(
+                        "education workspace store is busy during upgrade"
+                    )
+                # A regular file with the same spelling is not the canonical
+                # directory lock and remains preservation-backed user data.
             if relative.casefold() in _CONTROL_NAME_KEYS:
                 continue
             # Derived runtime/control subtrees are not preservation-backed user
