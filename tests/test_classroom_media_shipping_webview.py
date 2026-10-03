@@ -820,6 +820,29 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
             runtime_source,
         )
         self.assertIn("media.provider_outcome_unknown", runtime_source)
+        self.assertIn("async reconcileTransport(invoke)", runtime_source)
+        self.assertIn('"media.provider_transport_lost"', runtime_source)
+        self.assertIn("this._transportLossSnapshot", runtime_source)
+
+        adapter_source = (
+            Path(__file__).resolve().parents[1]
+            / "web"
+            / "livekit_classroom_media.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("RoomEvent", adapter_source)
+        self.assertIn("events.Disconnected", adapter_source)
+        self.assertIn("_bindUnexpectedDisconnect(room)", adapter_source)
+        self.assertIn("onTransportLost", adapter_source)
+
+        self.assertIn(
+            "function reconcileMediaProviderTransport()",
+            source,
+        )
+        self.assertIn(
+            "runtime.reconcileTransport(areaInvoke(\"media\"))",
+            source,
+        )
+        self.assertIn("global.setInterval(drainEvents, 300)", source)
 
 
 if __name__ == "__main__":
