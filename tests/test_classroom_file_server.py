@@ -1071,6 +1071,68 @@ class ClassroomFileServerTests(unittest.TestCase):
                 limit=10,
             )
 
+    def test_client_upload_and_retry_report_canonical_provider_progress(self):
+        prepared = self.prepared(
+            attachment_id="client-progress-a0",
+            content=b"provider progress",
+        )
+        upload_progress = []
+
+        stored = self.student1.upload(
+            prepared,
+            on_progress=upload_progress.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(upload_progress), 1)
+        self.assertEqual(upload_progress[0].attachment_id, stored.attachment_id)
+        self.assertEqual(
+            (upload_progress[0].transferred_bytes, upload_progress[0].total_bytes),
+            (prepared.metadata.size_bytes, prepared.metadata.size_bytes),
+        )
+        self.assertFalse(upload_progress[0].complete)
+
+        retry_progress = []
+        replayed = self.student1.retry(
+            prepared,
+            on_progress=retry_progress.append,
+        )
+
+        self.assertEqual(replayed, stored)
+        self.assertEqual(len(retry_progress), 1)
+        self.assertEqual(
+            (
+                retry_progress[0].attachment_id,
+                retry_progress[0].transferred_bytes,
+                retry_progress[0].total_bytes,
+                retry_progress[0].complete,
+            ),
+            (
+                stored.attachment_id,
+                prepared.metadata.size_bytes,
+                prepared.metadata.size_bytes,
+                False,
+            ),
+        )
+
+    def test_client_rejects_invalid_progress_consumer_before_server_effect(self):
+        prepared = self.prepared(
+            attachment_id="client-progress-invalid-a0",
+            content=b"must not upload",
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "progress consumer must be callable",
+        ):
+            self.student1.upload(
+                prepared,
+                on_progress=object(),
+            )
+
+        self.assertEqual(self.objects.put_calls, [])
+        self.assertEqual(self.scanner.calls, [])
+
     def test_client_rejects_file_changed_after_preparation(self):
         prepared = self.prepared(attachment_id="changed-on-disk-a0")
         prepared.local_path.write_bytes(b"mutated")
