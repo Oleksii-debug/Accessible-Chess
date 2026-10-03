@@ -331,6 +331,36 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         self.assertNotIn("private backend", rendered)
         self.assertNotIn(TOKEN, rendered)
 
+    def test_shipping_event_pump_sanitizes_trusted_clock_failure(self):
+        application, _controller, transactions = self.application()
+
+        def broken_clock():
+            raise OSError("private clock backend provider-secret-token")
+
+        self.configure(
+            application,
+            lambda: "account-token",
+            now_provider=broken_clock,
+        )
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            return_value=credential(),
+        ):
+            application.prepare_classroom_media_join_http("room-1")
+            pending = application._media_join_http_pending
+            self.assertIsNotNone(pending)
+            pending.future.exception(timeout=2.0)
+            events = application.drain_events()
+
+        rendered = repr(events)
+        self.assertIn("Could not obtain classroom media credentials.", rendered)
+        self.assertNotIn("private clock backend", rendered)
+        self.assertNotIn(TOKEN, rendered)
+        self.assertEqual(transactions.join_calls, [])
+        self.assertIsNone(transactions.binder.active_lease)
+
     def test_worker_failure_is_sanitized_and_never_creates_provider_lease(self):
         application, _controller, transactions = self.application()
         self.configure(application, lambda: "account-token")
