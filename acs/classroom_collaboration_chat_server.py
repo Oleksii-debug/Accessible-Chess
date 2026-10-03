@@ -159,14 +159,27 @@ class ClassroomChatServerSQLiteStore:
     def __init__(self, database_path: str | Path) -> None:
         if not isinstance(database_path, (str, Path)):
             raise TypeError("database_path must be str or pathlib.Path")
-        self._path = str(database_path)
+        path = str(database_path)
+        if path in {"", ":memory:"}:
+            raise ClassroomChatServerError(
+                "durable classroom chat server database path is required"
+            )
+        self._path = path
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self._path, timeout=30.0)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        db: sqlite3.Connection | None = None
+        try:
+            db = sqlite3.connect(self._path, timeout=30.0)
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys=ON")
+            return db
+        except sqlite3.Error:
+            if db is not None:
+                db.close()
+            raise ClassroomChatServerError(
+                "classroom chat server database open failed"
+            ) from None
 
     @staticmethod
     def _validate_schema_shape(
