@@ -371,6 +371,35 @@ class ClassroomFileServerTests(unittest.TestCase):
             1,
         )
 
+    def test_pending_deleted_bytes_continue_to_count_against_room_quota(self):
+        first = self.prepared(
+            attachment_id="pending-delete-quota-a0",
+            content=b"a" * 60,
+        )
+        second = self.prepared(
+            attachment_id="pending-delete-quota-a1",
+            content=b"b" * 60,
+        )
+        stored = self.student1.upload(first)
+        self.objects.delete_failures = 1
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object deletion failed",
+        ):
+            self.student1.cancel(attachment_id=stored.attachment_id)
+
+        put_calls = len(self.objects.put_calls)
+        with self.assertRaises(CollaborationQuotaError):
+            self.student1.upload(second)
+        self.assertEqual(len(self.objects.put_calls), put_calls)
+
+        self.assertEqual(self.service.drain_pending_deletions(), 1)
+        replacement = self.student1.upload(second)
+        self.assertEqual(replacement.sequence_no, 1)
+        self.assertEqual(replacement.transfer_state, "stored")
+        self.service.integrity_check()
+
     def test_ambiguous_object_write_retries_same_reservation_and_sequence(self):
         prepared = self.prepared(
             attachment_id="ambiguous-a0",
