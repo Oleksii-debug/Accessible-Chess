@@ -909,6 +909,16 @@
         const body = node("bdi", message.body || "");
         body.setAttribute("dir", "auto");
         item.appendChild(body);
+        if (message.unread) {
+          item.appendChild(document.createTextNode(" — "));
+          const unreadMarker = node(
+            "span",
+            chat.unread_message_label || "Unread"
+          );
+          unreadMarker.setAttribute("data-message-unread-status", "true");
+          unreadMarker.setAttribute("aria-live", "off");
+          item.appendChild(unreadMarker);
+        }
         if (message.timestamp_text) {
           const timestampDetails = node("details");
           timestampDetails.setAttribute("data-message-timestamp", "true");
