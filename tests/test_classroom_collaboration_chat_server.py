@@ -2054,6 +2054,41 @@ class ClassroomChatServerTests(unittest.TestCase):
             (),
         )
 
+    def test_exact_resend_after_hide_preserves_identity_and_mutable_hidden_state(self) -> None:
+        draft = self.draft("m-hide-resend", "Accepted before moderation")
+        sent = self.send(draft)
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(
+                self.moderation(
+                    "hide-before-resend",
+                    target=None,
+                    action=ChatModerationAction.HIDE_MESSAGE,
+                    allowed=None,
+                    message_id=sent.message_id,
+                ),
+            ),
+        )
+
+        recovered = self.send(draft)
+
+        self.assertEqual(sent.message_id, recovered.message_id)
+        self.assertEqual(sent.sequence_no, recovered.sequence_no)
+        self.assertEqual(sent.sent_at_unix_ms, recovered.sent_at_unix_ms)
+        self.assertEqual(sent.body, recovered.body)
+        self.assertTrue(recovered.hidden)
+        self.assertEqual(1, self.clock.calls)
+        self.assertEqual(
+            1,
+            len(
+                self.store.history_after(
+                    room_id=ROOM,
+                    after_sequence=None,
+                    limit=10,
+                )
+            ),
+        )
+
     def test_repeated_hide_with_new_operation_does_not_duplicate_state_event(self) -> None:
         sent = self.send(self.draft("m-repeat-hide"))
         first = self.moderation(
