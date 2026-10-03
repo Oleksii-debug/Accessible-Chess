@@ -717,7 +717,42 @@ class BookProgressStore:
                     "book progress storage lock changed while being opened",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
-            if metadata.st_size == 0:
+            if existing is not None:
+                # A stable existing lock must already carry the marker written
+                # by the exclusive creator. Never initialize or normalize an
+                # arbitrary pre-existing file in place.
+                if metadata.st_size != 1:
+                    raise BookProgressStoreError(
+                        "book progress storage lock is not initialized",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
+                try:
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    marker = os.read(descriptor, 2)
+                except OSError:
+                    raise BookProgressStoreError(
+                        "book progress storage lock could not be validated",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    ) from None
+                if marker != b"\0":
+                    raise BookProgressStoreError(
+                        "book progress storage lock is not initialized",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
+            else:
+                # Only this process's O_EXCL-created empty inode may be
+                # initialized. Revalidate privacy/identity immediately before
+                # writing the marker so a foreign alias cannot be normalized.
+                current_descriptor = os.fstat(descriptor)
+                self._require_private_lock_metadata(current_descriptor)
+                if (
+                    current_descriptor.st_size != 0
+                    or not self._same_file_identity(metadata, current_descriptor)
+                ):
+                    raise BookProgressStoreError(
+                        "book progress storage lock changed while being initialized",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
                 os.write(descriptor, b"\0")
                 os.fsync(descriptor)
             try:
