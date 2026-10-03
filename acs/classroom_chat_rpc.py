@@ -585,7 +585,6 @@ def _require_delivered_identity(
         or message.sender_id != draft.sender_id
         or message.body != draft.body
         or message.retention != draft.retention
-        or message.hidden
         or message.sent_at_unix_ms is None
     ):
         raise ClassroomChatRpcError("chat backend changed immutable message identity")
