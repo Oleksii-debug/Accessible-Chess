@@ -34,6 +34,10 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 report.inventory,
             )
             self.assertIn(
+                "AccessibleChess/web/full_product_sound_settings.js",
+                report.inventory,
+            )
+            self.assertIn(
                 "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json",
                 report.inventory,
             )
@@ -60,6 +64,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
     def test_preflight_rejects_each_missing_required_file_family(self):
         removals = (
             "AccessibleChess/web/version2_release_bootstrap.js",
+            "AccessibleChess/web/full_product_sound_settings.js",
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "AccessibleChess/assets/sounds/manifest.json",
             "AccessibleChess/assets/sounds/move.wav",
@@ -118,7 +123,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
-    def test_preflight_rejects_duplicate_sound_asset_mapping(self):
+    def test_preflight_allows_shared_sound_asset_when_each_event_provenance_matches(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
             manifest_path = root / "AccessibleChess/assets/sounds/manifest.json"
@@ -128,12 +133,23 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 json.dumps(manifest, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+
+            provenance_path = root / "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"]["capture"]["file"] = provenance["events"]["move"]["file"]
+            provenance["events"]["capture"]["sha256"] = provenance["events"]["move"]["sha256"]
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
             _write_checksums(root)
-            with self.assertRaisesRegex(
-                Version2PackagePreflightError,
-                "distinct WAV",
-            ):
-                _validate_tree(root)
+
+            report = _validate_tree(root)
+
+            self.assertIn(
+                "AccessibleChess/assets/sounds/manifest.json",
+                report.inventory,
+            )
 
     def test_preflight_rejects_corrupt_sound_asset(self):
         with tempfile.TemporaryDirectory() as td:
@@ -184,6 +200,42 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             ("license", "license_id", "unknown", "license identity is unresolved"),
             ("creator", "creator", "TBD", "creator identity is unresolved"),
             ("source", "source", r"C:\\private\\move.wav", "HTTPS URL or URN"),
+            (
+                "source-userinfo",
+                "source",
+                "https://user:secret@example.invalid/move.wav",
+                "stable HTTPS URL or URN",
+            ),
+            (
+                "source-query",
+                "source",
+                "https://example.invalid/move.wav?token=secret",
+                "query or fragment",
+            ),
+            (
+                "source-fragment",
+                "source",
+                "urn:accessible-chess:sound:move#private",
+                "query or fragment",
+            ),
+            (
+                "source-port",
+                "source",
+                "https://example.invalid:notaport/move.wav",
+                "stable HTTPS URL or URN",
+            ),
+            (
+                "creator-bidi",
+                "creator",
+                "Trusted\u202eCreator",
+                "creator is invalid",
+            ),
+            (
+                "license-zero-width",
+                "license_id",
+                "CC0-1.0\u200b",
+                "license_id is invalid",
+            ),
             ("file", "file", "other.wav", "does not match manifest"),
         )
         for label, field, value, expected in cases:

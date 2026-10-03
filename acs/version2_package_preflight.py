@@ -14,6 +14,8 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import tempfile
+import unicodedata
+from urllib.parse import urlsplit
 import wave
 import zipfile
 import xml.etree.ElementTree as ET
@@ -126,6 +128,7 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_books_training.js",
     "AccessibleChess/web/full_product_teacher.js",
     "AccessibleChess/web/full_product_education.js",
+    "AccessibleChess/web/full_product_sound_settings.js",
     "AccessibleChess/web/version2_final_product_bootstrap.js",
     "AccessibleChess/web/version2_release_bootstrap.js",
 )
@@ -542,10 +545,46 @@ def _provenance_text(value: object, *, label: str, max_length: int) -> str:
     if (
         not normalized
         or len(normalized) > max_length
-        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+        or any(
+            ord(character) < 32
+            or ord(character) == 127
+            or character in {"\u2028", "\u2029"}
+            or unicodedata.category(character) == "Cf"
+            for character in normalized
+        )
     ):
         _fail(f"sound provenance {label} is invalid")
     return normalized
+
+
+def _provenance_source(value: object) -> str:
+    source = _provenance_text(value, label="source", max_length=1024)
+    if source != value:
+        _fail("sound provenance source must not contain surrounding whitespace")
+    if any(character.isspace() for character in source):
+        _fail("sound provenance source must not contain whitespace")
+    parsed = urlsplit(source)
+    if parsed.query or parsed.fragment:
+        _fail("sound provenance source must not contain query or fragment components")
+    if parsed.scheme == "https":
+        try:
+            hostname = parsed.hostname
+            parsed.port
+        except ValueError:
+            _fail("sound provenance source must be a stable HTTPS URL or URN")
+        if (
+            not parsed.netloc
+            or hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            _fail("sound provenance source must be a stable HTTPS URL or URN")
+    elif parsed.scheme == "urn":
+        if parsed.netloc or not parsed.path:
+            _fail("sound provenance source must be a stable HTTPS URL or URN")
+    else:
+        _fail("sound provenance source must be a stable HTTPS URL or URN")
+    return source
 
 
 def _validate_sound_provenance(
@@ -611,9 +650,7 @@ def _validate_sound_provenance(
         )
         if license_id.casefold() in _PROVENANCE_PLACEHOLDERS:
             _fail(f"sound provenance license identity is unresolved: {event.value}")
-        source = _provenance_text(entry.get("source"), label="source", max_length=1024)
-        if not (source.startswith("https://") or source.startswith("urn:")):
-            _fail(f"sound provenance source must be an HTTPS URL or URN: {event.value}")
+        source = _provenance_source(entry.get("source"))
         creator = _provenance_text(entry.get("creator"), label="creator", max_length=512)
         if creator.casefold() in _PROVENANCE_PLACEHOLDERS:
             _fail(f"sound provenance creator identity is unresolved: {event.value}")
@@ -864,16 +901,11 @@ def _validate_required_runtime_resources(
     if set(mapping) != expected_events:
         _fail("packaged sound manifest must declare every semantic sound event exactly once")
 
-    seen_sound_paths: set[str] = set()
     for event in SoundEvent:
         value = mapping.get(event.value)
         if not isinstance(value, str) or not value:
             _fail(f"packaged sound manifest entry is invalid: {event.value}")
         token = _relative_token(value, label="sound asset path")
-        folded_token = token.casefold()
-        if folded_token in seen_sound_paths:
-            _fail("packaged sound events must use distinct WAV assets")
-        seen_sound_paths.add(folded_token)
         if PurePosixPath(token).suffix.casefold() != ".wav":
             _fail(f"packaged sound asset is not WAV: {event.value}")
         relative = (_REQUIRED_SOUND_ROOT / PurePosixPath(token)).as_posix()

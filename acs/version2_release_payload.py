@@ -17,6 +17,8 @@ import shutil
 import stat
 import struct
 import tempfile
+import unicodedata
+from urllib.parse import urlsplit
 import wave
 import zipfile
 
@@ -79,6 +81,7 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "full_product_books_training.js",
     Path("web") / "full_product_teacher.js",
     Path("web") / "full_product_education.js",
+    Path("web") / "full_product_sound_settings.js",
     Path("web") / "version2_final_product_bootstrap.js",
     Path("web") / "version2_release_bootstrap.js",
 )
@@ -393,12 +396,11 @@ def _validate_sound_pack(product_dir: Path) -> None:
         raise Version2ReleasePayloadError("sound manifest files must be an object")
 
     expected_events = {event.value for event in SoundEvent}
-    if len(expected_events) != 9 or set(mapping) != expected_events:
+    if set(mapping) != expected_events:
         raise Version2ReleasePayloadError(
-            "sound manifest must declare exactly all nine semantic sound events"
+            "sound manifest must declare exactly all semantic sound events"
         )
 
-    seen_assets: set[str] = set()
     for event in SoundEvent:
         value = mapping.get(event.value)
         if not isinstance(value, str) or not value.strip() or "\\" in value or "\x00" in value:
@@ -408,10 +410,6 @@ def _validate_sound_pack(product_dir: Path) -> None:
             raise Version2ReleasePayloadError(f"sound asset path is unsafe: {event.value}")
         if token.suffix.casefold() != ".wav":
             raise Version2ReleasePayloadError(f"sound asset is not WAV: {event.value}")
-        folded = token.as_posix().casefold()
-        if folded in seen_assets:
-            raise Version2ReleasePayloadError("sound events must use distinct WAV assets")
-        seen_assets.add(folded)
 
     try:
         manifest = PackagedSoundAssetResolver(product_dir).load_manifest()
@@ -447,10 +445,60 @@ def _provenance_text(value: object, *, label: str, max_length: int) -> str:
     if (
         not normalized
         or len(normalized) > max_length
-        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+        or any(
+            ord(character) < 32
+            or ord(character) == 127
+            or character in {"\u2028", "\u2029"}
+            or unicodedata.category(character) == "Cf"
+            for character in normalized
+        )
     ):
         raise Version2ReleasePayloadError(f"sound provenance {label} is invalid")
     return normalized
+
+
+def _provenance_source(value: object) -> str:
+    source = _provenance_text(value, label="source", max_length=1024)
+    if source != value:
+        raise Version2ReleasePayloadError(
+            "sound provenance source must not contain surrounding whitespace"
+        )
+    if any(character.isspace() for character in source):
+        raise Version2ReleasePayloadError(
+            "sound provenance source must not contain whitespace"
+        )
+    parsed = urlsplit(source)
+    if parsed.query or parsed.fragment:
+        raise Version2ReleasePayloadError(
+            "sound provenance source must not contain query or fragment components"
+        )
+    if parsed.scheme == "https":
+        try:
+            hostname = parsed.hostname
+            parsed.port
+        except ValueError as exc:
+            raise Version2ReleasePayloadError(
+                "sound provenance source must be a stable HTTPS URL or URN"
+            ) from exc
+        if (
+            not parsed.netloc
+            or hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise Version2ReleasePayloadError(
+                "sound provenance source must be a stable HTTPS URL or URN"
+            )
+    elif parsed.scheme == "urn":
+        if parsed.netloc or not parsed.path:
+            raise Version2ReleasePayloadError(
+                "sound provenance source must be a stable HTTPS URL or URN"
+            )
+    else:
+        raise Version2ReleasePayloadError(
+            "sound provenance source must be a stable HTTPS URL or URN"
+        )
+    return source
 
 
 def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
@@ -478,9 +526,9 @@ def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
         raise Version2ReleasePayloadError("sound provenance events must be an object")
 
     expected_events = {event.value for event in SoundEvent}
-    if len(expected_events) != 9 or set(events) != expected_events:
+    if set(events) != expected_events:
         raise Version2ReleasePayloadError(
-            "sound provenance must declare exactly all nine semantic sound events"
+            "sound provenance must declare exactly all semantic sound events"
         )
     if not isinstance(manifest_raw, dict) or not isinstance(manifest_raw.get("files"), dict):
         raise Version2ReleasePayloadError("sound manifest files must be an object")
@@ -533,11 +581,7 @@ def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
             raise Version2ReleasePayloadError(
                 f"sound provenance license identity is unresolved: {event.value}"
             )
-        source = _provenance_text(entry.get("source"), label="source", max_length=1024)
-        if not (source.startswith("https://") or source.startswith("urn:")):
-            raise Version2ReleasePayloadError(
-                f"sound provenance source must be an HTTPS URL or URN: {event.value}"
-            )
+        source = _provenance_source(entry.get("source"))
         creator = _provenance_text(entry.get("creator"), label="creator", max_length=512)
         if creator.casefold() in _PROVENANCE_PLACEHOLDERS:
             raise Version2ReleasePayloadError(
@@ -621,7 +665,7 @@ def prepare_version2_release_payload(
     Inputs are local, already-produced artifacts. The Stockfish archive is pinned
     to the official Stockfish 18 generic Windows x86-64 release digest; callers
     cannot override that identity. ``sound_pack_dir`` must contain the canonical
-    ``manifest.json``, provenance identity, and exactly all nine WAV events.
+    ``manifest.json``, provenance identity, and the complete current SoundEvent set.
     """
 
     standalone = Path(standalone_dir)
