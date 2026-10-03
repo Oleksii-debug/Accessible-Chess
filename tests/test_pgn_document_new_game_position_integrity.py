@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 import tempfile
 import unittest
@@ -133,6 +134,47 @@ class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
             PgnDocumentSession.new_game_from_position(
                 structurally_editable_but_not_board_valid,
                 {"Event": "Rejected position"},
+            )
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_POSITION)
+
+    def test_position_workflow_rejects_positionstate_subclass_before_dispatch(self) -> None:
+        canonical = standard_position()
+
+        class ForgedPosition(PositionState):
+            def to_fen(self) -> str:
+                raise AssertionError("subclass method must never execute")
+
+        forged = ForgedPosition(
+            canonical.pieces,
+            turn=canonical.turn,
+            castling=canonical.castling,
+            en_passant=canonical.en_passant,
+            halfmove=canonical.halfmove,
+            fullmove=canonical.fullmove,
+        )
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            PgnDocumentSession.new_game_from_position(
+                forged,
+                {"Event": "Forged position"},
+            )
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_POSITION)
+
+    def test_invalid_position_is_rejected_before_metadata_is_consumed(self) -> None:
+        class ExplodingTags(Mapping[str, str]):
+            def __getitem__(self, key: str) -> str:
+                raise AssertionError("metadata must not be consumed")
+
+            def __iter__(self):
+                raise AssertionError("metadata must not be consumed")
+
+            def __len__(self) -> int:
+                raise AssertionError("metadata must not be consumed")
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            PgnDocumentSession.new_game_from_position(
+                CUSTOM_FEN,  # type: ignore[arg-type]
+                ExplodingTags(),
             )
         self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_POSITION)
 
