@@ -7,21 +7,33 @@ import unicodedata
 from types import MappingProxyType
 from typing import Mapping
 
+from .sound_events import SoundEvent
+
 
 SOUND_PROFILE_SCHEMA_VERSION = 1
 SOUND_PACK_MANIFEST_SCHEMA_VERSION = 1
 
+_PACKAGED_SEMANTIC_EVENT_IDS = tuple(event.value for event in SoundEvent)
+_PROFILE_COMPATIBILITY_EVENT_IDS = ("low_time",)
+
 CORE_SOUND_EVENTS = (
-    "start",
-    "move",
-    "capture",
-    "check",
-    "castle",
-    "promotion",
-    "illegal",
-    "end",
-    "tick",
-    "low_time",
+    ("start",)
+    + tuple(
+        event_id
+        for event_id in _PACKAGED_SEMANTIC_EVENT_IDS
+        if event_id not in {"start", "end", "tick", "low_time"}
+    )
+    + ("end", "tick")
+    + tuple(
+        event_id
+        for event_id in _PROFILE_COMPATIBILITY_EVENT_IDS
+        if event_id not in _PACKAGED_SEMANTIC_EVENT_IDS
+    )
+    + tuple(
+        event_id
+        for event_id in _PACKAGED_SEMANTIC_EVENT_IDS
+        if event_id == "low_time"
+    )
 )
 
 OPTIONAL_CLASSROOM_SOUND_EVENTS = (
