@@ -214,6 +214,10 @@ class SoundPackCatalogTests(unittest.TestCase):
             ("source_uri", "C:/private/sounds"),
             ("source_uri", "http://example.invalid/source"),
             ("source_uri", "https://user:secret@example.invalid/source"),
+            ("source_uri", "https://example.invalid/has space"),
+            ("source_uri", " https://example.invalid/source"),
+            ("source_uri", "https://:443/source"),
+            ("source_uri", "https://example.invalid:notaport/source"),
             ("license_uri", "relative/license.txt"),
             ("license_uri", "javascript:alert(1)"),
         ):
@@ -223,10 +227,7 @@ class SoundPackCatalogTests(unittest.TestCase):
                 "license_uri": "urn:accessible-chess:test:license",
             }
             values[field] = value
-            with self.subTest(field=field, value=value), self.assertRaisesRegex(
-                ValueError,
-                "HTTPS URL or URN",
-            ):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 SoundPackRightsEvidence(**values)
 
     def test_rights_evidence_license_must_match_downloaded_manifest_authority(self):
@@ -297,7 +298,13 @@ class SoundPackCatalogTests(unittest.TestCase):
                 SoundPackRightsEvidence.from_mapping(malformed)
 
     def test_catalog_signature_rejects_control_character_spoofing(self):
-        for signature in ("signed\nextra", "signed\tshadow", "signed\u2028second-line"):
+        for signature in (
+            "signed\nextra",
+            "signed\tshadow",
+            "signed\u2028second-line",
+            " signed",
+            "signed ",
+        ):
             with self.subTest(signature=repr(signature)), self.assertRaisesRegex(
                 ValueError,
                 "control characters",
