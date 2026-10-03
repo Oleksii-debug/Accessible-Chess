@@ -259,6 +259,24 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
             host.prepare_local_source(MediaSource.CAMERA, True)
         self.assertEqual(host.pending_effect, effect)
 
+    def test_transaction_port_rejects_second_coordinator_without_poisoning_first(self):
+        controller, _roster, _session, port, host = self.make_host()
+
+        with self.assertRaisesRegex(
+            MediaHostTransactionError,
+            "already has a coordinator",
+        ):
+            ClassroomMediaHostTransactions(
+                controller,
+                port,
+                transaction_id_factory=lambda: "host-" + "f" * 32,
+            )
+
+        effect = host.prepare_local_source(MediaSource.MICROPHONE, True)
+        self.assertIsNotNone(effect)
+        committed = host.commit_provider_success(effect.transaction_id)
+        self.assertIn(MediaSource.MICROPHONE, committed.desired_sources)
+
     def test_moderation_effect_is_exact_and_commits_policy_only_after_success(self):
         controller, _roster, session, _port, host = self.make_host("teacher-1")
         before = controller.participant_policy("student-1")
