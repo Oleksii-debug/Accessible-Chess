@@ -2170,20 +2170,38 @@ class Version2UpgradeCoordinator:
                 return item
         return None
 
-    def _tracked_state_sha256(self, name: str) -> str | None:
+    def _tracked_state_snapshot(
+        self,
+        name: str,
+    ) -> tuple[str | None, tuple[int, int] | None]:
         if name not in {self.layout.settings_name, self.layout.library_name}:
             raise ValueError("unknown tracked upgrade path")
         path = self.layout.root / name
         if not path.exists() and not path.is_symlink():
-            return None
-        info = _safe_stat(path, "tracked user data")
-        if not stat.S_ISREG(info.st_mode):
+            return None, None
+        before = _safe_stat(path, "tracked user data")
+        if not stat.S_ISREG(before.st_mode):
             raise Version2UpgradeError("tracked user data must be a file")
+        identity = _stat_identity(before)
         if name == self.layout.library_name:
-            return _library_state_sha256(
+            state = _library_state_sha256(
                 path, schema_validator=self._validate_library_schema
             )
-        return _hash(path, label="tracked user data")
+        else:
+            state = _hash(path, label="tracked user data")
+        after = _safe_stat(path, "tracked user data")
+        if (
+            not stat.S_ISREG(after.st_mode)
+            or _stat_identity(after) != identity
+        ):
+            raise Version2UpgradeError(
+                "tracked user data changed during state authentication"
+            )
+        return state, identity
+
+    def _tracked_state_sha256(self, name: str) -> str | None:
+        state, _identity = self._tracked_state_snapshot(name)
+        return state
 
     def _assert_tracked_original(
         self, manifest: Mapping[str, object], name: str
@@ -2273,7 +2291,12 @@ class Version2UpgradeCoordinator:
             require_library_identity()
         require_library_identity()
 
-    def _prepare_library_publication(self, expected_original: str) -> None:
+    def _prepare_library_publication(
+        self,
+        expected_original: str,
+        *,
+        expected_identity: tuple[int, int] | None = None,
+    ) -> None:
         """Normalize a quiescent live SQLite file before atomic publication.
 
         The logical state must still equal the pre-upgrade snapshot. A zero-timeout
@@ -2294,6 +2317,13 @@ class Version2UpgradeCoordinator:
         if not stat.S_ISREG(before.st_mode):
             raise Version2UpgradeError(
                 "library publication target must be a regular file"
+            )
+        if (
+            expected_identity is not None
+            and _stat_identity(before) != expected_identity
+        ):
+            raise Version2UpgradeError(
+                "library publication target changed after recovery authorization"
             )
 
         def require_target_identity() -> None:
@@ -2406,6 +2436,7 @@ class Version2UpgradeCoordinator:
 
         actions: dict[str, str] = {}
         authorized_states: dict[str, str | None] = {}
+        authorized_identities: dict[str, tuple[int, int] | None] = {}
 
         # First pass remains all-or-nothing authorization: prove that both
         # tracked paths are either original, upgrader-owned, or absent exactly
@@ -2413,12 +2444,13 @@ class Version2UpgradeCoordinator:
         for name in (self.layout.settings_name, self.layout.library_name):
             entry = self._manifest_tracked_entry(manifest, name)
             try:
-                current = self._tracked_state_sha256(name)
+                current, current_identity = self._tracked_state_snapshot(name)
             except Exception as exc:
                 raise Version2UpgradeRecoveryError(
                     "tracked recovery state cannot be authenticated"
                 ) from exc
             authorized_states[name] = current
+            authorized_identities[name] = current_identity
             owned = owned_states.get(name)
             if entry is None:
                 if current is None:
@@ -2457,9 +2489,10 @@ class Version2UpgradeCoordinator:
             entry = self._manifest_tracked_entry(manifest, name)
             destination = self.layout.root / name
             authorized = authorized_states[name]
+            authorized_identity = authorized_identities[name]
             if action == "noop":
                 continue
-            if authorized is None:
+            if authorized is None or authorized_identity is None:
                 raise Version2UpgradeRecoveryError(
                     "tracked recovery authorization disappeared"
                 )
@@ -2470,33 +2503,42 @@ class Version2UpgradeCoordinator:
             # removed.
             if name == self.layout.library_name:
                 try:
-                    self._prepare_library_publication(authorized)
+                    self._prepare_library_publication(
+                        authorized,
+                        expected_identity=authorized_identity,
+                    )
                 except Version2UpgradeError as exc:
                     raise Version2UpgradeRecoveryError(
                         "tracked Library changed before recovery publication"
                     ) from exc
 
             try:
-                immediate = self._tracked_state_sha256(name)
+                immediate, immediate_identity = self._tracked_state_snapshot(name)
             except Exception as exc:
                 raise Version2UpgradeRecoveryError(
                     "tracked recovery state cannot be re-authenticated"
                 ) from exc
-            if immediate != authorized:
+            if (
+                immediate != authorized
+                or immediate_identity != authorized_identity
+            ):
                 raise Version2UpgradeRecoveryError(
-                    "tracked user data changed before recovery publication"
+                    "tracked user data identity changed before recovery publication"
                 )
 
             guard: _PublicationGuard | None = None
             preserve_guard = False
             try:
                 guard = _publication_guard(destination)
+                current_state, current_identity = self._tracked_state_snapshot(name)
                 if (
-                    guarded_state(name, guard) != authorized
-                    or self._tracked_state_sha256(name) != authorized
+                    guard.identity != authorized_identity
+                    or guarded_state(name, guard) != authorized
+                    or current_state != authorized
+                    or current_identity != authorized_identity
                 ):
                     raise Version2UpgradeRecoveryError(
-                        "tracked user data changed before recovery publication"
+                        "tracked user data identity changed before recovery publication"
                     )
 
                 if action == "delete":

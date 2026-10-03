@@ -120,6 +120,147 @@ class V2UpgradeTrackedWriterConflictTests(unittest.TestCase):
 
             self.assertIn("external-v1.pgn", self._source_names(library))
 
+    def test_recovery_settings_rejects_same_state_inode_swap_before_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_text(
+                json.dumps({"language": "en", "volume": 20}), encoding="utf-8"
+            )
+
+            def crash_after_settings(phase: str) -> None:
+                if phase == "settings-migrated":
+                    raise _Crash()
+
+            with self.assertRaises(_Crash):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=crash_after_settings
+                ).run()
+
+            authorized_identity = upgrade_base_module._stat_identity(
+                settings.lstat()
+            )
+            migrated_bytes = settings.read_bytes()
+            replacement = root / "same-state-settings.json"
+            replacement.write_bytes(migrated_bytes)
+            replacement_identity = upgrade_base_module._stat_identity(
+                replacement.lstat()
+            )
+            self.assertNotEqual(authorized_identity, replacement_identity)
+
+            real_guard = upgrade_base_module._publication_guard
+            injected = False
+
+            def swap_before_guard(path):
+                nonlocal injected
+                if Path(path) == settings and not injected:
+                    injected = True
+                    replacement.replace(settings)
+                return real_guard(path)
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_publication_guard",
+                side_effect=swap_before_guard,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "identity changed before recovery publication",
+                ):
+                    Version2UpgradeCoordinator(
+                        UserDataLayout(root)
+                    ).recover_interrupted()
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                replacement_identity,
+                upgrade_base_module._stat_identity(settings.lstat()),
+            )
+            self.assertEqual(migrated_bytes, settings.read_bytes())
+
+    def test_recovery_library_rejects_same_state_inode_swap_before_prepare(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+
+            def crash_after_library(phase: str) -> None:
+                if phase == "library-migrated":
+                    raise _Crash()
+
+            with self.assertRaises(_Crash):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=crash_after_library
+                ).run()
+
+            authorized_identity = upgrade_base_module._stat_identity(
+                library.lstat()
+            )
+            replacement = root / "same-state-library.acsdb"
+            source_connection = sqlite3.connect(library)
+            replacement_connection = sqlite3.connect(replacement)
+            try:
+                source_connection.backup(replacement_connection)
+                replacement_connection.commit()
+            finally:
+                replacement_connection.close()
+                source_connection.close()
+            replacement_identity = upgrade_base_module._stat_identity(
+                replacement.lstat()
+            )
+            self.assertNotEqual(authorized_identity, replacement_identity)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            expected_state = upgrade_base_module._library_state_sha256(
+                library,
+                schema_validator=coordinator._validate_library_schema,
+            )
+            replacement_state = upgrade_base_module._library_state_sha256(
+                replacement,
+                schema_validator=coordinator._validate_library_schema,
+            )
+            self.assertEqual(expected_state, replacement_state)
+
+            real_prepare = Version2UpgradeCoordinator._prepare_library_publication
+            injected = False
+
+            def swap_before_prepare(instance, expected_original, **kwargs):
+                nonlocal injected
+                if not injected:
+                    injected = True
+                    replacement.replace(library)
+                return real_prepare(
+                    instance,
+                    expected_original,
+                    **kwargs,
+                )
+
+            with mock.patch.object(
+                Version2UpgradeCoordinator,
+                "_prepare_library_publication",
+                new=swap_before_prepare,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "tracked Library changed before recovery publication",
+                ):
+                    coordinator.recover_interrupted()
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                replacement_identity,
+                upgrade_base_module._stat_identity(library.lstat()),
+            )
+            self.assertEqual(
+                expected_state,
+                upgrade_base_module._library_state_sha256(
+                    library,
+                    schema_validator=coordinator._validate_library_schema,
+                ),
+            )
+
     def test_recovery_settings_writer_in_final_replace_window_is_restored_from_guard(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"

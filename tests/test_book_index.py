@@ -1,6 +1,6 @@
 import unittest
 
-from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex
+from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex, BookTarget
 from acs.bookdocument import (
     BookDocument,
     BookDocumentError,
@@ -123,6 +123,37 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
         self.assertEqual(document.blocks[0].source_anchor, "note-a")
 
+    def test_index_bounds_generated_semantic_target_keys_before_materialization(self):
+        block_limit = "b" * (4096 - len("block:"))
+        source_limit = "s" * (4096 - len("source:"))
+
+        at_limit = BookIndex(
+            BookDocument(
+                title="Target bounds",
+                blocks=[
+                    Paragraph(text="Block", block_id=block_limit),
+                    Paragraph(text="Source", source_anchor=source_limit),
+                ],
+            )
+        )
+        self.assertEqual(len(at_limit.entries[0].target.key), 4096)
+        self.assertEqual(len(at_limit.entries[1].target.key), 4096)
+
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            BookIndex(
+                BookDocument(
+                    title="Oversized block target",
+                    blocks=[Paragraph(text="Block", block_id=block_limit + "x")],
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            BookIndex(
+                BookDocument(
+                    title="Oversized source target",
+                    blocks=[Paragraph(text="Source", source_anchor=source_limit + "x")],
+                )
+            )
+
     def test_stable_target_prefers_block_id_then_source_anchor(self):
         index = BookIndex(self.make_document())
         self.assertEqual(index.entries[0].target.key, "block:h1")
@@ -133,6 +164,27 @@ class BookIndexTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 with self.assertRaisesRegex(TypeError, "Book target"):
                     index.resolve(invalid)  # type: ignore[arg-type]
+
+    def test_resolve_bounds_raw_target_before_dictionary_hashing(self):
+        index = BookIndex(self.make_document())
+        oversized = "x" * 4097
+
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            index.resolve(oversized)
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            index.resolve(BookTarget(oversized, 0, None, None))
+
+        class HashForbiddenString(str):
+            def __hash__(self):
+                raise AssertionError("string subclass must be rejected before hashing")
+
+        with self.assertRaisesRegex(TypeError, "Book target"):
+            index.resolve(HashForbiddenString("block:h1"))
+        with self.assertRaisesRegex(TypeError, "target key"):
+            index.resolve(BookTarget(HashForbiddenString("block:h1"), 0, None, None))
+
+        with self.assertRaises(LookupError):
+            index.resolve("x" * 4096)
 
     def test_duplicate_semantic_target_is_rejected_not_silently_resolved(self):
         document = BookDocument(
@@ -164,6 +216,13 @@ class BookIndexTests(unittest.TestCase):
             with self.subTest(kinds=kinds):
                 with self.assertRaisesRegex(TypeError, "Search kinds"):
                     index.find("model", kinds=kinds)  # type: ignore[arg-type]
+
+    def test_find_bounds_raw_query_before_normalization(self):
+        index = BookIndex(self.make_document())
+
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            index.find(" " * 4097)
+        self.assertEqual(index.find("x" * 4096), ())
 
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())

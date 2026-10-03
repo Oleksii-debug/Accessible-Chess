@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import unittest
 
 from acs.acsdb import AcsDatabase
@@ -84,6 +85,83 @@ class BookBoardWorkflowTests(unittest.TestCase):
             analysis,
         )
 
+    def test_semantic_game_snapshot_is_detached_read_only_and_variation_complete(self) -> None:
+        document = BookDocument(
+            title="Book",
+            blocks=[
+                Game(
+                    pgn=EMBEDDED_GAME,
+                    title="Annotated game",
+                    block_id="game",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        progress_before = reader.snapshot()
+        workflow, _engine, _analysis = self._workflow(reader)
+
+        mode, game, warnings = workflow.semantic_game_snapshot(0)
+
+        self.assertEqual(mode, BookBoardMode.GAME)
+        self.assertEqual(game.line.moves[0].san, "e4")
+        self.assertEqual(game.line.moves[0].variations[0].moves[0].san, "d4")
+        self.assertIn("Main", tuple(c.text for c in game.line.moves[0].comments_after))
+        self.assertEqual(tuple(game.warnings), warnings)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+        game.tags["Event"] = "mutated detached copy"
+        _, second, _ = workflow.semantic_game_snapshot(0)
+        self.assertEqual(second.tags.get("Event"), "Book workflow")
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_semantic_game_snapshot_fails_closed_on_wrong_reader_location(self) -> None:
+        document = BookDocument(
+            title="Book",
+            blocks=[
+                Paragraph(text="Before"),
+                Game(pgn=EMBEDDED_GAME, block_id="game"),
+            ],
+        )
+        reader = BookReader(document)
+        reader.go_to(1)
+        progress_before = reader.snapshot()
+        workflow, _engine, _analysis = self._workflow(reader)
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.semantic_game_snapshot(0)
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_semantic_game_snapshot_rejects_nonexact_or_unsupported_index(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[Paragraph(text="No game here")],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+        progress_before = reader.snapshot()
+
+        for invalid in (True, -1, 0.0, "0"):
+            with self.subTest(index=invalid):
+                with self.assertRaises(BookBoardWorkflowError) as caught:
+                    workflow.semantic_game_snapshot(invalid)  # type: ignore[arg-type]
+                self.assertEqual(caught.exception.code, BookBoardWorkflowCode.INVALID_COMMAND)
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.semantic_game_snapshot(0)
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.UNSUPPORTED_BLOCK)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_fen_position_opens_on_canonical_board_and_returns_exactly(self) -> None:
         document = BookDocument(
             title="Book",
@@ -110,29 +188,37 @@ class BookBoardWorkflowTests(unittest.TestCase):
 
         progress_during = reader.snapshot()
         self.assertEqual(
-            progress_during["current_target"], progress_before["current_target"]
-        )
-        self.assertEqual(
-            progress_during["return_points"]["user-bookmark"],
-            progress_before["return_points"]["user-bookmark"],
+            progress_during,
+            progress_before,
+            "read-only Book Board review must not publish transient origin state",
         )
 
         restored = workflow.return_to_book()
         self.assertEqual(restored, origin)
         self.assertEqual(reader.location(), origin)
+        self.assertEqual(
+            reader.snapshot(),
+            progress_before,
+            "returning from Book Board must preserve exact durable reader progress",
+        )
         self.assertFalse(workflow.active)
 
-    def test_corrupted_book_fen_fails_closed_before_progress_mutation(self) -> None:
+    def test_corrupted_indexed_book_fen_fails_closed_before_progress_mutation(self) -> None:
         # PR #380 owns constructor-time Book FEN parity.  This application seam
-        # still protects against a corrupted/mutated block arriving after normal
-        # construction, including None which canonical Board treats as START for
-        # its own convenience API.
+        # still protects against a corrupted block snapshot crossing the reader
+        # boundary, including None which canonical Board treats as START for its
+        # own convenience API.  Live BookDocument mutation is revision drift and
+        # is covered separately by the RETURN_FAILED race regressions below.
         for invalid_fen in (None, "", "8/8/8/8/8/8/8/8 w - - 0 1"):
             with self.subTest(invalid_fen=invalid_fen):
                 position = Position(fen=Board.START, block_id="bad")
                 document = BookDocument(title="Book", blocks=[position])
                 reader = BookReader(document)
-                position.fen = invalid_fen  # simulate corruption after validation
+                corrupted = reader.block_snapshot(0)
+                corrupted.fen = invalid_fen  # type: ignore[assignment]
+                reader.block_snapshot = (  # type: ignore[method-assign]
+                    lambda _index, block=corrupted: block
+                )
                 workflow, _engine, _analysis = self._workflow(reader)
 
                 with self.assertRaises(BookBoardWorkflowError) as caught:
@@ -144,6 +230,87 @@ class BookBoardWorkflowTests(unittest.TestCase):
                 self.assertEqual(reader.location().index, 0)
                 with self.assertRaises(LookupError):
                     reader.restore_return_point(workflow._RETURN_POINT)
+
+    def test_open_current_sanitizes_reader_stale_before_origin_capture(self) -> None:
+        position = Position(fen=Board.START, block_id="already-stale")
+        document = BookDocument(title="Book", blocks=[position])
+        reader = BookReader(document)
+        workflow, engine, _analysis = self._workflow(reader)
+        position.caption = "changed before Board open"
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.open_current()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertNotIn("BookDocument changed", str(caught.exception))
+        self.assertEqual(engine.calls, [])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_open_current_rejects_revision_race_before_mutated_block_is_consumed(self) -> None:
+        position = Position(fen=Board.START, block_id="race-pos")
+        document = BookDocument(title="Book", blocks=[position])
+        reader = BookReader(document)
+        workflow, engine, _analysis = self._workflow(reader)
+        original_location = reader.location
+        first_call = True
+        changed = Board()
+        changed.push_text("e4")
+        changed_fen = changed.fen()
+
+        def location_then_mutate():
+            nonlocal first_call
+            location = original_location()
+            if first_call:
+                first_call = False
+                position.fen = changed_fen
+            return location
+
+        canonical_inputs: list[object] = []
+        real_canonical = workflow._canonical_fen
+
+        def guarded_canonical(value: object) -> str:
+            canonical_inputs.append(value)
+            return real_canonical(value)
+
+        reader.location = location_then_mutate  # type: ignore[method-assign]
+        workflow._canonical_fen = guarded_canonical  # type: ignore[method-assign]
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.open_current()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertEqual(
+            canonical_inputs,
+            [],
+            "revision drift must fail before mutated chess/content is consumed",
+        )
+        self.assertEqual(engine.calls, [])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_open_current_sanitizes_revision_drift_after_indexed_snapshot(self) -> None:
+        position = Position(fen=Board.START, block_id="post-snapshot-race")
+        document = BookDocument(title="Book", blocks=[position])
+        reader = BookReader(document)
+        workflow, engine, _analysis = self._workflow(reader)
+        real_snapshot = reader.block_snapshot
+
+        def snapshot_then_mutate(index: int):
+            block = real_snapshot(index)
+            position.caption = "changed after indexed snapshot"
+            return block
+
+        reader.block_snapshot = snapshot_then_mutate  # type: ignore[method-assign]
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.open_current()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertNotIn("BookDocument changed", str(caught.exception))
+        self.assertEqual(engine.calls, [])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
 
     def test_embedded_game_uses_canonical_gametree_navigation_and_rav_return(self) -> None:
         reader = BookReader(
@@ -316,6 +483,68 @@ class BookBoardWorkflowTests(unittest.TestCase):
         self.assertIsNone(result.error)
         self.assertEqual(workflow.view().cursor.next_move_index, 1)
 
+    def test_return_invalidates_old_analysis_before_new_session_can_publish(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[Position(fen=Board.START, block_id="serialized-return")],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+        workflow.open_current()
+
+        invalidate_started = threading.Event()
+        release_invalidate = threading.Event()
+        return_errors: list[BaseException] = []
+        real_invalidate = workflow._engine.invalidate
+
+        def gated_invalidate() -> int:
+            invalidate_started.set()
+            if not release_invalidate.wait(5):
+                raise RuntimeError("test did not release analysis invalidation")
+            return real_invalidate()
+
+        workflow._engine.invalidate = gated_invalidate  # type: ignore[method-assign]
+
+        def return_old_session() -> None:
+            try:
+                workflow.return_to_book()
+            except BaseException as exc:  # preserve worker failure for the main assertion
+                return_errors.append(exc)
+
+        worker = threading.Thread(target=return_old_session, daemon=True)
+        worker.start()
+        self.assertTrue(
+            invalidate_started.wait(5),
+            "return did not reach the old-context invalidation boundary",
+        )
+
+        # The invalidation callback deliberately pauses.  A non-blocking acquire
+        # from this thread must fail: otherwise a newer Book Board session could
+        # publish in this exact gap and then be invalidated by the older Return.
+        acquired_during_invalidate = workflow._lock.acquire(blocking=False)
+        if acquired_during_invalidate:
+            workflow._lock.release()
+
+        release_invalidate.set()
+        worker.join(5)
+        workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(return_errors, [])
+        self.assertFalse(
+            acquired_during_invalidate,
+            "Book Board lock was released before old-context analysis invalidation",
+        )
+        self.assertFalse(workflow.active)
+
+        # A successor context starts only after the old invalidation is complete;
+        # its first analysis therefore remains current instead of being cancelled.
+        workflow.open_current()
+        successor = workflow.analyze(multipv=1, depth=8)
+        self.assertFalse(successor.stale)
+        self.assertIsNone(successor.error)
+
     def test_failed_return_keeps_session_recoverable(self) -> None:
         document = BookDocument(
             title="Book",
@@ -325,10 +554,27 @@ class BookBoardWorkflowTests(unittest.TestCase):
         workflow, _engine, _analysis = self._workflow(reader)
         workflow.open_current()
         document.blocks[0].caption = "changed after reader index"
+        invalidation_calls = 0
+        real_invalidate = workflow._engine.invalidate
 
-        with self.assertRaises(BookBoardWorkflowError) as caught:
-            workflow.return_to_book()
+        def counted_invalidate() -> int:
+            nonlocal invalidation_calls
+            invalidation_calls += 1
+            return real_invalidate()
+
+        workflow._engine.invalidate = counted_invalidate  # type: ignore[method-assign]
+        try:
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                workflow.return_to_book()
+        finally:
+            workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
+
         self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertEqual(
+            invalidation_calls,
+            0,
+            "failed Book return must keep the active analysis context valid",
+        )
         self.assertTrue(workflow.active)
         self.assertEqual(workflow.board_snapshot().fen(), Board.START)
 
