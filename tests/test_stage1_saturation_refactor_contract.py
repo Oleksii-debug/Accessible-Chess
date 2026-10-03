@@ -100,6 +100,7 @@ class Stage1SaturationRefactorContractTests(unittest.TestCase):
                 "48306efcc79851a17ffc215593bcf92c069ebfbe",  # #1135 protect NEWGAME from first engine move
                 "03048189cfb677a7233d90d178be1d7bb6274c95",  # #1135 complete low-time alert and retry
                 "b362e2ac5bb4a8d300279d43e4ae296fec3a074a",  # #1135 long preview clock protection
+                "e39d44327add87cf4182192bb3301d3a4546a2d2",  # #1135 stop active audio on mute/disable
             },
         )
         self.assertIn(
