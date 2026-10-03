@@ -120,6 +120,78 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
 
         self.assert_accessible_fallback(rejected, reader, workflow, before)
 
+    def test_visible_text_budget_counts_generated_variation_and_result_labels(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        def presenter_view(comment_size: int) -> SimpleNamespace:
+            return SimpleNamespace(
+                game_index=0,
+                items=(
+                    SimpleNamespace(
+                        kind="move",
+                        depth=0,
+                        node_id="g0:m0",
+                        parent_id=None,
+                        label="1. e4",
+                        comments=(),
+                        comments_before=(),
+                        comments_after=(),
+                        trailing_comments=(),
+                        result=None,
+                    ),
+                    SimpleNamespace(
+                        kind="variation",
+                        depth=1,
+                        node_id="g0:m0/v0",
+                        parent_id="g0:m0",
+                        label="Variation 1",
+                        comments=("x" * comment_size,),
+                        comments_before=(),
+                        comments_after=(),
+                        trailing_comments=(),
+                        result="*",
+                    ),
+                ),
+            )
+
+        # With the canonical Ukrainian labels this projection has 97 rendered
+        # UTF-16 units before the variation comment. 1903 is therefore exactly
+        # the 2000-unit boundary; one additional unit must fail closed. The old
+        # serialized-field accounting saw only 76 fixed units and accepted both.
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=presenter_view(1903),
+            ),
+            patch("acs.version2_book_workspace._MAX_BOOK_BLOCK_VISIBLE_CHARS", 2000),
+        ):
+            accepted = bridge.projection.snapshot()
+        self.assertIsInstance(accepted["semantic_tree"], dict)
+        self.assertEqual(reader.snapshot(), before)
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=presenter_view(1904),
+            ),
+            patch("acs.version2_book_workspace._MAX_BOOK_BLOCK_VISIBLE_CHARS", 2000),
+        ):
+            rejected = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(rejected, reader, workflow, before)
+
     def test_block_kind_mismatch_falls_back_before_browser_serialization(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()

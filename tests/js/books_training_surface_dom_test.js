@@ -254,6 +254,34 @@ function semanticBookTree(kind) {
   };
 }
 
+function semanticSerializedTextUnits(tree) {
+  let total = 0;
+  function add(value) {
+    if (typeof value === "string") total += value.length;
+  }
+  function addMany(values) {
+    values.forEach(add);
+  }
+
+  add(tree.label);
+  add(tree.players_label);
+  add(tree.players);
+  add(tree.result_label);
+  add(tree.variation_depth_label);
+  add(tree.result);
+  addMany(tree.intro_comments);
+  addMany(tree.outro_comments);
+  tree.items.forEach(function (item) {
+    add(item.label);
+    addMany(item.leading_comments);
+    addMany(item.comments_before);
+    addMany(item.comments_after);
+    addMany(item.trailing_comments);
+    add(item.result);
+  });
+  return total;
+}
+
 function withStarterMaterials(snapshot, currentId) {
   snapshot.starter_materials = {
     heading: "Offline starter materials",
@@ -1160,6 +1188,29 @@ async function run() {
     54,
     "semantic tree with oversized variation depth label",
     "Variation depth label failed"
+  );
+
+  const generatedTextBudget = bookSnapshot(55, "Generated semantic text budget");
+  generatedTextBudget.block.kind = "Game";
+  generatedTextBudget.block.role = "group";
+  generatedTextBudget.block.title = "Generated semantic text budget";
+  generatedTextBudget.actions[9].enabled = true;
+  generatedTextBudget.semantic_tree = semanticBookTree("game");
+  generatedTextBudget.semantic_tree.intro_comments = [];
+  const semanticBudget = 12 * 1024 * 1024;
+  const serializedBase = semanticSerializedTextUnits(generatedTextBudget.semantic_tree);
+  // Fill the old serialized-field budget to one unit below the limit. The
+  // browser still has to generate players/result separators, repeated result
+  // labels, and two explicit variation-depth strings; those generated units
+  // must now reject the snapshot before replacing stable DOM.
+  generatedTextBudget.semantic_tree.intro_comments = [
+    "x".repeat(semanticBudget - serializedBase - 1)
+  ];
+  await expectBookSnapshotRejected(
+    generatedTextBudget,
+    55,
+    "semantic tree whose generated visible text exceeds the budget",
+    "Generated semantic text budget failed"
   );
 
   const extraTreeField = bookSnapshot(44, "Extra semantic tree field");

@@ -312,16 +312,22 @@
 
     let visibleText = 0;
     let textEntries = 0;
-    function semanticText(value, name, allowEmpty, maxLength) {
+    function addVisibleUnits(units) {
+      if (!Number.isSafeInteger(units) || units < 0) {
+        throw new TypeError("Book semantic visible-text accounting is invalid");
+      }
+      visibleText += units;
+      if (visibleText > MAX_BOOK_BLOCK_VISIBLE_CHARS) {
+        throw new TypeError("Book semantic visible-text budget exceeded");
+      }
+    }
+    function semanticText(value, name, allowEmpty, maxLength, countVisible) {
       requireBoundedText(value, name, allowEmpty, maxLength);
       textEntries += 1;
       if (textEntries > MAX_BOOK_SEMANTIC_TEXT_ENTRIES) {
         throw new TypeError("Book semantic text-entry budget exceeded");
       }
-      visibleText += value.length;
-      if (visibleText > MAX_BOOK_BLOCK_VISIBLE_CHARS) {
-        throw new TypeError("Book semantic visible-text budget exceeded");
-      }
+      if (countVisible !== false) addVisibleUnits(value.length);
     }
     function semanticComments(values, name) {
       if (!Array.isArray(values)) {
@@ -338,17 +344,20 @@
     semanticText(tree.label, "Book semantic label", false, 360);
     semanticText(tree.players_label, "Book semantic players label", false, 120);
     semanticText(tree.players, "Book semantic players", false, 720);
-    semanticText(tree.result_label, "Book semantic result label", false, 120);
+    addVisibleUnits(2); // ": " between the visible players label and value.
+    semanticText(tree.result_label, "Book semantic result label", false, 120, false);
     semanticText(
       tree.variation_depth_label,
       "Book semantic variation depth label",
       false,
-      120
+      120,
+      false
     );
     if (["1-0", "0-1", "1/2-1/2", "*"].indexOf(tree.result) < 0) {
       throw new TypeError("Book semantic result is invalid");
     }
     semanticText(tree.result, "Book semantic result", false, 16);
+    addVisibleUnits(tree.result_label.length + 2);
     semanticComments(tree.intro_comments, "Book semantic intro comments");
     semanticComments(tree.outro_comments, "Book semantic outro comments");
 
@@ -439,6 +448,22 @@
         throw new TypeError("Book semantic item result is invalid");
       }
       semanticText(item.result, "Book semantic item result", true, 16);
+      if (item.kind === "variation") {
+        const variationLevel = (item.depth + 1) / 2;
+        // renderBookSemanticTree emits " — <depth label>: <level>" for every
+        // variation. The label is serialized once, so count every generated
+        // rendered copy and its punctuation here before DOM replacement.
+        addVisibleUnits(
+          3 +
+          tree.variation_depth_label.length +
+          2 +
+          String(variationLevel).length
+        );
+        if (item.result) {
+          // A terminated variation repeats the shared result label.
+          addVisibleUnits(tree.result_label.length + 2);
+        }
+      }
 
       activeAncestorIndices.length = item.depth;
       activeAncestorIndices.push(index);
