@@ -8,6 +8,11 @@ on:
     branches:
       - converge/library-import-event-product-recovery-20261004
     paths:
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - 'acs/library_webview_projection.py'
+      - 'tests/test_d07_library_export_webview.py'
+      - 'tests/test_dev1_library_webview_projection.py'
       - 'web/full_product_library.js'
       - 'tests/js/library_surface_dom_test.js'
       - '.github/workflows/library-full-snapshot-product-recovery.yml'
@@ -59,12 +64,22 @@ jobs:
           changed="$(git diff --name-only "$parent" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/library-full-snapshot-product-recovery.yml' \
+            'acs/library_export_webview_projection.py' \
+            'acs/library_webview_bridge.py' \
+            'acs/library_webview_projection.py' \
             'tests/js/library_surface_dom_test.js' \
+            'tests/test_d07_library_export_webview.py' \
+            'tests/test_dev1_library_webview_projection.py' \
             'web/full_product_library.js' | sort)"
           test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:web/full_product_library.js)" = "9943aa2e1924c9087faca7e9ead610475bfb98e5"
           test "$(git rev-parse HEAD:tests/js/library_surface_dom_test.js)" = "6d1ce6f2a3d2cd09c2585269d0fb8543cd59f98e"
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "be1c1f5eeba8538baced4774ae616198aee2e46f"
+          test "$(git rev-parse HEAD:acs/library_webview_bridge.py)" = "7efdb426641bf5f9f84b79775bca5b5761ae32ce"
+          test "$(git rev-parse HEAD:acs/library_export_webview_projection.py)" = "d8feae205961803ceee3e9758baaed0cbc75669e"
+          test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = "c202c2a27596d8e3dc93bd0c9ac9a2d3f60c23e9"
+          test "$(git rev-parse HEAD:tests/test_d07_library_export_webview.py)" = "699861878c5c20eea0c9b0872c725cbc29599ac8"
 
           echo 'LIBRARY_FULL_SNAPSHOT_PRODUCT_RECOVERY_SCOPE=PASS'
 
