@@ -20,6 +20,7 @@ _MAX_EXERCISE_AUX_TEXT = 4096
 _MAX_EXERCISE_TAGS = 256
 _MAX_EXERCISE_METADATA_ITEMS = 256
 _MAX_SAFE_COUNTER = (1 << 53) - 1
+_MAX_SNAPSHOT_FIELD_NAME = 128
 _TRAINING_SNAPSHOT_V3_FIELDS = frozenset(
     {
         "schema_version",
@@ -235,8 +236,9 @@ class ExerciseSession:
     """
 
     def __init__(self, definition: ExerciseDefinition) -> None:
-        definition = _canonical_definition(definition)
+        definition = _canonical_definition_snapshot(definition)
         self.definition = definition
+        self._definition_authority = definition
         self._definition_authority_digest = _definition_authority_digest(definition)
         self._board = Board(definition.start_fen)
         self._accepted_path: list[str] = []
@@ -245,11 +247,6 @@ class ExerciseSession:
         self._mistakes = 0
         self._hints_used = 0
         self._status = ExerciseStatus.READY
-
-    @property
-    def canonical_definition(self) -> ExerciseDefinition:
-        """Return the exact canonical definition authority bound to this live session."""
-        return self._bound_definition()
 
     @property
     def status(self) -> ExerciseStatus:
@@ -398,25 +395,11 @@ class ExerciseSession:
             "status": self._status.value,
         }
 
-    def restore_state(self, snapshot: Mapping[str, object]) -> None:
-        """Atomically restore validated progress while preserving session identity."""
-        definition = self._bound_definition()
-        restored = ExerciseSession.restore(definition, snapshot)
-        self._board = restored._board
-        self._accepted_path = list(restored._accepted_path)
-        self._step_index = restored._step_index
-        self._attempts = restored._attempts
-        self._mistakes = restored._mistakes
-        self._hints_used = restored._hints_used
-        self._status = restored._status
-
     def _bound_definition(self) -> ExerciseDefinition:
-        definition = self.definition
-        _require_bound_definition_shape(definition)
-        canonical = _canonical_definition(definition)
-        if canonical != definition:
-            raise ValueError("exercise definition is not canonical")
-        if _definition_authority_digest(canonical) != self._definition_authority_digest:
+        if self.definition is not self._definition_authority:
+            raise ValueError("exercise definition authority was replaced during session")
+        definition = _canonical_session_definition(self._definition_authority)
+        if _definition_authority_digest(definition) != self._definition_authority_digest:
             raise ValueError("exercise definition changed during session")
         return definition
 
@@ -433,28 +416,20 @@ class ExerciseSession:
         the reconstructed position. Distinct alternatives fail closed instead
         of guessing which position the learner actually reached.
         """
-        definition = _canonical_definition(definition)
-        if not isinstance(snapshot, Mapping):
-            raise TypeError("exercise snapshot must be a mapping")
-        try:
-            snapshot_field_count = len(snapshot)
-        except TypeError as exc:
-            raise TypeError("exercise snapshot must be a finite mapping") from exc
-        if snapshot_field_count not in {
-            len(_TRAINING_SNAPSHOT_V2_FIELDS),
-            len(_TRAINING_SNAPSHOT_V3_FIELDS),
-        }:
-            raise ValueError("invalid exercise snapshot field count")
-        if "schema_version" not in snapshot:
+        definition = _canonical_definition_snapshot(definition)
+        field_names = _snapshot_field_names(snapshot)
+        if "schema_version" not in field_names:
             raise ValueError("invalid exercise snapshot fields (missing fields: schema_version)")
         schema_version = snapshot["schema_version"]
         if type(schema_version) is not int:
             raise TypeError("exercise snapshot schema_version must be an integer")
         if schema_version == 3:
+            _require_snapshot_field_names(field_names, _TRAINING_SNAPSHOT_V3_FIELDS)
             return cls._restore_v3(definition, snapshot)
         if schema_version == 2:
+            _require_snapshot_field_names(field_names, _TRAINING_SNAPSHOT_V2_FIELDS)
             return cls._restore_v2(definition, snapshot)
-        raise ValueError(f"unsupported exercise snapshot schema_version: {schema_version}")
+        raise ValueError("unsupported exercise snapshot schema_version")
 
     @classmethod
     def _restore_v3(
@@ -462,7 +437,6 @@ class ExerciseSession:
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
-        _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V3_FIELDS)
         common = _restore_common(definition, snapshot)
 
         path_value = snapshot["accepted_path"]
@@ -516,7 +490,6 @@ class ExerciseSession:
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
-        _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V2_FIELDS)
         step_index, attempts, mistakes, hints_used, status = _restore_common(definition, snapshot)
 
         board = Board(definition.start_fen)
@@ -542,81 +515,6 @@ class ExerciseSession:
         session._hints_used = hints_used
         session._status = status
         return session
-
-
-def _require_definition_container_shape(definition: ExerciseDefinition) -> None:
-    # ExerciseDefinition.__post_init__ already normalizes supported finite
-    # iterables/mappings into these built-in containers. Requiring that
-    # normalized shape here preserves authoring compatibility while ensuring a
-    # low-level post-construction substitution cannot trigger arbitrary hooks.
-    if type(definition.steps) is not tuple:
-        raise TypeError("exercise definition steps authority must be an exact tuple")
-    if type(definition.tags) is not tuple:
-        raise TypeError("exercise definition tags authority must be an exact tuple")
-    if type(definition.metadata) is not dict:
-        raise TypeError("exercise definition metadata authority must be an exact dict")
-    for step in definition.steps:
-        if type(step) is not ExerciseStep:
-            raise TypeError("exercise definition steps must contain exact ExerciseStep values")
-        if type(step.accepted_moves) is not frozenset:
-            raise TypeError("exercise definition accepted moves authority must be an exact frozenset")
-
-
-def _canonical_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
-    if not isinstance(definition, ExerciseDefinition):
-        raise TypeError("definition must be an ExerciseDefinition")
-    _require_definition_container_shape(definition)
-
-    steps = tuple(
-        ExerciseStep(
-            step.accepted_moves,
-            hint=step.hint,
-            explanation=step.explanation,
-        )
-        for step in definition.steps
-    )
-    return ExerciseDefinition(
-        definition.exercise_id,
-        definition.start_fen,
-        steps,
-        title=definition.title,
-        tags=definition.tags,
-        source_id=definition.source_id,
-        metadata=definition.metadata,
-    )
-
-
-def _require_bound_definition_shape(definition: object) -> None:
-    if type(definition) is not ExerciseDefinition:
-        raise TypeError("exercise session definition authority must be exact ExerciseDefinition")
-    _require_definition_container_shape(definition)
-
-
-def _definition_authority_digest(definition: ExerciseDefinition) -> str:
-    _require_bound_definition_shape(definition)
-    payload = {
-        "exercise_id": definition.exercise_id,
-        "start_fen": definition.start_fen,
-        "title": definition.title,
-        "tags": list(definition.tags),
-        "source_id": definition.source_id,
-        "metadata": definition.metadata,
-        "steps": [
-            {
-                "accepted_moves": sorted(step.accepted_moves),
-                "hint": step.hint,
-                "explanation": step.explanation,
-            }
-            for step in definition.steps
-        ],
-    }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _restore_common(
@@ -685,20 +583,38 @@ def _validate_reachable_state(
         raise ValueError("in-progress exercise snapshot has no progress")
 
 
-def _require_snapshot_fields(
-    snapshot: Mapping[str, object],
-    expected: frozenset[str],
-) -> None:
+def _snapshot_field_names(snapshot: Mapping[str, object]) -> tuple[str, ...]:
+    if not isinstance(snapshot, Mapping):
+        raise TypeError("exercise snapshot must be a mapping")
+    max_fields = max(
+        len(_TRAINING_SNAPSHOT_V2_FIELDS),
+        len(_TRAINING_SNAPSHOT_V3_FIELDS),
+    )
     try:
-        field_count = len(snapshot)
+        field_names = tuple(islice(iter(snapshot), max_fields + 1))
     except TypeError as exc:
-        raise TypeError("exercise snapshot must be a finite mapping") from exc
-    if field_count != len(expected):
+        raise TypeError("exercise snapshot must expose finite field names") from exc
+    allowed_counts = {
+        len(_TRAINING_SNAPSHOT_V2_FIELDS),
+        len(_TRAINING_SNAPSHOT_V3_FIELDS),
+    }
+    if len(field_names) not in allowed_counts:
         raise ValueError("invalid exercise snapshot field count")
-    for field_name in snapshot:
+    for field_name in field_names:
         if type(field_name) is not str:
             raise TypeError("exercise snapshot field names must be strings")
-    fields = set(snapshot)
+        if len(field_name) > _MAX_SNAPSHOT_FIELD_NAME:
+            raise ValueError("exercise snapshot field name is too long")
+    return field_names
+
+
+def _require_snapshot_field_names(
+    field_names: tuple[str, ...],
+    expected: frozenset[str],
+) -> None:
+    if len(field_names) != len(expected):
+        raise ValueError("invalid exercise snapshot field count")
+    fields = set(field_names)
     if fields == expected:
         return
     missing = sorted(expected - fields)
@@ -709,6 +625,80 @@ def _require_snapshot_fields(
     if unknown:
         detail.append("unknown fields: " + ", ".join(unknown))
     raise ValueError("invalid exercise snapshot fields (" + "; ".join(detail) + ")")
+
+
+def _canonical_definition_snapshot(definition: ExerciseDefinition) -> ExerciseDefinition:
+    if not isinstance(definition, ExerciseDefinition):
+        raise TypeError("definition must be an ExerciseDefinition")
+    normalized = ExerciseDefinition(
+        definition.exercise_id,
+        definition.start_fen,
+        definition.steps,
+        title=definition.title,
+        tags=definition.tags,
+        source_id=definition.source_id,
+        metadata=definition.metadata,
+    )
+    detached_steps = tuple(
+        ExerciseStep(
+            step.accepted_moves,
+            hint=step.hint,
+            explanation=step.explanation,
+        )
+        for step in normalized.steps
+    )
+    return ExerciseDefinition(
+        normalized.exercise_id,
+        normalized.start_fen,
+        detached_steps,
+        title=normalized.title,
+        tags=normalized.tags,
+        source_id=normalized.source_id,
+        metadata=normalized.metadata,
+    )
+
+
+def _canonical_session_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
+    if type(definition) is not ExerciseDefinition:
+        raise ValueError("exercise definition authority type changed during session")
+    if type(definition.steps) is not tuple:
+        raise ValueError("exercise definition steps changed during session")
+    if type(definition.tags) is not tuple:
+        raise ValueError("exercise definition tags changed during session")
+    if type(definition.metadata) is not dict:
+        raise ValueError("exercise definition metadata changed during session")
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise ValueError("exercise definition step authority changed during session")
+        if type(step.accepted_moves) is not frozenset:
+            raise ValueError("exercise accepted move authority changed during session")
+    return _canonical_definition_snapshot(definition)
+
+
+def _definition_authority_digest(definition: ExerciseDefinition) -> str:
+    payload = {
+        "exercise_id": definition.exercise_id,
+        "start_fen": definition.start_fen,
+        "title": definition.title,
+        "tags": list(definition.tags),
+        "source_id": definition.source_id,
+        "metadata": dict(definition.metadata),
+        "steps": [
+            {
+                "accepted_moves": sorted(step.accepted_moves),
+                "hint": step.hint,
+                "explanation": step.explanation,
+            }
+            for step in definition.steps
+        ],
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _resolved_accepted_moves(
@@ -735,7 +725,7 @@ def _move_key(move: Move) -> tuple[int, int, str | None, bool, bool]:
 
 
 def _definition_digest(definition: ExerciseDefinition) -> str:
-    definition = _canonical_definition(definition)
+    definition = _canonical_definition_snapshot(definition)
     semantic_payload = {
         "start_fen": definition.start_fen,
         "steps": [sorted(step.accepted_moves) for step in definition.steps],
