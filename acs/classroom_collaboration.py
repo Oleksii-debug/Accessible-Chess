@@ -313,6 +313,10 @@ class ClassroomCollaborationController:
             raise CollaborationError("received chat message has invalid type")
         if message.room_id != self.room_id:
             raise CollaborationError("received chat message belongs to another room")
+        if message.hidden:
+            raise CollaborationError(
+                "live chat message cannot carry moderation state"
+            )
         self._require_member(message.sender_id)
         _chat_body(message.body)
         self._require_transport_timestamp(message)
