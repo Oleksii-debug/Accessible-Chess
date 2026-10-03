@@ -754,13 +754,12 @@ class BookProgressStore:
     ) -> int:
         if expected_directory_identity is not None:
             self._require_storage_directory_unlocked(expected_directory_identity)
-        # A first-use race between two cooperating processes is expected:
-        # both may observe a missing pathname, while exactly one wins O_EXCL.
-        # Never initialize the raced-in file. Instead, briefly wait for the
-        # exclusive creator to finish writing the canonical marker, then reopen
-        # it through the same private-inode validation used for pre-existing
-        # locks. A noncanonical raced-in file still fails closed unchanged.
-        raced_creator = False
+        # A first-use race between cooperating processes is expected: one
+        # process may observe the exclusive creator's still-empty inode before
+        # marker publication. An arbitrary pre-existing empty lock is
+        # indistinguishable at pathname level, so never write or normalize it.
+        # Wait only for a bounded interval for the canonical marker to appear,
+        # then fail closed unchanged. Noncanonical bytes fail closed immediately.
         descriptor = -1
         existing: os.stat_result | None = None
         for attempt in range(64):
@@ -775,7 +774,7 @@ class BookProgressStore:
                 ) from None
             if existing is not None:
                 self._require_private_lock_metadata(existing)
-                if raced_creator and existing.st_size == 0:
+                if existing.st_size == 0:
                     if attempt == 63:
                         raise BookProgressStoreError(
                             "book progress storage lock was not initialized by its creator",
@@ -796,7 +795,6 @@ class BookProgressStore:
                 descriptor = os.open(self._lock_path, flags, 0o600)
                 break
             except FileExistsError:
-                raced_creator = True
                 if attempt == 63:
                     raise BookProgressStoreError(
                         "book progress storage lock changed while being opened",
