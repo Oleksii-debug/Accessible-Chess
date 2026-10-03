@@ -18,6 +18,7 @@ from .sound_profiles import SoundPackManifest, SoundProfile, _safe_audio_path
 
 
 DEFAULT_MAX_SOUND_PACK_BYTES = 32 * 1024 * 1024
+_MAX_SOUND_PACK_SIGNATURE_CHARS = 16 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -87,6 +88,8 @@ class SoundPackCatalogEntry:
         signature = None if self.signature is None else self.signature.strip()
         if signature == "":
             raise ValueError("signature cannot be blank")
+        if signature is not None and len(signature) > _MAX_SOUND_PACK_SIGNATURE_CHARS:
+            raise ValueError("signature exceeds the resource limit")
         object.__setattr__(self, "assets", MappingProxyType(normalized))
         object.__setattr__(self, "signature", signature)
 
@@ -101,12 +104,27 @@ class DownloadedSoundPack:
     payload_ref: object
 
     def __post_init__(self) -> None:
+        if not isinstance(self.manifest, SoundPackManifest):
+            raise TypeError("downloaded manifest must be SoundPackManifest")
+        if isinstance(self.total_bytes, bool) or not isinstance(self.total_bytes, int):
+            raise TypeError("downloaded total_bytes must be an integer")
+        if self.total_bytes < 0:
+            raise ValueError("downloaded total_bytes cannot be negative")
         if not isinstance(self.assets, Mapping):
             raise TypeError("downloaded assets must be a mapping")
+        snapshot: dict[str, SoundAssetDigest] = {}
+        for path, digest in self.assets.items():
+            if type(path) is not str:
+                raise TypeError("downloaded asset keys must be text")
+            if not isinstance(digest, SoundAssetDigest):
+                raise TypeError(
+                    "downloaded assets must contain SoundAssetDigest values"
+                )
+            snapshot[path] = digest
         object.__setattr__(
             self,
             "assets",
-            MappingProxyType(dict(self.assets)),
+            MappingProxyType(snapshot),
         )
 
 
