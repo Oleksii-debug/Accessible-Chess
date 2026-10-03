@@ -570,6 +570,18 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
                     )
                     self.assertEqual(dispatched, [("book.open_game", {})])
                     self.assertEqual(reader.index, index)
+                    reader.go_to(0)
+                    returned = bridge.dispatch("book.return_from_board", {})
+                    self.assertEqual(returned.kind, "render")
+                    self.assertEqual(
+                        returned.payload["snapshot"]["block"]["index"],
+                        index,
+                    )
+                    self.assertEqual(
+                        returned.payload["focus_target"],
+                        f"book-block-{index}",
+                    )
+                    self.assertEqual(reader.index, index)
                 else:
                     self.assertEqual(result.kind, "error")
                     self.assertEqual(dispatched, [])
