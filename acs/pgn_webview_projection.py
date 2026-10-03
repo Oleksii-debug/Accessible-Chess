@@ -100,6 +100,24 @@ def _scrub_local_paths(text: str, language: UILanguage) -> str:
     return _POSIX_LOCAL_PATH.sub(replacement, text)
 
 
+def _utf16_units(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
+def _truncate_utf16(value: str, limit: int) -> str:
+    if _utf16_units(value) <= limit:
+        return value
+    used = 0
+    parts: list[str] = []
+    for character in value:
+        units = 2 if ord(character) > 0xFFFF else 1
+        if used + units > limit:
+            break
+        parts.append(character)
+        used += units
+    return "".join(parts)
+
+
 def _bounded_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
@@ -108,7 +126,7 @@ def _bounded_text(value: object, *, language: UILanguage, limit: int) -> str:
     if len(value) > _MAX_PGN_RAW_TEXT:
         raise ValueError("PGN presentation text exceeds the raw text budget")
     text = value.replace("\x00", "").strip()
-    return _scrub_local_paths(text, language)[:limit]
+    return _truncate_utf16(_scrub_local_paths(text, language), limit)
 
 
 def _dom_token(node_id: object) -> str:
@@ -498,7 +516,7 @@ class PgnWebViewProjection:
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         if type(text) is not str:
             raise TypeError("PGN comment text must be text")
-        if len(text) > 8000 or "\x00" in text:
+        if _utf16_units(text) > 8000 or "\x00" in text:
             raise ValueError("PGN comment text is invalid")
         return self._dispatch_selected("pgn.comment_edit", extra={"text": text})
 
