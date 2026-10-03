@@ -1570,6 +1570,64 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertLess(version_sync_index, active_parent_sync_index)
             self.assertEqual("1.0.0", store.active_version(manifest.pack_id))
 
+    def test_active_pointer_temp_path_swap_is_rejected_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            pack_dir = root / "packs" / "soft.wood"
+            pack_dir.mkdir(parents=True)
+            external = root / "external-active.json"
+            sentinel = b'{"external":true}\n'
+            external.write_bytes(sentinel)
+            real_mkstemp = tempfile.mkstemp
+
+            def swapped_mkstemp(*args, **kwargs):
+                descriptor, name = real_mkstemp(*args, **kwargs)
+                path = Path(name)
+                path.unlink()
+                os.link(external, path)
+                return descriptor, name
+
+            with mock.patch(
+                "acs.sound_pack_store.tempfile.mkstemp",
+                side_effect=swapped_mkstemp,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "private regular file|changed before publication",
+            ):
+                FilesystemSoundPackStore._publish_active(
+                    pack_dir,
+                    "soft.wood",
+                    "1.0.0",
+                )
+
+            self.assertEqual(sentinel, external.read_bytes())
+            self.assertFalse((pack_dir / "active.json").exists())
+
+    def test_active_pointer_mismatched_readback_is_removed_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            pack_dir = root / "packs" / "soft.wood"
+            pack_dir.mkdir(parents=True)
+
+            with mock.patch.object(
+                FilesystemSoundPackStore,
+                "_read_active",
+                return_value=("soft.wood", "9.9.9"),
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "readback did not match",
+            ):
+                FilesystemSoundPackStore._publish_active(
+                    pack_dir,
+                    "soft.wood",
+                    "1.0.0",
+                )
+
+            self.assertFalse(
+                (pack_dir / "active.json").exists(),
+                "a pointer that cannot prove the requested winner must not remain authoritative",
+            )
+
     def test_post_active_directory_sync_failure_is_an_uncertain_visible_commit(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
