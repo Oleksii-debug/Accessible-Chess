@@ -12,6 +12,8 @@ from acs.book_progress_store import (
     BookProgressStoreError,
     BookProgressStoreErrorCode,
 )
+from acs.bookdocument import BookDocument, Exercise
+from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
@@ -455,6 +457,78 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(restarted.shell.current_route.route_id, route_before)
         self.assertFalse(store.path.exists())
         self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
+
+    def test_training_continue_durability_unknown_rebinds_to_canonical_successor(self):
+        board = Board()
+        board.push_text("e4")
+        document = BookDocument(
+            title="Training durability",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Знайдіть перший хід.",
+                    answer_text="e4",
+                    block_id="training-one",
+                ),
+                Exercise(
+                    fen=board.fen(),
+                    prompt="Знайдіть відповідь.",
+                    answer_text="e5",
+                    block_id="training-two",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:training-durability"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        self.assertTrue(self.app._start_training_from_current_book())
+        self.app.shell.open_route("training")
+
+        language = self.app.browser_command(
+            "training",
+            "training.language",
+            {"language": "en"},
+        )
+        self.assertNotEqual("error", language["kind"])
+        submitted = self.app.browser_command(
+            "training",
+            "training.submit",
+            {"answer": "e4"},
+        )
+        self.assertNotEqual("error", submitted["kind"])
+        self.assertTrue(self.app.training_workspace.session.completed)
+
+        store = self.app.progress_store
+
+        def fail_primary_sync(path):
+            if Path(path) == store.path:
+                raise OSError("post-replace durability probe failed")
+
+        with patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=fail_primary_sync,
+        ):
+            result = self.app.browser_command("training", "training.continue")
+
+        self.assertEqual("error", result["kind"])
+        self.assertIsNotNone(self.app.reader)
+        self.assertIsNotNone(self.app.books)
+        self.assertIsNotNone(self.app.training_workspace)
+        self.assertIs(self.app.training_workspace.reader, self.app.reader)
+        self.assertEqual(1, self.app.reader.index)
+        self.assertEqual("training-two", self.app.reader.location().block_id)
+        self.assertEqual("en", self.app.training_workspace.language.value)
+        persisted = store.restore_primary(self.app.book_key, document)
+        self.assertEqual(self.app.reader.snapshot(), persisted.snapshot())
+        self.assertEqual("training", self.app.shell.current_route.route_id)
 
     def test_book_render_failure_rolls_back_reader_and_durable_progress(self):
         book = self.root / "render-failure.md"
