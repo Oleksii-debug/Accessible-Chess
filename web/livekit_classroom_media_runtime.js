@@ -420,6 +420,8 @@
           : Boolean(
               result &&
               result.kind === "error" &&
+              typeof payload.message === "string" &&
+              payload.message.length > 0 &&
               payload.recovery_required !== true
             );
         if (!terminal) {
