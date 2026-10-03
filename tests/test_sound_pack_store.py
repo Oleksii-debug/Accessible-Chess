@@ -1172,6 +1172,25 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertFalse(store._mutation_lock_path.exists())
             self.assertFalse(store.root.exists())
 
+    def test_undeclared_staging_directories_hit_topology_budget_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            stage = Path(downloaded.payload_ref)
+            (stage / "extra-a").mkdir()
+            (stage / "extra-b").mkdir()
+            store = FilesystemSoundPackStore(root / "packs")
+
+            with self.assertRaisesRegex(
+                SoundPackStoreError,
+                "topology exceeds the resource limit",
+            ):
+                store.install_atomically(downloaded)
+
+            self.assertFalse(store._mutation_lock_path.exists())
+            self.assertFalse(store.root.exists())
+
     def test_undeclared_staged_payload_is_rejected_before_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
