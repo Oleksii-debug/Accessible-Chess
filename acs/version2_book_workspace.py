@@ -355,12 +355,20 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             return raw_units
 
         def safe_many(values: object) -> tuple[str, ...]:
+            nonlocal visible_entries
             preflight_view_comments(values)
             rendered: list[str] = []
             for value in values:
-                text = safe(value)
-                if text:
-                    rendered.append(text)
+                text, units = clean(value)
+                if not text:
+                    continue
+                visible_entries += 1
+                if visible_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                    raise _BookSemanticProjectionError(
+                        "semantic GameTree text-entry limit exceeded"
+                    )
+                account_visible_units(units)
+                rendered.append(text)
             return tuple(rendered)
 
         labels = _SEMANTIC_LABELS[self.language]
@@ -414,15 +422,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # The result label is serialized once but rendered with the canonical
         # game result. Count that rendered copy and its separator exactly.
         account_visible_units(_utf16_units(result_label) + 2)
-        intro_comments = tuple(
-            text
-            for text in (safe(getattr(comment, "text", None)) for comment in game.line.leading_comments)
-            if text
+        intro_comments = safe_many(
+            tuple(comment.text for comment in game.line.leading_comments)
         )
-        outro_comments = tuple(
-            text
-            for text in (safe(getattr(comment, "text", None)) for comment in game.line.trailing_comments)
-            if text
+        outro_comments = safe_many(
+            tuple(comment.text for comment in game.line.trailing_comments)
         )
 
         rendered_items: list[dict[str, object]] = []
