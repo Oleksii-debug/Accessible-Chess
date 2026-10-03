@@ -27,6 +27,7 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         workflow = BookBoardWorkflow(reader, EngineAssistedWorkflowService(analysis))
         delegate = Version2WindowsBookBoardActionDelegate(
             workflow,
+            event_sink=lambda _event: None,
             next_delegate=lambda *_: self.fail("unexpected action"),
         )
         router = build_version2_router(build_version2_shell(), delegate)
