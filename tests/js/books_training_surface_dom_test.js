@@ -647,6 +647,112 @@ async function run() {
   check(announcements[announcements.length - 1] === "Action failed",
     "malformed reset response must use the safe fallback announcement");
 
+  const validResetRoot = new FakeElement("div");
+  const validResetInvoke = (command) => {
+    check(command === "training.reset", "unexpected valid reset command");
+    return {
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: "training-answer",
+        announcement: "Reset committed",
+        clear_answer: true,
+        solution: []
+      }
+    };
+  };
+  window.AccessibleChessTrainingSurface.render(
+    validResetRoot,
+    trainingSnapshot(),
+    validResetInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const validResetReplaceCount = validResetRoot.replaceChildrenCalls;
+  const validResetButton = find(validResetRoot, "BUTTON", "Reset");
+  validResetButton.focus();
+  validResetButton.listeners.click();
+  const validResetDialog = validResetRoot.querySelector("#training-reset-dialog");
+  const validResetConfirm = find(validResetDialog, "BUTTON", "Confirm");
+  validResetConfirm.listeners.click();
+  await flushPromises();
+  check(!validResetDialog.open,
+    "valid reset confirmation must close the dialog after a committed render");
+  check(validResetRoot.replaceChildrenCalls === validResetReplaceCount + 1,
+    "valid reset confirmation must publish exactly one new Training DOM");
+  check(document.activeElement === validResetRoot.querySelector("#training-answer"),
+    "valid reset confirmation must focus the new answer field");
+  check(announcements[announcements.length - 1] === "Reset committed",
+    "valid reset confirmation must publish its bounded announcement");
+
+  const oversizedTrainingEventRoot = new FakeElement("div");
+  const oversizedTrainingEventInvoke = () => ({
+    kind: "render",
+    payload: {
+      snapshot: trainingSnapshot(),
+      focus_target: "training-answer",
+      announcement: "Oversized solution must not announce",
+      clear_answer: false,
+      solution: new Array(65).fill("e4")
+    }
+  });
+  window.AccessibleChessTrainingSurface.render(
+    oversizedTrainingEventRoot,
+    trainingSnapshot(),
+    oversizedTrainingEventInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const oversizedTrainingEventReplaceCount = oversizedTrainingEventRoot.replaceChildrenCalls;
+  const oversizedTrainingEventFocus = document.activeElement;
+  find(oversizedTrainingEventRoot, "BUTTON", "Hint").listeners.click();
+  await flushPromises();
+  check(
+    oversizedTrainingEventRoot.replaceChildrenCalls === oversizedTrainingEventReplaceCount,
+    "oversized Training event solution must preserve readable DOM"
+  );
+  check(document.activeElement === oversizedTrainingEventFocus,
+    "oversized Training event solution must preserve focus");
+  check(!announcements.includes("Oversized solution must not announce"),
+    "oversized Training event solution must not publish its announcement");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "oversized Training event solution must use the safe fallback");
+
+  const nulTrainingEventRoot = new FakeElement("div");
+  const nulTrainingEventInvoke = () => ({
+    kind: "render",
+    payload: {
+      snapshot: trainingSnapshot(),
+      focus_target: "training-answer",
+      announcement: "Forged\u0000announcement",
+      clear_answer: false,
+      solution: []
+    }
+  });
+  window.AccessibleChessTrainingSurface.render(
+    nulTrainingEventRoot,
+    trainingSnapshot(),
+    nulTrainingEventInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const nulTrainingEventReplaceCount = nulTrainingEventRoot.replaceChildrenCalls;
+  const nulTrainingEventFocus = document.activeElement;
+  find(nulTrainingEventRoot, "BUTTON", "Hint").listeners.click();
+  await flushPromises();
+  check(nulTrainingEventRoot.replaceChildrenCalls === nulTrainingEventReplaceCount,
+    "NUL Training event announcement must preserve readable DOM");
+  check(document.activeElement === nulTrainingEventFocus,
+    "NUL Training event announcement must preserve focus");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "NUL Training event announcement must use the safe fallback");
+
   const malformedTrainingRoot = new FakeElement("div");
   const malformedTrainingInvoke = () => ({
     kind: "render",
@@ -711,6 +817,29 @@ async function run() {
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
 
+  const malformedBookHeading = bookSnapshot(3, "Malformed heading");
+  malformedBookHeading.heading = { text: "Chess book reader" };
+  const malformedBookHeadingReplaceCount = bookRoot.replaceChildrenCalls;
+  const malformedBookHeadingFocus = document.activeElement;
+  let malformedBookHeadingRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedBookHeading,
+      bookInvoke,
+      announce,
+      "book-block-3",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedBookHeadingRejected = true;
+  }
+  check(malformedBookHeadingRejected, "malformed Book heading must fail closed");
+  check(bookRoot.replaceChildrenCalls === malformedBookHeadingReplaceCount,
+    "malformed Book heading must preserve readable DOM");
+  check(document.activeElement === malformedBookHeadingFocus,
+    "malformed Book heading must preserve reading focus");
+
   const synchronousBookInvoke = () => {
     throw new Error("synchronous Book host failure");
   };
@@ -733,6 +862,33 @@ async function run() {
     "synchronous Book host failure must preserve reading focus");
   check(announcements[announcements.length - 1] === "Action failed",
     "synchronous Book host failure must announce the safe fallback");
+
+  const oversizedBookEventInvoke = () => ({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(4, "Must not publish oversized event"),
+      focus_target: "book-block-4",
+      announcement: "x".repeat(1201)
+    }
+  });
+  window.AccessibleChessBookSurface.render(
+    bookRoot,
+    bookSnapshot(3, "Oversized event"),
+    oversizedBookEventInvoke,
+    announce,
+    "book-block-3",
+    "Action failed"
+  );
+  const oversizedBookEventReplaceCount = bookRoot.replaceChildrenCalls;
+  const oversizedBookEventFocus = document.activeElement;
+  find(bookRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  check(bookRoot.replaceChildrenCalls === oversizedBookEventReplaceCount,
+    "oversized Book event announcement must preserve readable DOM");
+  check(document.activeElement === oversizedBookEventFocus,
+    "oversized Book event announcement must preserve reading focus");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "oversized Book event announcement must use the safe fallback");
 
   const eventContractSnapshot = bookSnapshot(3, "Event contract");
   const eventContractInvoke = () => ({
