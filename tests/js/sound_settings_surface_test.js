@@ -319,6 +319,17 @@ async function run() {
         volume_percent: 100,
         sound_id: "classroom.join",
         sound_choices: ["classroom.join", "quiet.move"],
+        uses_classic_fallback: false,
+        effective_volume: 65
+      },
+      {
+        event_id: "draw",
+        label: "Draw",
+        enabled: true,
+        volume_percent: 100,
+        sound_id: "draw",
+        sound_choices: ["draw"],
+        uses_classic_fallback: true,
         effective_volume: 65
       }
     ],
@@ -373,6 +384,12 @@ async function run() {
   assert.ok(moveChoice, "custom pack with alternate ids must expose a native sound selector");
   assert.ok(classroomVolume,
     "manifest-declared classroom event must expose the same per-event controls");
+  assert.ok(
+    elements.get("sound-event-draw-sound").textContent.includes(
+      "Sound: draw (classic fallback)"
+    ),
+    "legacy-pack owner semantic fallback must remain visible/selectable text"
+  );
   moveChoice.value = "quiet.move";
   moveChoice.focus();
   moveChoice.dispatch("change");
