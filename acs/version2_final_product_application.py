@@ -427,7 +427,7 @@ class Version2FinalProductApplication(Version2Application):
         if area == "media":
             if self.media is None:
                 return self._error()
-            if command.startswith("media.provider_"):
+            if type(command) is str and command.startswith("media.provider_"):
                 if self.media_transactions is None:
                     return self._error()
                 return asdict(
