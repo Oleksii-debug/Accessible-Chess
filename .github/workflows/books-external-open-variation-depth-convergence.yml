@@ -1,0 +1,118 @@
+name: Books External Open + Variation Depth Convergence
+
+on:
+  pull_request:
+    branches:
+      - 'fix/books-external-open-render-atomicity-20261003'
+    paths:
+      - '.github/workflows/books-external-open-variation-depth-convergence.yml'
+      - '.github/workflows/books-semantic-variation-depth.yml'
+      - 'acs/version2_book_workspace.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/test_books_semantic_host_bounds.py'
+      - 'tests/test_version2_book_workspace.py'
+      - 'web/full_product_books_training.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-external-open-variation-depth-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove both live Books lineages and exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          external_branch='fix/books-external-open-render-atomicity-20261003'
+          depth_branch='fix/books-semantic-variation-depth-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin \
+            "+refs/heads/$external_branch:refs/remotes/origin/$external_branch" \
+            "+refs/heads/$depth_branch:refs/remotes/origin/$depth_branch"
+          live_external="$(git rev-parse "refs/remotes/origin/$external_branch")"
+          live_depth="$(git rev-parse "refs/remotes/origin/$depth_branch")"
+
+          git merge-base --is-ancestor "$live_external" HEAD
+          git merge-base --is-ancestor "$live_depth" HEAD
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$external_branch"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_external"
+            test "$(git merge-base "$live_external" HEAD)" = "$live_external"
+
+            changed="$(git diff --name-only "$live_external" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/books-external-open-variation-depth-convergence.yml' \
+              '.github/workflows/books-semantic-variation-depth.yml' \
+              'acs/version2_book_workspace.py' \
+              'tests/js/books_training_surface_dom_test.js' \
+              'tests/test_books_semantic_host_bounds.py' \
+              'tests/test_version2_book_workspace.py' \
+              'web/full_product_books_training.js' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_external" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "43f625728f494b4c81c0d8f68a4a84893063aa9b"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "0bc099cde162d4be0c7974a4988a67b2f058f7bd"
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "9bd7bccecc6a57ca27b5dc82e89d19e05f26160c"
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "8f77410aa9a84ccd112646896e22f17ee455be86"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "fda78ad9dac9446abd0cf7f5256650292cd57705"
+          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "3912bb84280d757ebbe9b515c2d4c8e99624804f"
+          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "26bfb36adcaf6737775a27ae2449baebaf34e9af"
+          test "$(git rev-parse HEAD:.github/workflows/books-semantic-variation-depth.yml)" = "aff4b4ea768a82733385d24ad201f3acd01e06f8"
+
+      - name: Validate merged browser semantics
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile merged host boundaries
+        run: >-
+          python -m compileall -q
+          acs/version2_application.py
+          acs/version2_book_workspace.py
+          tests/test_version2_application.py
+          tests/test_version2_book_workspace.py
+          tests/test_books_semantic_host_bounds.py
+
+      - name: Prove combined external-open and semantic Books flow
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_version2_book_workspace
+          tests.test_books_semantic_host_bounds
+          tests.test_v2_book_board_workflow
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
