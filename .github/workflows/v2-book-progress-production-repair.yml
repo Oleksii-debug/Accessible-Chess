@@ -46,7 +46,7 @@ jobs:
       FOCUS_RECOVERY_STORE_BLOB: 151a2d3a601ef347696341d95985e9dbbc528405
       FOCUS_RECOVERY_BASE_TEST_BLOB: d2ec25d4381a3d2a71f9f95a45837122a3c678e7
       FOCUS_RECOVERY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
-      FOCUS_RECOVERY_APPLICATION_BLOB: 03110f91c23c7dcbe207dbe916c8d3246c11e3dd
+      FOCUS_RECOVERY_APPLICATION_BLOB: ddb74f4d884565b12d3d9a1db12fa8ba7b01d7ed
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -110,7 +110,7 @@ jobs:
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
               test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
-              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "259e2ac1781fe71511e1e070912c2c25442eacc4"
               delegated_focus_successor=true
             fi
           fi
@@ -136,7 +136,7 @@ jobs:
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
-            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "259e2ac1781fe71511e1e070912c2c25442eacc4"
             focus_recovery_successor=true
           fi
 
@@ -325,7 +325,7 @@ jobs:
           if [ "$focus_recovery_successor" = true ]; then
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
-            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "259e2ac1781fe71511e1e070912c2c25442eacc4"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
           else
@@ -335,7 +335,7 @@ jobs:
               test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
             elif [ "$delegated_focus_successor" = true ]; then
               test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
-              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "259e2ac1781fe71511e1e070912c2c25442eacc4"
             fi
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
