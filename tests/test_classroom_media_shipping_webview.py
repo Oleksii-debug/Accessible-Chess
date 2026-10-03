@@ -538,7 +538,15 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIn('event.kind === "provider-dispatch"', source)
         self.assertIn("media.provider_not_started", source)
         self.assertIn("media.provider_outcome_unknown", source)
-        self.assertIn("snapshot.media || null,\n          mediaInvoke,", source)
+        self.assertIn(
+            "const mediaRecoveryRequired = mediaStatus.media_recovery_required === true;",
+            source,
+        )
+        self.assertIn(
+            "mediaRecoveryRequired ? null : (snapshot.media || null),",
+            source,
+        )
+        self.assertIn("recovery_required: mediaRecoveryRequired", source)
 
         runtime_source = (
             Path(__file__).resolve().parents[1]
