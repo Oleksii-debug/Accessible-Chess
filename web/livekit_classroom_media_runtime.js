@@ -564,12 +564,23 @@
     async execute(event, invoke) {
       invoke = requireInvoke(invoke);
       if (this._busy) {
+        let transaction;
         try {
-          const parsed = providerInstruction(event);
-          return await this._providerNotStarted(invoke, parsed.transaction);
+          transaction = providerInstruction(event).transaction;
         } catch (_error) {
-          return null;
+          // A malformed provider payload can still belong to a valid prepared
+          // Python transaction. Preserve that exact identity and retire it
+          // instead of returning null while the global provider lease remains
+          // stranded behind the operation that currently owns the runtime.
+          try {
+            transaction = transactionId(
+              event && event.payload && event.payload.transaction_id
+            );
+          } catch (_identityError) {
+            return null;
+          }
         }
+        return this._providerNotStarted(invoke, transaction);
       }
 
       // A final provider disconnect can arrive between user actions. Retire the
