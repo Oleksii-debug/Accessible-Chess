@@ -106,10 +106,13 @@
   function collaborationPendingState(root) {
     if (!root || typeof root.querySelector !== "function") return null;
     const wrapper = root.querySelector("#classroom-collaboration");
-    if (!wrapper || wrapper.getAttribute("aria-busy") !== "true") return null;
+    if (!wrapper) return null;
+    const command = String(wrapper.getAttribute("data-pending-command") || "");
+    if (!command) return null;
     return {
-      command: String(wrapper.getAttribute("data-pending-command") || ""),
+      command: command,
       lockComposer: wrapper.getAttribute("data-pending-lock-composer") === "true",
+      exposeProgress: wrapper.getAttribute("data-pending-expose-progress") === "true",
       focusControlId: String(
         wrapper.getAttribute("data-pending-focus-control") || ""
       )
@@ -118,11 +121,15 @@
 
   function applyCollaborationPendingState(wrapper, pending) {
     if (!wrapper || !pending) return;
-    wrapper.setAttribute("aria-busy", "true");
+    wrapper.setAttribute("aria-busy", pending.exposeProgress ? "false" : "true");
     wrapper.setAttribute("data-pending-command", String(pending.command || ""));
     wrapper.setAttribute(
       "data-pending-lock-composer",
       pending.lockComposer ? "true" : "false"
+    );
+    wrapper.setAttribute(
+      "data-pending-expose-progress",
+      pending.exposeProgress ? "true" : "false"
     );
     if (pending.focusControlId) {
       wrapper.setAttribute(
@@ -156,6 +163,7 @@
     wrapper.setAttribute("aria-busy", "false");
     wrapper.removeAttribute("data-pending-command");
     wrapper.removeAttribute("data-pending-lock-composer");
+    wrapper.removeAttribute("data-pending-expose-progress");
     wrapper.removeAttribute("data-pending-focus-control");
     wrapper.querySelectorAll("BUTTON").forEach(function (control) {
       const wasDisabled = control.getAttribute("data-pending-was-disabled");
@@ -475,7 +483,7 @@
     fallbackMessage,
     options
   ) {
-    if (!wrapper || wrapper.getAttribute("aria-busy") === "true") return false;
+    if (!wrapper || wrapper.getAttribute("data-pending-command")) return false;
     const root = wrapper.parentNode;
     const sessionKey = String(
       wrapper.getAttribute("data-collaboration-session") || ""
@@ -484,6 +492,7 @@
     const pending = {
       command: String(command || ""),
       lockComposer: !!(options && options.lockComposer),
+      exposeProgress: !!(options && options.exposeProgress),
       focusControlId: (
         active &&
         active.tagName === "BUTTON" &&
@@ -946,7 +955,10 @@
         wrapper,
         announce,
         fallbackMessage,
-        { pendingAnnouncement: files.choose_upload_pending_label || "" }
+        {
+          pendingAnnouncement: files.choose_upload_pending_label || "",
+          exposeProgress: true
+        }
       );
     });
     fileSection.appendChild(choose);
@@ -1076,7 +1088,10 @@
               wrapper,
               announce,
               fallbackMessage,
-              { pendingAnnouncement: files.retry_pending_label || "" }
+              {
+                pendingAnnouncement: files.retry_pending_label || "",
+                exposeProgress: true
+              }
             );
           });
           item.appendChild(retry);
