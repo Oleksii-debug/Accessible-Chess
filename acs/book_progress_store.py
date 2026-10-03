@@ -1131,6 +1131,21 @@ class BookProgressStore:
                     self._require_storage_directory_unlocked(active_directory)
                 _sync_published_path(target)
                 visible = self._read_raw_file_unlocked(target, missing_ok=False)
+                # Byte equality is not sufficient confirmation: a same-user
+                # non-cooperating writer can replace the canonical pathname
+                # with an equivalent private inode while the durability sync is
+                # in progress. Bind the final visible pathname back to the exact
+                # fsynced temp inode that this transaction published.
+                final_published_identity = os.lstat(target)
+                self._require_private_data_metadata(final_published_identity)
+                if temp_identity is None or not self._same_file_identity(
+                    temp_identity,
+                    final_published_identity,
+                ):
+                    raise BookProgressStoreError(
+                        "book progress was published but canonical storage changed before confirmation",
+                        code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+                    )
             except (OSError, BookProgressStoreError):
                 # Replacement already succeeded. The published bytes may be
                 # visible even though crash durability or canonical pathname
