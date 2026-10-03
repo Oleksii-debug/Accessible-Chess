@@ -162,8 +162,8 @@ function semanticGameSnapshot() {
     result: "*",
     details_label: "Game details",
     details: [
-      { label: "Event", value: "Accessible Cup" },
-      { label: "Date", value: "2026.10.03" }
+      { kind: "event", label: "Event", value: "Accessible Cup" },
+      { kind: "date", label: "Date", value: "2026.10.03" }
     ],
     comments_label: "Comments",
     intro_comments_label: "Comments before moves",
@@ -180,7 +180,8 @@ function semanticGameSnapshot() {
         label: "1. e4",
         comments: ["legacy combined must not duplicate"],
         comments_before: ["Before <em>literal</em>"],
-        comments_after: ["After <strong>literal</strong>"]
+        comments_after: ["After <strong>literal</strong>"],
+        trailing_comments: []
       },
       {
         kind: "variation",
@@ -188,11 +189,40 @@ function semanticGameSnapshot() {
         parent_index: 0,
         label: "Variation 1",
         comments: [],
+        comments_before: [],
+        comments_after: [],
         trailing_comments: ["Branch tail <b>literal</b>"]
       },
-      { kind: "move", depth: 2, parent_index: 1, label: "1. d4 $1", comments: ["<img onerror=bad()>"] },
-      { kind: "move", depth: 2, parent_index: 1, label: "d5", comments: [] },
-      { kind: "move", depth: 0, parent_index: null, label: "e5", comments: [] }
+      {
+        kind: "move",
+        depth: 2,
+        parent_index: 1,
+        label: "1. d4 $1",
+        comments: ["<img onerror=bad()>"],
+        comments_before: [],
+        comments_after: [],
+        trailing_comments: []
+      },
+      {
+        kind: "move",
+        depth: 2,
+        parent_index: 1,
+        label: "d5",
+        comments: [],
+        comments_before: [],
+        comments_after: [],
+        trailing_comments: []
+      },
+      {
+        kind: "move",
+        depth: 0,
+        parent_index: null,
+        label: "e5",
+        comments: [],
+        comments_before: [],
+        comments_after: [],
+        trailing_comments: []
+      }
     ]
   };
   return snapshot;
@@ -801,7 +831,9 @@ async function run() {
     "invalid semantic alternation must not steal reading focus");
 
   const malformedDetails = semanticGameSnapshot();
-  malformedDetails.block.semantic_tree.details = [{ label: "Event", value: { text: "bad" } }];
+  malformedDetails.block.semantic_tree.details = [
+    { kind: "event", label: "Event", value: { text: "bad" } }
+  ];
   let malformedDetailsRejected = false;
   try {
     window.AccessibleChessBookSurface.render(
@@ -820,6 +852,111 @@ async function run() {
     "malformed semantic metadata must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed semantic metadata must not steal reading focus");
+
+  const unknownDetailKind = semanticGameSnapshot();
+  unknownDetailKind.block.semantic_tree.details[0].kind = "fen";
+  let unknownDetailKindRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      unknownDetailKind,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    unknownDetailKindRejected = true;
+  }
+  check(unknownDetailKindRejected, "unknown semantic metadata kind must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "unknown semantic metadata must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "unknown semantic metadata must not steal reading focus");
+
+  const duplicateDetailKind = semanticGameSnapshot();
+  duplicateDetailKind.block.semantic_tree.details[1].kind = "event";
+  let duplicateDetailKindRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      duplicateDetailKind,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    duplicateDetailKindRejected = true;
+  }
+  check(duplicateDetailKindRejected, "duplicate semantic metadata kind must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "duplicate semantic metadata must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "duplicate semantic metadata must not steal reading focus");
+
+  const invalidSemanticResult = semanticGameSnapshot();
+  invalidSemanticResult.block.semantic_tree.result = "2-0";
+  let invalidSemanticResultRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      invalidSemanticResult,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    invalidSemanticResultRejected = true;
+  }
+  check(invalidSemanticResultRejected, "invalid semantic result must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "invalid semantic result must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "invalid semantic result must not steal reading focus");
+
+  const blankSemanticLabel = semanticGameSnapshot();
+  blankSemanticLabel.block.semantic_tree.comments_label = "   ";
+  let blankSemanticLabelRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      blankSemanticLabel,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    blankSemanticLabelRejected = true;
+  }
+  check(blankSemanticLabelRejected, "blank semantic accessibility label must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "blank semantic accessibility label must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "blank semantic accessibility label must not steal reading focus");
+
+  const missingSemanticArray = semanticGameSnapshot();
+  delete missingSemanticArray.block.semantic_tree.items[0].comments_after;
+  let missingSemanticArrayRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      missingSemanticArray,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    missingSemanticArrayRejected = true;
+  }
+  check(missingSemanticArrayRejected, "missing semantic comment array must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "missing semantic comment array must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "missing semantic comment array must not steal reading focus");
 
   const malformedParent = semanticGameSnapshot();
   malformedParent.block.semantic_tree.items[2].parent_index = 0;
