@@ -1,6 +1,9 @@
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -315,21 +318,213 @@ class EducationWorkspaceStoreTests(unittest.TestCase):
             revision = store.save(workspace, expected_revision=None)
             original = path.read_bytes()
 
-            store._lock_path.mkdir()
+            script = (
+                "import sys\n"
+                "from acs.education_workspace_store import EducationWorkspaceStore\n"
+                "store = EducationWorkspaceStore(sys.argv[1])\n"
+                "with store._peer_lock():\n"
+                "    print('locked', flush=True)\n"
+                "    sys.stdin.readline()\n"
+            )
+            holder = subprocess.Popen(
+                [sys.executable, "-c", script, str(path)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
             try:
+                self.assertEqual(holder.stdout.readline().strip(), "locked")
                 with self.assertRaises(ews.EducationWorkspaceBusyError):
                     store.save(submit(workspace), expected_revision=revision)
             finally:
-                store._lock_path.rmdir()
+                holder.stdin.write("\n")
+                holder.stdin.flush()
+                _, stderr = holder.communicate(timeout=15)
+                self.assertEqual(holder.returncode, 0, stderr)
             self.assertEqual(path.read_bytes(), original)
 
             changed = submit(workspace)
-            with patch("acs.education_workspace_store.os.replace", side_effect=OSError("boom")):
+            with patch(
+                "acs.education_workspace_store._replace_published_path",
+                side_effect=OSError("boom"),
+            ):
                 with self.assertRaises(OSError):
                     store.save(changed, expected_revision=revision)
             self.assertEqual(path.read_bytes(), original)
-            self.assertFalse(store._lock_path.exists())
+            self.assertTrue(store._lock_path.is_file())
             self.assertEqual(list(Path(tmp).glob(".education-workspace.json.*.tmp")), [])
+
+    def test_store_publication_uses_write_through_boundary_on_windows_only(self):
+        source = Path("prepared.tmp")
+        destination = Path("education-workspace.json")
+
+        with (
+            patch.object(ews.os, "name", "nt"),
+            patch.object(ews, "_windows_replace_write_through") as windows_replace,
+            patch.object(ews.os, "replace") as posix_replace,
+        ):
+            ews._replace_published_path(source, destination)
+        windows_replace.assert_called_once_with(source, destination)
+        posix_replace.assert_not_called()
+
+        with (
+            patch.object(ews.os, "name", "posix"),
+            patch.object(ews, "_windows_replace_write_through") as windows_replace,
+            patch.object(ews.os, "replace") as posix_replace,
+        ):
+            ews._replace_published_path(source, destination)
+        posix_replace.assert_called_once_with(source, destination)
+        windows_replace.assert_not_called()
+
+    def test_store_windows_write_through_flags_include_replace_and_durability(self):
+        self.assertEqual(ews._MOVEFILE_REPLACE_EXISTING, 0x00000001)
+        self.assertEqual(ews._MOVEFILE_WRITE_THROUGH, 0x00000008)
+        self.assertEqual(
+            ews._MOVEFILE_REPLACE_EXISTING | ews._MOVEFILE_WRITE_THROUGH,
+            0x00000009,
+        )
+
+    def test_store_rejects_hardlinked_peer_lock_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            target = Path(tmp) / "unrelated-target.bin"
+            target.write_bytes(b"")
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+
+            os.link(target, store._lock_path)
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceStoreError,
+                "regular unlinked file",
+            ):
+                store.save(workspace, expected_revision=None)
+
+            self.assertEqual(target.read_bytes(), b"")
+            self.assertFalse(path.exists())
+
+    def test_store_rejects_symlink_peer_lock_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            target = Path(tmp) / "unrelated-target.bin"
+            target.write_bytes(b"unchanged")
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+            try:
+                store._lock_path.symlink_to(target)
+            except (OSError, NotImplementedError):
+                return
+
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceStoreError,
+                "regular unlinked file",
+            ):
+                store.save(workspace, expected_revision=None)
+
+            self.assertEqual(target.read_bytes(), b"unchanged")
+            self.assertTrue(store._lock_path.is_symlink())
+            self.assertFalse(path.exists())
+
+    def test_store_legacy_lock_directory_still_fails_busy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+            store._lock_path.mkdir()
+
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceBusyError,
+                "legacy peer lock directory",
+            ):
+                store.save(workspace, expected_revision=None)
+
+            self.assertTrue(store._lock_path.is_dir())
+            self.assertFalse(path.exists())
+
+    def test_store_peer_lock_is_released_by_process_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+
+            script = (
+                "import os, sys\n"
+                "from acs.education_workspace_store import EducationWorkspaceStore\n"
+                "store = EducationWorkspaceStore(sys.argv[1])\n"
+                "with store._peer_lock():\n"
+                "    os._exit(0)\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", script, str(path)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(store._lock_path.is_file())
+
+            revision = store.save(workspace, expected_revision=None)
+            self.assertEqual(store.load().revision, revision)
+
+    def test_store_durability_barrier_failure_requires_reload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "education-workspace.json"
+            store = ews.EducationWorkspaceStore(path)
+            workspace = ew.EducationWorkspace.empty(sample_classroom())
+            revision = store.save(workspace, expected_revision=None)
+            changed = submit(workspace)
+
+            with patch(
+                "acs.education_workspace_store._sync_published_path",
+                side_effect=OSError("durability barrier failed"),
+            ):
+                with self.assertRaisesRegex(
+                    ews.EducationWorkspaceDurabilityError,
+                    "reload before retrying",
+                ):
+                    store.save(changed, expected_revision=revision)
+
+            reloaded = store.load()
+            self.assertEqual(reloaded.workspace, changed)
+            self.assertNotEqual(reloaded.revision, revision)
+            with self.assertRaises(ews.EducationWorkspaceConflictError):
+                store.save(changed, expected_revision=revision)
+
+    def test_store_canonical_serialization_streams_and_bounds_before_full_text(self):
+        workspace = ew.EducationWorkspace.empty(sample_classroom())
+        envelope = {
+            "schema_version": ews.EDUCATION_WORKSPACE_STORE_VERSION,
+            "workspace": workspace.to_record(),
+        }
+        expected = json.dumps(
+            envelope,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        with patch.object(
+            ews.json,
+            "dumps",
+            side_effect=AssertionError("full JSON text must not be built"),
+        ) as dumps:
+            self.assertEqual(ews._canonical_bytes(envelope), expected)
+            dumps.assert_not_called()
+
+        with (
+            patch.object(ews, "MAX_WORKSPACE_STORE_BYTES", len(expected) - 1),
+            patch.object(
+                ews.json,
+                "dumps",
+                side_effect=AssertionError("full JSON text must not be built"),
+            ) as dumps,
+        ):
+            with self.assertRaisesRegex(
+                ews.EducationWorkspaceStoreError,
+                "size limit",
+            ):
+                ews._canonical_bytes(envelope)
+            dumps.assert_not_called()
 
     def test_store_rejects_oversize_corruption_and_unknown_schema(self):
         with tempfile.TemporaryDirectory() as tmp:
