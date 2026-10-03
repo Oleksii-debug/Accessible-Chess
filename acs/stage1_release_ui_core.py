@@ -474,15 +474,21 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         if self._game_sounds is None or not self.sans:
             return
         san = str(self.sans[-1])
+        terminal = not bool(self.board.legal_moves())
         facts = MoveSoundFacts(
             legal=True,
             capture="x" in san,
             check=("+" in san or "#" in san),
             castle=san.startswith("O-O"),
             promotion="=" in san,
-            game_ended=not bool(self.board.legal_moves()),
+            game_ended=False,
         )
         self._game_sounds.move(facts)
+        if terminal:
+            if self.board.in_check(self.board.turn):
+                self._game_sounds.checkmate()
+            else:
+                self._game_sounds.draw()
 
     def _play_game_end_sound(self) -> None:
         if self._game_sounds is None:
