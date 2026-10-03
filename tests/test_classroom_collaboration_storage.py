@@ -916,12 +916,12 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             CollaborationStorageError,
-            "stored state revision must be a bounded non-negative integer",
+            "stored chat state revision must be a bounded non-negative integer",
         ):
             self.store.chat_state_revision("room-chat-real")
         with self.assertRaisesRegex(
             CollaborationStorageError,
-            "stored state revision must be a bounded non-negative integer",
+            "stored attachment state revision must be a bounded non-negative integer",
         ):
             self.store.attachment_state_revision("room-attachment-real")
         with self.assertRaisesRegex(
