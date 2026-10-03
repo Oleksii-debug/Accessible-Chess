@@ -133,6 +133,32 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "board")
         self.assertEqual(self.app.shell.active_dialog_id, "test-dialog")
 
+    def test_backend_library_error_preserves_route_focus_and_sanitizes(self):
+        for action in ("library.search", "library.reset_filters"):
+            with self.subTest(action=action):
+                self.app.shell.open_route("board")
+                self.app.record_focus("board-square-e4")
+                with patch.object(
+                    AcsDatabase,
+                    "search_games",
+                    side_effect=PermissionError(
+                        r"C:\\Users\\BlindTeacher\\private-library.sqlite"
+                    ),
+                ):
+                    command = self.app.adapter.activate_action(
+                        action,
+                        current_focus_id="board-square-e4",
+                    )
+
+                self.assertEqual(command.kind, "error")
+                self.assertNotIn("BlindTeacher", command.payload["message"])
+                self.assertNotIn("private-library", command.payload["message"])
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(
+                    self.app.shell.restore_focus_target(),
+                    "board-square-e4",
+                )
+
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
