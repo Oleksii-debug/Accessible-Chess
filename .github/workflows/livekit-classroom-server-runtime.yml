@@ -1,0 +1,149 @@
+name: LiveKit Classroom Server Runtime
+
+on:
+  pull_request:
+    branches:
+      - feature/livekit-classroom-moderation-admin-20261002
+    paths:
+      - 'acs/livekit_classroom_server_runtime.py'
+      - 'tests/test_livekit_classroom_server_runtime.py'
+      - '.github/workflows/livekit-classroom-server-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livekit-classroom-server-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove current stacked scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/livekit-classroom-moderation-admin-20261002"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/livekit-classroom-server-runtime.yml' \
+            'acs/livekit_classroom_server_runtime.py' \
+            'tests/test_livekit_classroom_server_runtime.py' | sort)"
+          test "$changed" = "$allowed"
+          git diff --quiet "$EVENT_BASE_SHA" HEAD -- \
+            acs/livekit_classroom_moderation_admin.py \
+            acs/classroom_moderation_rpc.py \
+            acs/classroom_realtime_media.py \
+            acs/classroom_domain.py \
+            acs/chesscore.py
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile lifecycle boundary
+        run: >-
+          python -m py_compile
+          acs/livekit_classroom_server_runtime.py
+          tests/test_livekit_classroom_server_runtime.py
+
+      - name: Run dependency-free lifecycle and moderation contracts
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_classroom_server_runtime
+          tests.test_livekit_classroom_moderation_admin
+          tests.test_classroom_moderation_rpc
+          tests.test_classroom_realtime_media
+
+      - name: Verify pinned official LiveKit server wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --dest .livekit-sdk livekit-api==1.2.1
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          expected_name = "livekit_api-1.2.1-py3-none-any.whl"
+          expected_sha = "aa15b0a194c9e8167d4261bc61381682df23f98bc6d77760fcded93d2ce4b4ca"
+          files = list(Path(".livekit-sdk").glob("*"))
+          assert len(files) == 1, files
+          assert files[0].name == expected_name, files[0].name
+          assert sha256(files[0].read_bytes()).hexdigest() == expected_sha
+          print("LIVEKIT_SERVER_RUNTIME_WHEEL_PIN=PASS")
+          PY
+
+      - name: Install exact LiveKit server SDK
+        run: python -m pip install --disable-pip-version-check -q livekit-api==1.2.1
+
+      - name: Exercise real SDK lifecycle without a provider network call
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import asyncio
+          import importlib.metadata
+
+          from acs.livekit_classroom_server_runtime import (
+              LiveKitClassroomServerRuntime,
+          )
+
+          async def main():
+              assert importlib.metadata.version("livekit-api") == "1.2.1"
+              runtime = await LiveKitClassroomServerRuntime.open(
+                  endpoint="https://example.invalid",
+                  api_key="ci-provider-key",
+                  api_secret="ci-provider-secret-material-long-enough",
+              )
+              assert runtime.closed is False
+              assert runtime.moderation_admin is not None
+              await runtime.aclose()
+              assert runtime.closed is True
+
+          asyncio.run(main())
+          print("LIVEKIT_REAL_SERVER_RUNTIME_LIFECYCLE=PASS")
+          PY
+
+      - name: Prove explicit credentials and no desktop fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'client = api.LiveKitAPI' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'api_key=key' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'api_secret=secret' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'await close()' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'cleanup_runtime' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'LiveKitClassroomServerCleanupCancelled' acs/livekit_classroom_server_runtime.py
+          ! grep -Fq 'host.lower() == "localhost"' acs/livekit_classroom_server_runtime.py
+          ! grep -Eq 'os\.(environ|getenv)|LIVEKIT_API_SECRET|LIVEKIT_API_KEY|LIVEKIT_URL' \
+            acs/livekit_classroom_server_runtime.py
+          ! grep -Eq 'web/|pywebview|version2_release_app|stage1_release' \
+            acs/livekit_classroom_server_runtime.py
+
+      - name: Core selftest
+        run: python -m acs.selftest
