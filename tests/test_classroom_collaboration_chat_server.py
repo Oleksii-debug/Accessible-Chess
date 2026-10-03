@@ -1083,6 +1083,69 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.assertTrue(updates[0].hidden)
         migrated.integrity_check()
 
+    def test_failed_version_one_upgrade_rolls_back_created_state_schema(self) -> None:
+        path = Path(self.tmp.name) / "schema-v1-atomic-failure.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
+            db.execute("DROP TABLE classroom_chat_server_state_updates")
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=1
+                WHERE key='schema_version'
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,1,?)
+                """,
+                (
+                    "legacy-gap-message",
+                    ROOM,
+                    STUDENT,
+                    1,
+                    "Gap must abort migration atomically",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "legacy server message sequence is not contiguous",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            version = db.execute(
+                """
+                SELECT value FROM classroom_chat_server_meta
+                WHERE key='schema_version'
+                """
+            ).fetchone()[0]
+            state_table = db.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type='table'
+                  AND name='classroom_chat_server_state_updates'
+                """
+            ).fetchone()
+            state_index = db.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type='index'
+                  AND name='idx_classroom_chat_server_state_updates_message'
+                """
+            ).fetchone()
+
+        self.assertEqual(1, version)
+        self.assertIsNone(state_table)
+        self.assertIsNone(state_index)
+
     def test_version_one_migration_rejects_nonempty_partial_state_stream(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-partial-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
