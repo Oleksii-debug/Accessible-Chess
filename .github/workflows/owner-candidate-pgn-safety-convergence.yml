@@ -15,10 +15,12 @@ on:
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_application.py'
       - 'acs/version2_pgn_commands.py'
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/js/pgn_tree_keyboard_dom_test.js'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_pgn_browser_presentation_lease_required.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_version2_pgn_commands.py'
       - 'web/full_product_pgn.js'
@@ -78,10 +80,12 @@ jobs:
               'acs/pgn_webview_bridge.py' \
               'acs/pgn_webview_projection.py' \
               'acs/pgn_workspace_webview_adapter.py' \
+              'acs/version2_application.py' \
               'acs/version2_pgn_commands.py' \
               'tests/js/pgn_surface_dom_test.js' \
               'tests/js/pgn_tree_keyboard_dom_test.js' \
               'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+              'tests/test_pgn_browser_presentation_lease_required.py' \
               'tests/test_version2_application.py' \
               'tests/test_version2_pgn_commands.py' \
               'web/full_product_pgn.js' | sort)"
@@ -111,10 +115,12 @@ jobs:
           acs/pgn_webview_bridge.py=10b604853608b6f1310888d04322dd5740622789
           acs/pgn_webview_projection.py=c7ade6cc8fefdac160235b67291438fa15c689b8
           acs/pgn_workspace_webview_adapter.py=21127c7337dc6bbba640b2b9044d2d847f6d0787
+          acs/version2_application.py=7261d71026d7eb66e896f4d020a2465fe13679f5
           acs/version2_pgn_commands.py=dd6d861576adf6d571d4bdda9d63339850603b89
           tests/js/pgn_surface_dom_test.js=7b701dd0a28ade8093dc8c99d91ba7cedee8d109
           tests/js/pgn_tree_keyboard_dom_test.js=c954f8764f95b5f520c4c150684eacf6655cb788
           tests/test_dev1_pgn_workspace_webview_adapter.py=494fa57c5bb41b533e237547c1f6dbad60aac08d
+          tests/test_pgn_browser_presentation_lease_required.py=a6edf8976050fe132e8c5fe0771163fe7e8a270a
           tests/test_version2_application.py=20ddb93b03ee86073c41e96ad4713df9a41085af
           tests/test_version2_pgn_commands.py=f5e3dca6e96c043b7c6bbbbc886cd17549b7470f
           web/full_product_pgn.js=6fd2dcc8b24d213a739b7277f1146d95fbb6a5a5
@@ -138,14 +144,17 @@ jobs:
           acs/pgn_webview_bridge.py
           acs/pgn_webview_projection.py
           acs/pgn_workspace_webview_adapter.py
+          acs/version2_application.py
           acs/version2_pgn_commands.py
           tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_pgn_browser_presentation_lease_required.py
           tests/test_version2_pgn_commands.py
 
       - name: Prove host CAS, rendered lease, application and owner hotkeys
         run: >-
           python -m unittest -v
           tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_browser_presentation_lease_required
           tests.test_version2_pgn_commands
           tests.test_version2_application
           tests.test_accessible_webui
