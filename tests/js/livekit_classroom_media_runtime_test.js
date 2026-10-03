@@ -386,6 +386,75 @@ async function testCleanConnectFailureUsesExactCleanFailureCallback() {
   assert.equal(calls.includes("media.provider_connection_failed_clean"), true);
 }
 
+async function testMalformedCleanConnectAckFailsClosedAndRetainsSnapshot() {
+  class CleanFailAdapter extends RecordingAdapter {
+    async connect() {
+      this.calls.push(["connect-failed-clean-malformed-ack"]);
+      throw new Error("provider detail");
+    }
+  }
+  const runtime = loadRuntime(CleanFailAdapter);
+  const transaction = "session-" + "5".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+  const calls = [];
+  let transportCalls = 0;
+
+  const invoke = async (command, payload) => {
+    calls.push(command);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: transaction,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: transaction } };
+    }
+    if (command === "media.provider_connection_failed_clean") {
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return { kind: "error", payload: {} };
+    }
+    if (command === "media.provider_outcome_unknown") {
+      assert.equal(payload.transaction_id, transaction);
+      return {
+        kind: "error",
+        payload: { message: "sanitized", recovery_required: true }
+      };
+    }
+    if (command === "media.provider_transport_lost") {
+      transportCalls += 1;
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return { kind: "media-updated", payload: {} };
+    }
+    throw new Error("unexpected command " + command);
+  };
+
+  const result = await runtime.execute(event, invoke);
+  assert.equal(result.kind, "error");
+  assert.equal(result.payload.recovery_required, true);
+  assert.equal(calls.includes("media.provider_outcome_unknown"), true);
+  assert.equal(isCleanSnapshot(runtime._transportLossSnapshot), true);
+
+  runtime._transportRetryAt = 0;
+  const converged = await runtime.reconcileTransport(invoke);
+  assert.equal(converged.kind, "media-updated");
+  assert.equal(transportCalls, 1);
+  assert.equal(runtime._transportLossSnapshot, null);
+}
+
 async function testProviderEffectFailureRequiresRecoveryCallback() {
   class EffectFailAdapter extends RecordingAdapter {
     async setLocalSource() {
@@ -2182,6 +2251,7 @@ async function run() {
   await testJoinTakesCredentialBeforeDispatchAndReturnsExactSnapshot();
   await testMissingRuntimeConfigurationRetiresBeforeDispatch();
   await testCleanConnectFailureUsesExactCleanFailureCallback();
+  await testMalformedCleanConnectAckFailsClosedAndRetainsSnapshot();
   await testProviderEffectFailureRequiresRecoveryCallback();
   await testProviderSuccessAckLossRequiresRecovery();
   await testCrossedTransactionConfigurationLossRequiresRecovery();
