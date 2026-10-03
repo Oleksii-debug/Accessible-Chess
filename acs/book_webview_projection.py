@@ -103,6 +103,27 @@ _LABELS = {
 }
 
 
+def _utf16_units(value: str) -> int:
+    """Return the exact JavaScript String.length for one Python string."""
+
+    return sum(2 if ord(character) > 0xFFFF else 1 for character in value)
+
+
+def _truncate_utf16(value: str, limit: int) -> str:
+    """Bound text by WebView UTF-16 units without splitting a Unicode scalar."""
+
+    if type(limit) is not int or limit < 0:
+        raise ValueError("book presentation text limit is invalid")
+    used = 0
+    end = 0
+    for end, character in enumerate(value, start=1):
+        width = 2 if ord(character) > 0xFFFF else 1
+        if used + width > limit:
+            return value[: end - 1]
+        used += width
+    return value
+
+
 def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
@@ -110,16 +131,19 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
         raise TypeError("book presentation text must be text")
     text = value.replace("\x00", "").strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
-    return text[:limit]
+    return _truncate_utf16(text, limit)
 
 
 def _safe_visible_block_text(value: object, *, language: UILanguage) -> str:
+    # Two UTF-16 units are enough to retain one complete non-BMP scalar beyond
+    # the canonical WebView budget, making oversize detection exact without
+    # slicing through a surrogate pair on the browser side.
     text = _safe_text(
         value,
         language=language,
-        limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
+        limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 2,
     )
-    if len(text) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+    if _utf16_units(text) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
         raise ValueError("book presentation block exceeds the visible-text budget")
     return text
 
@@ -135,7 +159,7 @@ def _safe_visible_list_items(
     total = 0
     for value in values:
         item = _safe_visible_block_text(value, language=language)
-        total += len(item)
+        total += _utf16_units(item)
         if total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
             raise ValueError("book presentation list exceeds the visible-text budget")
         rendered.append(item)
