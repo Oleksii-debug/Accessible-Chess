@@ -138,6 +138,14 @@ class SqliteClassroomMediaPolicyAuthority:
             raise ClassroomMediaPolicyError(
                 "media policy authority requires durable file storage"
             )
+        try:
+            # Derive policy + provider-effect lock storage from one canonical
+            # filesystem spelling. Otherwise two services can open the same
+            # policy database through different symlink aliases while taking
+            # different companion locks, defeating cross-process serialization.
+            storage_path = storage_path.resolve(strict=False)
+        except (OSError, RuntimeError):
+            raise ClassroomMediaPolicyError("media policy path is invalid") from None
         if roster_resolver is None or not callable(
             getattr(roster_resolver, "roster_for_room", None)
         ):
@@ -574,6 +582,7 @@ class SqliteClassroomMediaPolicyAuthority:
             ) from None
 
     def _connect_effect_lock(self) -> sqlite3.Connection:
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(
                 str(self._effect_lock_path),
@@ -588,6 +597,11 @@ class SqliteClassroomMediaPolicyAuthority:
             )
             return connection
         except sqlite3.Error:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
             raise ClassroomMediaPolicyError(
                 "moderation effect serialization storage is unavailable"
             ) from None
