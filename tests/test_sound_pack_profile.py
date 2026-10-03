@@ -7,6 +7,7 @@ from acs.sound_pack_catalog import (
     DownloadedSoundPack,
     SoundAssetDigest,
     SoundPackCatalogEntry,
+    SoundPackInstallError,
     SoundPackManager,
     SoundPackRightsEvidence,
 )
@@ -132,6 +133,48 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
         coordinator, pack_manager, _, _ = make_stack(active_pack="missing", include_active=False)
         self.assertEqual(pack_manager.resolve_usable_pack("missing"), "classic")
         self.assertEqual(coordinator.current_profile.pack_id, "classic")
+
+    def test_preflight_rejection_cannot_sanitize_active_profile_before_install(self):
+        operations = []
+        coordinator, _manager, _pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+            operations=operations,
+        )
+        coordinator._profiles.set_event(
+            "move",
+            SoundEventPreference(
+                enabled=False,
+                volume_percent=43,
+                sound_id="legacy.move.variant",
+            ),
+        )
+        operations.clear()
+        before = coordinator.current_profile
+
+        candidate = manifest("soft.wood", "2.0.0")
+        audited, _downloaded = entry_for(candidate)
+        unaudited = SoundPackCatalogEntry(
+            manifest=audited.manifest,
+            assets=audited.assets,
+            total_bytes=audited.total_bytes,
+        )
+
+        with self.assertRaisesRegex(
+            SoundPackInstallError,
+            "auditable license/provenance evidence",
+        ):
+            coordinator.install(unaudited, activate=False)
+
+        self.assertEqual(before, coordinator.current_profile)
+        self.assertEqual(
+            "legacy.move.variant",
+            coordinator.current_profile.preference_for("move").sound_id,
+        )
+        self.assertEqual(
+            "legacy.move.variant",
+            profile_storage.raw["events"]["move"]["sound_id"],
+        )
+        self.assertEqual([], operations)
 
     def test_install_and_activate_installs_before_profile_selection(self):
         operations = []
