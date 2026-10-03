@@ -99,6 +99,28 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertEqual(0, workspace.selected_game_index)
         self.assertEqual(GameTreeCursor((), 1), workspace.cursor)
 
+    def test_cas_validation_and_game_navigation_use_one_session_snapshot(self):
+        document = (
+            '[Event "One"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "Two"]\n[Result "*"]\n\n1. d4 *\n'
+        )
+        primary = PgnDocumentSession.from_text(document)
+        replacement = PgnDocumentSession.from_text(document)
+        calls = []
+
+        def get_session():
+            calls.append(len(calls) + 1)
+            return primary if len(calls) == 1 else replacement
+
+        target = self._navigation_target(primary.workspace)
+        commands = Version2PgnCommands(get_session)
+
+        commands("pgn.next_game", target)
+
+        self.assertEqual([1], calls)
+        self.assertEqual(1, primary.workspace.selected_game_index)
+        self.assertEqual(0, replacement.workspace.selected_game_index)
+
     def test_empty_host_game_navigation_payload_remains_supported(self):
         session = PgnDocumentSession.from_text(
             '[Event "One"]\n[Result "*"]\n\n1. e4 *\n\n'
