@@ -183,6 +183,117 @@ class ClassroomChatServerTests(unittest.TestCase):
             draft=draft,
         )
 
+    def _downgrade_to_legacy_schema(
+        self,
+        path: Path,
+        *,
+        version: int,
+        keep_state_table: bool,
+    ) -> None:
+        """Build a real pre-v4 table shape instead of relabelling v4 metadata."""
+
+        if version not in {1, 2, 3}:
+            raise AssertionError("legacy fixture version must be 1, 2 or 3")
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP INDEX IF EXISTS idx_classroom_chat_server_messages_room")
+            db.execute(
+                "ALTER TABLE classroom_chat_server_messages "
+                "RENAME TO classroom_chat_server_messages_v4"
+            )
+            db.execute(
+                """
+                CREATE TABLE classroom_chat_server_messages(
+                    message_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    body TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
+                    sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0),
+                    UNIQUE(room_id, sequence_no)
+                )
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                )
+                SELECT
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                FROM classroom_chat_server_messages_v4
+                """
+            )
+            db.execute("DROP TABLE classroom_chat_server_messages_v4")
+            db.execute(
+                """
+                CREATE INDEX idx_classroom_chat_server_messages_room
+                ON classroom_chat_server_messages(room_id, sequence_no)
+                """
+            )
+
+            db.execute(
+                "DROP INDEX IF EXISTS "
+                "idx_classroom_chat_server_state_updates_message"
+            )
+            if keep_state_table:
+                db.execute(
+                    "ALTER TABLE classroom_chat_server_state_updates "
+                    "RENAME TO classroom_chat_server_state_updates_v4"
+                )
+                redaction_rows = db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM classroom_chat_server_state_updates_v4
+                    WHERE redacted != 0
+                    """
+                ).fetchone()[0]
+                if redaction_rows:
+                    raise AssertionError(
+                        "cannot downgrade fixture containing redaction state"
+                    )
+                db.execute(
+                    """
+                    CREATE TABLE classroom_chat_server_state_updates(
+                        room_id TEXT NOT NULL,
+                        revision INTEGER NOT NULL CHECK(revision >= 0),
+                        message_id TEXT NOT NULL,
+                        hidden INTEGER NOT NULL CHECK(hidden = 1),
+                        PRIMARY KEY(room_id, revision)
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    INSERT INTO classroom_chat_server_state_updates(
+                        room_id, revision, message_id, hidden
+                    )
+                    SELECT room_id, revision, message_id, hidden
+                    FROM classroom_chat_server_state_updates_v4
+                    """
+                )
+                db.execute("DROP TABLE classroom_chat_server_state_updates_v4")
+                db.execute(
+                    """
+                    CREATE INDEX idx_classroom_chat_server_state_updates_message
+                    ON classroom_chat_server_state_updates(room_id, message_id)
+                    """
+                )
+            else:
+                db.execute("DROP TABLE classroom_chat_server_state_updates")
+
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=?
+                WHERE key='schema_version'
+                """,
+                (version,),
+            )
+
     def test_store_rejects_ephemeral_database_targets(self) -> None:
         for target in ("", ":memory:"):
             with self.subTest(target=target):
@@ -207,7 +318,7 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.store.integrity_check()
         with closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     "SELECT value FROM classroom_chat_server_meta "
                     "WHERE key='schema_version'"
@@ -1012,7 +1123,7 @@ class ClassroomChatServerTests(unittest.TestCase):
             )
 
     def test_corrupt_schema_version_is_sanitized_and_never_auto_repaired(self) -> None:
-        for value in ("not-an-integer", 0, 1.5, 4):
+        for value in ("not-an-integer", 0, 1.5, 5):
             with self.subTest(value=value):
                 path = Path(self.tmp.name) / f"schema-{str(value).replace(' ', '-')}.sqlite3"
                 ClassroomChatServerSQLiteStore(path)
@@ -1293,7 +1404,7 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     """
                     SELECT value FROM classroom_chat_server_meta
@@ -1302,9 +1413,78 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
+    def test_version_three_upgrade_rebuilds_state_table_for_redaction_only_events(self) -> None:
+        path = Path(self.tmp.name) / "schema-v3-redaction-upgrade.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=3,
+            keep_state_table=True,
+        )
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "v3-session-message",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Must be redaction-capable after migration",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        migrated = ClassroomChatServerSQLiteStore(path)
+        updates = migrated.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        self.assertEqual(1, len(updates))
+        self.assertFalse(updates[0].hidden)
+        self.assertTrue(updates[0].redacted)
+        self.assertEqual(0, updates[0].revision)
+        redacted = migrated.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )[0]
+        self.assertTrue(redacted.redacted)
+        self.assertEqual("", redacted.body)
+        migrated.integrity_check()
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(
+                4,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+            state_columns = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA table_info(classroom_chat_server_state_updates)"
+                )
+            }
+            self.assertIn("redacted", state_columns)
+
     def test_version_two_upgrade_repairs_missing_hidden_state_at_stream_tail(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-hidden-repair.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=2,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1373,7 +1553,7 @@ class ClassroomChatServerTests(unittest.TestCase):
         repaired.integrity_check()
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     """
                     SELECT value FROM classroom_chat_server_meta
@@ -1385,6 +1565,11 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_two_upgrade_rejects_state_for_visible_message(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-visible-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=2,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1439,6 +1624,11 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_two_upgrade_rejects_inconsistent_existing_state(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-inconsistent-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=2,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1476,16 +1666,12 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_one_migration_backfills_hidden_message_state_stream(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-hidden-backfill.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=False,
+        )
         with closing(sqlite3.connect(path)) as db, db:
-            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
-            db.execute("DROP TABLE classroom_chat_server_state_updates")
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
-            )
             db.execute(
                 """
                 INSERT INTO classroom_chat_server_messages(
@@ -1520,16 +1706,12 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_failed_version_one_upgrade_rolls_back_created_state_schema(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-atomic-failure.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=False,
+        )
         with closing(sqlite3.connect(path)) as db, db:
-            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
-            db.execute("DROP TABLE classroom_chat_server_state_updates")
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
-            )
             db.execute(
                 """
                 INSERT INTO classroom_chat_server_messages(
@@ -1583,6 +1765,11 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_one_migration_rejects_nonempty_partial_state_stream(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-partial-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1608,13 +1795,6 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ) VALUES(?,?,?,1)
                 """,
                 (ROOM, 0, "partial-hidden-message"),
-            )
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
             )
 
         with self.assertRaisesRegex(
@@ -1644,26 +1824,21 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
-    def test_version_one_migration_may_create_only_version_two_state_table(self) -> None:
+    def test_version_one_migration_creates_current_state_table(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-migration.sqlite3"
         ClassroomChatServerSQLiteStore(path)
-        with closing(sqlite3.connect(path)) as db, db:
-            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
-            db.execute("DROP TABLE classroom_chat_server_state_updates")
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
-            )
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=False,
+        )
 
         migrated = ClassroomChatServerSQLiteStore(path)
         migrated.integrity_check()
 
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(
-                3,
+                4,
                 db.execute(
                     """
                     SELECT value FROM classroom_chat_server_meta
@@ -2558,6 +2733,259 @@ class ClassroomChatServerTests(unittest.TestCase):
 
         self.assertEqual(first, recovered)
         self.assertEqual(0, replacement_clock.calls)
+
+    def test_session_retention_redaction_clears_body_and_preserves_history_identity(self) -> None:
+        draft = self.draft(
+            "session-retention-redaction",
+            "Session-only content",
+        )
+        sent = self.send(draft)
+
+        updates = self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        self.assertEqual(1, len(updates))
+        self.assertEqual(sent.message_id, updates[0].message_id)
+        self.assertEqual(0, updates[0].revision)
+        self.assertFalse(updates[0].hidden)
+        self.assertTrue(updates[0].redacted)
+
+        history = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )
+        self.assertEqual(1, len(history))
+        redacted = history[0]
+        self.assertEqual("", redacted.body)
+        self.assertTrue(redacted.redacted)
+        self.assertFalse(redacted.hidden)
+        self.assertEqual(sent.message_id, redacted.message_id)
+        self.assertEqual(sent.sender_id, redacted.sender_id)
+        self.assertEqual(sent.sequence_no, redacted.sequence_no)
+        self.assertEqual(sent.sent_at_unix_ms, redacted.sent_at_unix_ms)
+        self.assertEqual(sent.retention, redacted.retention)
+
+        streamed = self.service.state_updates_after(
+            trusted_caller_identity=STUDENT,
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+        self.assertEqual(updates, streamed)
+        self.assertEqual(
+            (),
+            self.service.redact_retention(
+                room_id=ROOM,
+                retentions=("session",),
+            ),
+        )
+        self.store.integrity_check()
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "content was already redacted",
+        ):
+            self.service.send_message(
+                trusted_caller_identity=STUDENT,
+                draft=draft,
+            )
+        self.assertEqual(
+            "",
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )[0].body,
+        )
+
+    def test_retention_redaction_erases_payload_bytes_from_sqlite_free_space(self) -> None:
+        secret = (
+            "PHYSICAL-RETENTION-SECRET-"
+            + "blind-chess-private-session-" * 16
+        )
+        secret_bytes = secret.encode("utf-8")
+        self.send(
+            self.draft(
+                "physical-retention-redaction",
+                secret,
+            )
+        )
+        before = self.path.read_bytes()
+        self.assertIn(secret_bytes, before)
+
+        self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        after = self.path.read_bytes()
+        self.assertNotIn(secret_bytes, after)
+        self.assertEqual(
+            "",
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )[0].body,
+        )
+
+    def test_hide_then_retention_redaction_preserves_both_monotonic_states(self) -> None:
+        sent = self.send(
+            self.draft(
+                "hidden-then-redacted",
+                "Moderated before session end",
+            )
+        )
+        hide = self.moderation(
+            "hide-before-redaction",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id=sent.message_id,
+        )
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(hide,),
+        )
+
+        redaction = self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        self.assertEqual(1, len(redaction))
+        self.assertEqual(1, redaction[0].revision)
+        updates = self.store.state_updates_after(
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+        self.assertEqual(2, len(updates))
+        self.assertTrue(updates[0].hidden)
+        self.assertFalse(updates[0].redacted)
+        self.assertFalse(updates[1].hidden)
+        self.assertTrue(updates[1].redacted)
+        final = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )[0]
+        self.assertTrue(final.hidden)
+        self.assertTrue(final.redacted)
+        self.assertEqual("", final.body)
+        self.store.integrity_check()
+
+    def test_retention_redaction_is_selective_and_persistent_policy_is_forbidden(self) -> None:
+        transient_service = ClassroomChatServerService(
+            store=self.store,
+            authorization=self.auth,
+            clock_unix_ms=self.clock,
+            retention_policy=lambda _room_id: "transient",
+        )
+        transient = transient_service.send_message(
+            trusted_caller_identity=STUDENT,
+            draft=ChatDraft(
+                "transient-to-redact",
+                ROOM,
+                STUDENT,
+                "Transient content",
+                retention="transient",
+            ),
+        )
+        session = self.send(
+            self.draft(
+                "session-to-keep",
+                "Session content",
+            )
+        )
+
+        updates = self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("transient",),
+        )
+        self.assertEqual((transient.message_id,), tuple(x.message_id for x in updates))
+        history = self.store.history_after(
+            room_id=ROOM,
+            after_sequence=None,
+            limit=10,
+        )
+        by_id = {message.message_id: message for message in history}
+        self.assertTrue(by_id[transient.message_id].redacted)
+        self.assertEqual("", by_id[transient.message_id].body)
+        self.assertFalse(by_id[session.message_id].redacted)
+        self.assertEqual("Session content", by_id[session.message_id].body)
+
+        for invalid in (
+            ("persistent",),
+            ("session", "session"),
+            (),
+            ["session"],
+            (object(),),
+        ):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "retention redaction policy is invalid",
+                ):
+                    self.service.redact_retention(
+                        room_id=ROOM,
+                        retentions=invalid,
+                    )
+
+    def test_corrupt_redaction_body_or_duplicate_transition_fails_closed(self) -> None:
+        sent = self.send(self.draft("redaction-corruption", "Erase me"))
+        self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET body='resurrected'
+                WHERE message_id=?
+                """,
+                (sent.message_id,),
+            )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored message redaction state is invalid",
+        ):
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )
+
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET body=''
+                WHERE message_id=?
+                """,
+                (sent.message_id,),
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden, redacted
+                ) VALUES(?,?,?,?,?)
+                """,
+                (ROOM, 1, sent.message_id, 0, 1),
+            )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "state transition is duplicated",
+        ):
+            self.store.state_updates_after(
+                room_id=ROOM,
+                after_revision=None,
+                limit=10,
+            )
 
     def test_retention_policy_failure_is_sanitized_before_storage(self) -> None:
         def broken_policy(_room_id):
