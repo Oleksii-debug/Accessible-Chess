@@ -495,12 +495,16 @@
     }
 
     _transportReplyIsTerminal(result) {
-      if (!result || typeof result !== "object") return false;
-      if (result.kind === "media-updated") return true;
-      const payload = result.payload && typeof result.payload === "object"
-        ? result.payload
-        : {};
-      return result.kind === "error" && payload.recovery_required === true;
+      // A recovery latch is not canonical transport-loss completion.  Python may
+      // still be holding an unrelated/active provider recovery while its media
+      // controller remains connected.  Keep the clean disconnected provider
+      // snapshot and retry after trusted recovery resolution; only an accepted
+      // media-updated reply proves canonical transport loss was committed.
+      return Boolean(
+        result &&
+        typeof result === "object" &&
+        result.kind === "media-updated"
+      );
     }
 
     async _deliverTransportLoss(invoke) {
