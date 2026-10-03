@@ -28,6 +28,8 @@
     Object.freeze({ kind: "camera", mediaKind: "videoinput" })
   ]);
 
+  const selectedDeviceIds = Object.create(null);
+
   function safeDeviceId(value) {
     return typeof value === "string" &&
       value.length > 0 &&
@@ -110,7 +112,12 @@
   }
 
   function renderDeviceControls(snapshot, invoke, announce, root, language) {
-    if (!snapshot || snapshot.connected !== true) return null;
+    if (!snapshot || snapshot.connected !== true) {
+      DEVICE_CONTROLS.forEach(function (definition) {
+        delete selectedDeviceIds[definition.kind];
+      });
+      return null;
+    }
 
     const section = node("section");
     const heading = node(
@@ -164,6 +171,9 @@
           if (!result || typeof result !== "object") {
             throw new TypeError("classroom media result must be an object");
           }
+          if (result.kind !== "error") {
+            selectedDeviceIds[definition.kind] = deviceId;
+          }
           if (select.isConnected) select.disabled = false;
           applyEvent(root, result, invoke, announce, language);
         }).catch(function () {
@@ -203,7 +213,7 @@
     function renderChoices(devices) {
       DEVICE_CONTROLS.forEach(function (definition) {
         const select = selectors[definition.kind];
-        const previous = safeDeviceId(select.value);
+        const previous = safeDeviceId(selectedDeviceIds[definition.kind]);
         const labelText = deviceKindLabel(definition.kind, language);
         select.textContent = "";
         select.value = "";
@@ -244,7 +254,12 @@
           select.appendChild(missing);
         } else {
           select.disabled = false;
-          select.value = previousAvailable ? previous : "";
+          if (previousAvailable) {
+            select.value = previous;
+          } else {
+            delete selectedDeviceIds[definition.kind];
+            select.value = "";
+          }
         }
       });
       status.textContent = uiText(
