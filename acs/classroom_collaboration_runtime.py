@@ -166,6 +166,13 @@ def build_classroom_collaboration_http_runtime(
         path = Path(store_path)
     else:
         raise TypeError("store_path must be a non-empty path")
+    try:
+        if path.exists() and not path.is_file():
+            raise ValueError("store_path must reference a file, not a directory")
+        if not path.parent.is_dir():
+            raise ValueError("store_path parent directory must already exist")
+    except OSError as exc:
+        raise ValueError("store_path could not be validated") from exc
 
     # Validate network inputs before any local persistence is created.
     chat_call = ClassroomChatHttpRpcCall(
