@@ -82,8 +82,8 @@ jobs:
               'web/full_product_books_training.js'
             )
             test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "bb34d6496a9481153440cb3bf449525728346f03"
-            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "0d0473af7402bf6f7239749af2591985cd967e42"
-            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "f5180eef9557f3d48ea39a75255918d80a71a2b2"
+            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "1d64f5a43afcb24374da7a3608061ab562002c0a"
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "813345da231efb3ed6b4d7982bb800e037c9d404"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
             product_ref="refs/remotes/origin/$product_branch"
