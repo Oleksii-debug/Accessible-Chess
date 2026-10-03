@@ -280,7 +280,8 @@ class SoundSettingsApplication:
                     "state": "local_installed",
                     "active": profile.pack_id == manifest.pack_id,
                     "can_install": False,
-                    "can_uninstall": False,
+                    "can_uninstall": self._packs is not None
+                    and manifest.pack_id != self._packs.fallback_pack_id,
                 }
             )
 
@@ -415,7 +416,8 @@ class SoundSettingsApplication:
     def uninstall_pack(self, pack_id: str, *, language: str = "uk") -> SoundSettingsResult:
         if self._packs is None:
             raise RuntimeError("sound pack management is unavailable")
-        if pack_id not in self._catalog:
+        installed_local = self._installed_local_packs()
+        if pack_id not in self._catalog and pack_id not in installed_local:
             raise ValueError("unknown sound pack")
         if self._profiles.current.pack_id == pack_id:
             fallback = self._packs.fallback_pack_id
