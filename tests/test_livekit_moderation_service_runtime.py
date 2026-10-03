@@ -157,8 +157,12 @@ class LiveKitModerationServiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
         values.update(overrides)
         return LiveKitModerationServiceRuntime(**values)
 
-    async def connect(self, runtime=None, *, token=TOKEN):
-        runtime = runtime or self.runtime()
+    async def connect(self, runtime=None, *, token=TOKEN, **runtime_overrides):
+        if runtime is not None and runtime_overrides:
+            raise AssertionError(
+                "runtime overrides require helper-owned runtime construction"
+            )
+        runtime = runtime or self.runtime(**runtime_overrides)
         await runtime.connect(service_token=token)
         return runtime
 
