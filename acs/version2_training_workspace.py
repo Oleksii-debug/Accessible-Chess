@@ -54,6 +54,7 @@ class Version2BookTrainingWorkspace:
         self._session: ExerciseSession | None = None
         self._store: TrainingProgressStore | None = None
         self._revision: str | None = None
+        self._persisted_snapshot: dict[str, object] | None = None
 
     @staticmethod
     def _exercise_filename(material: BookTrainingMaterial) -> str:
@@ -151,13 +152,22 @@ class Version2BookTrainingWorkspace:
         self.reader.block_snapshot(location.index)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
+        self._persisted_snapshot = None if revision is None else session.snapshot()
         return bridge
 
     def save(self) -> str:
         if self.material is None or self.bridge is None or self._store is None:
             raise RuntimeError("no Training exercise is active")
+        snapshot = self.session.snapshot()
+        if (
+            self._revision is not None
+            and self._persisted_snapshot is not None
+            and snapshot == self._persisted_snapshot
+        ):
+            return self._revision
         revision = self._store.save(self.session, expected_revision=self._revision)
         self._revision = revision
+        self._persisted_snapshot = snapshot
         return revision
 
     def _next_exercise_material(self) -> tuple[int, BookTrainingMaterial]:
@@ -228,6 +238,7 @@ class Version2BookTrainingWorkspace:
         self.reader.go_to(next_index)
         self.material, self._session, self.bridge = material, session, bridge
         self._store, self._revision = store, revision
+        self._persisted_snapshot = None if revision is None else session.snapshot()
         return bridge.projection.retry()
 
     def dispatch(
@@ -261,6 +272,7 @@ class Version2BookTrainingWorkspace:
         revision = self._revision
         before_session = self._session
         before_store = self._store
+        before_persisted_snapshot = self._persisted_snapshot
         before_reader_index = self.reader.index
         before_language = bridge.projection.language
         before_message = bridge.projection.presenter_message
@@ -278,6 +290,7 @@ class Version2BookTrainingWorkspace:
             self.bridge = bridge
             self._store = before_store
             self._revision = revision
+            self._persisted_snapshot = before_persisted_snapshot
             self.language = before_language
 
         try:
