@@ -28,6 +28,7 @@ jobs:
     env:
       EXACT_PARENT: c3267ed9fc29c474a7fe20ff2bdbc5715d8e9a54
       FOCUS_SOURCE_HEAD: 021ecc49fbfe1bab65053d0a4bf2aec6883cce5e
+      LEGACY_CORE_SOURCE_HEAD: 655574cbc621de33ae5ba58bc178f974198019ed
       WEB_BLOB: 005199d5ed736fc4a8e328e77045e0a1e43e2300
       DOM_TEST_BLOB: 5635c605c52f1eca40eaae7bc7b3eca23c58ad94
       ASSET_TEST_BLOB: 4b2aaed73cd7c8ceae289318501144fa13c51d34
@@ -53,6 +54,7 @@ jobs:
           git merge-base --is-ancestor "$EXACT_PARENT" HEAD
           test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
           git merge-base --is-ancestor "$FOCUS_SOURCE_HEAD" HEAD
+          git merge-base --is-ancestor "$LEGACY_CORE_SOURCE_HEAD" HEAD
           test "$(git rev-parse "HEAD:web/full_product_books_training.js")" = "$WEB_BLOB"
           test "$(git rev-parse "HEAD:tests/js/books_training_surface_dom_test.js")" = "$DOM_TEST_BLOB"
           test "$(git rev-parse "HEAD:tests/test_dev1_books_training_web_asset.py")" = "$ASSET_TEST_BLOB"
