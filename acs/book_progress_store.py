@@ -760,9 +760,9 @@ class BookProgressStore:
         # exclusive creator to finish writing the canonical marker, then reopen
         # it through the same private-inode validation used for pre-existing
         # locks. A noncanonical raced-in file still fails closed unchanged.
-        raced_creator = False
         descriptor = -1
         existing: os.stat_result | None = None
+        initializing_identity: os.stat_result | None = None
         # An O_EXCL creator exposes an empty inode briefly before its one-byte
         # marker is durable. Another process may first observe that inode after
         # creation, without itself seeing FileExistsError. Wait only for the
@@ -779,7 +779,17 @@ class BookProgressStore:
                 ) from None
             if existing is not None:
                 self._require_private_lock_metadata(existing)
+                if (
+                    initializing_identity is not None
+                    and not self._same_file_identity(initializing_identity, existing)
+                ):
+                    raise BookProgressStoreError(
+                        "book progress storage lock changed while being initialized",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
                 if existing.st_size == 0:
+                    if initializing_identity is None:
+                        initializing_identity = existing
                     if attempt == 249:
                         raise BookProgressStoreError(
                             "book progress storage lock was not initialized by its creator",
@@ -800,7 +810,6 @@ class BookProgressStore:
                 descriptor = os.open(self._lock_path, flags, 0o600)
                 break
             except FileExistsError:
-                raced_creator = True
                 if attempt == 249:
                     raise BookProgressStoreError(
                         "book progress storage lock changed while being opened",
