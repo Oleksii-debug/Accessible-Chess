@@ -79,6 +79,8 @@ class ChatMessageMetadata:
             raise ValueError("message body must be non-empty text")
         if len(self.body) > MAX_CHAT_BODY_CHARS or "\x00" in self.body:
             raise ValueError("message body exceeds safety boundary")
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in self.body):
+            raise ValueError("message body contains invalid Unicode surrogate")
         if self.retention not in {"transient", "session", "persistent"}:
             raise ValueError("unsupported retention policy")
         if type(self.hidden) is not bool:
