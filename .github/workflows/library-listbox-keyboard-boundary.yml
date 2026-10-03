@@ -1,0 +1,67 @@
+name: Library Listbox Keyboard Boundary
+
+on:
+  pull_request:
+    branches:
+      - 'fix/library-webview-limit-input-bound-20261003'
+    paths:
+      - 'web/full_product_library.js'
+      - 'tests/js/library_keyboard_boundary_dom_test.js'
+      - '.github/workflows/library-listbox-keyboard-boundary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-listbox-keyboard-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  keyboard-boundary:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          parent_branch='fix/library-webview-limit-input-bound-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+
+          live_ref="refs/remotes/origin/$parent_branch"
+          git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+          live_parent="$(git rev-parse "$live_ref")"
+          event_base='${{ github.event.pull_request.base.sha }}'
+          test -n "$event_base"
+          git cat-file -e "$event_base^{commit}"
+          git merge-base --is-ancestor "$event_base" "$live_parent"
+          git merge-base --is-ancestor "$live_parent" HEAD
+          test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+          changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/library-listbox-keyboard-boundary.yml' \
+            'tests/js/library_keyboard_boundary_dom_test.js' \
+            'web/full_product_library.js' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "3cf8da8c0f8f5dfc64e64b3594f72f0d2230a3bc"
+          test "$(git rev-parse HEAD:tests/js/library_keyboard_boundary_dom_test.js)" = "f41f371487bf6000028e7c45b9b8b7dc775ec355"
+          git diff --check "$live_parent" HEAD
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+
+      - name: Prove executable Library listbox keyboard boundary behavior
+        run: node tests/js/library_keyboard_boundary_dom_test.js
+
+      - name: Prove retained partial-import DOM behavior
+        run: node tests/js/library_surface_dom_test.js
