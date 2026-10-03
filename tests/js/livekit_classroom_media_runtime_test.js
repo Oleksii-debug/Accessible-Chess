@@ -1269,7 +1269,9 @@ async function testCleanupRetrySurvivesTemporarySnapshotFailure() {
         this.failDisconnectOnce = false;
         throw new Error("provider cleanup failed");
       }
-      this.snapshotUnavailable = false;
+      // Return the exact teardown result while leaving the independent
+      // snapshot() accessor unavailable. Runtime cleanup must consume this
+      // completion proof directly instead of requiring a second provider read.
       this._snapshot = {
         connected: false,
         cleanup_required: false,
@@ -1279,7 +1281,7 @@ async function testCleanupRetrySurvivesTemporarySnapshotFailure() {
         camera_enabled: false,
         screen_share_enabled: false
       };
-      return this.snapshot();
+      return Object.assign({}, this._snapshot);
     }
   }
 
