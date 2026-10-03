@@ -38,7 +38,7 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml"
         ).read_text(encoding="utf-8")
 
-    def test_pull_request_identity_authenticates_exact_event_merge(self) -> None:
+    def test_pull_request_identity_authenticates_refreshed_live_merge(self) -> None:
         workflow = self.workflow
         self.assertIn("EVENT_BASE_REF:", workflow)
         self.assertIn("EVENT_BASE_SHA:", workflow)
@@ -66,17 +66,19 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             'live_target="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"',
             workflow,
         )
-        self.assertIn('test "$EVENT_BASE_SHA" = "$live_target"', workflow)
         self.assertIn(
-            'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$EVENT_HEAD_SHA"',
-            workflow,
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_target"', workflow
         )
         self.assertIn(
-            'test "$(git merge-base "$EVENT_BASE_SHA" "$EVENT_HEAD_SHA")" = "$EVENT_BASE_SHA"',
+            'test "$(git merge-base "$EVENT_BASE_SHA" "$live_target")" = "$EVENT_BASE_SHA"',
             workflow,
         )
+        self.assertNotIn('test "$EVENT_BASE_SHA" = "$live_target"', workflow)
         self.assertIn('git show -s --format=%P HEAD', workflow)
-        self.assertIn('test "$parents" = "$EVENT_BASE_SHA $EVENT_HEAD_SHA"', workflow)
+        self.assertIn('test "$parents" = "$live_target $EVENT_HEAD_SHA"', workflow)
+        self.assertIn('git diff --check "$live_target..$CHECKED_SHA"', workflow)
+        self.assertIn("P0_TRIAD_EVENT_BASE=$EVENT_BASE_SHA", workflow)
+        self.assertIn("P0_TRIAD_TARGET_BASE=$live_target", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
@@ -97,13 +99,13 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn('git diff --check "$diff_base..$EVENT_HEAD_SHA"', workflow)
         self.assertNotIn('git diff --check "$EVENT_BASE_SHA..$EVENT_HEAD_SHA"', workflow)
 
-    def test_non_product_pr_is_rooted_in_exact_live_target_not_product(self) -> None:
+    def test_non_product_pr_is_rooted_in_live_target_not_stale_event_base(self) -> None:
         workflow = self.workflow
         product_case = workflow.index('if test "$EVENT_HEAD_REF" = "$PRODUCT_BRANCH"; then')
         non_product_case = workflow.index("          else\n", product_case)
         self.assertLess(product_case, non_product_case)
-        self.assertIn('test "$EVENT_BASE_SHA" = "$live_target"', workflow)
-        self.assertIn('diff_base="$EVENT_BASE_SHA"', workflow)
+        self.assertIn('diff_base="$live_target"', workflow)
+        self.assertIn('git diff --check "$live_target..$CHECKED_SHA"', workflow)
         self.assertNotIn(
             'git merge-base --is-ancestor "$live_product" "$EVENT_BASE_SHA"', workflow
         )
@@ -111,6 +113,8 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"', workflow
         )
         self.assertIn("may itself be a canonical lineage that legitimately diverged", workflow)
+        self.assertIn("monotonic target advance", workflow)
+        self.assertIn("rewind/divergence remains fail-closed", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
