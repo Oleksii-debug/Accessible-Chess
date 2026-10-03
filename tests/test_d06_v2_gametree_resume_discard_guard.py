@@ -300,6 +300,27 @@ class D06GameTreeResumeDiscardGuardTests(unittest.TestCase):
         self.assertEqual(self.resume_path.read_bytes(), newer_bytes)
         self.assertFalse(self.guard_dir.exists())
 
+    def test_reservation_marker_survives_forced_short_writes_exactly(self) -> None:
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+        self.guard_dir.mkdir()
+        guard = self.guard_dir / f"{'a' * 64}.guard"
+        original_write = resume_module.os.write
+
+        def short_write(descriptor: int, payload: bytes) -> int:
+            return original_write(descriptor, payload[:3])
+
+        with mock.patch.object(
+            resume_module.os,
+            "write",
+            side_effect=short_write,
+        ):
+            coordinator._reserve_discard_guard_locked(guard)
+
+        self.assertEqual(
+            guard.read_bytes(),
+            resume_module._DISCARD_GUARD_RESERVATION,
+        )
+
     def test_crash_left_reservation_marker_is_removed_only_with_canonical_state(self) -> None:
         state = GameTreeResumeStore(self.resume_path).save(
             self.game,
