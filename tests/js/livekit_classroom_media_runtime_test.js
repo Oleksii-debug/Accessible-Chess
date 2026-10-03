@@ -1057,6 +1057,81 @@ async function testProviderRebindRejectsResidualDisconnectedState() {
   }
 }
 
+async function testProviderRebindUnknownPriorStateSchedulesTeardown() {
+  RecordingAdapter.instances.length = 0;
+
+  class SnapshotFaultAdapter extends RecordingAdapter {
+    snapshot() {
+      if (this.failSnapshot === true) {
+        throw new Error("prior provider state unavailable");
+      }
+      return super.snapshot();
+    }
+  }
+
+  const runtime = loadRuntime(SnapshotFaultAdapter);
+  const firstTx = "host-" + "3".repeat(32);
+  const secondTx = "host-" + "4".repeat(32);
+  let configCalls = 0;
+  const retired = [];
+  let transportCalls = 0;
+
+  const invoke = async (command, payload) => {
+    if (command === "media.provider_config") {
+      configCalls += 1;
+      return configCalls === 1
+        ? configResult("wss://media-a.example.test", "moderation-a")
+        : configResult("wss://media-b.example.test", "moderation-b");
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: payload.transaction_id } };
+    }
+    if (command === "media.provider_effect_success") {
+      return { kind: "media-updated", payload: { snapshot: {} } };
+    }
+    if (command === "media.provider_not_started") {
+      retired.push(payload.transaction_id);
+      return { kind: "error", payload: { message: "retired" } };
+    }
+    if (command === "media.provider_transport_lost") {
+      transportCalls += 1;
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return { kind: "media-updated", payload: {} };
+    }
+    throw new Error("unexpected command " + command);
+  };
+
+  assert.equal((await runtime.execute(dispatch(firstTx, {
+    transaction_id: firstTx,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: false
+  }, false), invoke)).kind, "media-updated");
+
+  const prior = RecordingAdapter.instances[0];
+  prior.failSnapshot = true;
+  const rejected = await runtime.execute(dispatch(secondTx, {
+    transaction_id: secondTx,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: false
+  }, false), invoke);
+
+  assert.equal(rejected.kind, "error");
+  assert.deepEqual(retired, [secondTx]);
+  assert.equal(RecordingAdapter.instances.length, 1);
+  assert.equal(runtime._cleanupRetryPending, true);
+
+  // Teardown result itself is authoritative for provider cleanup; no second
+  // snapshot read is required from the previously-faulting accessor.
+  prior.failSnapshot = false;
+  const reconciled = await runtime.reconcileTransport(invoke);
+  assert.equal(reconciled.kind, "media-updated");
+  assert.equal(transportCalls, 1);
+  assert.equal(runtime._cleanupRetryPending, false);
+  assert.equal(RecordingAdapter.instances.length, 1);
+}
+
 async function testProviderRebindCannotRetargetConnectedAdapter() {
   RecordingAdapter.instances.length = 0;
   const runtime = loadRuntime(RecordingAdapter);
@@ -1065,6 +1140,7 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
   let configCalls = 0;
   const retired = [];
   const providerDispatches = [];
+  let transportLosses = 0;
 
   async function invoke(command, payload) {
     if (command === "media.provider_config") {
@@ -1100,6 +1176,11 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
       retired.push(payload.transaction_id);
       return { kind: "error", payload: { message: "sanitized" } };
     }
+    if (command === "media.provider_transport_lost") {
+      transportLosses += 1;
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+    }
     throw new Error("unexpected command " + command);
   }
 
@@ -1123,6 +1204,17 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
   assert.deepEqual(retired, [effectTx]);
   assert.deepEqual(providerDispatches, [sessionTx]);
   assert.equal(RecordingAdapter.instances.length, 1);
+  assert.equal(runtime._cleanupRetryPending, true);
+
+  const reconciled = await runtime.reconcileTransport(invoke);
+  assert.equal(reconciled.kind, "media-updated");
+  assert.equal(transportLosses, 1);
+  assert.equal(runtime._cleanupRetryPending, false);
+  assert.equal(isCleanSnapshot(RecordingAdapter.instances[0].snapshot()), true);
+  assert.equal(
+    RecordingAdapter.instances[0].calls.filter((item) => item[0] === "disconnect").length,
+    1
+  );
 }
 
 async function testFailedReconnectCleanupRetriesWhileTrustedRecoveryRemainsLatched() {
@@ -2103,6 +2195,7 @@ async function run() {
   await testMalformedConcurrentDispatchRetiresExactTransaction();
   await testCleanProviderRebindRefreshesConfiguration();
   await testProviderRebindRejectsResidualDisconnectedState();
+  await testProviderRebindUnknownPriorStateSchedulesTeardown();
   await testProviderRebindCannotRetargetConnectedAdapter();
   await testFailedReconnectCleanupRetriesWhileTrustedRecoveryRemainsLatched();
   await testCleanupRetrySurvivesTemporarySnapshotFailure();
