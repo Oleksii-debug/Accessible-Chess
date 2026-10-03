@@ -87,10 +87,6 @@ jobs:
           product_branch="$PRODUCT_BRANCH"
           git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
           product="$(git rev-parse "refs/remotes/origin/$product_branch")"
-          git merge-base --is-ancestor "$product" HEAD
-          test "$(git merge-base "$product" HEAD)" = "$product"
-          git diff --check "$product" HEAD
-
           current_books_recovery=false
           books_base=''
           if [ "${{ github.event_name }}" = "pull_request" ] && [ "$PR_BASE_REF" = "$BOOKS_BRANCH" ]; then
@@ -115,9 +111,17 @@ jobs:
               test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "4e3a96e1d2f64b8d79121ca2780dd8d260440491"
               test "$(git rev-parse HEAD:acs/version2_application.py)" = "da0ebdc4fbf30c7963270a4c35f660a4044e9312"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "0f7a06cdefe999ed98f16eeac894046366096b9e"
-              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "0c14b372cd2c75818c7a754825a835869855abcc"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "9705793acb3ee458e01482e9aab5d46c9a8b4844"
               current_books_recovery=true
             fi
+          fi
+
+          if [ "$current_books_recovery" = true ]; then
+            git diff --check "$books_base" HEAD
+          else
+            git merge-base --is-ancestor "$product" HEAD
+            test "$(git merge-base "$product" HEAD)" = "$product"
+            git diff --check "$product" HEAD
           fi
 
           # This gate is inherited by Product descendants that legitimately touch
@@ -145,11 +149,11 @@ jobs:
             test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
             test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "a63fdb0875e5409e19037c9cf7cc41d7bd780f06"
-            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "c28946d25c39294ebd12c50221ecea66d89dd8fb"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "fefe8f9b6ce9473f68c221b5e6842f914fcc8f10"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "4e3a96e1d2f64b8d79121ca2780dd8d260440491"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "da0ebdc4fbf30c7963270a4c35f660a4044e9312"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "0f7a06cdefe999ed98f16eeac894046366096b9e"
-            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "0c14b372cd2c75818c7a754825a835869855abcc"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "9705793acb3ee458e01482e9aab5d46c9a8b4844"
             orphan_backup_successor=true
           fi
 
