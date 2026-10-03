@@ -150,4 +150,98 @@ window.AccessibleChessLibrarySurface.apply(
 check(root.replaceChildrenCalls === wholeRenders, "second progress replaced the whole Library surface");
 check(document.activeElement === root.querySelector("#library-import-cancel"), "cancel focus was not restored");
 
+const stableRegion = root.querySelector("#library-import-region");
+const stableFocus = document.activeElement;
+
+let announcementCoercionTouched = false;
+let invalidAnnouncementRejected = false;
+try {
+  window.AccessibleChessLibrarySurface.apply(
+    root,
+    {
+      kind: "render-import",
+      payload: {
+        import: importState("running", 3),
+        focus_target: "",
+        announcement: {
+          toString() {
+            announcementCoercionTouched = true;
+            return "hostile";
+          }
+        }
+      }
+    },
+    invoke,
+    announce
+  );
+} catch (error) {
+  invalidAnnouncementRejected = error instanceof TypeError;
+}
+check(invalidAnnouncementRejected, "hostile Library import announcement was accepted");
+check(!announcementCoercionTouched, "hostile Library import announcement reached String coercion");
+check(
+  root.querySelector("#library-import-region") === stableRegion,
+  "invalid announcement partially replaced the import region"
+);
+check(document.activeElement === stableFocus, "invalid announcement moved Library focus");
+
+const malformedActionState = importState("running", 3);
+malformedActionState.actions = malformedActionState.actions.map((action) => ({ ...action }));
+malformedActionState.actions[0].dom_id = "library-import-attacker";
+let malformedActionRejected = false;
+try {
+  window.AccessibleChessLibrarySurface.apply(
+    root,
+    {
+      kind: "render-import",
+      payload: {
+        import: malformedActionState,
+        focus_target: "",
+        announcement: ""
+      }
+    },
+    invoke,
+    announce
+  );
+} catch (error) {
+  malformedActionRejected = error instanceof TypeError;
+}
+check(malformedActionRejected, "malformed Library import action identity was accepted");
+check(
+  root.querySelector("#library-import-region") === stableRegion,
+  "malformed action partially replaced the import region"
+);
+check(
+  root.querySelector("#library-import-attacker") === null,
+  "malformed action published an attacker-controlled DOM id"
+);
+check(document.activeElement === stableFocus, "malformed action moved Library focus");
+
+const oversizedState = importState("running", 3);
+oversizedState.progress_label = "x".repeat(501);
+let oversizedRejected = false;
+try {
+  window.AccessibleChessLibrarySurface.apply(
+    root,
+    {
+      kind: "render-import",
+      payload: {
+        import: oversizedState,
+        focus_target: "library-import-file",
+        announcement: ""
+      }
+    },
+    invoke,
+    announce
+  );
+} catch (error) {
+  oversizedRejected = error instanceof TypeError;
+}
+check(oversizedRejected, "oversized Library import text was accepted");
+check(
+  root.querySelector("#library-import-region") === stableRegion,
+  "oversized import text partially replaced the import region"
+);
+check(document.activeElement === stableFocus, "oversized import text moved Library focus");
+
 console.log("Library partial progress DOM contract PASS");
