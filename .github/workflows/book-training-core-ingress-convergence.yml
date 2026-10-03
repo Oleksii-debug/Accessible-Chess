@@ -28,11 +28,12 @@ jobs:
     env:
       LIVE_BOOK_PARENT: 251ce76e5bc4f1f91336b8f93c5869a8fa6e7eb7
       COMPAT_TRAINING_PARENT: cfb7b352aa4248a3a4f45d7340b6a9a9d1a1d424
+      SESSION_AUTHORITY_HISTORY_PARENT: cf69f13cf4f7fa774ece00a25112146bc8adb71d
       PRIOR_CONVERGENCE_PARENT: 59865d5a4ab5594237ba0ccb701325a0664527b6
-      BOOK_TRAINING_BLOB: 072499b01ac3eafe02289360c380d030e8272a8e
+      BOOK_TRAINING_BLOB: 421ac6144651eca0a16f6edeee73646ca89f2d94
       TRAINING_BLOB: 345d6ea6e71ca76b83618f1fe845cfc51a62cc95
       BOOK_CONTRACT_BLOB: a1b693a8eecb16a990e140ad0a229ecfaf9643b3
-      TRAINING_TEST_BLOB: 6f24e2297988336f779347b2827d9dbddd217d27
+      TRAINING_TEST_BLOB: 2ce307e1c3726b0b7dbfd559f041ca0f16f6828f
       CRASH_TEST_BLOB: a6fc5da0b38b107d956e8286adc2d1228aa05c89
       D01_WORKFLOW_BLOB: 6ca7820c166f735be2814ca0a1368277b38c9626
     steps:
@@ -51,6 +52,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$LIVE_BOOK_PARENT" HEAD
           git merge-base --is-ancestor "$COMPAT_TRAINING_PARENT" HEAD
+          git merge-base --is-ancestor "$SESSION_AUTHORITY_HISTORY_PARENT" HEAD
           git merge-base --is-ancestor "$PRIOR_CONVERGENCE_PARENT" HEAD
 
           test "$(git rev-parse "HEAD:acs/book_training.py")" = "$BOOK_TRAINING_BLOB"
