@@ -431,14 +431,39 @@
     if (block.has_position !== undefined && typeof block.has_position !== "boolean") {
       throw new TypeError("Book block position flag is invalid");
     }
+    const hasHeadingLevel =
+      block.heading_level !== undefined && block.heading_level !== null;
     if (
-      block.heading_level !== undefined &&
-      block.heading_level !== null &&
-      (!Number.isSafeInteger(block.heading_level) ||
-        block.heading_level < 1 ||
-        block.heading_level > 6)
+      (block.role === "heading" && !hasHeadingLevel) ||
+      (block.role !== "heading" && hasHeadingLevel) ||
+      (
+        hasHeadingLevel &&
+        (!Number.isSafeInteger(block.heading_level) ||
+          block.heading_level < 1 ||
+          block.heading_level > 6)
+      )
     ) {
-      throw new TypeError("Book heading level is invalid");
+      throw new TypeError("Book heading level is inconsistent with its role");
+    }
+
+    const hasSemanticTree =
+      block.semantic_tree !== undefined && block.semantic_tree !== null;
+    if (hasSemanticTree && block.role !== "group" && block.role !== "tree") {
+      throw new TypeError("Book semantic tree is inconsistent with its role");
+    }
+    if (block.role === "heading") {
+      requiredUiText(block.text || block.title || "", "Book heading content", MAX_BOOK_BLOCK_VISIBLE_CHARS);
+    } else if (block.role === "paragraph") {
+      requiredUiText(block.text || "", "Book paragraph content", MAX_BOOK_BLOCK_VISIBLE_CHARS);
+    } else if (block.role === "img") {
+      requiredUiText(block.text || block.title || "", "Book image description", MAX_BOOK_BLOCK_VISIBLE_CHARS);
+    } else if (block.role === "note") {
+      requiredUiText(block.text || block.title || "", "Book note content", MAX_BOOK_BLOCK_VISIBLE_CHARS);
+    } else if (
+      (block.role === "group" || block.role === "tree") &&
+      !hasSemanticTree
+    ) {
+      requiredUiText(block.text || block.title || "", "Book grouped content", MAX_BOOK_BLOCK_VISIBLE_CHARS);
     }
     if (!Array.isArray(block.heading_path)) {
       throw new TypeError("Book heading path must be an array");
@@ -796,7 +821,7 @@
     let previousDepth = 0;
 
     items.forEach(function (item, index) {
-      if (!item || typeof item !== "object") {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("book semantic item must be an object");
       }
       if (item.kind !== "move" && item.kind !== "variation") {
