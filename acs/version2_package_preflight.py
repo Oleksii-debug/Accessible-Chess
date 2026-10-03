@@ -1188,11 +1188,14 @@ def _validate_required_runtime_resources(
         try:
             with wave.open(str(sound_path), "rb") as reader:
                 if (
-                    reader.getsampwidth() != 2
+                    reader.getcomptype() != "NONE"
+                    or reader.getsampwidth() not in {1, 2}
                     or reader.getframerate() <= 0
                     or reader.getnframes() <= 0
                 ):
-                    _fail(f"packaged sound asset is not usable 16-bit PCM: {event.value}")
+                    _fail(
+                        f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
+                    )
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
