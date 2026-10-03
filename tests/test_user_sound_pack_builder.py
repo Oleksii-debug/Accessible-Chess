@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import wave
+import zipfile
 from unittest.mock import patch
 
 from scripts.build_user_sound_pack import (
@@ -19,6 +20,80 @@ from scripts.build_user_sound_pack import (
 
 
 class UserSoundPackBuilderTests(unittest.TestCase):
+    def test_zip_source_is_accepted_and_sha256_bound(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source"
+            sounds = source / "library"
+            required = {
+                Path(file_name.removeprefix("library/"))
+                for options in EVENT_VARIANTS.values()
+                for _variant_id, file_name, _uk, _en in options
+            }
+            required.update(
+                Path(file_name.removeprefix("library/"))
+                for by_variant in __import__(
+                    "scripts.build_user_sound_pack",
+                    fromlist=["SOUND_LAYERS"],
+                ).SOUND_LAYERS.values()
+                for sequence in by_variant.values()
+                for file_name in sequence
+            )
+            for relative in required:
+                self._write_wave(sounds / relative)
+            for index in range(330 - len(required)):
+                self._write_wave(sounds / "ArchiveExtra" / f"extra-{index:03d}.wav")
+
+            fingerprint_rows = []
+            for path in sorted(
+                (item for item in sounds.rglob("*") if item.is_file() and item.suffix.lower() == ".wav"),
+                key=lambda item: item.as_posix().casefold(),
+            ):
+                relative = path.relative_to(sounds).as_posix()
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                fingerprint_rows.append(f"{relative}\\0{digest}\\n".encode("utf-8"))
+            expected_inventory = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+
+            archive = root / "sounds.zip"
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as writer:
+                for path in sorted(item for item in source.rglob("*") if item.is_file()):
+                    writer.write(path, path.relative_to(source).as_posix())
+            archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+            destination = root / "pack"
+            with patch(
+                "scripts.build_user_sound_pack.EXPECTED_SOURCE_INVENTORY_SHA256",
+                expected_inventory,
+            ):
+                report = build_sound_pack(
+                    archive,
+                    destination,
+                    expected_source_archive_sha256=archive_sha,
+                )
+            self.assertEqual(report["file_count"], 330)
+            self.assertTrue((destination / "library" / "Board" / "NEWGAME.WAV").is_file())
+
+    def test_zip_source_rejects_wrong_sha256_before_extraction(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "sounds.zip"
+            with zipfile.ZipFile(archive, "w") as writer:
+                writer.writestr("library/Board/MOVE.WAV", b"not-used")
+            with self.assertRaisesRegex(Exception, "SHA-256 mismatch"):
+                build_sound_pack(
+                    archive,
+                    Path(td) / "pack",
+                    expected_source_archive_sha256="0" * 64,
+                )
+
+    def test_zip_source_rejects_path_traversal(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "sounds.zip"
+            with zipfile.ZipFile(archive, "w") as writer:
+                writer.writestr("../escape.wav", b"x")
+            with self.assertRaisesRegex(Exception, "unsafe ZIP member path"):
+                build_sound_pack(archive, Path(td) / "pack")
+            self.assertFalse((Path(td).parent / "escape.wav").exists())
+
     def test_legacy_procedural_sound_generator_cannot_return(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "acs" / "sound.py").read_text(encoding="utf-8")
