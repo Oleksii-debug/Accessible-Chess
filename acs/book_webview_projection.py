@@ -31,7 +31,10 @@ _BOOK_ROLE_BY_KIND = {
     "Position": "group",
     "Diagram": "img",
     "Game": "group",
-    "VariationTree": "tree",
+    # VariationTree is currently a read-only semantic text block. Do not expose
+    # an ARIA tree until the structured GameTree projection is present in this
+    # lineage; a one-item tree would imply keyboard/tree semantics that do not exist.
+    "VariationTree": "group",
     "Exercise": "group",
     "Note": "note",
 }

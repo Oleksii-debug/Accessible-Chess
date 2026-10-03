@@ -534,7 +534,10 @@ class BookReaderPresenter:
             title = block.title or _localized(self._language, "Партія", "Game")
             text = title
         elif isinstance(block, VariationTree):
-            role = "tree"
+            # Until the structured semantic GameTree projection is converged into
+            # this lineage, expose the flat summary as a read-only group rather
+            # than claiming an interactive ARIA tree contract.
+            role = "group"
             title = block.title or _localized(self._language, "Дерево варіантів", "Variation tree")
             text = title
         elif isinstance(block, Exercise):

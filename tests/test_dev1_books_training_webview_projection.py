@@ -4,7 +4,7 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph
+from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
 from acs.bookreader import BookReader
 from acs.book_webview_projection import BookWebViewProjection
 from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
@@ -62,6 +62,31 @@ class BookProjectionTests(unittest.TestCase):
         self.assertEqual("book-source.docx", diagram["block"]["source_anchor"])
         self.assertNotIn(FEN, repr(diagram))
         self.assertNotIn("Users", repr(diagram))
+
+    def test_variation_tree_is_read_only_group_until_structured_tree_projection_exists(self) -> None:
+        document = BookDocument(
+            title="Variation semantics",
+            blocks=[
+                VariationTree(
+                    root_fen=FEN,
+                    pgn='[Result "*"]\n\n1. e4 (1. d4) *',
+                    title="Candidate line",
+                    block_id="variation-1",
+                )
+            ],
+        )
+        presenter = BookReaderPresenter(BookReader(document), language=UILanguage.EN)
+        projection = BookWebViewProjection(
+            presenter,
+            lambda action_id, payload: None,
+            language=UILanguage.EN,
+        )
+
+        snapshot = projection.snapshot()
+        self.assertEqual("VariationTree", snapshot["block"]["kind"])
+        self.assertEqual("group", snapshot["block"]["role"])
+        self.assertTrue(snapshot["block"]["has_position"])
+        self.assertNotEqual("tree", snapshot["block"]["role"])
 
     def test_snapshot_rejects_semantic_contract_drift_before_browser_publication(self) -> None:
         block = self.presenter.current()

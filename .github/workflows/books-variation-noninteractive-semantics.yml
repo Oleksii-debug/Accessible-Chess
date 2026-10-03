@@ -1,0 +1,93 @@
+name: Books Variation Noninteractive Semantics
+
+on:
+  pull_request:
+    branches:
+      - 'fix/books-training-toolbar-keyboard-20261003'
+    paths:
+      - 'acs/book_webview_projection.py'
+      - 'acs/full_product_presenters.py'
+      - 'web/full_product_books_training.js'
+      - 'tests/test_dev1_books_training_webview_projection.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - '.github/workflows/books-variation-noninteractive-semantics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-variation-noninteractive-semantics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  variation-semantics:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          parent_branch='fix/books-training-toolbar-keyboard-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+            live_ref="refs/remotes/origin/$parent_branch"
+            git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+            live_parent="$(git rev-parse "$live_ref")"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_parent"
+            git merge-base --is-ancestor "$live_parent" HEAD
+            test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+            changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/books-variation-noninteractive-semantics.yml' \
+              'acs/book_webview_projection.py' \
+              'acs/full_product_presenters.py' \
+              'tests/js/books_training_surface_dom_test.js' \
+              'tests/test_dev1_books_training_webview_projection.py' \
+              'web/full_product_books_training.js' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_parent" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "9e8d81b2db35782b8ce610272c3d4d1081d1797f"
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "c9e2f6506ddaf161acdfd71522412c2542abbfa4"
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "22aaafd44b1006837c88f007ab10694e615c48d9"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "a0dda4f08bdc9980a8e837f7b9ee5dcbed10866b"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "28643d6acb759a5d3563cac714c0337596ede707"
+
+      - name: Validate DOM asset
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile and retain Books projection flow
+        run: |
+          python -m compileall -q acs/book_webview_projection.py acs/full_product_presenters.py tests/test_dev1_books_training_webview_projection.py
+          python -m unittest -v \
+            tests.test_dev1_books_training_webview_projection \
+            tests.test_version2_book_workspace
