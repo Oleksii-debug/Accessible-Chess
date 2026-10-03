@@ -392,6 +392,7 @@ class Settings:
             try:
                 created = os.fstat(fd)
                 _require_private_regular(created, "settings temporary file")
+                prepared = created
                 stream = os.fdopen(fd, "wb")
                 fd = -1
                 with stream as handle:
