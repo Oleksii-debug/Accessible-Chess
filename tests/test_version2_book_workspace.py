@@ -10,7 +10,7 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_board_workflow import BookBoardWorkflow
 from acs.book_progress_store import BookProgressStore
-from acs.bookdocument import BookDocument, Game, ListBlock, Paragraph, Position
+from acs.bookdocument import BookDocument, Game, ListBlock, Paragraph, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
@@ -38,6 +38,49 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         router = build_version2_router(build_version2_shell(), delegate)
         bridge = build_version2_book_webview(reader, workflow, router.dispatch)
         return reader, workflow, bridge, events
+
+    def test_game_and_variation_blocks_project_readable_semantic_move_trees(self):
+        cases = (
+            Game(
+                pgn='[Result "*"]\n\n1. e4 {C:\\private\\secret.txt} (1. d4 $1 d5) e5 *',
+                title="Annotated game",
+                block_id="game",
+            ),
+            VariationTree(
+                root_fen=Board.START,
+                pgn='[Result "*"]\n\n1. e4 {Main} (1. d4 $1 d5) e5 *',
+                title="Variation study",
+                block_id="variation",
+            ),
+        )
+        for semantic in cases:
+            with self.subTest(kind=type(semantic).__name__):
+                reader, workflow, bridge, _ = self.compose(
+                    BookDocument(title="Книга", blocks=[semantic])
+                )
+                progress_before = reader.snapshot()
+                snapshot = bridge.projection.snapshot()
+                tree = snapshot["block"].get("semantic_tree")
+
+                self.assertIsInstance(tree, dict)
+                self.assertEqual(tree["result"], "*")
+                self.assertGreaterEqual(len(tree["items"]), 5)
+                self.assertEqual(tree["items"][0]["kind"], "move")
+                self.assertEqual(tree["items"][0]["depth"], 0)
+                self.assertIn("e4", tree["items"][0]["label"])
+                self.assertEqual(tree["items"][1]["kind"], "variation")
+                self.assertEqual(tree["items"][1]["depth"], 1)
+                self.assertEqual(tree["items"][2]["depth"], 2)
+                self.assertIn("d4", tree["items"][2]["label"])
+                self.assertIn("$1", tree["items"][2]["label"])
+                self.assertEqual(tree["items"][-1]["depth"], 0)
+                serialized = json.dumps(tree, ensure_ascii=False)
+                self.assertNotIn("[Result", serialized)
+                self.assertNotIn("private", serialized.casefold())
+                self.assertNotIn("C:\\", serialized)
+                self.assertFalse(workflow.active)
+                self.assertEqual(workflow.revision, 0)
+                self.assertEqual(reader.snapshot(), progress_before)
 
     def test_game_open_move_and_exact_return_use_one_canonical_workflow(self):
         document = BookDocument(title="Книга", blocks=[

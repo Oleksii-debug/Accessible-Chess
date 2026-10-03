@@ -418,6 +418,69 @@ class BookBoardWorkflow:
             self._revision += 1
             return self._view_locked()
 
+    def semantic_game_snapshot(
+        self,
+        expected_index: int,
+    ) -> tuple[BookBoardMode, PgnGame, tuple[str, ...]]:
+        """Resolve current Game/Variation content without opening a Board session.
+
+        This is a read-only presentation seam. It reuses the exact same canonical
+        Book-to-GameTree resolution and legality gates as open_current while
+        leaving workflow revision, active-session state, and BookReader progress
+        untouched.
+        """
+
+        if type(expected_index) is not int or expected_index < 0:
+            raise self._error(
+                "book semantic index must be a non-negative exact integer",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        with self._lock:
+            try:
+                origin = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
+            if origin.index != expected_index:
+                raise self._error(
+                    "book reading location changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                )
+
+            candidate = self._build_session(
+                origin,
+                game_source=BookGameSource.AUTO,
+            )
+            if (
+                candidate.mode not in {BookBoardMode.GAME, BookBoardMode.VARIATION}
+                or candidate.game is None
+            ):
+                raise self._error(
+                    "current book block has no semantic game tree",
+                    BookBoardWorkflowCode.UNSUPPORTED_BLOCK,
+                )
+
+            try:
+                current = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
+            if current != origin:
+                raise self._error(
+                    "book reading location changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                )
+
+            return (
+                candidate.mode,
+                deepcopy(candidate.game),
+                tuple(candidate.warnings),
+            )
+
     def board_snapshot(self) -> Board:
         """Return a detached canonical Board for Board Explorer/query consumers."""
 

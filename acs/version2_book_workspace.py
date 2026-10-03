@@ -10,12 +10,33 @@ from typing import Any
 
 from .book_board_workflow import BookBoardWorkflow
 from .book_webview_bridge import BookWebViewBridge
-from .book_webview_projection import BookWebViewEvent, BookWebViewProjection
+from .book_webview_projection import (
+    BookWebViewEvent,
+    BookWebViewProjection,
+    _MAX_BOOK_BLOCK_VISIBLE_CHARS,
+    _safe_text,
+)
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader
-from .full_product_presenters import BookReaderPresenter
+from .full_product_presenters import BookReaderPresenter, PgnTreePresenter
 from .full_product_ui_shell import UILanguage
 from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
+
+
+_SEMANTIC_TREE_LABELS = {
+    UILanguage.UA: {
+        "moves": "Ходи та варіанти",
+        "result": "Результат",
+        "comments": "Коментарі",
+        "warnings": "Попередження відновлення",
+    },
+    UILanguage.EN: {
+        "moves": "Moves and variations",
+        "result": "Result",
+        "comments": "Comments",
+        "warnings": "Recovery warnings",
+    },
+}
 
 
 class Version2BookReaderPresenter(BookReaderPresenter):
@@ -37,12 +58,80 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         self._workflow = workflow
         super().__init__(Version2BookReaderPresenter(reader, language=language), dispatch, language=language)
 
+    def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
+        mode, game, workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        view = PgnTreePresenter((game,), language=self.language).view()
+        if view.game_index != 0:
+            raise ValueError("book semantic GameTree projection is unavailable")
+
+        visible_total = 0
+
+        def safe(value: object) -> str:
+            nonlocal visible_total
+            text = _safe_text(
+                value,
+                language=self.language,
+                limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
+            )
+            visible_total += len(text)
+            if visible_total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise ValueError("book semantic GameTree exceeds the visible-text budget")
+            return text
+
+        rendered_items: list[dict[str, object]] = []
+        previous_depth = 0
+        for position, item in enumerate(view.items):
+            if item.kind not in {"move", "variation"}:
+                raise ValueError("book semantic GameTree item kind is invalid")
+            if type(item.depth) is not int or item.depth < 0:
+                raise ValueError("book semantic GameTree depth is invalid")
+            if position == 0 and item.depth != 0:
+                raise ValueError("book semantic GameTree root depth is invalid")
+            if position > 0 and item.depth > previous_depth + 1:
+                raise ValueError("book semantic GameTree depth jumps unexpectedly")
+            label = safe(item.label)
+            if not label:
+                raise ValueError("book semantic GameTree item label is empty")
+            comments = tuple(
+                comment
+                for comment in (safe(raw) for raw in item.comments)
+                if comment
+            )
+            rendered_items.append(
+                {
+                    "kind": item.kind,
+                    "depth": item.depth,
+                    "label": label,
+                    "comments": comments,
+                }
+            )
+            previous_depth = item.depth
+
+        labels = _SEMANTIC_TREE_LABELS[self.language]
+        warnings = tuple(
+            warning
+            for warning in (safe(raw) for raw in workflow_warnings)
+            if warning
+        )
+        return {
+            "kind": mode.value,
+            "label": labels["moves"],
+            "result_label": labels["result"],
+            "result": safe(view.result),
+            "comments_label": labels["comments"],
+            "warnings_label": labels["warnings"],
+            "warnings": warnings,
+            "items": tuple(rendered_items),
+        }
+
     def _snapshot_from_block(self, block):
         snapshot = super()._snapshot_from_block(block)
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
         semantic = self._reader.block_snapshot(block.index)
         can_open = isinstance(semantic, (Position, Diagram, Exercise, Game, VariationTree))
+        if isinstance(semantic, (Game, VariationTree)):
+            snapshot["block"]["semantic_tree"] = self._semantic_tree_snapshot(block.index)
         actions = []
         for original in snapshot["actions"]:
             action = dict(original)

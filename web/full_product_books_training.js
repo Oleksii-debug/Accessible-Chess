@@ -37,10 +37,87 @@
     });
   }
 
+  function renderBookSemanticTree(container, block) {
+    const semantic = block.semantic_tree;
+    if (!semantic || typeof semantic !== "object") {
+      throw new TypeError("book semantic tree must be an object");
+    }
+
+    if (semantic.result) {
+      container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + String(semantic.result)));
+    }
+
+    const heading = node("h4", semantic.label || "");
+    heading.id = String(block.dom_id || "") + "-semantic-heading";
+    container.appendChild(heading);
+
+    const items = Array.isArray(semantic.items) ? semantic.items : [];
+    const rootList = node("ol");
+    rootList.setAttribute("aria-labelledby", heading.id);
+    container.appendChild(rootList);
+
+    const lists = [rootList];
+    const lastItems = [];
+    let previousDepth = 0;
+
+    items.forEach(function (item, index) {
+      if (!item || typeof item !== "object") {
+        throw new TypeError("book semantic item must be an object");
+      }
+      const depth = Number(item.depth);
+      if (!Number.isSafeInteger(depth) || depth < 0) {
+        throw new TypeError("book semantic item depth is invalid");
+      }
+      if ((index === 0 && depth !== 0) || (index > 0 && depth > previousDepth + 1)) {
+        throw new TypeError("book semantic item depth is not contiguous");
+      }
+      while (lists.length > depth + 1) lists.pop();
+      while (lists.length < depth + 1) {
+        const parent = lastItems[lists.length - 1];
+        if (!parent) throw new TypeError("book semantic nesting has no parent");
+        const nested = node("ol");
+        parent.appendChild(nested);
+        lists.push(nested);
+      }
+
+      const listItem = node("li");
+      listItem.appendChild(node("span", item.label || ""));
+      const comments = Array.isArray(item.comments) ? item.comments : [];
+      if (comments.length) {
+        const commentList = node("ul");
+        commentList.setAttribute("aria-label", semantic.comments_label || "");
+        comments.forEach(function (comment) {
+          commentList.appendChild(node("li", comment));
+        });
+        listItem.appendChild(commentList);
+      }
+      lists[depth].appendChild(listItem);
+      lastItems[depth] = listItem;
+      lastItems.length = depth + 1;
+      previousDepth = depth;
+    });
+
+    const warnings = Array.isArray(semantic.warnings) ? semantic.warnings : [];
+    if (warnings.length) {
+      const warningsHeading = node("h4", semantic.warnings_label || "");
+      const warningsList = node("ul");
+      warnings.forEach(function (warning) {
+        warningsList.appendChild(node("li", warning));
+      });
+      container.appendChild(warningsHeading);
+      container.appendChild(warningsList);
+    }
+  }
+
   function renderBookBlock(host, block) {
     const role = String(block.role || "group");
     let content;
-    if (block.list && Array.isArray(block.list.items)) {
+    if (block.semantic_tree && typeof block.semantic_tree === "object") {
+      content = node("section");
+      content.setAttribute("role", "group");
+      if (block.title) content.appendChild(node("h3", block.title));
+      renderBookSemanticTree(content, block);
+    } else if (block.list && Array.isArray(block.list.items)) {
       content = node(block.list.ordered ? "ol" : "ul");
       if (block.list.ordered && Number.isSafeInteger(block.list.start) && block.list.start > 0) {
         content.setAttribute("start", String(block.list.start));

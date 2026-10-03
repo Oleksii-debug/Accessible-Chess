@@ -149,6 +149,29 @@ function bookSnapshot(index, text) {
   };
 }
 
+function semanticGameSnapshot() {
+  const snapshot = bookSnapshot(5, "Game");
+  snapshot.block.role = "group";
+  snapshot.block.title = "Annotated game";
+  snapshot.block.semantic_tree = {
+    kind: "game",
+    label: "Moves and variations",
+    result_label: "Result",
+    result: "*",
+    comments_label: "Comments",
+    warnings_label: "Recovery warnings",
+    warnings: ["Recovered safely"],
+    items: [
+      { kind: "move", depth: 0, label: "1. e4", comments: ["Main <comment>"] },
+      { kind: "variation", depth: 1, label: "Variation 1", comments: [] },
+      { kind: "move", depth: 2, label: "1. d4 $1", comments: ["<img onerror=bad()>"] },
+      { kind: "move", depth: 2, label: "d5", comments: [] },
+      { kind: "move", depth: 0, label: "e5", comments: [] }
+    ]
+  };
+  return snapshot;
+}
+
 function withStarterMaterials(snapshot, currentId) {
   snapshot.starter_materials = {
     heading: "Offline starter materials",
@@ -323,6 +346,44 @@ async function run() {
   check(list.children.length === 2 && list.children.every((item) => item.tagName === "LI"), "list item semantics lost");
   check(list.children[1].textContent === "<img onerror=bad()>", "list content must remain literal text");
   check(document.activeElement === list, "list reading focus lost");
+
+  const semanticSnapshot = semanticGameSnapshot();
+  window.AccessibleChessBookSurface.render(
+    bookRoot,
+    semanticSnapshot,
+    bookInvoke,
+    announce,
+    "book-block-5",
+    "Action failed"
+  );
+  const semanticBlock = bookRoot.querySelector("#book-block-5");
+  check(semanticBlock !== null && semanticBlock.tagName === "SECTION",
+    "semantic Game block must use a native reading section");
+  check(find(semanticBlock, "H3", "Annotated game") !== null,
+    "semantic Game title is missing");
+  check(find(semanticBlock, "H4", "Moves and variations") !== null,
+    "semantic move heading is missing");
+  check(find(semanticBlock, "SPAN", "1. e4") !== null,
+    "main-line move is not visible text");
+  check(find(semanticBlock, "SPAN", "1. d4 $1") !== null,
+    "variation move/NAG is not visible text");
+  const rootMoves = find(semanticBlock, "OL");
+  check(rootMoves !== null && rootMoves.children.length === 2,
+    "main-line move order/list semantics are wrong");
+  const branch = find(rootMoves.children[0], "OL");
+  check(branch !== null && branch.children.length === 1,
+    "variation branch is not nested below its parent move");
+  const branchMoves = find(branch.children[0], "OL");
+  check(branchMoves !== null && branchMoves.children.length === 2,
+    "variation moves are not nested in authored order");
+  check(find(semanticBlock, "LI", "<img onerror=bad()>") !== null,
+    "semantic comment must remain literal selectable text");
+  check(semanticBlock.descendants().every((item) => item.tagName !== "IMG"),
+    "semantic comment text must never become executable markup");
+  check(find(semanticBlock, "LI", "Recovered safely") !== null,
+    "canonical recovery warning is not visible");
+  check(document.activeElement === semanticBlock,
+    "semantic Game reading focus was not restored");
 
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {
