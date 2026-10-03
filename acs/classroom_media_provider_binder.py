@@ -115,31 +115,16 @@ class ClassroomMediaProviderBinder:
 
         if owner is MediaProviderExecutionOwner.EFFECT:
             if not isinstance(effect, MediaProviderEffect):
-                self._host.provider_not_started(effect.transaction_id)
                 self._arbiter.release_without_provider(lease.lease_id)
                 raise MediaProviderExecutionError(
                     "effect coordinator returned an invalid provider effect"
                 )
-            pending = self._host.pending_effect
         else:
             if not isinstance(effect, MediaSessionProviderEffect):
-                self._sessions.provider_not_started(effect.transaction_id)
                 self._arbiter.release_without_provider(lease.lease_id)
                 raise MediaProviderExecutionError(
                     "session coordinator returned an invalid provider effect"
                 )
-            pending = self._sessions.pending_effect
-
-        if pending is None or pending.transaction_id != effect.transaction_id:
-            # The coordinator published no stable pending transaction. Avoid
-            # releasing its own gate blindly; retain global fail-closed state.
-            self._arbiter.require_recovery(
-                lease.lease_id,
-                provider_outcome_unknown=False,
-            )
-            raise MediaProviderExecutionError(
-                "media coordinator pending transaction does not match prepared effect"
-            )
 
         try:
             bound = self._arbiter.bind_transaction(
@@ -155,6 +140,23 @@ class ClassroomMediaProviderBinder:
                 self._sessions.provider_not_started(effect.transaction_id)
             self._arbiter.release_without_provider(lease.lease_id)
             raise
+
+        pending = (
+            self._host.pending_effect
+            if owner is MediaProviderExecutionOwner.EFFECT
+            else self._sessions.pending_effect
+        )
+        if pending is None or pending.transaction_id != effect.transaction_id:
+            # The coordinator published no stable pending transaction after the
+            # exact id was bound. Keep the global lease fail-closed in known
+            # recovery rather than accidentally allowing a second provider call.
+            self._arbiter.require_recovery(
+                lease.lease_id,
+                provider_outcome_unknown=False,
+            )
+            raise MediaProviderExecutionError(
+                "media coordinator pending transaction does not match prepared effect"
+            )
 
         self._session_credential_handed_off = False
         return bound
