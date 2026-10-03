@@ -9,11 +9,11 @@ from typing import Mapping
 from .chesscore import Board, Move
 
 
-TRAINING_SNAPSHOT_SCHEMA_VERSION = 3
+TRAINING_SNAPSHOT_SCHEMA_VERSION = 4
 _MAX_EXERCISE_STEPS = 2048
 _MAX_ACCEPTED_MOVES_PER_STEP = 64
 _MAX_MOVE_TEXT = 64
-_TRAINING_SNAPSHOT_V3_FIELDS = frozenset(
+_TRAINING_SNAPSHOT_V4_FIELDS = frozenset(
     {
         "schema_version",
         "exercise_id",
@@ -27,6 +27,7 @@ _TRAINING_SNAPSHOT_V3_FIELDS = frozenset(
         "status",
     }
 )
+_TRAINING_SNAPSHOT_V3_FIELDS = _TRAINING_SNAPSHOT_V4_FIELDS
 _TRAINING_SNAPSHOT_V2_FIELDS = frozenset(
     {
         "schema_version",
@@ -289,7 +290,7 @@ class ExerciseSession:
         self._status = ExerciseStatus.READY
 
     def snapshot(self) -> dict[str, object]:
-        """Return strict schema-v3 progress with deterministic chess identity."""
+        """Return strict schema-v4 progress bound to the full exercise definition."""
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
             "exercise_id": self.definition.exercise_id,
@@ -309,12 +310,14 @@ class ExerciseSession:
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
-        """Restore schema-v3, or migrate unambiguous schema-v2 progress.
+        """Restore schema-v4 progress or migrate legacy schema-v3/v2 state.
 
-        Schema v2 lacked the accepted move path/FEN. It is migrated only when
-        every already-completed step resolves to one unique canonical move from
-        the reconstructed position. Distinct alternatives fail closed instead
-        of guessing which position the learner actually reached.
+        Schema v4 binds persistence to the complete authored definition, not
+        only to chess move semantics. Schema v3/v2 snapshots remain readable
+        with their historical semantic digest so existing progress is not
+        discarded; any subsequent :meth:`snapshot` upgrades the session to v4.
+        Schema v2 lacked the accepted move path/FEN and is migrated only when
+        every already-completed step resolves to one unique canonical move.
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
@@ -323,6 +326,8 @@ class ExerciseSession:
         schema_version = snapshot["schema_version"]
         if type(schema_version) is not int:
             raise TypeError("exercise snapshot schema_version must be an integer")
+        if schema_version == 4:
+            return cls._restore_v4(definition, snapshot)
         if schema_version == 3:
             return cls._restore_v3(definition, snapshot)
         if schema_version == 2:
@@ -330,13 +335,46 @@ class ExerciseSession:
         raise ValueError(f"unsupported exercise snapshot schema_version: {schema_version}")
 
     @classmethod
+    def _restore_v4(
+        cls,
+        definition: ExerciseDefinition,
+        snapshot: Mapping[str, object],
+    ) -> "ExerciseSession":
+        return cls._restore_path_snapshot(
+            definition,
+            snapshot,
+            expected_fields=_TRAINING_SNAPSHOT_V4_FIELDS,
+            expected_definition_digest=_definition_digest(definition),
+        )
+
+    @classmethod
     def _restore_v3(
         cls,
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
-        _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V3_FIELDS)
-        common = _restore_common(definition, snapshot)
+        return cls._restore_path_snapshot(
+            definition,
+            snapshot,
+            expected_fields=_TRAINING_SNAPSHOT_V3_FIELDS,
+            expected_definition_digest=_legacy_definition_digest(definition),
+        )
+
+    @classmethod
+    def _restore_path_snapshot(
+        cls,
+        definition: ExerciseDefinition,
+        snapshot: Mapping[str, object],
+        *,
+        expected_fields: frozenset[str],
+        expected_definition_digest: str,
+    ) -> "ExerciseSession":
+        _require_snapshot_fields(snapshot, expected_fields)
+        common = _restore_common(
+            definition,
+            snapshot,
+            expected_definition_digest=expected_definition_digest,
+        )
 
         path_value = snapshot["accepted_path"]
         if type(path_value) is not list:
@@ -388,7 +426,11 @@ class ExerciseSession:
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
         _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V2_FIELDS)
-        step_index, attempts, mistakes, hints_used, status = _restore_common(definition, snapshot)
+        step_index, attempts, mistakes, hints_used, status = _restore_common(
+            definition,
+            snapshot,
+            expected_definition_digest=_legacy_definition_digest(definition),
+        )
 
         board = Board(definition.start_fen)
         accepted_path: list[str] = []
@@ -418,6 +460,8 @@ class ExerciseSession:
 def _restore_common(
     definition: ExerciseDefinition,
     snapshot: Mapping[str, object],
+    *,
+    expected_definition_digest: str,
 ) -> tuple[int, int, int, int, ExerciseStatus]:
     exercise_id = snapshot["exercise_id"]
     if type(exercise_id) is not str:
@@ -426,7 +470,7 @@ def _restore_common(
         raise ValueError("exercise snapshot belongs to a different exercise")
 
     definition_digest = _snapshot_digest(snapshot["definition_digest"])
-    if definition_digest != _definition_digest(definition):
+    if definition_digest != expected_definition_digest:
         raise ValueError("exercise snapshot belongs to a different exercise revision")
 
     step_index = _snapshot_counter(snapshot["step_index"], name="step_index")
@@ -518,6 +562,36 @@ def _move_key(move: Move) -> tuple[int, int, str | None, bool, bool]:
 
 
 def _definition_digest(definition: ExerciseDefinition) -> str:
+    """Hash the complete authored definition for schema-v4 persistence."""
+
+    identity_payload = {
+        "exercise_id": definition.exercise_id,
+        "start_fen": definition.start_fen,
+        "steps": [
+            {
+                "accepted_moves": sorted(step.accepted_moves),
+                "hint": step.hint,
+                "explanation": step.explanation,
+            }
+            for step in definition.steps
+        ],
+        "title": definition.title,
+        "tags": list(definition.tags),
+        "source_id": definition.source_id,
+        "metadata": dict(definition.metadata),
+    }
+    encoded = json.dumps(
+        identity_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _legacy_definition_digest(definition: ExerciseDefinition) -> str:
+    """Reproduce the schema-v2/v3 move-semantic digest exactly."""
+
     semantic_payload = {
         "start_fen": definition.start_fen,
         "steps": [sorted(step.accepted_moves) for step in definition.steps],
