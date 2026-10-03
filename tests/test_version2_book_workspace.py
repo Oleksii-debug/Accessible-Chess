@@ -13,6 +13,7 @@ from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import BookDocument, Game, ListBlock, Paragraph, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
+from acs.full_product_presenters import PgnGameView, PgnTreeItem
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.version2_book_workspace import build_version2_book_webview
 from acs.version2_profile import build_version2_router, build_version2_shell
@@ -114,6 +115,94 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertFalse(workflow.active)
                 self.assertEqual(workflow.revision, 0)
                 self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_malformed_presenter_topology_fails_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Presenter topology regression",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e4 e5 *',
+                        title="Topology game",
+                        block_id="topology-game",
+                    )
+                ],
+            )
+        )
+        malformed_view = PgnGameView(
+            game_index=0,
+            title="Alpha — Beta",
+            result="*",
+            tags=(),
+            warnings=(),
+            items=(
+                PgnTreeItem(
+                    node_id="bad-depth",
+                    kind="move",
+                    depth=1,
+                    label="1. e4",
+                    parent_id=None,
+                ),
+            ),
+            selected_node_id="bad-depth",
+        )
+
+        with patch(
+            "acs.version2_book_workspace.PgnTreePresenter.view",
+            return_value=malformed_view,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_malformed_presenter_result_fails_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Presenter result regression",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e4 e5 *',
+                        title="Result game",
+                        block_id="result-game",
+                    )
+                ],
+            )
+        )
+        malformed_view = PgnGameView(
+            game_index=0,
+            title="Alpha — Beta",
+            result="invented",
+            tags=(),
+            warnings=(),
+            items=(),
+            selected_node_id=None,
+        )
+
+        with patch(
+            "acs.version2_book_workspace.PgnTreePresenter.view",
+            return_value=malformed_view,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
 
     def test_excessive_semantic_item_count_fails_closed_but_keeps_board_available(self):
         reader, workflow, bridge, _ = self.compose(
