@@ -481,6 +481,40 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             sync_directory.assert_called_once_with(store.root)
             self.assertNotIn(manifest.pack_id, store.installed())
 
+    def test_post_delete_directory_sync_failure_is_uncertain_visible_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+            real_sync = __import__(
+                "acs.sound_pack_store",
+                fromlist=["_fsync_directory"],
+            )._fsync_directory
+
+            def fail_only_removed_pack_parent(path):
+                candidate = Path(path)
+                if candidate == store.root:
+                    raise SoundPackStoreError("removal directory sync failed")
+                return real_sync(candidate)
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=fail_only_removed_pack_parent,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "removal directory sync failed",
+            ):
+                store.uninstall(manifest.pack_id)
+
+            self.assertFalse(
+                (store.root / manifest.pack_id).exists(),
+                "post-delete sync failure is an uncertain commit and must be observed as removed",
+            )
+            self.assertNotIn(manifest.pack_id, store.installed())
+            self.assertIsNone(store.active_version(manifest.pack_id))
+
     def test_installed_inventory_scan_is_resource_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
