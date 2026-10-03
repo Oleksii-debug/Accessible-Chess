@@ -405,26 +405,19 @@
 
   function executeMediaProviderEvent(event) {
     const invoke = areaInvoke("media");
-    const runtime = global.AccessibleChessClassroomMediaProviderRuntime;
-    if (!runtime || typeof runtime.execute !== "function") {
+    const mediaSurface = global.AccessibleChessClassroomMediaSurface;
+    if (!mediaSurface || typeof mediaSurface.executeProvider !== "function") {
       return retireMediaProviderRuntimeFailure(event, invoke);
     }
-    return Promise.resolve(runtime.execute(event, invoke)).then(function (result) {
+    return Promise.resolve(
+      mediaSurface.executeProvider(event, invoke)
+    ).then(function (result) {
       if (!result || typeof result !== "object") {
         return retireMediaProviderRuntimeFailure(event, invoke);
       }
       return result;
     }).catch(function () {
       return retireMediaProviderRuntimeFailure(event, invoke);
-    });
-  }
-
-  function mediaInvoke(command, payload) {
-    return areaInvoke("media")(command, payload).then(function (result) {
-      if (result && result.kind === "provider-dispatch") {
-        return executeMediaProviderEvent(result);
-      }
-      return result;
     });
   }
 
@@ -517,11 +510,12 @@
         global.AccessibleChessClassroomMediaSurface.mount(
           workspace,
           snapshot.media || null,
-          mediaInvoke,
+          areaInvoke("media"),
           announce,
           currentLanguage,
           {
             binding_active: mediaStatus.media_binding_active === true,
+            transaction_active: mediaStatus.media_transaction_active === true,
             recovery_required: mediaStatus.media_recovery_required === true
           }
         );
