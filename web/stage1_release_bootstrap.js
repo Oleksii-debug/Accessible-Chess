@@ -310,13 +310,37 @@ window.finishNewGameVisualSequence = finishNewGameVisualSequence;
 
 function installNewGameVisualSequence() {
     if (document.body.dataset.stage1NewGameVisualReady === 'true') return;
+    const baseExecuteAction = window.executeAction;
+    if (typeof baseExecuteAction === 'function' && !baseExecuteAction.__newGameVisualTrigger) {
+        const wrappedExecuteAction = async function(id, ...args) {
+            if (id === 'file.new') newGameVisualPending = true;
+            return baseExecuteAction.call(this, id, ...args);
+        };
+        wrappedExecuteAction.__newGameVisualTrigger = true;
+        window.executeAction = wrappedExecuteAction;
+    }
+
     document.addEventListener('click', event => {
         const target = event.target && event.target.closest
             ? event.target.closest('#new-game')
             : null;
         if (target) newGameVisualPending = true;
     }, true);
-    document.addEventListener('keydown', () => {
+
+    document.addEventListener('keydown', event => {
+        const key = String(event.key || '').toLowerCase();
+        if (
+            event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey
+            && key === 'n'
+            && !(typeof capture !== 'undefined' && capture)
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            newGameVisualPending = true;
+            const execute = window.executeAction;
+            if (typeof execute === 'function') void execute('file.new');
+            return;
+        }
         if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
             finishNewGameVisualSequence();
         }
