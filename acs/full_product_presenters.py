@@ -20,6 +20,7 @@ from .search_service import GameSearchItem, GameSearchPage, GameSearchQuery, Gam
 from .training import ExerciseResult, ExerciseSession, ExerciseStatus, HintResult
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
 
 
 class SurfaceStatus(str, Enum):
@@ -392,13 +393,25 @@ class LibraryPresenter:
         for item in page.items:
             if not isinstance(item, GameSearchItem):
                 raise TypeError("library page contains an invalid game")
-            if type(item.game_id) is not int or item.game_id <= 0:
+            if (
+                type(item.game_id) is not int
+                or item.game_id <= 0
+                or item.game_id > _SQLITE_INTEGER_MAX
+            ):
                 raise ValueError("library page contains an invalid game identity")
             if item.game_id <= previous_id:
                 raise ValueError("library page violates keyset game ordering")
-            if type(item.source_id) is not int or item.source_id <= 0:
+            if (
+                type(item.source_id) is not int
+                or item.source_id <= 0
+                or item.source_id > _SQLITE_INTEGER_MAX
+            ):
                 raise ValueError("library page contains an invalid source identity")
-            if type(item.source_index) is not int or item.source_index < 0:
+            if (
+                type(item.source_index) is not int
+                or item.source_index < 0
+                or item.source_index > _SQLITE_INTEGER_MAX
+            ):
                 raise ValueError("library page contains an invalid source index")
             for field_name in ("source_name", "source_format", "import_status"):
                 if type(getattr(item, field_name)) is not str:
