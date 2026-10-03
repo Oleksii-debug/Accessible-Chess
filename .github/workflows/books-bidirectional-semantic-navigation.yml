@@ -78,6 +78,7 @@ jobs:
             test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
             expected_paths=(
               '.github/workflows/books-bidirectional-semantic-navigation.yml'
+              '.github/workflows/d01-pgn-workspace-webview.yml'
               '.github/workflows/p0-release-critical-triad-convergence.yml'
               'acs/book_webview_bridge.py'
               'acs/book_webview_projection.py'
@@ -98,6 +99,7 @@ jobs:
             test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "186e08c4bef5be78dcb95ea26a85ee5f4d3113c3"
             test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = "4f75b336f302374a85bb83a90f53431bb8929e6a"
             test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "48a9f697120654bd029903b554b969eb768984b6"
+            test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "f97195b7fb77c78f9490b89cc5eb7a17c0673066"
             test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "adac7a10ca0f20f50f619fb1adc70b6578a72dc8"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
