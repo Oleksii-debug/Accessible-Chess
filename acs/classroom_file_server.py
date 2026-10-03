@@ -1104,6 +1104,10 @@ class ClassroomFileServerService:
         object_store: ClassroomFileObjectStorePort,
         quota: FileQuotaPolicy = FileQuotaPolicy(),
     ) -> None:
+        if not callable(getattr(object_store, "stored_sha256", None)):
+            raise TypeError(
+                "object_store must support stored_sha256 reconciliation"
+            )
         self._store = store
         self._authorization = authorization
         self._scanner = scanner
@@ -1600,6 +1604,7 @@ class ClassroomFileServerClient:
 
 __all__ = [
     "ClassroomFileAuthorizationPort",
+    "ClassroomFileObjectStorePort",
     "ClassroomFileScannerPort",
     "ClassroomFileServerClient",
     "ClassroomFileServerError",
