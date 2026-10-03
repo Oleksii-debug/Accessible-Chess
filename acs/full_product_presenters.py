@@ -672,6 +672,21 @@ class TrainingPresenter:
     def session(self) -> ExerciseSession:
         return self._session
 
+    @property
+    def message(self) -> str:
+        return self._message
+
+    @property
+    def message_key(self) -> None:
+        """Training messages are rendered text, not durable localization keys."""
+        return None
+
+    def restore_state(self, snapshot: dict[str, object], *, message: str) -> None:
+        if type(message) is not str:
+            raise TypeError("training presenter message must be text")
+        self._session.restore_state(snapshot)
+        self._message = message
+
     def set_language(self, language: UILanguage) -> None:
         self._language = language
 
