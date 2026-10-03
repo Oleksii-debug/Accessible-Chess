@@ -52,6 +52,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$EXACT_PARENT" HEAD
           test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          git merge-base --is-ancestor "$FOCUS_SOURCE_HEAD" HEAD
           test "$(git rev-parse "HEAD:web/full_product_books_training.js")" = "$WEB_BLOB"
           test "$(git rev-parse "HEAD:tests/js/books_training_surface_dom_test.js")" = "$DOM_TEST_BLOB"
           test "$(git rev-parse "HEAD:tests/test_dev1_books_training_web_asset.py")" = "$ASSET_TEST_BLOB"
