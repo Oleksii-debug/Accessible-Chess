@@ -626,6 +626,17 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertEqual("ready", snapshot["status"])
         self.assertEqual(1, snapshot["progress"]["step"])
         self.assertEqual(2, snapshot["progress"]["total"])
+        self.assertEqual("training-answer", snapshot["focus_target"])
+        self.assertEqual(
+            [
+                "training-action-hint",
+                "training-action-reveal",
+                "training-action-retry",
+                "training-action-continue",
+                "training-action-reset",
+            ],
+            [item["focus_target"] for item in snapshot["actions"]],
+        )
         self.assertNotIn(FEN, text)
         self.assertNotIn("private-book-id", text)
         self.assertNotIn("training.json", text)
@@ -640,6 +651,7 @@ class TrainingProjectionTests(unittest.TestCase):
 
         revealed = self.projection.reveal()
         self.assertEqual(("e4",), revealed.payload["solution"])
+        self.assertEqual("training-solution", revealed.payload["focus_target"])
         self.assertEqual(before["step_index"], self.presenter.snapshot()["step_index"])
         self.assertNotIn(FEN, repr(revealed))
 
@@ -660,6 +672,14 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertTrue(completed.payload["clear_answer"])
         self.assertTrue(completed.payload["snapshot"]["progress"]["completed"])
         self.assertTrue(completed.payload["snapshot"]["answer"]["disabled"])
+        self.assertEqual(
+            "training-action-reset",
+            completed.payload["snapshot"]["focus_target"],
+        )
+        self.assertEqual(
+            "training-action-reset",
+            completed.payload["focus_target"],
+        )
 
     def test_answer_bound_and_type_fail_before_session_mutation(self) -> None:
         before = self.presenter.snapshot()
