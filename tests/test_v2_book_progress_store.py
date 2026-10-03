@@ -1153,7 +1153,7 @@ class BookProgressStoreTests(unittest.TestCase):
         reader.go_to(3)
         private_failure = OSError(5, "replace failed", str(self.path))
         with mock.patch(
-            "acs.book_progress_store.os.replace",
+            "acs.book_progress_store._replace_published_path",
             side_effect=private_failure,
         ):
             with self.assertRaises(BookProgressStoreError) as caught:
@@ -1781,6 +1781,36 @@ class BookProgressStoreTests(unittest.TestCase):
             self.assertFalse(self.store.has("book:one"))
 
         self.assertTrue(completed)
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+        self.assertFalse(self.path.exists())
+
+    def test_new_lock_marker_is_not_reread_before_os_lock_acquisition(self) -> None:
+        real_read = os.read
+        lock_acquired = False
+
+        def mark_lock_acquired(_descriptor: int) -> None:
+            nonlocal lock_acquired
+            lock_acquired = True
+
+        def read_only_after_lock(descriptor: int, count: int) -> bytes:
+            if not lock_acquired:
+                raise OSError("simulated Windows peer byte lock")
+            return real_read(descriptor, count)
+
+        with (
+            mock.patch.object(
+                self.store,
+                "_lock_file_descriptor",
+                side_effect=mark_lock_acquired,
+            ),
+            mock.patch(
+                "acs.book_progress_store.os.read",
+                side_effect=read_only_after_lock,
+            ),
+        ):
+            self.assertFalse(self.store.has("book:one"))
+
+        self.assertTrue(lock_acquired)
         self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
         self.assertFalse(self.path.exists())
 
