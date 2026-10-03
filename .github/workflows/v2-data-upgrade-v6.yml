@@ -127,7 +127,7 @@ jobs:
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
           tests/test_v2_upgrade_sound_artifact_control.py=9e26a615c933042378ef33004b54ac2c45ff404c
           tests/test_v2_upgrade_root_writer_artifact_grammar.py=cb6d25a780ca0ffd82cf9c2935e3c41fd5fd44a7
-          tests/test_v2_upgrade_book_progress_temp_artifact_control.py=aae591c0135706b6d37ab09ffc8d365feb8fefcf
+          tests/test_v2_upgrade_book_progress_temp_artifact_control.py=7b3c00911ce1fb24b3daf1cba851646d85df8a3a
           tests/test_v2_upgrade_training_progress_artifact_control.py=cd0be4e3d9e0cff14f8d2b1288d92e3b9a428465
           tests/test_v2_upgrade_self_coordination_artifact_control.py=ddba3b932b065ce981125b14e4bedc292de69d71
           tests/test_v2_upgrade_education_workspace_artifact_control.py=5a33d240d0d49651162d07866f84c7e7066ae4e2
