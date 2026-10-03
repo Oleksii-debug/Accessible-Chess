@@ -464,6 +464,33 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual(1, len(self.store.room_messages("room-1")))
 
+    def test_hidden_live_redelivery_clears_existing_unread_state(self) -> None:
+        view = self.webview()
+        message = ChatMessageMetadata(
+            "remote-live-hidden",
+            "room-1",
+            "student-2",
+            0,
+            "Visible before moderation",
+            sent_at_unix_ms=1700000000000,
+        )
+        first = view.receive_chat(message)
+        self.assertEqual(
+            1,
+            first.payload["collaboration"]["chat"]["unread_count"],
+        )
+
+        hidden = view.receive_chat(replace(message, hidden=True))
+
+        self.assertEqual("collaboration.chat.received", hidden.kind)
+        self.assertNotIn("announcement", hidden.payload)
+        self.assertEqual(
+            0,
+            hidden.payload["collaboration"]["chat"]["unread_count"],
+        )
+        self.assertEqual((), hidden.payload["collaboration"]["chat"]["messages"])
+        self.assertEqual(set(), view._unread_message_ids)
+
     def test_sync_removes_hidden_message_from_unread_count(self) -> None:
         view = self.webview()
         message = ChatMessageMetadata(
