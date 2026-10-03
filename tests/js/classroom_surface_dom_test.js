@@ -111,8 +111,16 @@ async function run() {
     }
   };
 
+  let failNextSelection = false;
   const invoke = (command, payload) => {
     calls.push([command, payload]);
+    if (command === "management.select") {
+      if (failNextSelection) {
+        failNextSelection = false;
+        return { kind: "error", payload: { message: "Selection failed" } };
+      }
+      return { kind: "selection", payload: { announcement: "Selected" } };
+    }
     return { kind: "ok", payload: {} };
   };
 
@@ -157,6 +165,7 @@ async function run() {
   check(homeInside.wasPrevented(), "Home was not handled");
   check(calls.length === 1 && calls[0][0] === "management.select" && calls[0][1].kind === "class" && calls[0][1].record_id === "one",
     "Home stopped delegating first-record selection through canonical management.select");
+  check(announcements.length === 0, "Home duplicated the focused-row announcement");
 
   calls.length = 0;
   const homeAtStart = keyEvent("Home");
@@ -172,6 +181,7 @@ async function run() {
   check(endInside.wasPrevented(), "End was not handled");
   check(calls.length === 1 && calls[0][0] === "management.select" && calls[0][1].kind === "class" && calls[0][1].record_id === "three",
     "End stopped delegating last-record selection through canonical management.select");
+  check(announcements.length === 0, "End duplicated the focused-row announcement");
 
   calls.length = 0;
   const endAtEnd = keyEvent("End");
@@ -181,6 +191,25 @@ async function run() {
   check(calls.length === 0, "End at the last option delegated a redundant selection");
   check(announcements.length === 0, "End at the last option produced an announcement");
 
+  failNextSelection = true;
+  const homeError = keyEvent("Home");
+  options[1].listeners.keydown(homeError);
+  await flushPromises();
+  check(homeError.wasPrevented(), "failed Home selection was not handled");
+  check(announcements.length === 1 && announcements[0] === "Selection failed",
+    "Home suppressed a real selection error");
+
+  calls.length = 0;
+  announcements.length = 0;
+  options[1].listeners.click();
+  await flushPromises();
+  check(calls.length === 1 && calls[0][0] === "management.select",
+    "click selection stopped using canonical management.select");
+  check(announcements.length === 1 && announcements[0] === "Selected",
+    "explicit click selection lost its single selection announcement");
+
+  calls.length = 0;
+  announcements.length = 0;
   const enter = keyEvent("Enter");
   options[1].listeners.keydown(enter);
   await flushPromises();
