@@ -159,18 +159,18 @@ def _reference_game(game_id: int, lookup: BookGameLookup | None) -> PgnGame:
         )
     try:
         game = loader(game_id)
-    except LookupError as exc:
+    except LookupError:
         raise BookGameContentError(
             "referenced book game was not found",
             code=BookGameContentErrorCode.GAME_NOT_FOUND,
-        ) from exc
-    except Exception as exc:
+        ) from None
+    except Exception:
         # Keep provider/database exception text and local paths outside the Book
         # presentation boundary.  Machine logging belongs at the composition root.
         raise BookGameContentError(
             "referenced book game could not be opened",
             code=BookGameContentErrorCode.GAME_NOT_FOUND,
-        ) from exc
+        ) from None
     return _canonical_copy(game)
 
 
