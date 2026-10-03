@@ -141,6 +141,64 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(workflow.revision, 0)
                 self.assertEqual(reader.snapshot(), progress_before)
 
+    def test_semantic_metadata_never_projects_raw_fen(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Private setup",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e4 e5 *',
+                        title="Private setup",
+                        block_id="private-setup",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+        item = SimpleNamespace(
+            kind="move",
+            depth=0,
+            node_id="g0:main/m0",
+            parent_id=None,
+            label="1. e4",
+            comments=(),
+            comments_before=(),
+            comments_after=(),
+            trailing_comments=(),
+            result=None,
+        )
+        view = SimpleNamespace(
+            game_index=0,
+            items=(item,),
+            title="Alpha — Beta",
+            result="*",
+            tags=(
+                ("Event", "Safe event"),
+                ("White", "Alpha"),
+                ("Black", "Beta"),
+                ("Result", "*"),
+                ("FEN", Board.START),
+            ),
+        )
+        fake_presenter = SimpleNamespace(view=lambda: view)
+
+        with patch(
+            "acs.version2_book_workspace.PgnTreePresenter",
+            return_value=fake_presenter,
+        ):
+            tree = bridge.projection.snapshot()["block"]["semantic_tree"]
+
+        self.assertIn(
+            {"kind": "event", "label": "Подія", "value": "Safe event"},
+            tree["details"],
+        )
+        serialized = json.dumps(tree["details"], ensure_ascii=False)
+        self.assertNotIn("FEN", serialized)
+        self.assertNotIn(Board.START, serialized)
+        self.assertEqual(reader.snapshot(), progress_before)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_recovered_game_warning_and_last_canonical_metadata_are_readable(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
