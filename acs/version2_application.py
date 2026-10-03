@@ -234,7 +234,59 @@ class Version2Application:
     def save_book_progress(self):
         self._assert_thread()
         if self.reader is not None:
-            self._persist_book_progress(self.book_key, self.reader)
+            try:
+                self._persist_book_progress(self.book_key, self.reader)
+            except BookProgressStoreError as error:
+                if error.code == BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    self._reload_book_progress_after_durability_ambiguity()
+                raise
+
+    def _reload_book_progress_after_durability_ambiguity(self):
+        """Rebind Books/Training to the canonical primary after uncertain commit."""
+
+        reader = self.reader
+        books = self.books
+        key = self.book_key
+        workspace = self.training_workspace
+        training_was_active = workspace is not None or self.training is not None
+        training_language = None if workspace is None else workspace.language
+        training_message = "" if workspace is None else workspace.presenter_message
+        training_message_key = (
+            None if workspace is None else workspace.presenter_message_key
+        )
+        if reader is not None and books is not None and key is not None:
+            language = books.projection.language
+            bookmark_name = books.projection.bookmark_name
+            try:
+                reloaded = self.progress_store.restore_primary(key, reader.document)
+                self._restore_book_progress(
+                    reloaded.snapshot(),
+                    language=language,
+                    bookmark_name=bookmark_name,
+                    restore_training=training_was_active,
+                    training_language=training_language,
+                    training_message=training_message,
+                    training_message_key=training_message_key,
+                )
+                return
+            except Exception:
+                pass
+
+        # The primary publication cannot be re-read safely. Publishing either the
+        # pre-write snapshot or the speculative in-memory state would split UI
+        # authority from disk, so fail the Books/Training surfaces closed.
+        self.reader = None
+        self.book_key = None
+        self.book_workflow = None
+        self.book_delegate = None
+        self.books = None
+        self.training_workspace = None
+        self.training = None
+        if self.shell.current_route.route_id in {"books", "training"}:
+            self._focus = self.shell.open_route("library")
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "library"}}
+            )
 
     def save_training_progress(self):
         self._assert_thread()
