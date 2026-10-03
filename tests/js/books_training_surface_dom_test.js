@@ -141,6 +141,7 @@ function bookSnapshot(index, text) {
       index: index,
       role: "paragraph",
       text: text,
+      has_position: false,
       heading_path: [],
       source_anchor: "",
       warning: ""
@@ -1497,6 +1498,17 @@ async function run() {
   const nulBookTitle = bookSnapshot(3, "NUL title");
   nulBookTitle.block.title = "Unsafe\u0000title";
   expectBookRenderRejected(nulBookTitle, "NUL Book block title");
+
+  const missingPositionFlag = bookSnapshot(3, "Missing position flag");
+  delete missingPositionFlag.block.has_position;
+  expectBookRenderRejected(missingPositionFlag, "Book block without position flag");
+
+  const forgedOpenPosition = bookSnapshot(3, "Forged open position");
+  forgedOpenPosition.actions[8].enabled = true;
+  expectBookRenderRejected(
+    forgedOpenPosition,
+    "enabled Book open-position action without canonical position"
+  );
 
   const emptyParagraph = bookSnapshot(3, "Paragraph");
   emptyParagraph.block.text = "   ";
