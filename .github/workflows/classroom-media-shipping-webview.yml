@@ -17,6 +17,7 @@ on:
       - 'acs/version2_package_preflight.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_release_payload.py'
+      - 'tests/js/livekit_classroom_media_adapter_test.js'
       - 'tests/js/livekit_classroom_media_runtime_test.js'
       - 'tests/test_classroom_media_shipping_webview.py'
       - 'tests/test_p0g_final_product_runtime_reachability.py'
@@ -81,12 +82,14 @@ jobs:
             'acs/version2_package_preflight.py'
             'acs/version2_release_app.py'
             'acs/version2_release_payload.py'
+            'tests/js/livekit_classroom_media_adapter_test.js'
             'tests/js/livekit_classroom_media_runtime_test.js'
             'tests/test_classroom_media_shipping_webview.py'
             'tests/test_p0g_final_product_runtime_reachability.py'
             'tests/test_version2_final_release_binding.py'
             'tests/test_version2_package_preflight.py'
             'tests/test_version2_release_payload.py'
+            'web/livekit_classroom_media.js'
             'web/livekit_classroom_media_runtime.js'
             'web/version2_final_product_bootstrap.js'
           )
@@ -98,7 +101,7 @@ jobs:
             exit 1
           fi
           git diff --check "$base...HEAD"
-          git diff --quiet "$base...HEAD" --             acs/chesscore.py             acs/classroom_domain.py             acs/classroom_realtime_media.py             acs/remote_session.py             acs/teaching_classroom_adapter.py             web/livekit_classroom_media.js
+          git diff --quiet "$base...HEAD" --             acs/chesscore.py             acs/classroom_domain.py             acs/classroom_realtime_media.py             acs/remote_session.py             acs/teaching_classroom_adapter.py
           echo "CLASSROOM_MEDIA_SHIPPING_WEBVIEW_LIVE_BASE=$base"
           echo 'CLASSROOM_MEDIA_SHIPPING_WEBVIEW_BOUNDED_SCOPE=PASS'
 
