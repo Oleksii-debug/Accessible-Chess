@@ -2273,6 +2273,83 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.files.last_progress_callback(object())
         self.assertEqual(before, tuple(observed))
 
+    def test_progress_observer_closes_after_provider_exception(self):
+        controller = self.controller()
+        payload = b"provider-exception"
+        prepared = controller.prepare_file(
+            attachment_id="progress-exception",
+            local_path=self.make_file("progress-exception.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        observed = []
+
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared, on_progress=observed.append)
+
+        self.assertEqual(
+            self.store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+        before = tuple(observed)
+        self.assertIsNotNone(self.files.last_progress_callback)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-exception",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(before, tuple(observed))
+
+    def test_progress_observer_closes_after_terminal_failed_result(self):
+        controller = self.controller()
+        payload = b"terminal-failed"
+        prepared = controller.prepare_file(
+            attachment_id="progress-terminal-failed",
+            local_path=self.make_file("progress-terminal-failed.bin", payload),
+            sequence_no=41,
+        )
+        observed = []
+        callback = None
+
+        def terminal_failed(candidate, *, on_progress):
+            nonlocal callback
+            callback = on_progress
+            on_progress(
+                FileTransferProgress(
+                    "progress-terminal-failed",
+                    3,
+                    len(payload),
+                )
+            )
+            return replace(
+                candidate.metadata,
+                transfer_state="failed",
+                scan_state="failed",
+            )
+
+        with patch.object(self.files, "upload", side_effect=terminal_failed):
+            failed = controller.upload_file(
+                prepared,
+                on_progress=observed.append,
+            )
+
+        self.assertEqual(failed.transfer_state, "failed")
+        self.assertFalse(any(item.complete for item in observed))
+        before = tuple(observed)
+        self.assertIsNotNone(callback)
+        callback(
+            FileTransferProgress(
+                "progress-terminal-failed",
+                len(payload),
+                len(payload),
+            )
+        )
+        callback(object())
+        self.assertEqual(before, tuple(observed))
+
     def test_zero_byte_upload_still_emits_distinct_authoritative_completion(self):
         controller = self.controller()
         prepared = controller.prepare_file(
