@@ -19,6 +19,7 @@ from acs.version2_upgrade import (
     Version2UpgradeBusy,
     Version2UpgradeCoordinator,
     Version2UpgradeError,
+    Version2UpgradeRecoveryError,
 )
 
 
@@ -290,6 +291,103 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 upgrade_base_module._publication_guard_hash(guard)
 
             self.assertEqual(guard.path.read_bytes(), b"original-settings")
+
+    def test_guard_cleanup_quarantines_last_moment_substitution(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b"original-settings")
+            guard = upgrade_base_module._publication_guard(settings)
+            foreign = root / "foreign-guard-bytes.bin"
+            foreign.write_bytes(b"foreign-last-moment-guard-bytes")
+            real_replace = upgrade_base_module.os.replace
+            injected = False
+
+            def substitute_before_quarantine(source: object, destination: object) -> None:
+                nonlocal injected
+                source_path = Path(source)
+                destination_path = Path(destination)
+                if (
+                    source_path == guard.path
+                    and ".remove-quarantine-" in destination_path.name
+                    and not injected
+                ):
+                    real_replace(foreign, guard.path)
+                    injected = True
+                real_replace(source, destination)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "replace",
+                side_effect=substitute_before_quarantine,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "publication guard could not be removed safely",
+                ):
+                    upgrade_base_module._remove_publication_guard(guard)
+
+            self.assertTrue(injected)
+            quarantined = list(
+                root.glob(".settings.json.publish-guard-*.remove-quarantine-*")
+            )
+            self.assertEqual(1, len(quarantined))
+            self.assertEqual(
+                b"foreign-last-moment-guard-bytes",
+                quarantined[0].read_bytes(),
+                "last-moment foreign guard pathname was deleted instead of preserved",
+            )
+            self.assertEqual(b"original-settings", settings.read_bytes())
+
+    def test_sidecar_cleanup_quarantines_last_moment_substitution(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            library.write_bytes(b"library-main")
+            wal = Path(str(library) + "-wal")
+            wal.write_bytes(b"owned-derived-wal")
+            foreign = root / "foreign-wal-bytes.bin"
+            foreign.write_bytes(b"foreign-last-moment-wal")
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            real_replace = upgrade_base_module.os.replace
+            injected = False
+
+            def substitute_before_quarantine(source: object, destination: object) -> None:
+                nonlocal injected
+                source_path = Path(source)
+                destination_path = Path(destination)
+                if (
+                    source_path == wal
+                    and ".remove-quarantine-" in destination_path.name
+                    and not injected
+                ):
+                    real_replace(foreign, wal)
+                    injected = True
+                real_replace(source, destination)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "replace",
+                side_effect=substitute_before_quarantine,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "library sidecar changed during removal",
+                ):
+                    coordinator._clear_library_sidecars()
+
+            self.assertTrue(injected)
+            quarantined = list(
+                root.glob(".library.acsdb-wal.remove-quarantine-*")
+            )
+            self.assertEqual(1, len(quarantined))
+            self.assertEqual(
+                b"foreign-last-moment-wal",
+                quarantined[0].read_bytes(),
+                "foreign WAL pathname was deleted instead of quarantined",
+            )
 
     def test_guard_cleanup_does_not_delete_substituted_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
