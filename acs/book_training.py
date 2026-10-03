@@ -332,7 +332,7 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             )
         _require_exact_fields(raw_step, _STEP_FIELDS, "book training step")
         accepted = raw_step["accepted_moves"]
-        if type(accepted) is not list or any(type(move) is not str for move in accepted):
+        if type(accepted) is not list:
             raise BookTrainingError(
                 "book training accepted_moves must be a list of text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
@@ -340,6 +340,11 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
         if not accepted or len(accepted) > _MAX_ACCEPTED_MOVES_PER_STEP:
             raise BookTrainingError(
                 "book training accepted_moves has an invalid item count",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        if any(type(move) is not str for move in accepted):
+            raise BookTrainingError(
+                "book training accepted_moves must be a list of text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
         hint = raw_step["hint"]
@@ -364,7 +369,7 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
 
     tags = payload["tags"]
     metadata = payload["metadata"]
-    if type(tags) is not list or any(type(tag) is not str for tag in tags):
+    if type(tags) is not list:
         raise BookTrainingError(
             "book training tags must be a list of text",
             code=BookTrainingErrorCode.INVALID_FIELD,
@@ -374,9 +379,12 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             "book training tags exceed the wire item limit",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    if not isinstance(metadata, Mapping) or any(
-        type(key) is not str or type(value) is not str for key, value in metadata.items()
-    ):
+    if any(type(tag) is not str for tag in tags):
+        raise BookTrainingError(
+            "book training tags must be a list of text",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if not isinstance(metadata, Mapping):
         raise BookTrainingError(
             "book training metadata must map text keys to text values",
             code=BookTrainingErrorCode.INVALID_FIELD,
@@ -384,6 +392,13 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
     if len(metadata) > _MAX_WIRE_METADATA_ENTRIES:
         raise BookTrainingError(
             "book training metadata exceeds the wire item limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if any(
+        type(key) is not str or type(value) is not str for key, value in metadata.items()
+    ):
+        raise BookTrainingError(
+            "book training metadata must map text keys to text values",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     source_id = payload["source_id"]
