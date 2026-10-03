@@ -10,7 +10,7 @@ imports sample games, never downloads content at runtime, and does not introduce
 a second PGN parser, database schema or persistence authority.
 """
 
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Mapping
 import hashlib
 import json
@@ -29,6 +29,12 @@ from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
 from .starter_content import CONTENT_LICENSE_ID
 from .version2_starter_content_application import Version2StarterContentApplication
+from .user_library_payload import (
+    PackagedUserLibrarySource,
+    default_packaged_user_library_root,
+    load_packaged_user_library,
+)
+from .version2_windows_file_workflows import FileWorkflowEventKind
 
 
 _EXPECTED_FILES = frozenset(
@@ -499,11 +505,29 @@ def _default_release_manifest_path() -> Path:
 class Version2PackagedStarterApplication(Version2StarterContentApplication):
     """Expose qualified packaged W2 content without mutating it in place."""
 
-    def __init__(self, *args, packaged_starter_root: str | Path | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        packaged_starter_root: str | Path | None = None,
+        packaged_user_library_root: str | Path | None = None,
+        **kwargs,
+    ) -> None:
         explicit = packaged_starter_root is not None
         root = Path(packaged_starter_root) if explicit else _default_bundle_root()
         self._packaged_starter_root: Path | None = None
         self._packaged_starter_manifest: dict[str, object] | None = None
+        explicit_user_library = packaged_user_library_root is not None
+        user_library_root = (
+            Path(packaged_user_library_root)
+            if explicit_user_library
+            else default_packaged_user_library_root()
+        )
+        self._packaged_user_library_sources: tuple[PackagedUserLibrarySource, ...] = ()
+        self._packaged_user_library_pending: deque[Path] = deque()
+        self._packaged_user_library_active: Path | None = None
+        self._packaged_user_library_runtime = None
+        self._packaged_user_library_processed = 0
+        self._packaged_user_library_finished_announced = False
         # os.path.lexists() is intentional: Path.exists() follows symlinks and
         # returns False for a broken package-root link.  A broken/reparse entry
         # at the canonical release path must fail closed in _load_manifest()
@@ -517,7 +541,84 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
             raise RuntimeError(
                 "packaged starter content root is missing from the assembled release package"
             )
+
+        if os.path.lexists(user_library_root):
+            sources = load_packaged_user_library(user_library_root)
+            self._packaged_user_library_sources = sources
+            self._packaged_user_library_pending = deque(
+                source.path for source in sources
+            )
+        elif explicit_user_library:
+            raise RuntimeError("packaged user Library root is missing")
+
         super().__init__(*args, **kwargs)
+
+    def _start_next_packaged_user_library_source(self) -> None:
+        runtime = self._packaged_user_library_runtime
+        if runtime is None or self._packaged_user_library_active is not None:
+            return
+        if not self._packaged_user_library_pending:
+            if (
+                self._packaged_user_library_sources
+                and not self._packaged_user_library_finished_announced
+            ):
+                self._packaged_user_library_finished_announced = True
+                message = (
+                    f"Owner Library ready. Sources processed: {self._packaged_user_library_processed}."
+                    if self.shell.language is UILanguage.EN
+                    else f"Приватна бібліотека готова. Оброблено джерел: {self._packaged_user_library_processed}."
+                )
+                self._events.append(
+                    {
+                        "kind": "status",
+                        "payload": {
+                            "announcement": message,
+                            "focus_target": "library-search-player",
+                        },
+                    }
+                )
+            return
+        if bool(getattr(runtime, "import_running", False)):
+            return
+        start = getattr(runtime, "start_import_path", None)
+        if not callable(start):
+            raise RuntimeError("trusted packaged Library import seam is unavailable")
+        source_path = self._packaged_user_library_pending[0]
+        event = start(source_path)
+        if getattr(event, "kind", None) is FileWorkflowEventKind.IMPORT_STARTED:
+            self._packaged_user_library_pending.popleft()
+            self._packaged_user_library_active = source_path
+
+    def bind_files(self, runtime):
+        super().bind_files(runtime)
+        self._packaged_user_library_runtime = runtime
+        self._start_next_packaged_user_library_source()
+
+    def import_ui_ready(self, mailbox):
+        active_before = self._packaged_user_library_active
+        super().import_ui_ready(mailbox)
+        runtime = self._packaged_user_library_runtime
+        if (
+            active_before is not None
+            and runtime is not None
+            and not bool(getattr(runtime, "import_running", False))
+        ):
+            self._packaged_user_library_processed += 1
+            self._packaged_user_library_active = None
+        self._start_next_packaged_user_library_source()
+
+    def _packaged_user_library_snapshot(self) -> dict[str, object]:
+        total = len(self._packaged_user_library_sources)
+        active = self._packaged_user_library_active is not None
+        remaining = len(self._packaged_user_library_pending) + (1 if active else 0)
+        return {
+            "available": total > 0,
+            "sources": total,
+            "processed_sources": self._packaged_user_library_processed,
+            "remaining_sources": remaining,
+            "network_required": False,
+            "owner_private": True,
+        }
 
     def _starter_library_actions(self) -> tuple[dict[str, object], ...]:
         manifest = self._packaged_starter_manifest
@@ -731,7 +832,9 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
         result = super().snapshot()
         library = result.get("library")
         if isinstance(library, Mapping):
-            result["library"] = self._decorate_library_snapshot(library)
+            decorated = self._decorate_library_snapshot(library)
+            decorated["packaged_user_library"] = self._packaged_user_library_snapshot()
+            result["library"] = decorated
         return result
 
 
