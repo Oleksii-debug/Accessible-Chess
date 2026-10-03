@@ -887,6 +887,60 @@ async function testPendingTransportLossRetiresNewMutationBeforeProviderCall() {
   );
 }
 
+async function testTransportLossBridgeReplyLossRetriesSameSnapshot() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const sessionTx = "session-" + "f".repeat(32);
+  const joined = dispatch(sessionTx, {
+    transaction_id: sessionTx,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+
+  await runtime.execute(joined, async (command, payload) => {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: sessionTx,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: payload.transaction_id } };
+    }
+    if (command === "media.provider_session_success") {
+      return { kind: "media-updated", payload: { snapshot: { connected: true } } };
+    }
+    throw new Error("unexpected join command " + command);
+  });
+
+  RecordingAdapter.instances[0].loseTransport();
+  const snapshots = [];
+  const first = await runtime.reconcileTransport(async (command, payload) => {
+    assert.equal(command, "media.provider_transport_lost");
+    snapshots.push(JSON.stringify(payload.snapshot));
+    throw new Error("bridge response lost after Python reconciliation");
+  });
+  assert.equal(first, null);
+
+  const second = await runtime.reconcileTransport(async (command, payload) => {
+    assert.equal(command, "media.provider_transport_lost");
+    snapshots.push(JSON.stringify(payload.snapshot));
+    return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+  });
+  assert.equal(second.kind, "media-updated");
+  assert.equal(snapshots.length, 2);
+  assert.equal(snapshots[0], snapshots[1]);
+}
+
 async function run() {
   await testMultiChunkMarksProviderBoundaryOnce();
   await testJoinTakesCredentialBeforeDispatchAndReturnsExactSnapshot();
@@ -901,6 +955,7 @@ async function run() {
   await testProviderRebindCannotRetargetConnectedAdapter();
   await testTransportLossReconcilesExactlyOnce();
   await testPendingTransportLossRetiresNewMutationBeforeProviderCall();
+  await testTransportLossBridgeReplyLossRetriesSameSnapshot();
   console.log("LIVEKIT_CLASSROOM_MEDIA_TRANSACTION_RUNTIME=PASS");
 }
 
