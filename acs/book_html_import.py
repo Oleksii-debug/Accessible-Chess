@@ -99,6 +99,12 @@ _BLOCK_BOUNDARY_TAGS = frozenset(
     }
 )
 _SUPPRESSED_TAGS = frozenset({"script", "style", "noscript", "template"})
+_VOID_TAGS = frozenset(
+    {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    }
+)
 _CAPTURE_KINDS = {
     "title": "title",
     "h1": "heading",
@@ -207,6 +213,7 @@ class _SemanticHtmlParser(HTMLParser):
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._suppressed_tags: list[str] = []
+        self._hidden_tags: list[str] = []
         self._head_depth = 0
         self._node_count = 0
         self._text_boundary_count = 0
@@ -373,6 +380,10 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if self._hidden_tags:
+            if tag not in _VOID_TAGS:
+                self._hidden_tags.append(tag)
+            return
         if tag == "head":
             self._head_depth += 1
             return
@@ -390,6 +401,15 @@ class _SemanticHtmlParser(HTMLParser):
                     code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
                 )
             attrs[normalized_name] = value or ""
+        if "hidden" in attrs:
+            # The HTML hidden attribute is a deterministic non-rendered boundary.
+            # Hidden text, image metadata and explicit chess markers must not
+            # become readable BookDocument content or semantic Game/Position
+            # blocks. Track all non-void descendants so malformed nesting stays
+            # fail-closed instead of resuming ingestion too early.
+            if tag not in _VOID_TAGS:
+                self._hidden_tags.append(tag)
+            return
         if tag in _BLOCK_BOUNDARY_TAGS:
             # HTMLParser does not place markup in capture.parts. Preserve the
             # same block boundary already published to visible_text inside the
@@ -495,6 +515,14 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if self._hidden_tags:
+            if self._hidden_tags[-1] != tag:
+                self._warning(
+                    "malformed HTML mismatched hidden elements; readable text may have been omitted"
+                )
+                return
+            self._hidden_tags.pop()
+            return
         if tag == "head":
             if self._head_depth:
                 self._head_depth -= 1
@@ -524,7 +552,7 @@ class _SemanticHtmlParser(HTMLParser):
             self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
-        if self._suppressed_depth:
+        if self._suppressed_depth or self._hidden_tags:
             return
         if self._head_depth or any(capture.kind == "title" for capture in self._captures):
             # HTML title still supplies the book title; it and all other
@@ -601,6 +629,11 @@ class _SemanticHtmlParser(HTMLParser):
             )
             self._suppressed_depth = 0
             self._suppressed_tags.clear()
+        if self._hidden_tags:
+            self._warning(
+                "malformed HTML left hidden content unclosed; subsequent readable text may have been omitted"
+            )
+            self._hidden_tags.clear()
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
         while self._lists:
