@@ -18,6 +18,7 @@ from acs.classroom_collaboration_storage import (
     ChatMessageMetadata,
     ChatMessageStateUpdate,
 )
+from acs.classroom_domain import MAX_WIRE_INTEGER
 
 
 class FakeBackend:
@@ -316,6 +317,48 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 after_revision=True,
                 limit=1,
             )
+
+    def test_client_and_service_reject_json_unsafe_cursors(self):
+        over = MAX_WIRE_INTEGER + 1
+        before = len(self.student_call.calls)
+        with self.assertRaisesRegex(ClassroomChatRpcError, "after_sequence"):
+            self.student.history_after(
+                room_id="room-1",
+                after_sequence=over,
+                limit=1,
+            )
+        with self.assertRaisesRegex(ClassroomChatRpcError, "after_revision"):
+            self.student.state_updates_after(
+                room_id="room-1",
+                after_revision=over,
+                limit=1,
+            )
+        self.assertEqual(before, len(self.student_call.calls))
+
+        history_request = {
+            "v": 1,
+            "op": "history",
+            "room_id": "room-1",
+            "participant_id": "student-1",
+            "after_sequence": over,
+            "limit": 1,
+        }
+        state_request = {
+            "v": 1,
+            "op": "state",
+            "room_id": "room-1",
+            "participant_id": "student-1",
+            "after_revision": over,
+            "limit": 1,
+        }
+        for request in (history_request, state_request):
+            with self.subTest(op=request["op"]):
+                with self.assertRaises(ClassroomChatRpcError):
+                    self.service.handle(
+                        request,
+                        authenticated_room_id="room-1",
+                        authenticated_participant_id="student-1",
+                    )
 
     def test_client_refuses_room_or_sender_forgery_before_transport(self):
         with self.assertRaisesRegex(ClassroomChatRpcError, "bound identity"):
