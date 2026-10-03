@@ -1068,10 +1068,18 @@ class ClassroomFileServerTests(unittest.TestCase):
             self.store.pending_deletions(),
             ((prepared.metadata.attachment_id, prepared.metadata.object_key),),
         )
-        self.assertEqual(self.service.drain_pending_deletions(), 1)
+        reopened_store = ClassroomFileServerSQLiteStore(str(self.db_path))
+        reopened = ClassroomFileServerService(
+            store=reopened_store,
+            authorization=self.auth,
+            scanner=self.scanner,
+            object_store=self.objects,
+            quota=FileQuotaPolicy(max_file_bytes=64, max_room_bytes=96),
+        )
+        self.assertEqual(reopened.drain_pending_deletions(), 1)
         self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
-        self.assertEqual(self.store.pending_deletions(), ())
-        self.service.integrity_check()
+        self.assertEqual(reopened_store.pending_deletions(), ())
+        reopened.integrity_check()
 
     def test_ambiguous_put_then_cancel_delete_failure_recovers_after_restart(self):
         prepared = self.prepared(attachment_id="provisional-cancel-recovery")
