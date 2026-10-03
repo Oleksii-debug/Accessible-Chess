@@ -45,12 +45,18 @@ _TRAINING_SNAPSHOT_V2_FIELDS = frozenset(
         "status",
     }
 )
+_MAX_TRAINING_SNAPSHOT_FIELD_CHARS = max(
+    len(field) for field in _TRAINING_SNAPSHOT_V4_FIELDS
+)
 
 
 class ExerciseStatus(str, Enum):
     READY = "ready"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+_MAX_TRAINING_STATUS_CHARS = max(len(status.value) for status in ExerciseStatus)
 
 
 class ExerciseContentError(ValueError):
@@ -183,26 +189,33 @@ class ExerciseDefinition:
             raise TypeError("exercise metadata must map strings to strings") from exc
         if len(metadata_keys) != metadata_count:
             raise ValueError("exercise metadata changed while being read")
-        if any(type(key) is not str for key in metadata_keys):
-            raise TypeError("exercise metadata must map strings to strings")
-        if len(set(metadata_keys)) != len(metadata_keys):
-            raise ValueError("exercise metadata contains duplicate keys")
+        validated_metadata_keys: list[str] = []
+        seen_metadata_keys: set[str] = set()
+        for key in metadata_keys:
+            if type(key) is not str:
+                raise TypeError("exercise metadata must map strings to strings")
+            # Bound raw keys before hashing them for duplicate detection. The
+            # entry-count cap alone must not permit oversized attacker text to
+            # consume unbounded hashing work during definition construction.
+            if len(key) > _MAX_IDENTITY_TEXT:
+                raise ValueError("exercise metadata text is too long")
+            if key in seen_metadata_keys:
+                raise ValueError("exercise metadata contains duplicate keys")
+            seen_metadata_keys.add(key)
+            validated_metadata_keys.append(key)
         metadata: dict[str, str] = {}
         try:
-            for key in metadata_keys:
+            for key in validated_metadata_keys:
                 value = self.metadata[key]
                 if type(value) is not str:
                     raise TypeError("exercise metadata must map strings to strings")
+                if len(value) > _MAX_IDENTITY_TEXT:
+                    raise ValueError("exercise metadata text is too long")
                 metadata[key] = value
-        except TypeError:
+        except (TypeError, ValueError):
             raise
         except Exception as exc:
             raise TypeError("exercise metadata must map strings to strings") from exc
-        if any(
-            len(key) > _MAX_IDENTITY_TEXT or len(value) > _MAX_IDENTITY_TEXT
-            for key, value in metadata.items()
-        ):
-            raise ValueError("exercise metadata text is too long")
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
         object.__setattr__(self, "steps", steps)
@@ -458,6 +471,11 @@ class ExerciseSession:
             raise ValueError("exercise snapshot changed while being read")
         if any(type(key) is not str for key in snapshot_keys):
             raise TypeError("exercise snapshot field names must be strings")
+        if any(
+            len(key) > _MAX_TRAINING_SNAPSHOT_FIELD_CHARS
+            for key in snapshot_keys
+        ):
+            raise ValueError("exercise snapshot field name exceeds supported bound")
         if len(set(snapshot_keys)) != len(snapshot_keys):
             raise ValueError("exercise snapshot contains duplicate fields")
         snapshot_data: dict[str, object] = {}
@@ -477,7 +495,7 @@ class ExerciseSession:
             return cls._restore_v3(definition, snapshot_data)
         if schema_version == 2:
             return cls._restore_v2(definition, snapshot_data)
-        raise ValueError(f"unsupported exercise snapshot schema_version: {schema_version}")
+        raise ValueError("unsupported exercise snapshot schema_version")
 
     @classmethod
     def _restore_v4(
@@ -560,6 +578,8 @@ class ExerciseSession:
         position_fen = snapshot["position_fen"]
         if type(position_fen) is not str:
             raise TypeError("exercise snapshot position_fen must be a string")
+        if len(position_fen) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise snapshot position_fen is too long")
         if position_fen != board.fen():
             raise ValueError("exercise snapshot position does not match accepted_path")
 
@@ -629,6 +649,8 @@ def _restore_common(
     exercise_id = snapshot["exercise_id"]
     if type(exercise_id) is not str:
         raise TypeError("exercise snapshot exercise_id must be a string")
+    if len(exercise_id) > _MAX_IDENTITY_TEXT:
+        raise ValueError("exercise snapshot exercise_id is too long")
     if exercise_id != definition.exercise_id:
         raise ValueError("exercise snapshot belongs to a different exercise")
 
@@ -644,6 +666,11 @@ def _restore_common(
     status_value = snapshot["status"]
     if type(status_value) is not str:
         raise TypeError("exercise snapshot status must be a string")
+    # ExerciseStatus resolves hashable values through Enum's value lookup.
+    # Bound hostile persisted text before that fixed-domain lookup so malformed
+    # storage cannot trigger unbounded string hashing ahead of validation.
+    if len(status_value) > _MAX_TRAINING_STATUS_CHARS:
+        raise ValueError("exercise snapshot status text is too long")
     try:
         status = ExerciseStatus(status_value)
     except ValueError as exc:

@@ -534,6 +534,46 @@ class ExerciseSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too many fields"):
             ExerciseSession.restore(definition, oversized)
 
+    def test_restore_keeps_unsupported_schema_error_bounded(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        # A hostile custom Mapping can supply an already-materialized arbitrary
+        # precision int. Error reporting must not stringify that value.
+        snapshot["schema_version"] = 1 << 20000
+
+        with self.assertRaises(ValueError) as caught:
+            ExerciseSession.restore(definition, snapshot)
+
+        self.assertEqual(
+            str(caught.exception),
+            "unsupported exercise snapshot schema_version",
+        )
+
+    def test_restore_bounds_snapshot_field_names_before_value_reads(self):
+        definition = self.make_definition()
+        payload = ExerciseSession(definition).snapshot()
+        keys = list(payload)
+        oversized_field = "x" * 64
+        keys[-1] = oversized_field
+
+        class ValueForbiddenSnapshot(Mapping):
+            def __len__(self):
+                return len(keys)
+
+            def __iter__(self):
+                return iter(keys)
+
+            def __getitem__(self, key):
+                raise AssertionError(
+                    "oversized snapshot fields must fail before value reads"
+                )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "field name exceeds supported bound",
+        ):
+            ExerciseSession.restore(definition, ValueForbiddenSnapshot())
+
     def test_restore_reads_custom_snapshot_mapping_only_once(self):
         definition = self.make_definition()
         session = ExerciseSession(definition)
@@ -681,6 +721,28 @@ class ExerciseSessionTests(unittest.TestCase):
                 forged[field] = unsafe
                 with self.assertRaisesRegex(ValueError, "invalid exercise counters"):
                     ExerciseSession.restore(definition, forged)
+
+    def test_snapshot_identity_and_position_fen_are_bounded_before_semantic_comparison(self):
+        definition = self.make_definition()
+        oversized = "x" * (training_module._MAX_IDENTITY_TEXT + 1)
+
+        identity = ExerciseSession(definition).snapshot()
+        identity["exercise_id"] = oversized
+        with self.assertRaisesRegex(ValueError, "exercise_id is too long"):
+            ExerciseSession.restore(definition, identity)
+
+        position = ExerciseSession(definition).snapshot()
+        position["position_fen"] = oversized
+        with self.assertRaisesRegex(ValueError, "position_fen is too long"):
+            ExerciseSession.restore(definition, position)
+
+    def test_snapshot_status_is_bounded_before_enum_lookup(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        snapshot["status"] = "x" * 12
+
+        with self.assertRaisesRegex(ValueError, "status text is too long"):
+            ExerciseSession.restore(definition, snapshot)
 
     def test_invalid_snapshot_cannot_claim_false_completion(self):
         definition = self.make_definition()
@@ -831,6 +893,30 @@ class ExerciseSessionTests(unittest.TestCase):
                 Board.START,
                 (step,),
                 metadata=DuplicateMetadata(),
+            )
+
+    def test_definition_metadata_bounds_keys_before_hash_and_value_reads(self):
+        step = ExerciseStep(frozenset({"e4"}))
+        oversized_key = "x" * 4097
+
+        class ValueForbiddenMetadata(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                return iter((oversized_key,))
+
+            def __getitem__(self, key):
+                raise AssertionError(
+                    "oversized metadata keys must fail before value reads"
+                )
+
+        with self.assertRaisesRegex(ValueError, "metadata text is too long"):
+            ExerciseDefinition(
+                "bounded-metadata-key",
+                Board.START,
+                (step,),
+                metadata=ValueForbiddenMetadata(),
             )
 
     def test_full_definition_identity_ingress_is_bounded(self):
