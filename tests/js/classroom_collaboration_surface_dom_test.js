@@ -100,6 +100,7 @@ function collaboration(messages, unreadCount, moderation) {
       heading: "Chat",
       composer_label: "Message",
       send_label: "Send",
+      send_pending_label: "Sending message…",
       sync_label: "Refresh chat",
       mark_read_label: "Mark read",
       older_label: "Older messages",
@@ -127,7 +128,13 @@ function collaboration(messages, unreadCount, moderation) {
     files: {
       heading: "Files",
       sync_label: "Refresh files",
+      sync_pending_label: "Refreshing files…",
       choose_upload_label: "Choose and send file",
+      choose_upload_pending_label: "Choosing or sending file…",
+      save_pending_label: "Preparing file save…",
+      open_pending_label: "Preparing file open…",
+      retry_pending_label: "Retrying file transfer…",
+      cancel_pending_label: "Cancelling file transfer…",
       retention_policy_label: "New file retention: session",
       older_label: "Older files",
       newer_label: "Newer files",
@@ -494,6 +501,12 @@ try {
 check(
   !synchronousBridgeFailureEscaped,
   "synchronous host bridge failures must be contained by the async command boundary"
+);
+check(
+  bridgeFailureAnnouncements.filter(
+    (message) => message === "Sending message…"
+  ).length === 1,
+  "pending send must announce one concise progress phase and suppress duplicate progress spam"
 );
 check(
   throwingInput.readOnly &&
