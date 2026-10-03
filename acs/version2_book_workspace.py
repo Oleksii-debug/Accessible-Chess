@@ -72,6 +72,92 @@ _SEMANTIC_TREE_LABELS = {
     },
 }
 
+_SEMANTIC_RECOVERY_WARNINGS = {
+    UILanguage.UA: {
+        "duplicate_tag": "Дубльований тег PGN відновлено; використано останнє значення.",
+        "nested_comment": "Вкладені дужки коментаря PGN нормалізовано.",
+        "unterminated_comment": "Незавершений коментар PGN відновлено.",
+        "unmatched_brace": "Зайву закривальну дужку коментаря PGN пропущено.",
+        "malformed_nag": "Некоректну числову анотацію PGN відновлено.",
+        "unmatched_parenthesis": "Зайву закривальну дужку варіанта PGN пропущено.",
+        "unterminated_variation": "Незавершений варіант PGN відновлено.",
+        "orphan_variation": "Варіант без попереднього ходу відновлено.",
+        "annotation": "Некоректну шахову анотацію PGN відновлено.",
+        "unconsumed": "Частину некоректних токенів PGN пропущено під час відновлення.",
+        "invalid_result": "Некоректний результат у заголовку PGN проігноровано.",
+        "result_mismatch": (
+            "Результат у заголовку PGN не збігався з текстом партії; "
+            "використано канонічний результат."
+        ),
+        "missing_termination": (
+            "Відсутній маркер завершення партії PGN; результат відновлено."
+        ),
+        "other": (
+            "PGN потребував відновлення; деталі пошкодженого джерела приховано."
+        ),
+    },
+    UILanguage.EN: {
+        "duplicate_tag": "A duplicate PGN tag was recovered; the last value was used.",
+        "nested_comment": "Nested PGN comment delimiters were normalized.",
+        "unterminated_comment": "An unterminated PGN comment was recovered.",
+        "unmatched_brace": "An unmatched PGN comment brace was ignored.",
+        "malformed_nag": "A malformed numeric PGN annotation was recovered.",
+        "unmatched_parenthesis": "An unmatched PGN variation parenthesis was ignored.",
+        "unterminated_variation": "An unterminated PGN variation was recovered.",
+        "orphan_variation": "A PGN variation without a preceding move was recovered.",
+        "annotation": "A malformed PGN chess annotation was recovered.",
+        "unconsumed": "Malformed PGN tokens were skipped during recovery.",
+        "invalid_result": "An invalid PGN header result was ignored.",
+        "result_mismatch": (
+            "The PGN header result differed from movetext; the canonical result was used."
+        ),
+        "missing_termination": (
+            "The PGN game termination marker was missing; the result was recovered."
+        ),
+        "other": (
+            "The PGN source required recovery; damaged source details were hidden."
+        ),
+    },
+}
+
+
+def _semantic_recovery_warning(value: object, language: UILanguage) -> tuple[str, str]:
+    """Classify parser recovery without publishing source-derived warning payloads."""
+    if not isinstance(value, str) or not value.strip():
+        raise _BookSemanticTreeError("book semantic recovery warning is invalid")
+    raw = value.strip()
+    if raw.startswith("duplicate tag "):
+        key = "duplicate_tag"
+    elif raw == "nested brace comment delimiters normalized to parentheses":
+        key = "nested_comment"
+    elif raw == "unterminated brace comment":
+        key = "unterminated_comment"
+    elif raw == "unmatched closing brace":
+        key = "unmatched_brace"
+    elif raw == "malformed numeric annotation glyph":
+        key = "malformed_nag"
+    elif raw == "unmatched closing parenthesis":
+        key = "unmatched_parenthesis"
+    elif raw == "unterminated variation":
+        key = "unterminated_variation"
+    elif raw == "variation has no preceding move":
+        key = "orphan_variation"
+    elif raw.startswith("numeric annotation glyph out of range ") or raw.startswith(
+        "orphan annotation "
+    ):
+        key = "annotation"
+    elif raw.endswith(" unconsumed token(s)"):
+        key = "unconsumed"
+    elif raw.startswith("invalid header Result "):
+        key = "invalid_result"
+    elif raw.startswith("header Result ") and " differs from movetext " in raw:
+        key = "result_mismatch"
+    elif raw.startswith("missing movetext game termination marker;"):
+        key = "missing_termination"
+    else:
+        key = "other"
+    return key, _SEMANTIC_RECOVERY_WARNINGS[language][key]
+
 
 class _BookSemanticTreeError(ValueError):
     """Known fail-closed presentation error for otherwise canonical GameTree data."""
@@ -310,11 +396,18 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             for comment in (safe_comment_text(raw) for raw in game.line.trailing_comments)
             if comment
         )
-        warnings = tuple(
-            warning
-            for warning in (safe(raw) for raw in workflow_warnings)
-            if warning
-        )
+        rendered_warnings: list[str] = []
+        seen_warning_kinds: set[str] = set()
+        for raw_warning in workflow_warnings:
+            warning_kind, warning_text = _semantic_recovery_warning(
+                raw_warning,
+                self.language,
+            )
+            if warning_kind in seen_warning_kinds:
+                continue
+            seen_warning_kinds.add(warning_kind)
+            rendered_warnings.append(safe(warning_text))
+        warnings = tuple(rendered_warnings)
         players = safe(view.title)
         if players == "? — ?":
             players = ""
