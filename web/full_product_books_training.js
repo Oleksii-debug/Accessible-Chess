@@ -5,6 +5,7 @@
   const renderEpochs = new WeakMap();
   const MAX_BOOKMARK_NAME = 80;
   const MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024;
+  const MAX_BOOK_LIST_ITEMS = 65536;
   const MAX_BOOK_HEADING_PATH_PARTS = 6;
   const MAX_BOOK_HEADING_PATH_TEXT = 360;
   const MAX_STARTER_BOOKLETS = 24;
@@ -310,6 +311,7 @@
       if (
         !Array.isArray(block.list.items) ||
         block.list.items.length < 1 ||
+        block.list.items.length > MAX_BOOK_LIST_ITEMS ||
         block.list.items.some(function (item) {
           return typeof item !== "string" || !item || item.indexOf("\x00") >= 0;
         })
