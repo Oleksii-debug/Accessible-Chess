@@ -88,6 +88,14 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             writer.setframerate(8000)
             writer.writeframes(struct.pack("<h", sample) * 8)
 
+    @staticmethod
+    def _write_wav_8bit(path: Path) -> None:
+        with wave.open(str(path), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(1)
+            writer.setframerate(8000)
+            writer.writeframes(bytes([0, 64, 128, 192, 255] * 4))
+
     def _write_sound_provenance(self) -> None:
         manifest = json.loads((self.sounds / "manifest.json").read_text(encoding="utf-8"))
         events: dict[str, dict[str, str]] = {}
@@ -650,6 +658,22 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             self._prepare(output)
         self._assert_no_publication(output)
         (self.sounds / "extra.wav").unlink()
+
+    def test_release_payload_accepts_8bit_pcm_runtime_sound(self) -> None:
+        target = self.sounds / f"{SoundEvent.LOW_TIME.value}.wav"
+        self._write_wav_8bit(target)
+        self._write_sound_provenance()
+
+        result = self._prepare(self.root / "payload-8bit-sound")
+        packaged = (
+            result.product_dir
+            / "assets"
+            / "sounds"
+            / f"{SoundEvent.LOW_TIME.value}.wav"
+        )
+        with wave.open(str(packaged), "rb") as reader:
+            self.assertEqual(reader.getsampwidth(), 1)
+            self.assertEqual(reader.getcomptype(), "NONE")
 
     def test_sound_manifest_allows_intentional_alias_when_provenance_matches(self) -> None:
         manifest_path = self.sounds / "manifest.json"
