@@ -535,6 +535,14 @@ class ClassroomCollaborationWebView:
             sha256,
         ).hexdigest()
 
+    def _pending_chat_draft_key(self, message_id: str) -> str:
+        """Return opaque presentation correlation for one ambiguous chat send."""
+
+        material = (
+            f"{self._controller.room_id}\0pending-chat-draft\0{message_id}"
+        ).encode("utf-8")
+        return hmac.new(self._pending_chat_secret, material, sha256).hexdigest()
+
     @staticmethod
     def _announcement_body(value: str) -> str:
         normalized = unicodedata.normalize("NFC", value)
@@ -920,15 +928,15 @@ class ClassroomCollaborationWebView:
         *,
         announcement: str = "",
         focus_target: str = "",
-        clear_chat_draft: bool = False,
+        clear_chat_draft_keys: tuple[str, ...] = (),
     ) -> ClassroomCollaborationWebViewEvent:
         payload: dict[str, object] = {"collaboration": self.safe_snapshot()}
         if announcement:
             payload["announcement"] = announcement
         if focus_target:
             payload["focus_target"] = focus_target
-        if clear_chat_draft:
-            payload["clear_chat_draft"] = True
+        if clear_chat_draft_keys:
+            payload["clear_chat_draft_keys"] = clear_chat_draft_keys
         return ClassroomCollaborationWebViewEvent(kind, payload)
 
     def _error(
@@ -936,6 +944,7 @@ class ClassroomCollaborationWebView:
         *,
         message: str = "",
         focus_target: str = "",
+        pending_chat_draft_key: str = "",
     ) -> ClassroomCollaborationWebViewEvent:
         payload: dict[str, object] = {
             "message": message or _GENERIC_FAILURE[self._language]
@@ -943,6 +952,8 @@ class ClassroomCollaborationWebView:
         payload["collaboration"] = self.safe_snapshot()
         if focus_target:
             payload["focus_target"] = focus_target
+        if pending_chat_draft_key:
+            payload["pending_chat_draft_key"] = pending_chat_draft_key
         return ClassroomCollaborationWebViewEvent("error", payload)
 
     def _file_progress_view(self) -> dict[str, object] | None:
@@ -1047,6 +1058,7 @@ class ClassroomCollaborationWebView:
             return self._error(
                 message=_LABELS[self._language]["send_failed"],
                 focus_target="collaboration-chat-input",
+                pending_chat_draft_key=self._pending_chat_draft_key(message_id),
             )
         self._pending_chat.pop(fingerprint, None)
         self._chat_page_bucket = None
@@ -1116,7 +1128,11 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.chat.received",
             announcement=announcement,
-            clear_chat_draft=pending_recovered,
+            clear_chat_draft_keys=(
+                (self._pending_chat_draft_key(received.message_id),)
+                if pending_recovered
+                else ()
+            ),
         )
 
     def refresh_chat(self) -> ClassroomCollaborationWebViewEvent:
@@ -1151,6 +1167,7 @@ class ClassroomCollaborationWebView:
         }
         self._unread_message_ids.intersection_update(visible_message_ids)
         recovered_fingerprints: list[str] = []
+        recovered_draft_keys: list[str] = []
         pending_conflict = False
         for fingerprint, message_id in self._pending_chat.items():
             item = current_by_id.get(message_id)
@@ -1165,6 +1182,9 @@ class ClassroomCollaborationWebView:
                 )
             ):
                 recovered_fingerprints.append(fingerprint)
+                recovered_draft_keys.append(
+                    self._pending_chat_draft_key(message_id)
+                )
             else:
                 pending_conflict = True
         for fingerprint in recovered_fingerprints:
@@ -1209,7 +1229,7 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.chat.synced",
             announcement=announcement,
-            clear_chat_draft=pending_recovered,
+            clear_chat_draft_keys=tuple(recovered_draft_keys),
         )
 
     def refresh_files(self) -> ClassroomCollaborationWebViewEvent:

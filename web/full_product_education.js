@@ -193,10 +193,16 @@
     if (!root || typeof root.querySelector !== "function") return null;
     const input = root.querySelector("#collaboration-chat-input");
     if (!input) return null;
+    const pendingChatDraftKey = String(
+      input.getAttribute("data-pending-chat-draft-key") || ""
+    );
     return {
       value: String(input.value || ""),
       selectionStart: Number.isInteger(input.selectionStart) ? input.selectionStart : null,
-      selectionEnd: Number.isInteger(input.selectionEnd) ? input.selectionEnd : null
+      selectionEnd: Number.isInteger(input.selectionEnd) ? input.selectionEnd : null,
+      pendingChatDraftKey: /^[0-9a-f]{64}$/.test(pendingChatDraftKey)
+        ? pendingChatDraftKey
+        : ""
     };
   }
 
@@ -205,6 +211,14 @@
     const input = root.querySelector("#collaboration-chat-input");
     if (!input) return;
     input.value = draft.value;
+    if (
+      typeof draft.pendingChatDraftKey === "string" &&
+      /^[0-9a-f]{64}$/.test(draft.pendingChatDraftKey)
+    ) {
+      input.setAttribute("data-pending-chat-draft-key", draft.pendingChatDraftKey);
+    } else {
+      input.removeAttribute("data-pending-chat-draft-key");
+    }
     if (
       typeof input.setSelectionRange === "function" &&
       Number.isInteger(draft.selectionStart) &&
@@ -216,6 +230,25 @@
         // Keep the draft even when this host cannot restore a text selection.
       }
     }
+  }
+
+  function collaborationDraftShouldClear(draft, payload) {
+    if (
+      !draft ||
+      typeof draft.pendingChatDraftKey !== "string" ||
+      !/^[0-9a-f]{64}$/.test(draft.pendingChatDraftKey) ||
+      !payload ||
+      !Array.isArray(payload.clear_chat_draft_keys)
+    ) {
+      return false;
+    }
+    return payload.clear_chat_draft_keys.some(function (candidate) {
+      return (
+        typeof candidate === "string" &&
+        /^[0-9a-f]{64}$/.test(candidate) &&
+        candidate === draft.pendingChatDraftKey
+      );
+    });
   }
 
   function collaborationOpenDisclosureIds(root) {
@@ -531,6 +564,7 @@
     const previousPending = collaborationPendingState(root);
     const previousDraft = collaborationDraftInside(root);
     const previousOpenDisclosures = collaborationOpenDisclosureIds(root);
+    const clearRecoveredDraft = collaborationDraftShouldClear(previousDraft, payload);
     const previousStatus = root.querySelector("#classroom-collaboration-status");
     const previousStatusText = previousStatus
       ? String(previousStatus.textContent || "")
@@ -561,7 +595,7 @@
         );
         if (
           result.kind !== "collaboration.chat.sent" &&
-          payload.clear_chat_draft !== true
+          !clearRecoveredDraft
         ) {
           restoreCollaborationDraft(root, previousDraft);
         }
@@ -841,6 +875,31 @@
         fallbackMessage,
         pending.command
       );
+      if (
+        pending.command === "collaboration.chat.send" &&
+        result &&
+        result.kind === "error" &&
+        typeof resultPayload.pending_chat_draft_key === "string" &&
+        /^[0-9a-f]{64}$/.test(resultPayload.pending_chat_draft_key)
+      ) {
+        const settledComposer = (
+          root && typeof root.querySelector === "function"
+            ? root.querySelector("#collaboration-chat-input")
+            : null
+        );
+        const submittedBody = (
+          payload && typeof payload.body === "string" ? payload.body : ""
+        );
+        if (
+          settledComposer &&
+          String(settledComposer.value || "") === submittedBody
+        ) {
+          settledComposer.setAttribute(
+            "data-pending-chat-draft-key",
+            resultPayload.pending_chat_draft_key
+          );
+        }
+      }
       if (wrapper.parentNode) releasePendingState();
     }, announce, fallbackMessage, function () {
       const current = (
@@ -1003,6 +1062,9 @@
     input.setAttribute("dir", "auto");
     const maxBody = Number(chat.max_body_chars || 0);
     if (Number.isFinite(maxBody) && maxBody > 0) input.maxLength = maxBody;
+    input.addEventListener("input", function () {
+      input.removeAttribute("data-pending-chat-draft-key");
+    });
     form.appendChild(input);
     const send = node("button", chat.send_label || "Send");
     send.id = "collaboration-chat-send";

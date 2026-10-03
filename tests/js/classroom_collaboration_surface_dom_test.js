@@ -1038,8 +1038,13 @@ window.AccessibleChessEducationSurface.render(
   "",
   "Action failed"
 );
+const recoveredDraftKey = "c".repeat(64);
 recoveredDraftRoot.querySelector("#collaboration-chat-input").value =
   "Already accepted by the server";
+recoveredDraftRoot.querySelector("#collaboration-chat-input").setAttribute(
+  "data-pending-chat-draft-key",
+  recoveredDraftKey
+);
 window.AccessibleChessEducationSurface.apply(
   recoveredDraftRoot,
   {
@@ -1054,8 +1059,11 @@ window.AccessibleChessEducationSurface.apply(
 );
 check(
   recoveredDraftRoot.querySelector("#collaboration-chat-input").value ===
-    "Already accepted by the server",
-  "ordinary chat refresh must preserve an unsent composer draft"
+    "Already accepted by the server" &&
+  recoveredDraftRoot.querySelector("#collaboration-chat-input").getAttribute(
+    "data-pending-chat-draft-key"
+  ) === recoveredDraftKey,
+  "ordinary chat refresh must preserve an unsent composer draft and its opaque recovery correlation"
 );
 window.AccessibleChessEducationSurface.apply(
   recoveredDraftRoot,
@@ -1063,7 +1071,7 @@ window.AccessibleChessEducationSurface.apply(
     kind: "collaboration.chat.synced",
     payload: {
       collaboration: snapshot.collaboration,
-      clear_chat_draft: true,
+      clear_chat_draft_keys: [recoveredDraftKey],
       announcement: "Message sent."
     }
   },
@@ -1073,7 +1081,45 @@ window.AccessibleChessEducationSurface.apply(
 );
 check(
   recoveredDraftRoot.querySelector("#collaboration-chat-input").value === "",
-  "authoritatively recovered chat send must clear the already-committed draft"
+  "authoritatively recovered chat send must clear only its correlated committed draft"
+);
+
+const newerDraftRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  newerDraftRoot,
+  snapshot,
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+const newerDraftInput = newerDraftRoot.querySelector("#collaboration-chat-input");
+newerDraftInput.value = "Older ambiguous draft";
+newerDraftInput.setAttribute("data-pending-chat-draft-key", recoveredDraftKey);
+newerDraftInput.value = "New unsent draft must survive";
+newerDraftInput.listeners.input({});
+check(
+  newerDraftInput.getAttribute("data-pending-chat-draft-key") === null,
+  "editing the composer must revoke correlation with an older ambiguous send"
+);
+window.AccessibleChessEducationSurface.apply(
+  newerDraftRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: snapshot.collaboration,
+      clear_chat_draft_keys: [recoveredDraftKey],
+      announcement: "Message sent."
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  newerDraftRoot.querySelector("#collaboration-chat-input").value ===
+    "New unsent draft must survive",
+  "late recovery of an older send must never erase a newer composer draft"
 );
 
 const pageStatus = root.querySelector("#collaboration-chat-page-status");
@@ -1325,6 +1371,31 @@ check(
   throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "true",
   "pending chat send must be single-flight and expose bounded busy state without blurring controls"
 );
+
+const pendingDraftKey = "e".repeat(64);
+const correlatedFailureRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  correlatedFailureRoot,
+  snapshot,
+  () => Promise.resolve({
+    kind: "error",
+    payload: {
+      collaboration: snapshot.collaboration,
+      message: "Message send was not confirmed. Retry or refresh chat.",
+      pending_chat_draft_key: pendingDraftKey
+    }
+  }),
+  () => {},
+  "",
+  "Action failed"
+);
+const correlatedFailureInput = correlatedFailureRoot.querySelector(
+  "#collaboration-chat-input"
+);
+correlatedFailureInput.value = "Ambiguous submitted draft";
+correlatedFailureRoot.querySelector("#collaboration-chat-form").listeners.submit({
+  preventDefault() {}
+});
 
 const fileProgressRoot = new FakeElement("div");
 const fileProgressAnnouncements = [];
@@ -2175,6 +2246,14 @@ setImmediate(() => {
     check(
       bridgeInvokeCount === 1,
       "pending send must suppress duplicate submissions before the host result"
+    );
+    check(
+      correlatedFailureRoot.querySelector("#collaboration-chat-input").value ===
+        "Ambiguous submitted draft" &&
+      correlatedFailureRoot.querySelector("#collaboration-chat-input").getAttribute(
+        "data-pending-chat-draft-key"
+      ) === pendingDraftKey,
+      "ambiguous send failure must correlate only the unchanged submitted draft with its opaque host key"
     );
     check(
       throwingRoot.querySelector("#classroom-collaboration-status").textContent ===
