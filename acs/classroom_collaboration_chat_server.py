@@ -173,7 +173,25 @@ class ClassroomChatServerSQLiteStore:
             db = sqlite3.connect(self._path, timeout=30.0)
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA foreign_keys=ON")
+            # Retention redaction must not merely unlink the logical TEXT
+            # value while leaving recoverable payload bytes in SQLite free
+            # space. Make secure deletion an invariant of every authority
+            # connection rather than relying on build-specific defaults.
+            db.execute("PRAGMA secure_delete=ON")
+            secure_delete = db.execute("PRAGMA secure_delete").fetchone()
+            if (
+                secure_delete is None
+                or type(secure_delete[0]) is not int
+                or secure_delete[0] != 1
+            ):
+                raise ClassroomChatServerError(
+                    "classroom chat server secure deletion is unavailable"
+                )
             return db
+        except ClassroomChatServerError:
+            if db is not None:
+                db.close()
+            raise
         except sqlite3.Error:
             if db is not None:
                 db.close()
