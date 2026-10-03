@@ -60,8 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
-          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          git checkout-index --force -- acs/stage1_release_ui_core.py acs/webapp_keymap_core.py
           test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
           test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
 
@@ -115,8 +114,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
-          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          git checkout-index --force -- acs/stage1_release_ui_core.py acs/webapp_keymap_core.py
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
