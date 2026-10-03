@@ -63,6 +63,19 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("USER_SOUND_PACK_SOURCE_ZIP_SHA256_MISMATCH", self.text)
         self.assertIn("USER_SOUND_PACK_SOURCE_ZIP_SIZE_MISMATCH", self.text)
         self.assertIn("USER_SOUND_PACK_EXACT=PASS", self.text)
+        self.assertIn("USER_SOUND_PACK_CATALOG_SEMANTICS=PASS", self.text)
+        self.assertIn("USER_SOUND_PACK_MANIFEST_SEMANTICS_MISMATCH", self.text)
+        self.assertIn("USER_SOUND_PACK_VARIANT_SEMANTICS_MISMATCH", self.text)
+        self.assertIn("USER_SOUND_PACK_LAYER_SEMANTICS_MISMATCH", self.text)
+        self.assertIn("USER_SOUND_PACK_NEWGAME_SEMANTICS_MISMATCH", self.text)
+        for authority in (
+            "DEFAULT_EVENT_FILES",
+            "EVENT_VARIANTS",
+            "NEW_GAME_DURATION_SECONDS_BY_VARIANT",
+            "NEW_GAME_IMPACTS_BY_VARIANT",
+            "SOUND_LAYERS",
+        ):
+            self.assertIn(authority, self.text)
         self.assertIn("USER_SOUND_PACK_CANONICAL=PASS", self.text)
         self.assertIn("USER_SOUND_PACK_330_WAV=YES", self.text)
         self.assertIn("library/Board/MOVEHIT1.WAV", self.text)
@@ -141,6 +154,11 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("SOUND_INVENTORY.json", self.text)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE_MISMATCH", self.text)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE=PASS", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_CATALOG_SEMANTICS=PASS", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_MANIFEST_SEMANTICS_MISMATCH", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_VARIANT_SEMANTICS_MISMATCH", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_LAYER_SEMANTICS_MISMATCH", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_NEWGAME_SEMANTICS_MISMATCH", self.text)
         self.assertIn("EXPECTED_SOURCE_INVENTORY_SHA256", self.text)
         self.assertIn("EXPECTED_SOURCE_WAV_COUNT", self.text)
 
