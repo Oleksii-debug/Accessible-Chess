@@ -359,11 +359,6 @@ class ClassroomModerationRpcService:
             raise ClassroomModerationRpcError(
                 "moderation recovery command is invalid"
             )
-        verifier = self._provider_state_verifier
-        if verifier is None:
-            raise ClassroomModerationRpcError(
-                "moderation provider state verification is unavailable"
-            )
         fingerprint = _fingerprint(command)
 
         async with self._lock:
@@ -384,40 +379,60 @@ class ClassroomModerationRpcService:
                 state,
                 expected_fingerprint=fingerprint,
             )
-            if state.committed:
-                return
-            reservation_owner = state.reservation_owner
-            assert reservation_owner is not None
+            await self._reconcile_verified_pending_locked(
+                room_id=room,
+                command=command,
+                fingerprint=fingerprint,
+                state=state,
+            )
 
-            try:
-                matches = await verifier.moderation_effect_matches(
-                    room_id=room,
-                    command=command,
-                )
-            except Exception:
-                raise ClassroomModerationRpcError(
-                    "moderation provider state verification failed"
-                ) from None
-            if type(matches) is not bool:
-                raise ClassroomModerationRpcError(
-                    "moderation provider state verifier returned invalid result"
-                )
-            if not matches:
-                raise ClassroomModerationRpcError(
-                    "moderation provider state does not confirm pending operation"
-                )
+    async def _reconcile_verified_pending_locked(
+        self,
+        *,
+        room_id: str,
+        command: ModerationCommand,
+        fingerprint: str,
+        state: ModerationOperationState,
+    ) -> None:
+        if state.committed:
+            return
+        verifier = self._provider_state_verifier
+        if verifier is None:
+            raise ClassroomModerationRpcError(
+                "moderation provider state verification is unavailable"
+            )
+        reservation_owner = state.reservation_owner
+        assert reservation_owner is not None
 
-            try:
-                self._ledger.commit(
-                    room_id=room,
-                    operation_id=command.operation_id,
-                    fingerprint=fingerprint,
-                    reservation_owner=reservation_owner,
-                )
-            except Exception:
-                raise ClassroomModerationRpcError(
-                    "moderation replay ledger reconciliation commit failed"
-                ) from None
+        try:
+            matches = await verifier.moderation_effect_matches(
+                room_id=room_id,
+                command=command,
+            )
+        except Exception:
+            raise ClassroomModerationRpcError(
+                "moderation provider state verification failed"
+            ) from None
+        if type(matches) is not bool:
+            raise ClassroomModerationRpcError(
+                "moderation provider state verifier returned invalid result"
+            )
+        if not matches:
+            raise ClassroomModerationRpcError(
+                "moderation provider state does not confirm pending operation"
+            )
+
+        try:
+            self._ledger.commit(
+                room_id=room_id,
+                operation_id=command.operation_id,
+                fingerprint=fingerprint,
+                reservation_owner=reservation_owner,
+            )
+        except Exception:
+            raise ClassroomModerationRpcError(
+                "moderation replay ledger reconciliation commit failed"
+            ) from None
 
     async def handle_rpc(
         self,
@@ -457,9 +472,17 @@ class ClassroomModerationRpcService:
                 )
                 if not state.committed:
                     if state.reservation_owner != self._reservation_owner:
-                        raise ClassroomModerationRpcError(
-                            "moderation operation is pending in another service participant"
+                        if self._provider_state_verifier is None:
+                            raise ClassroomModerationRpcError(
+                                "moderation operation is pending in another service participant"
+                            )
+                        await self._reconcile_verified_pending_locked(
+                            room_id=parsed.room_id,
+                            command=command,
+                            fingerprint=fingerprint,
+                            state=state,
                         )
+                        continue
                     pending_commands.append((command, fingerprint))
 
             if pending_commands:
