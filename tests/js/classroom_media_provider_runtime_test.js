@@ -304,7 +304,7 @@ async function testUnavailablePackagedRuntimeCancelsBeforeProviderBoundary() {
   ]);
 }
 
-async function testLostReadyAfterCredentialUsesFailClosedNotStartedCallback() {
+async function testLostReadyAfterCredentialEntersOutcomeUnknownRecovery() {
   FakeAdapter.instances.length = 0;
   const calls = [];
   const runtime = new ClassroomMediaProviderRuntime({
@@ -328,12 +328,13 @@ async function testLostReadyAfterCredentialUsesFailClosedNotStartedCallback() {
       if (command === "media.provider_dispatched") {
         throw new Error("lost local bridge response");
       }
-      if (command === "media.provider_not_started") {
+      if (command === "media.provider_outcome_unknown") {
         assert.strictEqual(payload.transaction_id, SESSION_ID);
         return {
           kind: "error",
           payload: {
             message: "safe",
+            snapshot: null,
             recovery_required: true,
             transaction_id: SESSION_ID
           }
@@ -350,7 +351,7 @@ async function testLostReadyAfterCredentialUsesFailClosedNotStartedCallback() {
     "media.provider_config",
     "media.provider_take_credential",
     "media.provider_dispatched",
-    "media.provider_not_started"
+    "media.provider_outcome_unknown"
   ]);
   assert.deepStrictEqual(FakeAdapter.instances[0].calls, []);
 }
@@ -580,7 +581,7 @@ async function testMismatchedExecutorReceiptEntersRecoveryWithoutCanonicalAck() 
           payload: { transaction_id: HOST_ID }
         };
       }
-      if (command === "media.provider_not_started") {
+      if (command === "media.provider_outcome_unknown") {
         assert.strictEqual(payload.transaction_id, HOST_ID);
         return {
           kind: "error",
@@ -606,7 +607,44 @@ async function testMismatchedExecutorReceiptEntersRecoveryWithoutCanonicalAck() 
   assert.deepStrictEqual(calls, [
     "media.provider_config",
     "media.provider_dispatched",
-    "media.provider_not_started"
+    "media.provider_outcome_unknown"
+  ]);
+}
+
+async function testLostCanonicalAcknowledgementReturnsLocalRecovery() {
+  const calls = [];
+  const runtime = new ClassroomMediaProviderRuntime({
+    globalObject: runtimeGlobal(),
+    invoke: async function (command, payload) {
+      calls.push(command);
+      if (command === "media.provider_config") return providerConfigEvent();
+      if (command === "media.provider_dispatched") {
+        return {
+          kind: "provider-ready",
+          payload: { transaction_id: HOST_ID }
+        };
+      }
+      if (command === "media.provider_effect_success") {
+        throw new Error("lost acknowledgement response after provider success");
+      }
+      if (command === "media.provider_outcome_unknown") {
+        throw new Error("lost recovery acknowledgement too");
+      }
+      throw new Error("unexpected command " + command);
+    }
+  });
+
+  const result = await runtime.settle(effectDispatch(0, 1));
+
+  assert.strictEqual(result.kind, "error");
+  assert.strictEqual(result.payload.snapshot, null);
+  assert.strictEqual(result.payload.recovery_required, true);
+  assert.strictEqual(result.payload.transaction_id, HOST_ID);
+  assert.deepStrictEqual(calls, [
+    "media.provider_config",
+    "media.provider_dispatched",
+    "media.provider_effect_success",
+    "media.provider_outcome_unknown"
   ]);
 }
 
@@ -641,11 +679,12 @@ async function main() {
   await testConnectKeepsTokenInOneCredentialCallback();
   await testModerationChunksStayInOneRuntimeTransaction();
   await testUnavailablePackagedRuntimeCancelsBeforeProviderBoundary();
-  await testLostReadyAfterCredentialUsesFailClosedNotStartedCallback();
+  await testLostReadyAfterCredentialEntersOutcomeUnknownRecovery();
   await testFailedConnectSubmitsExactCleanupSnapshot();
   await testProviderConfigChangeWhileConnectedCancelsBeforeDispatch();
   await testProviderConfigChangeAfterCleanDisconnectRebuildsExecutor();
   await testMismatchedExecutorReceiptEntersRecoveryWithoutCanonicalAck();
+  await testLostCanonicalAcknowledgementReturnsLocalRecovery();
   await testRuntimeRejectsConcurrentSettle();
   process.stdout.write("CLASSROOM_MEDIA_PROVIDER_RUNTIME_TEST=PASS\n");
 }
