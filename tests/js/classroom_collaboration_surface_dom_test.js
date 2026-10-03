@@ -516,6 +516,27 @@ check(
   "pending chat send must be single-flight and expose bounded busy state without blurring controls"
 );
 
+const fileProgressRoot = new FakeElement("div");
+const fileProgressAnnouncements = [];
+window.AccessibleChessEducationSurface.render(
+  fileProgressRoot,
+  snapshot,
+  () => new Promise(() => {}),
+  (message) => fileProgressAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+const fileProgressSync = fileProgressRoot.querySelector("#collaboration-file-sync");
+fileProgressSync.listeners.click();
+fileProgressSync.listeners.click();
+check(
+  fileProgressAnnouncements.filter(
+    (message) => message === "Refreshing files…"
+  ).length === 1 &&
+  fileProgressRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "true",
+  "pending file refresh must announce one concise phase and remain single-flight"
+);
+
 input.value = "Prepared reply";
 input.setSelectionRange(4, 9);
 input.focus();
@@ -821,6 +842,24 @@ window.AccessibleChessEducationSurface.apply(
 check(
   document.activeElement === root.querySelector("#collaboration-chat-sync"),
   "disappearing collaboration actions must move focus to a stable safe control"
+);
+
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "error",
+    payload: {
+      collaboration: collaboration([], 0),
+      message: "File transfer failed: lesson.pgn."
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  announcements.includes("File transfer failed: lesson.pgn."),
+  "contextual file errors must reach the bounded announcement channel"
 );
 
 window.AccessibleChessEducationSurface.apply(
