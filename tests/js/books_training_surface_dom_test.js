@@ -1565,6 +1565,9 @@ async function run() {
   );
   check(semanticBoardOpen !== null && !semanticBoardOpen.disabled,
     "semantic Game board capability must remain usable without direct FEN exposure");
+  controlsFocus.focus();
+  check(document.activeElement === controlsFocus,
+    "isolated semantic Game capability test must restore prior reading focus");
 
   const emptyParagraph = bookSnapshot(3, "Paragraph");
   emptyParagraph.block.text = "   ";
