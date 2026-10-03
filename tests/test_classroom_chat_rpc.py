@@ -903,7 +903,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
         self.assertEqual("teacher-1", self.backend.moderation_callers[-1])
 
         student_command = replace(commands[0], actor_id="student-1")
-        with self.assertRaisesRegex(ClassroomChatRpcError, "backend failed"):
+        with self.assertRaisesRegex(ClassroomChatRpcError, "service unavailable"):
             self.student.apply_moderation((student_command,))
         direct = {
             "v": 1,
