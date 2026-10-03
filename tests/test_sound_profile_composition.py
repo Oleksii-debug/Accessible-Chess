@@ -463,8 +463,11 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 asset_playback=_Playback(),
             )
             provider = composition.settings._installed_pack_provider
+            rights_provider = composition.settings._installed_rights_provider
             self.assertTrue(callable(provider))
+            self.assertTrue(callable(rights_provider))
             self.assertEqual({}, provider())
+            self.assertIsNone(rights_provider("missing.pack"))
 
     def test_optional_provider_install_survives_restart_and_local_uninstall_without_provider(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-provider-") as raw:
@@ -516,6 +519,19 @@ class LocalSoundCompositionTests(unittest.TestCase):
             )
             self.assertEqual("local_installed", local["state"])
             self.assertTrue(local["can_uninstall"])
+            self.assertTrue(local["rights_auditable"])
+            self.assertEqual(
+                entry.rights_evidence.source_uri,
+                local["rights_source_uri"],
+            )
+            self.assertEqual(
+                entry.rights_evidence.license_uri,
+                local["license_uri"],
+            )
+            self.assertEqual(
+                entry.rights_evidence,
+                restarted.pack_store.rights_evidence(entry.manifest.pack_id),
+            )
 
             removed = restarted.settings.uninstall_pack(
                 entry.manifest.pack_id,
