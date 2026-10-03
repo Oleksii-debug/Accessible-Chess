@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -142,11 +143,11 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         tree = bridge.projection.snapshot()["block"]["semantic_tree"]
 
         self.assertIn(
-            {"label": "Подія", "value": "Second"},
+            {"kind": "event", "label": "Подія", "value": "Second"},
             tree["details"],
         )
         self.assertNotIn(
-            {"label": "Подія", "value": "First"},
+            {"kind": "event", "label": "Подія", "value": "First"},
             tree["details"],
         )
         self.assertTrue(
@@ -181,7 +182,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(ua["details_label"], "Відомості про партію")
         self.assertEqual(en["details_label"], "Game details")
-        self.assertIn({"label": "Event", "value": "Accessible Cup"}, en["details"])
+        self.assertIn({"kind": "event", "label": "Event", "value": "Accessible Cup"}, en["details"])
         self.assertTrue(
             any(
                 item["kind"] == "variation" and item["label"] == "Variation 1"
@@ -250,12 +251,21 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         )
         progress_before = reader.snapshot()
 
-        with patch(
-            "acs.version2_book_workspace._MAX_BOOK_SEMANTIC_DEPTH",
-            1,
+        with (
+            patch(
+                "acs.version2_book_workspace._MAX_BOOK_SEMANTIC_DEPTH",
+                1,
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "deep semantic content must fail before recursive presenter allocation"
+                ),
+            ) as presenter,
         ):
             snapshot = bridge.projection.snapshot()
 
+        presenter.assert_not_called()
         self.assertNotIn("semantic_tree", snapshot["block"])
         self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
         open_action = next(
@@ -319,6 +329,108 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         with patch(
             "acs.version2_book_workspace._MAX_BOOK_BLOCK_VISIBLE_CHARS",
             8,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_malformed_presenter_text_fails_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Presenter safety",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e4 e5 *',
+                        title="Presenter safety",
+                        block_id="presenter-safety",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+        malformed_item = SimpleNamespace(
+            kind="move",
+            depth=0,
+            node_id="g0:main/m0",
+            parent_id=None,
+            label=object(),
+            comments=(),
+            comments_before=(),
+            comments_after=(),
+            trailing_comments=(),
+        )
+        malformed_view = SimpleNamespace(
+            game_index=0,
+            items=(malformed_item,),
+            title="Alpha — Beta",
+            result="*",
+        )
+        fake_presenter = SimpleNamespace(view=lambda: malformed_view)
+
+        with patch(
+            "acs.version2_book_workspace.PgnTreePresenter",
+            return_value=fake_presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_invalid_presenter_result_fails_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Result safety",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e4 e5 *',
+                        title="Result safety",
+                        block_id="result-safety",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+        valid_item = SimpleNamespace(
+            kind="move",
+            depth=0,
+            node_id="g0:main/m0",
+            parent_id=None,
+            label="1. e4",
+            comments=(),
+            comments_before=(),
+            comments_after=(),
+            trailing_comments=(),
+        )
+        malformed_view = SimpleNamespace(
+            game_index=0,
+            items=(valid_item,),
+            title="Alpha — Beta",
+            result="2-0",
+        )
+        fake_presenter = SimpleNamespace(view=lambda: malformed_view)
+
+        with patch(
+            "acs.version2_book_workspace.PgnTreePresenter",
+            return_value=fake_presenter,
         ):
             snapshot = bridge.projection.snapshot()
 
