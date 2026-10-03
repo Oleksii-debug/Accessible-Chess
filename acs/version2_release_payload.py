@@ -55,6 +55,9 @@ _STOCKFISH_PROVENANCE = "STOCKFISH_PROVENANCE.json"
 _SOUND_PROVENANCE_SOURCE = "provenance.json"
 _SOUND_PROVENANCE_NOTICE = "SOUND_PROVENANCE.json"
 _SOUND_PROVENANCE_SCHEMA_VERSION = 1
+_MAX_SOUND_MANIFEST_BYTES = 256 * 1024
+_MAX_SOUND_PROVENANCE_BYTES = 1024 * 1024
+_MAX_SOUND_WAV_BYTES = 64 * 1024 * 1024
 _LIVEKIT_CLIENT_VERSION = "2.22.3"
 _LIVEKIT_CLIENT_LICENSE_ID = "Apache-2.0"
 _LIVEKIT_CLIENT_NPM_TARBALL_URL = (
@@ -683,9 +686,14 @@ def _verify_livekit_tree_against_pinned_archive(
 
 def _validate_sound_pack(product_dir: Path) -> None:
     manifest_path = product_dir / DEFAULT_SOUND_RELATIVE_DIR / DEFAULT_SOUND_MANIFEST
+    manifest_bytes = _read_stable_regular_bytes(
+        manifest_path,
+        label="sound manifest",
+        max_bytes=_MAX_SOUND_MANIFEST_BYTES,
+    )
     try:
-        raw = _json_no_duplicates(manifest_path.read_text(encoding="utf-8-sig"))
-    except OSError as exc:
+        raw = _json_no_duplicates(manifest_bytes.decode("utf-8-sig"))
+    except UnicodeError as exc:
         raise Version2ReleasePayloadError("sound manifest is unreadable") from exc
     if not isinstance(raw, dict):
         raise Version2ReleasePayloadError("sound manifest root must be an object")
@@ -728,16 +736,27 @@ def _validate_sound_pack(product_dir: Path) -> None:
 
     for path in manifest.files.values():
         try:
-            with wave.open(str(path), "rb") as reader:
-                channels = reader.getnchannels()
-                frame_count = reader.getnframes()
-                if reader.getcomptype() != "NONE" or reader.getsampwidth() != 2:
-                    raise Version2ReleasePayloadError("release sounds must be 16-bit PCM WAV")
-                if channels <= 0 or frame_count <= 0 or reader.getframerate() <= 0:
-                    raise Version2ReleasePayloadError("release sound WAV is empty or invalid")
-                frames = reader.readframes(frame_count)
-                if len(frames) != frame_count * channels * 2:
-                    raise Version2ReleasePayloadError("release sound WAV is truncated")
+            wav_bytes = _read_stable_regular_bytes(
+                path,
+                label="release sound WAV",
+                max_bytes=_MAX_SOUND_WAV_BYTES,
+            )
+            with tempfile.SpooledTemporaryFile(
+                max_size=min(_MAX_SOUND_WAV_BYTES, 8 * 1024 * 1024),
+                mode="w+b",
+            ) as sound_snapshot:
+                sound_snapshot.write(wav_bytes)
+                sound_snapshot.seek(0)
+                with wave.open(sound_snapshot, "rb") as reader:
+                    channels = reader.getnchannels()
+                    frame_count = reader.getnframes()
+                    if reader.getcomptype() != "NONE" or reader.getsampwidth() != 2:
+                        raise Version2ReleasePayloadError("release sounds must be 16-bit PCM WAV")
+                    if channels <= 0 or frame_count <= 0 or reader.getframerate() <= 0:
+                        raise Version2ReleasePayloadError("release sound WAV is empty or invalid")
+                    frames = reader.readframes(frame_count)
+                    if len(frames) != frame_count * channels * 2:
+                        raise Version2ReleasePayloadError("release sound WAV is truncated")
         except Version2ReleasePayloadError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -761,17 +780,29 @@ def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
     sound_root = product_dir / DEFAULT_SOUND_RELATIVE_DIR
     provenance_path = sound_root / _SOUND_PROVENANCE_SOURCE
     manifest_path = sound_root / DEFAULT_SOUND_MANIFEST
+    provenance_bytes = _read_stable_regular_bytes(
+        provenance_path,
+        label="sound provenance",
+        max_bytes=_MAX_SOUND_PROVENANCE_BYTES,
+    )
+    manifest_bytes = _read_stable_regular_bytes(
+        manifest_path,
+        label="sound manifest",
+        max_bytes=_MAX_SOUND_MANIFEST_BYTES,
+    )
     try:
         raw = _json_no_duplicates(
-            provenance_path.read_text(encoding="utf-8-sig"),
+            provenance_bytes.decode("utf-8-sig"),
             label="sound provenance",
         )
         manifest_raw = _json_no_duplicates(
-            manifest_path.read_text(encoding="utf-8-sig"),
+            manifest_bytes.decode("utf-8-sig"),
             label="sound manifest",
         )
-    except OSError as exc:
-        raise Version2ReleasePayloadError("sound provenance is missing or unreadable") from exc
+    except UnicodeError as exc:
+        raise Version2ReleasePayloadError(
+            "sound provenance is missing or unreadable"
+        ) from exc
 
     if not isinstance(raw, dict) or set(raw) != {"schema_version", "events"}:
         raise Version2ReleasePayloadError("sound provenance root contract is invalid")
