@@ -186,6 +186,27 @@ class SoundPackRightsEvidence:
 
 
 @dataclass(frozen=True)
+class SoundPackInstalledAudit:
+    """One coherent verified installed-version identity plus bound rights evidence."""
+
+    manifest: SoundPackManifest
+    rights_evidence: SoundPackRightsEvidence | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.manifest, SoundPackManifest):
+            raise TypeError("installed audit manifest must be SoundPackManifest")
+        if self.rights_evidence is not None:
+            if not isinstance(self.rights_evidence, SoundPackRightsEvidence):
+                raise TypeError(
+                    "installed audit rights_evidence must be SoundPackRightsEvidence or null"
+                )
+            if self.rights_evidence.license_id != self.manifest.license_id:
+                raise ValueError(
+                    "installed audit rights license must match manifest license_id"
+                )
+
+
+@dataclass(frozen=True)
 class SoundPackCatalogEntry:
     manifest: SoundPackManifest
     assets: Mapping[str, SoundAssetDigest]
