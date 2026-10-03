@@ -444,6 +444,14 @@ class ClassroomCollaborationWebView:
         material = f"{self._controller.room_id}\0{attachment_id}".encode("utf-8")
         return hmac.new(self._action_secret, material, sha256).hexdigest()
 
+    def _progress_key(self, attachment_id: str) -> str:
+        """Return a session-bound opaque identity with no browser action authority."""
+
+        material = (
+            f"{self._controller.room_id}\0progress\0{attachment_id}"
+        ).encode("utf-8")
+        return hmac.new(self._action_secret, material, sha256).hexdigest()
+
     def _attachment_for_key(self, file_key: object) -> AttachmentMetadata:
         if type(file_key) is not str or len(file_key) != 64:
             raise ValueError("invalid file action key")
@@ -874,6 +882,7 @@ class ClassroomCollaborationWebView:
         _attachment_id, name, transferred_bytes, total_bytes, complete = progress
         labels = _LABELS[self._language]
         return {
+            "transfer_key": self._progress_key(_attachment_id),
             "name": name,
             "transferred_bytes": transferred_bytes,
             "total_bytes": total_bytes,
