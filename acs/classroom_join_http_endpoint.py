@@ -25,7 +25,7 @@ from .classroom_join_credentials import (
 JOIN_CREDENTIAL_PATH = "/v1/classroom/join-credential"
 MAX_AUTHORIZATION_BYTES = 8192
 MAX_REQUEST_HEADER_BYTES = 16 * 1024
-_BEARER_CHALLENGE = (
+# Bound ASGI fragmentation independently of request byte size so authenticated\n# peers cannot consume unbounded event-loop turns with zero-byte frames.\nMAX_REQUEST_BODY_EVENTS = 16 * 1024\n_BEARER_CHALLENGE = (
     (
         b"www-authenticate",
         b'Bearer realm="accessible-chess-classroom"',
@@ -398,7 +398,11 @@ async def _read_body(
     declared_length: int | None,
 ) -> bytes:
     body = bytearray()
+    event_count = 0
     while True:
+        event_count += 1
+        if event_count > MAX_REQUEST_BODY_EVENTS:
+            raise _HttpReject(413, "request_too_fragmented")
         event = await receive()
         if type(event) is not dict:
             raise _HttpReject(400, "invalid_request")
