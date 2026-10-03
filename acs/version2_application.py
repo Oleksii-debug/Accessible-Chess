@@ -423,6 +423,7 @@ class Version2Application:
             and self.training_workspace is None
         ):
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             # The packaged WebView consumes the application event queue on its
             # polling seam. A route event requests one authoritative snapshot
             # refresh; omit focus_target so the host chooses the real current
@@ -673,6 +674,7 @@ class Version2Application:
             # the safe workflow unwind. Emergency projection-failure unwind stays
             # storage-independent in _recover_book_projection_failure().
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             # Route ownership changed synchronously inside the domain workflow.
             # Publish one V2 refresh request even if the caller subsequently
             # reports a persistence error, so the visible/NVDA surface cannot
@@ -719,6 +721,7 @@ class Version2Application:
             except Exception:
                 return
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             self._events.append(
                 {"kind": "route", "payload": {"route_id": "books"}}
             )
@@ -986,6 +989,8 @@ class Version2Application:
                 )
                 if self.shell.current_route.route_id == "training":
                     self._focus = self.shell.open_route(recovery_route)
+                    if recovery_route == "books":
+                        self._repair_book_block_focus_after_rebind()
                     self._events.append(
                         {"kind": "route", "payload": {"route_id": recovery_route}}
                     )
