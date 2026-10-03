@@ -1449,6 +1449,56 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertTrue(substituted_path.exists())
         self.assertEqual(substituted_path.read_bytes(), substitute_bytes)
 
+    def test_publish_rechecks_target_after_final_temp_identity_check(self) -> None:
+        reader = BookReader(self.original_document())
+        self.store.save("book:late-target-cas", reader)
+        primary_before = self.path.read_bytes()
+        external_primary = b'{"entries":{},"generation":77,"schema_version":2}'
+        real_lstat = os.lstat
+        primary_temp_lstats = 0
+        injected = False
+
+        def advance_target_during_final_temp_lstat(path: object) -> os.stat_result:
+            nonlocal primary_temp_lstats, injected
+            candidate = Path(path)
+            name = candidate.name
+            is_primary_temp = (
+                name.startswith(f".{self.path.name}.")
+                and not name.startswith(f".{self.store.backup_path.name}.")
+                and name.endswith(".tmp")
+            )
+            if is_primary_temp:
+                primary_temp_lstats += 1
+                if primary_temp_lstats == 2:
+                    self.path.write_bytes(external_primary)
+                    injected = True
+            return real_lstat(path)
+
+        reader.go_to(1)
+        with mock.patch(
+            "acs.book_progress_store.os.lstat",
+            side_effect=advance_target_during_final_temp_lstat,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:late-target-cas", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertNotEqual(primary_before, external_primary)
+        self.assertEqual(self.path.read_bytes(), external_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and not item.name.startswith(f".{self.store.backup_path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
     def test_save_preserves_newer_backup_when_primary_advances_before_backup_publish(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
