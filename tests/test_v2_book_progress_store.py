@@ -833,6 +833,42 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertNotEqual(self.path.read_bytes(), primary_before)
         self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
 
+    def test_legacy_generation_zero_primary_can_repair_divergent_legacy_backup(self) -> None:
+        primary_reader = BookReader(self.original_document())
+        primary_reader.go_to(1)
+        backup_reader = BookReader(self.original_document())
+        backup_reader.go_to(0)
+        legacy_primary = json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {"book:legacy-migrate": primary_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        legacy_backup = json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {"book:legacy-migrate": backup_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(legacy_primary)
+        self.store.backup_path.write_bytes(legacy_backup)
+
+        primary_reader.go_to(2)
+        saved = self.store.save("book:legacy-migrate", primary_reader)
+
+        self.assertEqual(saved["current_target"], "block:diagram")
+        self.assertEqual(self.store.backup_path.read_bytes(), legacy_primary)
+        migrated = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(migrated["generation"], 1)
+
     def test_corrupt_orphan_backup_is_preserved_instead_of_erased_by_save(self) -> None:
         self.path.parent.mkdir(parents=True)
         corrupt_backup = b'{"schema_version":2,"generation":'
