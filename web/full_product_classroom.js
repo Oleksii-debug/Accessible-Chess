@@ -50,7 +50,7 @@
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", section.heading || section.kind || "");
 
-    items.forEach(function (item) {
+    items.forEach(function (item, itemIndex) {
       const option = node("li");
       option.id = String(item.dom_id || "");
       option.setAttribute("role", "option");
@@ -78,9 +78,17 @@
         let command = null;
         let payload = null;
         if (event.key === "ArrowUp") {
+          if (itemIndex === 0) {
+            event.preventDefault();
+            return;
+          }
           command = "management.move";
           payload = { kind: section.kind, delta: -1 };
         } else if (event.key === "ArrowDown") {
+          if (itemIndex === items.length - 1) {
+            event.preventDefault();
+            return;
+          }
           command = "management.move";
           payload = { kind: section.kind, delta: 1 };
         } else if (event.key === "Enter") {
