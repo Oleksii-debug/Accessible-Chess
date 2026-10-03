@@ -1402,6 +1402,31 @@ class ClassroomFileServerService:
             attachment_id=attachment.attachment_id,
         )
         try:
+            stored_sha256 = self._object_store.stored_sha256(
+                object_key=attachment.object_key,
+            )
+        except Exception:
+            raise ClassroomFileServerError(
+                "durable object storage status is unavailable"
+            ) from None
+        if stored_sha256 is None:
+            raise ClassroomFileServerError(
+                "durable attachment bytes are unavailable"
+            )
+        if (
+            type(stored_sha256) is not str
+            or len(stored_sha256) != 64
+            or stored_sha256 != stored_sha256.lower()
+            or any(ch not in "0123456789abcdef" for ch in stored_sha256)
+        ):
+            raise ClassroomFileServerError(
+                "durable object storage returned invalid status"
+            )
+        if stored_sha256 != attachment.sha256:
+            raise CollaborationConflictError(
+                "durable object integrity conflicts with attachment metadata"
+            )
+        try:
             token = self._object_store.issue_read_token(
                 object_key=attachment.object_key,
                 participant_id=caller,
