@@ -276,6 +276,8 @@ async function run() {
   assert.ok(packMetadata.textContent.includes(
     "https://creativecommons.org/publicdomain/zero/1.0/"
   ), "auditable license reference must remain visible/selectable text");
+  assert.ok(packMetadata.textContent.includes("Rights source:"),
+    "current-version rights evidence must be labeled explicitly");
   installPack.focus();
   installPack.dispatch("click");
   await Promise.resolve();
@@ -452,6 +454,12 @@ async function run() {
         catalog_author: "Provider author",
         catalog_license_id: "CC0-1.0",
         catalog_provenance: "provider catalog",
+        rights_auditable: true,
+        rights_source_uri: "https://example.invalid/source/old.playable/1.0.0",
+        license_uri: "https://opensource.org/license/mit",
+        catalog_rights_auditable: true,
+        catalog_rights_source_uri: "https://example.invalid/source/old.playable/2.0.0",
+        catalog_license_uri: "https://creativecommons.org/publicdomain/zero/1.0/",
         compatible: false,
         installed_compatible: true,
         installed_version: "1.0.0",
@@ -533,6 +541,18 @@ async function run() {
       "Catalog provenance: provider catalog"
     ),
     "available update provenance must be shown separately from installed provenance"
+  );
+  assert.ok(
+    elements.get("sound-pack-old.playable-metadata").textContent.includes(
+      "Rights source: https://example.invalid/source/old.playable/1.0.0"
+    ),
+    "installed rights evidence must remain bound to the installed version"
+  );
+  assert.ok(
+    elements.get("sound-pack-old.playable-metadata").textContent.includes(
+      "Catalog rights source: https://example.invalid/source/old.playable/2.0.0"
+    ),
+    "candidate rights evidence must remain visibly separate from installed rights"
   );
   assert.ok(
     elements.get("sound-pack-newer.installed-select"),
