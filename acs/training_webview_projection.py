@@ -177,6 +177,23 @@ class TrainingWebViewProjection:
         """Internal presentation-message provenance for transactional rollback."""
         return self._presenter.message_key
 
+    def _transactional_event(
+        self,
+        operation: Callable[[], TrainingWebViewEvent],
+    ) -> TrainingWebViewEvent:
+        before_snapshot = self._presenter.snapshot()
+        before_message = self._presenter.message
+        before_message_key = self._presenter.message_key
+        try:
+            return operation()
+        except Exception:
+            self._presenter.restore_state(
+                before_snapshot,
+                message=before_message,
+                message_key=before_message_key,
+            )
+            raise
+
     def set_language(self, language: UILanguage | str) -> TrainingWebViewEvent:
         if type(language) is str:
             if len(language) > 8:
@@ -338,36 +355,53 @@ class TrainingWebViewProjection:
 
     def submit(self, value: object) -> TrainingWebViewEvent:
         answer = _answer(value)
-        result, view = self._presenter.submit(answer)
-        return self._render(
-            view,
-            announcement=view.message,
-            clear_answer=result.accepted,
-        )
+
+        def operation() -> TrainingWebViewEvent:
+            result, view = self._presenter.submit(answer)
+            return self._render(
+                view,
+                announcement=view.message,
+                clear_answer=result.accepted,
+            )
+
+        return self._transactional_event(operation)
 
     def hint(self) -> TrainingWebViewEvent:
-        _hint, view = self._presenter.request_hint()
-        return self._render(view, announcement=view.message)
+        def operation() -> TrainingWebViewEvent:
+            _hint, view = self._presenter.request_hint()
+            return self._render(view, announcement=view.message)
+
+        return self._transactional_event(operation)
 
     def reveal(self) -> TrainingWebViewEvent:
-        solution = self._presenter.reveal_solution()
-        view = self._presenter.view()
-        return self._render(
-            view,
-            focus_target="training-solution",
-            announcement=view.message,
-            solution=solution,
-        )
+        def operation() -> TrainingWebViewEvent:
+            solution = self._presenter.reveal_solution()
+            view = self._presenter.view()
+            return self._render(
+                view,
+                focus_target="training-solution",
+                announcement=view.message,
+                solution=solution,
+            )
+
+        return self._transactional_event(operation)
 
     def retry(self) -> TrainingWebViewEvent:
-        view = self._presenter.retry()
-        return self._render(view)
+        def operation() -> TrainingWebViewEvent:
+            view = self._presenter.retry()
+            return self._render(view)
+
+        return self._transactional_event(operation)
 
     def reset(self, *, confirmed: object) -> TrainingWebViewEvent:
         if type(confirmed) is not bool or not confirmed:
             raise ValueError("training reset requires explicit confirmation")
-        view = self._presenter.reset()
-        return self._render(view, clear_answer=True)
+
+        def operation() -> TrainingWebViewEvent:
+            view = self._presenter.reset()
+            return self._render(view, clear_answer=True)
+
+        return self._transactional_event(operation)
 
     def generic_error(self) -> TrainingWebViewEvent:
         return TrainingWebViewEvent(
