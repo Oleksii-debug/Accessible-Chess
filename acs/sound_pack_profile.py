@@ -97,9 +97,11 @@ class SoundPackProfileCoordinator:
         A new inactive pack is committed before profile selection, so a later
         profile-write failure merely leaves an extra safe installed pack. Updating
         the *active* pack is different: removed asset IDs must be cleared before
-        the storage active-version pointer can switch. If that atomic storage
-        install raises, its contract says no new active version was committed, so
-        restore the exact pre-update profile instead of losing user choices.
+        the storage active-version pointer can switch. A storage exception may be
+        an uncertain visible commit (for example, failure after active-pointer
+        publication), so recovery re-reads the installed authority and keeps only
+        sound IDs valid for the actual durable winner. If inventory cannot be
+        trusted, the already-persisted default-safe profile remains authoritative.
         """
 
         original_profile = self._profiles.current
