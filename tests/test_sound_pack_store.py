@@ -418,6 +418,33 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertIsNone(reopened.rights_evidence(manifest.pack_id))
             self.assertIsNotNone(reopened.resolve_asset(manifest.pack_id, "move"))
 
+    def test_missing_storage_parent_chain_is_durably_linked_before_pack_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            data = root / "data"
+            nested = data / "nested"
+            store_root = nested / "sound-packs"
+            store = FilesystemSoundPackStore(store_root)
+            calls = []
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=lambda path: calls.append(Path(path)),
+            ):
+                pack_dir, versions = store._ensure_pack_parent("soft.wood")
+
+            self.assertEqual(
+                [
+                    root,
+                    data,
+                    nested,
+                    store_root,
+                    pack_dir,
+                ],
+                calls,
+            )
+            self.assertEqual(pack_dir / "versions", versions)
+
     def test_new_pack_directory_chain_is_durably_linked_parent_first(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
