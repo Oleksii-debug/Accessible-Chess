@@ -90,6 +90,8 @@ _LABELS = {
         "retry": "Повторити",
         "cancel": "Скасувати",
         "sent": "Повідомлення надіслано.",
+        "send_failed": "Не вдалося підтвердити надсилання повідомлення. Повторіть або оновіть чат.",
+        "chat_sync_failed": "Не вдалося оновити чат.",
         "read": "Повідомлення позначено прочитаними.",
         "hidden": "Повідомлення приховано з активного класу.",
         "muted": "Надсилання повідомлень заборонено.",
@@ -105,6 +107,10 @@ _LABELS = {
         "file_retried": "Повторне передавання завершено: {name}.",
         "file_upload_failed": "Не вдалося передати файл: {name}.",
         "file_retry_failed": "Не вдалося повторити передавання файла: {name}.",
+        "file_save_failed": "Не вдалося підготувати безпечне збереження файла: {name}.",
+        "file_open_failed": "Не вдалося підготувати відкриття файла: {name}.",
+        "file_cancel_failed": "Не вдалося скасувати передавання файла: {name}.",
+        "file_sync_failed": "Не вдалося оновити файли.",
         "new_file": "Новий файл: {name}.",
         "new_many_files": "Нових файлів: {count}.",
         "file_state_updated": "Стан файла оновлено: {name}.",
@@ -160,6 +166,8 @@ _LABELS = {
         "retry": "Retry",
         "cancel": "Cancel",
         "sent": "Message sent.",
+        "send_failed": "Message send was not confirmed. Retry or refresh chat.",
+        "chat_sync_failed": "Chat refresh failed.",
         "read": "Messages marked read.",
         "hidden": "Message hidden from the active classroom view.",
         "muted": "Message sending disabled for the participant.",
@@ -175,6 +183,10 @@ _LABELS = {
         "file_retried": "File retry completed: {name}.",
         "file_upload_failed": "File transfer failed: {name}.",
         "file_retry_failed": "File retry failed: {name}.",
+        "file_save_failed": "Could not prepare safe file save: {name}.",
+        "file_open_failed": "Could not prepare file open: {name}.",
+        "file_cancel_failed": "Could not cancel file transfer: {name}.",
+        "file_sync_failed": "File refresh failed.",
         "new_file": "New file: {name}.",
         "new_many_files": "New files: {count}.",
         "file_state_updated": "File status updated: {name}.",
@@ -206,9 +218,9 @@ _TRANSFER_LABELS = {
 }
 _RETENTION_LABELS = {
     UILanguage.UA: {
-        "transient": "тимчасове",
-        "session": "до завершення сесії",
-        "persistent": "постійне",
+        "transient": "transient (тимчасове)",
+        "session": "session (сесійне)",
+        "persistent": "persistent (постійне)",
     },
     UILanguage.EN: {
         "transient": "transient",
@@ -794,11 +806,17 @@ class ClassroomCollaborationWebView:
         else:
             message_id = self._id_factory("message")
             self._pending_chat = (message_id, body)
-        self._controller.send_chat(
-            message_id=message_id,
-            body=body,
-            retention=self._chat_retention,
-        )
+        try:
+            self._controller.send_chat(
+                message_id=message_id,
+                body=body,
+                retention=self._chat_retention,
+            )
+        except Exception:
+            return self._error(
+                message=_LABELS[self._language]["send_failed"],
+                focus_target="collaboration-chat-input",
+            )
         self._pending_chat = None
         self._chat_page_bucket = None
         return self._event(
@@ -812,7 +830,13 @@ class ClassroomCollaborationWebView:
             item.message_id
             for item in self._store.room_messages(self._controller.room_id, include_hidden=True)
         }
-        incoming = self._controller.sync_chat()
+        try:
+            incoming = self._controller.sync_chat()
+        except Exception:
+            return self._error(
+                message=_LABELS[self._language]["chat_sync_failed"],
+                focus_target="collaboration-chat-sync",
+            )
         pending_recovered = False
         if self._pending_chat is not None:
             pending_id = self._pending_chat[0]
@@ -845,12 +869,18 @@ class ClassroomCollaborationWebView:
         return self._event("collaboration.chat.synced", announcement=announcement)
 
     def _sync_files(self) -> ClassroomCollaborationWebViewEvent:
-        before = {
-            item.attachment_id: (item.transfer_state, item.scan_state)
-            for item in self._store.room_attachments(self._controller.room_id)
-        }
-        incoming = self._controller.sync_files()
-        after_items = self._store.room_attachments(self._controller.room_id)
+        try:
+            before = {
+                item.attachment_id: (item.transfer_state, item.scan_state)
+                for item in self._store.room_attachments(self._controller.room_id)
+            }
+            incoming = self._controller.sync_files()
+            after_items = self._store.room_attachments(self._controller.room_id)
+        except Exception:
+            return self._error(
+                message=_LABELS[self._language]["file_sync_failed"],
+                focus_target="collaboration-file-sync",
+            )
         retriable_local_ids = {
             item.attachment_id
             for item in after_items
@@ -874,16 +904,18 @@ class ClassroomCollaborationWebView:
         )
         announcement = ""
         if len(new_remote) == 1:
-            announcement = _LABELS[self._language]["new_file"].format(
-                name=new_remote[0].display_name
+            announcement = self._file_announcement(
+                "new_file",
+                new_remote[0].display_name,
             )
         elif len(new_remote) > 1:
             announcement = _LABELS[self._language]["new_many_files"].format(
                 count=len(new_remote)
             )
         elif len(changed) == 1:
-            announcement = _LABELS[self._language]["file_state_updated"].format(
-                name=changed[0].display_name
+            announcement = self._file_announcement(
+                "file_state_updated",
+                changed[0].display_name,
             )
         elif len(changed) > 1:
             announcement = _LABELS[self._language]["file_states_updated"].format(
@@ -1026,8 +1058,18 @@ class ClassroomCollaborationWebView:
         if self._file_opener is None:
             raise RuntimeError("file open adapter is unavailable")
         attachment = self._attachment_for_key(file_key)
-        token = self._controller.issue_download_token(attachment_id=attachment.attachment_id)
-        self._file_opener(token, attachment.display_name)
+        try:
+            token = self._controller.issue_download_token(
+                attachment_id=attachment.attachment_id
+            )
+            self._file_opener(token, attachment.display_name)
+        except Exception:
+            return self._error(
+                message=self._file_announcement(
+                    "file_open_failed",
+                    attachment.display_name,
+                )
+            )
         return self._event(
             "collaboration.file.opened",
             announcement=self._file_announcement("file_opened", attachment.display_name),
@@ -1068,7 +1110,15 @@ class ClassroomCollaborationWebView:
 
     def _cancel_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
         attachment = self._attachment_for_key(file_key)
-        self._controller.cancel_file(attachment.attachment_id)
+        try:
+            self._controller.cancel_file(attachment.attachment_id)
+        except Exception:
+            return self._error(
+                message=self._file_announcement(
+                    "file_cancel_failed",
+                    attachment.display_name,
+                )
+            )
         self._prepared.pop(attachment.attachment_id, None)
         return self._event(
             "collaboration.file.cancelled",
@@ -1080,8 +1130,18 @@ class ClassroomCollaborationWebView:
         if self._file_saver is None:
             raise RuntimeError("file save adapter is unavailable")
         attachment = self._attachment_for_key(file_key)
-        token = self._controller.issue_download_token(attachment_id=attachment.attachment_id)
-        self._file_saver(token, attachment.display_name)
+        try:
+            token = self._controller.issue_download_token(
+                attachment_id=attachment.attachment_id
+            )
+            self._file_saver(token, attachment.display_name)
+        except Exception:
+            return self._error(
+                message=self._file_announcement(
+                    "file_save_failed",
+                    attachment.display_name,
+                )
+            )
         return self._event(
             "collaboration.file.saved",
             announcement=self._file_announcement("file_saved", attachment.display_name),
