@@ -723,8 +723,10 @@ def _validate_sound_pack(product_dir: Path) -> dict[str, object] | None:
             with wave.open(str(path), "rb") as reader:
                 channels = reader.getnchannels()
                 frame_count = reader.getnframes()
-                if reader.getcomptype() != "NONE" or reader.getsampwidth() != 2:
-                    raise Version2ReleasePayloadError("release sounds must be 16-bit PCM WAV")
+                if reader.getcomptype() != "NONE" or reader.getsampwidth() not in {1, 2}:
+                    raise Version2ReleasePayloadError(
+                        "release sounds must be 8-bit or 16-bit PCM WAV"
+                    )
                 if channels <= 0 or frame_count <= 0 or reader.getframerate() <= 0:
                     raise Version2ReleasePayloadError("release sound WAV is empty or invalid")
                 frames = reader.readframes(frame_count)
