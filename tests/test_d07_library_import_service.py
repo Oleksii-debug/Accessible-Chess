@@ -187,6 +187,74 @@ class D07LibraryImportServiceTests(unittest.TestCase):
         rows = self.db.conn.execute("SELECT source_index FROM games ORDER BY id").fetchall()
         self.assertEqual([int(row["source_index"]) for row in rows], [0, 1, 2])
 
+    def test_progress_callback_cannot_mutate_validated_game_warnings(self) -> None:
+        parsed_game = game(0)
+
+        def progress(item: LibraryImportProgress) -> None:
+            if item.processed_games == 0:
+                parsed_game.warnings.append("late callback warning")
+
+        with self.assertRaisesRegex(
+            LibraryImportControlError,
+            "Library import game changed after validation",
+        ):
+            self.service.import_games(
+                [parsed_game],
+                source_name="mutated-warning.pgn",
+                source_format="pgn",
+                source_sha256=DIGEST,
+                progress_callback=progress,
+            )
+
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0], 0)
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 0)
+        attempt = self.db.list_import_attempts()[0]
+        self.assertEqual(attempt["status"], "failed")
+        self.assertEqual(attempt["game_count"], 0)
+        self.assertEqual(attempt["warning_count"], 0)
+        self.assertEqual(
+            attempt["error_message"],
+            "Library import game changed after validation",
+        )
+
+    def test_reuse_fails_closed_if_callback_mutates_validated_canonical_game(self) -> None:
+        original = self.service.import_games(
+            (game(0),),
+            source_name="original.pgn",
+            source_format="pgn",
+            source_sha256=DIGEST,
+        )
+        retry_game = game(0)
+
+        def progress(item: LibraryImportProgress) -> None:
+            if item.processed_games == 0:
+                retry_game.tags["Event"] = "Retargeted after validation"
+
+        with self.assertRaisesRegex(
+            LibraryImportControlError,
+            "Library import game changed after validation",
+        ):
+            self.service.import_games(
+                [retry_game],
+                source_name="retry.pgn",
+                source_format="pgn",
+                source_sha256=DIGEST,
+                progress_callback=progress,
+            )
+
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0], 1)
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 1)
+        stored = self.db.get_game(original.first_game_id)
+        self.assertEqual(stored["event"], "Library 0")
+        attempts = self.db.list_import_attempts()
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0]["status"], "failed")
+        self.assertIsNone(attempts[0]["source_id"])
+        self.assertEqual(
+            attempts[0]["error_message"],
+            "Library import game changed after validation",
+        )
+
     def test_progress_callback_failure_is_sanitized_and_atomic(self) -> None:
         def progress(item: LibraryImportProgress) -> None:
             if item.processed_games == 2:
