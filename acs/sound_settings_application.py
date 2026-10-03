@@ -60,6 +60,7 @@ class SoundSettingsApplication:
         pack_coordinator: SoundPackProfileCoordinator | None = None,
         catalog: Mapping[str, SoundPackCatalogEntry] | None = None,
         installed_pack_provider: Callable[[], Mapping[str, SoundPackManifest]] | None = None,
+        pack_compatibility_provider: Callable[[SoundPackManifest], bool] | None = None,
     ) -> None:
         if not isinstance(profile_manager, SoundProfileManager):
             raise TypeError("profile_manager must be SoundProfileManager")
@@ -84,11 +85,16 @@ class SoundSettingsApplication:
             raise ValueError("catalog actions require a pack coordinator")
         if installed_pack_provider is not None and not callable(installed_pack_provider):
             raise TypeError("installed_pack_provider must be callable or None")
+        if pack_compatibility_provider is not None and not callable(
+            pack_compatibility_provider
+        ):
+            raise TypeError("pack_compatibility_provider must be callable or None")
         self._profiles = profile_manager
         self._runtime = runtime
         self._packs = pack_coordinator
         self._catalog = normalized
         self._installed_pack_provider = installed_pack_provider
+        self._pack_compatibility_provider = pack_compatibility_provider
 
     @staticmethod
     def _language(value: object) -> str:
@@ -110,6 +116,15 @@ class SoundSettingsApplication:
             result[pack_id] = manifest
         return result
 
+    def _local_pack_compatible(self, manifest: SoundPackManifest) -> bool:
+        provider = self._pack_compatibility_provider
+        if provider is None:
+            return True
+        compatible = provider(manifest)
+        if type(compatible) is not bool:
+            raise TypeError("pack compatibility provider must return boolean")
+        return compatible
+
     def _active_manifest(
         self,
         profile,
@@ -119,7 +134,7 @@ class SoundSettingsApplication:
             return None
         local = installed_local.get(profile.pack_id)
         if local is not None:
-            return local
+            return local if self._local_pack_compatible(local) else None
         entry = self._catalog.get(profile.pack_id)
         if entry is None or self._packs is None or not entry.compatible:
             return None
@@ -267,6 +282,7 @@ class SoundSettingsApplication:
         for pack_id, manifest in sorted(installed_local.items()):
             if pack_id == "classic" or pack_id in represented:
                 continue
+            compatible = self._local_pack_compatible(manifest)
             packs.append(
                 {
                     "pack_id": manifest.pack_id,
@@ -275,9 +291,9 @@ class SoundSettingsApplication:
                     "author": manifest.author,
                     "license_id": manifest.license_id,
                     "provenance": manifest.provenance,
-                    "compatible": True,
+                    "compatible": compatible,
                     "installed_version": manifest.version,
-                    "state": "local_installed",
+                    "state": "local_installed" if compatible else "incompatible",
                     "active": profile.pack_id == manifest.pack_id,
                     "can_install": False,
                     "can_uninstall": self._packs is not None
@@ -378,6 +394,8 @@ class SoundSettingsApplication:
         else:
             installed = self._installed_local_packs()
             manifest = installed.get(pack_id)
+            if manifest is not None and not self._local_pack_compatible(manifest):
+                raise ValueError("sound pack is incompatible with this application")
             if manifest is None and self._packs is not None and pack_id in self._catalog:
                 entry = self._catalog[pack_id]
                 status = self._packs.status(entry)
