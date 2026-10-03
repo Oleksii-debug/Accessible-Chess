@@ -93,6 +93,29 @@ class Version2ApplicationTests(unittest.TestCase):
                     "move-input",
                 )
 
+    def test_failed_library_projection_is_sanitized_without_route_or_focus_change(self):
+        self.app.shell.open_route("board")
+        self.app.record_focus("board-square-e4")
+
+        with patch.object(
+            self.app.library.projection,
+            "search",
+            side_effect=PermissionError(r"C:\\Users\\BlindTeacher\\private-library.sqlite"),
+        ):
+            command = self.app.adapter.activate_action(
+                "library.search",
+                current_focus_id="board-square-e4",
+            )
+
+        self.assertEqual(command.kind, "error")
+        self.assertNotIn("BlindTeacher", command.payload["message"])
+        self.assertNotIn("private-library", command.payload["message"])
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "board-square-e4",
+        )
+
     def test_modal_library_action_fails_before_projection_mutation(self):
         self.app.shell.open_route("board")
         self.app.shell.open_dialog(
