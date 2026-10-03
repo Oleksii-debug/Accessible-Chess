@@ -131,7 +131,7 @@ jobs:
           tests/test_v2_upgrade_training_progress_artifact_control.py=cd0be4e3d9e0cff14f8d2b1288d92e3b9a428465
           tests/test_v2_upgrade_self_coordination_artifact_control.py=ddba3b932b065ce981125b14e4bedc292de69d71
           tests/test_v2_upgrade_education_workspace_artifact_control.py=5a33d240d0d49651162d07866f84c7e7066ae4e2
-          tests/test_v2_upgrade_generated_artifact_authentication.py=ee72a61983b925ae1b2f63869e5c78343e7f9534
+          tests/test_v2_upgrade_generated_artifact_authentication.py=4018a74165a148e2f642ade38d36d694be39a667
           tests/test_version2_upgrade.py=ef87bddf6f7e4ceb33dddb49455dbe2df8b5f1c7
           tests/test_version2_upgrade_recovery_integrity.py=c4ee3bd0b27ef3e69c81d06e536805da5ed7f20d
           tests/test_version2_upgrade_stale_writer.py=c3967104ec33827a6027ce0f0af1ba5a18a04744
