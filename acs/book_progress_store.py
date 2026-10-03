@@ -670,7 +670,15 @@ class BookProgressStore:
                 except Exception:
                     pass
 
-    def _atomic_publish_bytes_unlocked(self, target: Path, encoded: bytes) -> None:
+    def _atomic_publish_bytes_unlocked(
+        self,
+        target: Path,
+        encoded: bytes,
+        *,
+        require_no_orphan_backup_before_replace: bool = False,
+    ) -> None:
+        if type(require_no_orphan_backup_before_replace) is not bool:
+            raise TypeError("require_no_orphan_backup_before_replace must be a boolean")
         if len(encoded) > MAX_BOOK_PROGRESS_STORE_BYTES:
             raise BookProgressStoreError(
                 "book progress store exceeds the resource limit",
@@ -703,6 +711,13 @@ class BookProgressStore:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
+            if require_no_orphan_backup_before_replace:
+                # The previous orphan check happens before temp-file I/O. A
+                # non-cooperating writer can create recovery data while this
+                # potentially slow write/fsync is in progress. Recheck after
+                # the durable temp is complete and immediately before the
+                # atomic primary replacement, with no intervening disk work.
+                self._require_no_orphan_backup_unlocked()
             os.replace(temp_path, target)
             temp_path = None
         except OSError:
@@ -766,7 +781,11 @@ class BookProgressStore:
             # absent. Recheck recovery data immediately before publication so
             # an ordinary first-save path does not silently supersede it.
             self._require_no_orphan_backup_unlocked()
-        self._atomic_publish_bytes_unlocked(self._path, encoded)
+        self._atomic_publish_bytes_unlocked(
+            self._path,
+            encoded,
+            require_no_orphan_backup_before_replace=previous_raw is None,
+        )
 
     @staticmethod
     def _next_generation(payload: Mapping[str, object]) -> int:
