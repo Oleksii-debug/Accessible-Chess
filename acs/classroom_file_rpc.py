@@ -33,6 +33,7 @@ from .classroom_domain import MAX_WIRE_INTEGER
 
 RPC_VERSION = 1
 MAX_RPC_UPLOAD_BYTES = MAX_FILE_BYTES_DEFAULT
+_RPC_READ_CHUNK_BYTES = 1024 * 1024
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -43,7 +44,13 @@ class ClassroomFileRpcError(ValueError):
 class ClassroomFileRpcCallPort(Protocol):
     """Authenticated binary-capable request transport used by the desktop."""
 
-    def call(self, request: Mapping[str, object]) -> Mapping[str, object]:
+    def call(
+        self,
+        request: Mapping[str, object],
+        *,
+        on_upload_progress: Callable[[int], None] | None = None,
+    ) -> Mapping[str, object]:
+        """Call the authenticated transport and report actual upload bytes sent."""
         ...
 
 
@@ -146,9 +153,11 @@ class ClassroomFileRpcClient:
         *,
         on_progress: Callable[[FileTransferProgress], None] | None,
     ) -> AttachmentMetadata:
-        if on_progress is not None and not callable(on_progress):
-            raise ClassroomFileRpcError("file progress consumer must be callable")
         metadata, content = self._read_prepared(prepared)
+        observe_transport, require_complete_progress = self._progress_observer(
+            metadata,
+            on_progress,
+        )
         response = self._call(
             {
                 "v": RPC_VERSION,
@@ -157,22 +166,16 @@ class ClassroomFileRpcClient:
                 "participant_id": self.participant_id,
                 "metadata": _attachment_to_wire(metadata),
                 "content": content,
-            }
+            },
+            on_upload_progress=observe_transport,
         )
+        require_complete_progress()
         _exact_keys(response, {"v", "ok", "attachment"}, "upload response")
         _version_ok(response)
         if response["ok"] is not True:
             raise ClassroomFileRpcError("file upload failed")
         delivered = _attachment_from_wire(response["attachment"])
         _validate_upload_result(metadata, delivered)
-        if on_progress is not None:
-            on_progress(
-                FileTransferProgress(
-                    delivered.attachment_id,
-                    metadata.size_bytes,
-                    metadata.size_bytes,
-                )
-            )
         return delivered
 
     def _read_prepared(
@@ -188,32 +191,86 @@ class ClassroomFileRpcClient:
             participant_id=self.participant_id,
             max_upload_bytes=self._max_upload_bytes,
         )
-        path = prepared.local_path
+        remaining = metadata.size_bytes
+        digest = hashlib.sha256()
+        content = bytearray()
+        extra = b""
         try:
-            if not path.is_file():
-                raise OSError("not a regular file")
-            size = path.stat().st_size
-            if size != metadata.size_bytes:
-                raise ClassroomFileRpcError(
-                    "selected file changed before RPC upload"
-                )
-            if size > self._max_upload_bytes:
-                raise ClassroomFileRpcError("file exceeds RPC upload limit")
-            content = path.read_bytes()
-        except ClassroomFileRpcError:
-            raise
+            with prepared.local_path.open("rb") as source:
+                while remaining:
+                    chunk = source.read(min(_RPC_READ_CHUNK_BYTES, remaining))
+                    if not chunk:
+                        break
+                    content.extend(chunk)
+                    digest.update(chunk)
+                    remaining -= len(chunk)
+                extra = source.read(1)
         except OSError:
             raise ClassroomFileRpcError(
                 "selected file could not be read for upload"
             ) from None
         if (
-            len(content) != metadata.size_bytes
-            or hashlib.sha256(content).hexdigest() != metadata.sha256
+            remaining != 0
+            or extra
+            or digest.hexdigest() != metadata.sha256
         ):
             raise ClassroomFileRpcError(
                 "selected file changed before RPC upload"
             )
-        return metadata, content
+        return metadata, bytes(content)
+
+    @staticmethod
+    def _progress_observer(
+        metadata: AttachmentMetadata,
+        consumer: Callable[[FileTransferProgress], None] | None,
+    ) -> tuple[Callable[[int], None], Callable[[], None]]:
+        if consumer is not None and not callable(consumer):
+            raise ClassroomFileRpcError("file progress consumer must be callable")
+        last_transferred = -1
+
+        def observe(transferred_bytes: int) -> None:
+            nonlocal last_transferred
+            if (
+                type(transferred_bytes) is not int
+                or not 0 <= transferred_bytes <= metadata.size_bytes
+            ):
+                raise ClassroomFileRpcError(
+                    "file RPC transport returned invalid upload progress"
+                )
+            if transferred_bytes < last_transferred:
+                raise ClassroomFileRpcError(
+                    "file RPC transport progress moved backwards"
+                )
+            if transferred_bytes == last_transferred:
+                return
+            last_transferred = transferred_bytes
+            if consumer is not None:
+                try:
+                    consumer(
+                        FileTransferProgress(
+                            metadata.attachment_id,
+                            transferred_bytes,
+                            metadata.size_bytes,
+                        )
+                    )
+                except Exception:
+                    # UI/NVDA presentation is an observer. A broken callback
+                    # cannot turn an otherwise valid remote upload ambiguous.
+                    pass
+
+        def require_complete() -> None:
+            if metadata.size_bytes == 0:
+                if last_transferred not in {-1, 0}:
+                    raise ClassroomFileRpcError(
+                        "file RPC transport returned invalid upload progress"
+                    )
+                return
+            if last_transferred != metadata.size_bytes:
+                raise ClassroomFileRpcError(
+                    "file RPC transport omitted final upload progress"
+                )
+
+        return observe, require_complete
 
     def cancel(self, *, attachment_id: str) -> None:
         attachment = _opaque_id(attachment_id, "attachment id")
@@ -361,9 +418,19 @@ class ClassroomFileRpcClient:
         if response["ok"] is not True:
             raise ClassroomFileRpcError("file deletion failed")
 
-    def _call(self, request: Mapping[str, object]) -> dict[str, object]:
+    def _call(
+        self,
+        request: Mapping[str, object],
+        *,
+        on_upload_progress: Callable[[int], None] | None = None,
+    ) -> dict[str, object]:
         try:
-            response = self._transport.call(request)
+            response = self._transport.call(
+                request,
+                on_upload_progress=on_upload_progress,
+            )
+        except ClassroomFileRpcError:
+            raise
         except Exception:
             raise ClassroomFileRpcError(
                 "classroom file service unavailable"
