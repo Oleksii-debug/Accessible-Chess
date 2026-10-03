@@ -13,7 +13,7 @@ import hashlib
 import mimetypes
 from pathlib import Path
 import re
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .classroom_collaboration_storage import (
     AttachmentMetadata,
@@ -127,6 +127,44 @@ class PreparedFile:
             raise CollaborationError("prepared file metadata is invalid")
 
 
+@dataclass(frozen=True, slots=True)
+class FileTransferProgress:
+    """Bounded byte progress for one opaque attachment transfer.
+
+    The completion marker is controller-authoritative. Providers may report all
+    bytes sent, but only durable stored reconciliation may set terminal completion.
+    """
+
+    attachment_id: str
+    transferred_bytes: int
+    total_bytes: int
+    complete: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "attachment_id",
+            _id(self.attachment_id, "attachment id"),
+        )
+        transferred = _nonnegative_int(
+            self.transferred_bytes,
+            "transferred bytes",
+        )
+        total = _nonnegative_int(self.total_bytes, "total bytes")
+        if transferred > total:
+            raise CollaborationError(
+                "transferred bytes cannot exceed total bytes"
+            )
+        if type(self.complete) is not bool:
+            raise CollaborationError("progress completion marker must be boolean")
+        if self.complete and transferred != total:
+            raise CollaborationError(
+                "completed transfer progress must equal total bytes"
+            )
+        object.__setattr__(self, "transferred_bytes", transferred)
+        object.__setattr__(self, "total_bytes", total)
+
+
 class ChatTransportPort(Protocol):
     """Server-authoritative room chat transport.
 
@@ -166,8 +204,13 @@ class ChatTransportPort(Protocol):
 class FileTransferPort(Protocol):
     """Server-authoritative file metadata plus opaque-byte transfer boundary."""
 
-    def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
-        """Upload bytes and return authoritative metadata, including room sequence."""
+    def upload(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None],
+    ) -> AttachmentMetadata:
+        """Upload bytes and synchronously report bounded byte progress."""
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
@@ -179,8 +222,13 @@ class FileTransferPort(Protocol):
         """
         ...
 
-    def retry(self, prepared: PreparedFile) -> AttachmentMetadata:
-        """Retry bytes and return authoritative metadata for the same attachment."""
+    def retry(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None],
+    ) -> AttachmentMetadata:
+        """Retry bytes and synchronously report bounded byte progress."""
         ...
 
     def history_after(
@@ -227,6 +275,7 @@ class ClassroomCollaborationController:
         self._store = store
         self._file_store = file_store
         self._quota = quota
+        self._file_progress_consumer_depth = 0
         self._require_member(self.local_participant_id)
 
     def send_chat(
@@ -631,9 +680,25 @@ class ClassroomCollaborationController:
         )
         return PreparedFile(path, metadata)
 
-    def upload_file(self, prepared: PreparedFile) -> AttachmentMetadata:
+    def _require_file_mutation_outside_progress_consumer(self) -> None:
+        if self._file_progress_consumer_depth:
+            raise CollaborationError(
+                "file state cannot be mutated from a progress consumer"
+            )
+
+    def upload_file(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None = None,
+    ) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
+        progress, complete_progress, close_progress = self._progress_observers(
+            prepared.metadata,
+            on_progress,
+        )
         try:
             pending = self._store.register_attachment(
                 prepared.metadata,
@@ -644,6 +709,13 @@ class ClassroomCollaborationController:
         uploading = self._store.update_attachment_state(
             pending.attachment_id,
             transfer_state="uploading",
+        )
+        progress(
+            FileTransferProgress(
+                uploading.attachment_id,
+                0,
+                uploading.size_bytes,
+            )
         )
         candidate = PreparedFile(
             prepared.local_path,
@@ -663,17 +735,36 @@ class ClassroomCollaborationController:
             ),
         )
         try:
-            result = self._files.upload(candidate)
+            result = self._files.upload(
+                candidate,
+                on_progress=progress,
+            )
             self._validate_uploaded_result(uploading, result)
         except Exception:
+            close_progress()
             self._store.update_attachment_state(
                 uploading.attachment_id,
                 transfer_state="failed",
             )
             raise
-        return self._adopt_authoritative_upload(result)
+        try:
+            adopted = self._adopt_authoritative_upload(result)
+        except Exception:
+            close_progress()
+            raise
+        if adopted.transfer_state == "stored":
+            complete_progress()
+        else:
+            close_progress()
+        return adopted
 
-    def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
+    def retry_file(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None = None,
+    ) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         current = self._attachment(prepared.metadata.attachment_id)
@@ -692,24 +783,49 @@ class ClassroomCollaborationController:
             if current.scan_state == "failed"
             else current.scan_state
         )
+        progress, complete_progress, close_progress = self._progress_observers(
+            current,
+            on_progress,
+        )
         uploading = self._store.update_attachment_state(
             current.attachment_id,
             transfer_state="uploading",
             scan_state=retry_scan_state,
         )
+        progress(
+            FileTransferProgress(
+                uploading.attachment_id,
+                0,
+                uploading.size_bytes,
+            )
+        )
         candidate = PreparedFile(prepared.local_path, uploading)
         try:
-            result = self._files.retry(candidate)
+            result = self._files.retry(
+                candidate,
+                on_progress=progress,
+            )
             self._validate_uploaded_result(uploading, result)
         except Exception:
+            close_progress()
             self._store.update_attachment_state(
                 current.attachment_id,
                 transfer_state="failed",
             )
             raise
-        return self._adopt_authoritative_upload(result)
+        try:
+            adopted = self._adopt_authoritative_upload(result)
+        except Exception:
+            close_progress()
+            raise
+        if adopted.transfer_state == "stored":
+            complete_progress()
+        else:
+            close_progress()
+        return adopted
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_remote_attachment(
             attachment,
@@ -816,6 +932,7 @@ class ClassroomCollaborationController:
         return persisted[0]
 
     def sync_files(self) -> tuple[AttachmentMetadata, ...]:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         # Retry already-durable cleanup before any network dependency. A
         # provider outage after restart must not strand object-store bytes whose
@@ -963,6 +1080,7 @@ class ClassroomCollaborationController:
                 ) from error
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         attachment = self._attachment(_id(attachment_id, "attachment id"))
         if attachment.sender_id != self.local_participant_id:
@@ -1067,6 +1185,85 @@ class ClassroomCollaborationController:
             raise CollaborationError("prepared file size changed before upload")
         if _sha256_path(path) != metadata.sha256:
             raise CollaborationError("prepared file content changed before upload")
+
+    def _progress_observers(
+        self,
+        attachment: AttachmentMetadata,
+        consumer: Callable[[FileTransferProgress], None] | None,
+    ) -> tuple[
+        Callable[[FileTransferProgress], None],
+        Callable[[], None],
+        Callable[[], None],
+    ]:
+        if consumer is not None and not callable(consumer):
+            raise CollaborationError("file progress consumer must be callable")
+        last_transferred = -1
+        terminal_emitted = False
+
+        def deliver(sample: FileTransferProgress) -> None:
+            if consumer is not None:
+                self._file_progress_consumer_depth += 1
+                try:
+                    consumer(sample)
+                except Exception:
+                    # Presentation delivery is an observer boundary. A broken UI
+                    # consumer must not turn a valid provider transfer into an
+                    # ambiguous remote upload.
+                    pass
+                finally:
+                    self._file_progress_consumer_depth -= 1
+
+        def observe_provider(sample: FileTransferProgress) -> None:
+            nonlocal last_transferred
+            if terminal_emitted:
+                # A provider callback is synchronous by contract. Ignore any
+                # retained/late callback after controller-authoritative
+                # completion so presentation can never regress from terminal.
+                return
+            if type(sample) is not FileTransferProgress:
+                raise CollaborationError(
+                    "file transport returned invalid progress metadata"
+                )
+            if sample.complete:
+                raise CollaborationError(
+                    "file transport cannot claim authoritative completion"
+                )
+            if sample.attachment_id != attachment.attachment_id:
+                raise CollaborationError(
+                    "file transfer progress belongs to another attachment"
+                )
+            if sample.total_bytes != attachment.size_bytes:
+                raise CollaborationError(
+                    "file transfer progress changed attachment size"
+                )
+            if sample.transferred_bytes < last_transferred:
+                raise CollaborationError(
+                    "file transfer progress moved backwards"
+                )
+            if sample.transferred_bytes == last_transferred:
+                return
+            last_transferred = sample.transferred_bytes
+            deliver(sample)
+
+        def close() -> None:
+            nonlocal terminal_emitted
+            terminal_emitted = True
+
+        def complete() -> None:
+            nonlocal terminal_emitted
+            if terminal_emitted:
+                return
+            terminal_emitted = True
+            deliver(
+                FileTransferProgress(
+                    attachment.attachment_id,
+                    attachment.size_bytes,
+                    attachment.size_bytes,
+                    complete=True,
+                )
+            )
+
+        return observe_provider, complete, close
 
     def _adopt_authoritative_upload(
         self,
@@ -1369,5 +1566,6 @@ __all__ = [
     "CollaborationError",
     "FileQuotaPolicy",
     "FileTransferPort",
+    "FileTransferProgress",
     "PreparedFile",
 ]
