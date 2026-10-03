@@ -569,6 +569,52 @@ async function testMalformedSessionInstructionRetiresBeforeCredentialHandoff() {
   }
 }
 
+async function testCoercedProviderFieldsRetireBeforeProviderBoundary() {
+  const transaction = "host-" + "c".repeat(32);
+  const cases = [
+    {
+      label: "transaction object coercion",
+      provider: {
+        transaction_id: { toString: () => transaction },
+        operation: "set_local_source",
+        source: "camera",
+        enabled: true
+      }
+    },
+    {
+      label: "operation object coercion",
+      provider: {
+        transaction_id: transaction,
+        operation: { toString: () => "set_local_source" },
+        source: "camera",
+        enabled: true
+      }
+    }
+  ];
+
+  for (const item of cases) {
+    RecordingAdapter.instances.length = 0;
+    const runtime = loadRuntime(RecordingAdapter);
+    const bridgeCalls = [];
+    const event = dispatch(transaction, item.provider, false);
+    const result = await runtime.execute(event, async (command, payload) => {
+      bridgeCalls.push([command, payload.transaction_id]);
+      if (command === "media.provider_not_started") {
+        return { kind: "error", payload: { message: "sanitized" } };
+      }
+      throw new Error("coerced provider field crossed unexpected bridge command");
+    });
+
+    assert.equal(result.kind, "error", item.label);
+    assert.deepEqual(
+      bridgeCalls,
+      [["media.provider_not_started", transaction]],
+      item.label
+    );
+    assert.equal(RecordingAdapter.instances.length, 0, item.label);
+  }
+}
+
 async function testMalformedCrossedInstructionEscalatesToUnknownRecovery() {
   RecordingAdapter.instances.length = 0;
   const runtime = loadRuntime(RecordingAdapter);
@@ -1381,6 +1427,7 @@ async function run() {
   await testProviderSuccessAckLossRequiresRecovery();
   await testCrossedTransactionConfigurationLossRequiresRecovery();
   await testMalformedSessionInstructionRetiresBeforeCredentialHandoff();
+  await testCoercedProviderFieldsRetireBeforeProviderBoundary();
   await testMalformedCrossedInstructionEscalatesToUnknownRecovery();
   await testMalformedModerationRetiresBeforeProviderBoundary();
   await testMalformedDeviceRecoveryRetiresBeforeProviderBoundary();
