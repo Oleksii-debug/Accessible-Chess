@@ -720,6 +720,60 @@ class Version2ApplicationTests(unittest.TestCase):
             [{"kind": "route", "payload": {"route_id": "library"}}],
         )
 
+    def test_browser_book_return_durability_unknown_keeps_exact_safe_return(self):
+        _book, origin = self._open_book_game()
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertTrue(self.app.book_workflow.active)
+        store = self.app.progress_store
+        key = self.app.book_key
+
+        def fail_primary_sync(path):
+            if Path(path) == store.path:
+                raise OSError("post-return durability probe failed")
+
+        with patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=fail_primary_sync,
+        ):
+            result = self.app.browser_command("books", "book.return_from_board")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.location(), origin)
+        persisted = store.restore(key, self.app.reader.document)
+        self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
+
+    def test_native_book_return_durability_unknown_is_sanitized_after_safe_return(self):
+        _book, origin = self._open_book_game()
+        opened = self.app.adapter.activate_action(
+            "book.open_position",
+            current_focus_id="book-block-2",
+        )
+        self.assertEqual(opened.kind, "delegated")
+        self.assertTrue(self.app.book_workflow.active)
+        store = self.app.progress_store
+
+        def fail_primary_sync(path):
+            if Path(path) == store.path:
+                raise OSError("private post-return durability probe failed")
+
+        with patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=fail_primary_sync,
+        ):
+            result = self.app.adapter.activate_action(
+                "book.return",
+                current_focus_id="board-launcher",
+            )
+
+        self.assertEqual(result.kind, "error")
+        self.assertNotIn("private", str(result.payload.get("message", "")).casefold())
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.location(), origin)
+
     def test_book_keymap_native_ingress_queues_accessible_open_and_return_results(self):
         _book, origin = self._open_book_game()
         self.app.drain_events()
