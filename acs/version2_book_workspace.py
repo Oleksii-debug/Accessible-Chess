@@ -24,7 +24,12 @@ from .book_webview_projection import (
 )
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader
-from .full_product_presenters import BookReaderPresenter, PgnTreePresenter
+from .full_product_presenters import (
+    BookReaderPresenter,
+    PgnGameView,
+    PgnTreeItem,
+    PgnTreePresenter,
+)
 from .gametree import Comment, MoveNode, PgnGame, VariationLine
 from .full_product_ui_shell import UILanguage
 from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
@@ -261,6 +266,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             raise _BookSemanticProjectionError(
                 "semantic GameTree presenter data is invalid"
             ) from exc
+        if type(view) is not PgnGameView:
+            raise _BookSemanticProjectionError("semantic GameTree view is invalid")
         if (
             type(view.game_index) is not int
             or view.game_index != 0
@@ -423,6 +430,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         active_ancestor_indices: list[int] = []
         previous_depth = 0
         for position, item in enumerate(view.items):
+            if type(item) is not PgnTreeItem:
+                raise _BookSemanticProjectionError("semantic item DTO is invalid")
             if (
                 type(item.kind) is not str
                 or len(item.kind) > 16
