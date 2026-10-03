@@ -67,6 +67,7 @@ class ClassroomFileScannerPort(Protocol):
         room_id: str,
         sender_id: str,
         display_name: str,
+        mime_type: str | None,
         sha256: str,
         content: bytes,
     ) -> str:
@@ -1361,6 +1362,7 @@ class ClassroomFileServerService:
                     room_id=metadata.room_id,
                     sender_id=caller,
                     display_name=metadata.display_name,
+                    mime_type=metadata.mime_type,
                     sha256=metadata.sha256,
                     content=content,
                 )
