@@ -408,10 +408,44 @@ class ClassroomChatRpcTests(unittest.TestCase):
         self.assertEqual(["msg-2"], [item.message_id for item in rows])
         self.assertEqual([1700000001000], [item.sent_at_unix_ms for item in rows])
 
+    def test_redacted_history_round_trip_preserves_sequence_without_body(self):
+        self.backend.history_override = (
+            ChatMessageMetadata(
+                "msg-redacted",
+                "room-1",
+                "student-2",
+                0,
+                "",
+                "session",
+                sent_at_unix_ms=1700000000000,
+                redacted=True,
+            ),
+        )
+
+        rows = self.student.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=10,
+        )
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("msg-redacted", rows[0].message_id)
+        self.assertEqual(0, rows[0].sequence_no)
+        self.assertEqual(1700000000000, rows[0].sent_at_unix_ms)
+        self.assertEqual("", rows[0].body)
+        self.assertTrue(rows[0].redacted)
+        self.assertFalse(rows[0].hidden)
+
     def test_state_update_stream_round_trip_is_authorized_and_contiguous(self):
         self.backend.state_updates = [
             ChatMessageStateUpdate("room-1", "msg-1", 0),
-            ChatMessageStateUpdate("room-1", "msg-2", 1),
+            ChatMessageStateUpdate(
+                "room-1",
+                "msg-2",
+                1,
+                hidden=False,
+                redacted=True,
+            ),
         ]
         first = self.student.state_updates_after(
             room_id="room-1",
@@ -419,7 +453,10 @@ class ClassroomChatRpcTests(unittest.TestCase):
             limit=10,
         )
         self.assertEqual([0, 1], [item.revision for item in first])
-        self.assertTrue(all(item.hidden for item in first))
+        self.assertTrue(first[0].hidden)
+        self.assertFalse(first[0].redacted)
+        self.assertFalse(first[1].hidden)
+        self.assertTrue(first[1].redacted)
         later = self.student.state_updates_after(
             room_id="room-1",
             after_revision=0,
@@ -470,6 +507,40 @@ class ClassroomChatRpcTests(unittest.TestCase):
                 after_revision=None,
                 limit=10,
             )
+
+    def test_state_update_wire_rejects_missing_or_non_boolean_redacted_flag(self):
+        for update in (
+            {
+                "room_id": "room-1",
+                "message_id": "msg-x",
+                "revision": 0,
+                "hidden": True,
+            },
+            {
+                "room_id": "room-1",
+                "message_id": "msg-x",
+                "revision": 0,
+                "hidden": False,
+                "redacted": 1,
+            },
+        ):
+            client = ClassroomChatRpcClient(
+                room_id="room-1",
+                participant_id="student-1",
+                transport=StaticCall(
+                    {"v": 1, "ok": True, "updates": [update]}
+                ),
+            )
+            with self.subTest(update=update):
+                with self.assertRaisesRegex(
+                    ClassroomChatRpcError,
+                    "state update",
+                ):
+                    client.state_updates_after(
+                        room_id="room-1",
+                        after_revision=None,
+                        limit=10,
+                    )
 
     def test_state_update_client_refuses_cross_room_and_bool_revision(self):
         with self.assertRaisesRegex(ClassroomChatRpcError, "bound room"):
@@ -875,6 +946,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
                     "body": "Changed",
                     "retention": "session",
                     "hidden": False,
+                    "redacted": False,
                     "sent_at_unix_ms": 1700000000000,
                 },
             }),
