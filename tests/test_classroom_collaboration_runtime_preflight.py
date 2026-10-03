@@ -66,6 +66,20 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
         self.assertEqual(self.chat_token_calls, 0)
         self.assertEqual(self.file_token_calls, 0)
 
+    def test_invalid_roster_port_fails_before_transport_or_persistence(self) -> None:
+        class IncompleteRoster:
+            def participant_ids(self):
+                return ("student-1",)
+
+        path = self.root / "invalid-roster-port.sqlite3"
+        with self.assertRaisesRegex(
+            TypeError,
+            "roster must implement ClassroomRosterPort",
+        ):
+            self.build(roster=IncompleteRoster(), path=path)
+
+        self.assert_no_persistence_or_credentials(path)
+
     def test_non_member_fails_before_durable_store_creation(self) -> None:
         roster = FakeRoster()
         roster.roles.pop("student-1")
