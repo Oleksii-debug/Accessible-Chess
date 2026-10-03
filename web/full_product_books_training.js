@@ -236,6 +236,7 @@
         "book.previous_game",
         "book.next_game",
         "book.open_position",
+        "book.open_game",
         "book.return_from_board"
       ],
       "Book"
@@ -342,9 +343,13 @@
       throw new TypeError("Non-list Book block contains list metadata");
     }
     const openPosition = snapshot.actions[8];
-    const returnFromBoard = snapshot.actions[9];
+    const openGame = snapshot.actions[9];
+    const returnFromBoard = snapshot.actions[10];
     if (openPosition.enabled !== block.has_position) {
       throw new TypeError("Book open-position action disagrees with block position state");
+    }
+    if (openGame.enabled !== (block.kind === "Game")) {
+      throw new TypeError("Book open-game action disagrees with block game state");
     }
     if (returnFromBoard.enabled !== true) {
       throw new TypeError("Book return action must remain enabled");
@@ -494,7 +499,7 @@
       }
       renderBookSurface(root, payload.snapshot, invoke, announce, payload.focus_target, fallbackMessage);
     } else if (result.kind === "delegated") {
-      if (payload.action !== "book.open_position") {
+      if (payload.action !== "book.open_position" && payload.action !== "book.open_game") {
         throw new TypeError("Book delegated action is invalid");
       }
     } else if (result.kind === "error") {
