@@ -1355,6 +1355,120 @@ async function testCleanupRetrySurvivesTemporarySnapshotFailure() {
   assert.equal(runtime._transportLossSnapshot, null);
 }
 
+async function testCleanupPendingPreemptsNewProviderMutation() {
+  RecordingAdapter.instances.length = 0;
+
+  class BlindCleanupAdapter extends RecordingAdapter {
+    constructor(options) {
+      super(options);
+      this.snapshotUnavailable = false;
+    }
+    snapshot() {
+      if (this.snapshotUnavailable) throw new Error("snapshot unavailable");
+      return super.snapshot();
+    }
+    async reconnect(credential, enabledSources) {
+      this.calls.push(["reconnect", credential, enabledSources]);
+      this._snapshot = {
+        connected: true,
+        cleanup_required: false,
+        room_id: credential.room_id,
+        participant_id: credential.participant_id,
+        microphone_enabled: true,
+        camera_enabled: false,
+        screen_share_enabled: false
+      };
+      this.failDisconnectOnce = true;
+      this.snapshotUnavailable = true;
+      throw new Error("reconnect partially applied");
+    }
+    async disconnect() {
+      this.calls.push(["disconnect"]);
+      if (this.failDisconnectOnce) {
+        this.failDisconnectOnce = false;
+        throw new Error("cleanup failed");
+      }
+      this.snapshotUnavailable = false;
+      this._snapshot = {
+        connected: false,
+        cleanup_required: false,
+        room_id: null,
+        participant_id: null,
+        microphone_enabled: false,
+        camera_enabled: false,
+        screen_share_enabled: false
+      };
+      return this.snapshot();
+    }
+  }
+
+  const runtime = loadRuntime(BlindCleanupAdapter);
+  const failedTx = "session-" + "8".repeat(32);
+  const blockedTx = "host-" + "8".repeat(32);
+  const providerCalls = [];
+  const invoke = async (command, payload) => {
+    providerCalls.push([command, payload.transaction_id || null]);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: failedTx,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "short-lived-token"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: failedTx } };
+    }
+    if (command === "media.provider_failed") {
+      return { kind: "error", payload: { recovery_required: true, transaction_id: failedTx } };
+    }
+    if (command === "media.provider_not_started") {
+      assert.equal(payload.transaction_id, blockedTx);
+      return { kind: "error", payload: { message: "retired" } };
+    }
+    if (command === "media.provider_transport_lost") {
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return { kind: "error", payload: { recovery_required: true, transaction_id: failedTx } };
+    }
+    throw new Error("unexpected command " + command);
+  };
+
+  const failed = await runtime.execute(dispatch(failedTx, {
+    transaction_id: failedTx,
+    operation: "reconnect",
+    credential_required: true,
+    enabled_sources: ["microphone"]
+  }, false), invoke);
+  assert.equal(failed.payload.recovery_required, true);
+  assert.equal(runtime._cleanupRetryPending, true);
+
+  const blocked = await runtime.execute(dispatch(blockedTx, {
+    transaction_id: blockedTx,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: true
+  }, false), invoke);
+
+  assert.equal(blocked.payload.recovery_required, true);
+  assert.equal(
+    RecordingAdapter.instances[0].calls.filter((item) => item[0] === "setLocalSource").length,
+    0
+  );
+  assert.equal(
+    providerCalls.filter(([command, tx]) =>
+      command === "media.provider_not_started" && tx === blockedTx
+    ).length,
+    1
+  );
+  assert.equal(isCleanSnapshot(runtime._transportLossSnapshot), true);
+}
+
 async function testFailedDisconnectImmediateRetryCommitsOriginalLeave() {
   RecordingAdapter.instances.length = 0;
   const runtime = loadRuntime(RecordingAdapter);
@@ -1820,6 +1934,7 @@ async function run() {
   await testProviderRebindCannotRetargetConnectedAdapter();
   await testFailedReconnectCleanupRetriesWhileTrustedRecoveryRemainsLatched();
   await testCleanupRetrySurvivesTemporarySnapshotFailure();
+  await testCleanupPendingPreemptsNewProviderMutation();
   await testFailedDisconnectImmediateRetryCommitsOriginalLeave();
   await testTransportLossReconcilesExactlyOnce();
   await testPendingTransportLossRetiresNewMutationBeforeProviderCall();
