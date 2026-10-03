@@ -126,13 +126,56 @@
     return documentSpec;
   }
 
+  function requireActions(actions, commands, surface) {
+    if (!Array.isArray(actions) || actions.length !== commands.length) {
+      throw new TypeError(surface + " snapshot actions are incomplete");
+    }
+    const allowed = new Set(commands);
+    const seen = new Set();
+    actions.forEach(function (action) {
+      if (!action || typeof action !== "object" || Array.isArray(action)) {
+        throw new TypeError(surface + " snapshot action is invalid");
+      }
+      if (
+        typeof action.command !== "string" ||
+        !allowed.has(action.command) ||
+        seen.has(action.command)
+      ) {
+        throw new TypeError(surface + " snapshot action command is invalid");
+      }
+      if (typeof action.label !== "string" || !action.label) {
+        throw new TypeError(surface + " snapshot action label is invalid");
+      }
+      if (typeof action.enabled !== "boolean") {
+        throw new TypeError(surface + " snapshot action enabled flag is invalid");
+      }
+      seen.add(action.command);
+    });
+    if (seen.size !== commands.length) {
+      throw new TypeError(surface + " snapshot actions are incomplete");
+    }
+  }
+
   function requireBookSnapshot(snapshot) {
     const block = requireSnapshotRecord(snapshot, "block", "Book");
     requireSnapshotRecord(snapshot, "bookmark", "Book");
     requireDocumentSpec(snapshot, "Book");
-    if (!Array.isArray(snapshot.actions)) {
-      throw new TypeError("Book snapshot actions must be an array");
-    }
+    requireActions(
+      snapshot.actions,
+      [
+        "book.previous",
+        "book.next",
+        "book.previous_heading",
+        "book.next_heading",
+        "book.previous_position",
+        "book.next_position",
+        "book.previous_game",
+        "book.next_game",
+        "book.open_position",
+        "book.return_from_board"
+      ],
+      "Book"
+    );
     if (typeof block.dom_id !== "string" || !block.dom_id) {
       throw new TypeError("Book snapshot block requires a DOM id");
     }
@@ -175,9 +218,17 @@
     requireSnapshotRecord(snapshot, "answer", "Training");
     requireSnapshotRecord(snapshot, "reset_dialog", "Training");
     requireDocumentSpec(snapshot, "Training");
-    if (!Array.isArray(snapshot.actions)) {
-      throw new TypeError("Training snapshot actions must be an array");
-    }
+    requireActions(
+      snapshot.actions,
+      [
+        "training.hint",
+        "training.reveal",
+        "training.retry",
+        "training.continue",
+        "training.reset.request"
+      ],
+      "Training"
+    );
   }
 
   function renderBookBlock(host, block) {
