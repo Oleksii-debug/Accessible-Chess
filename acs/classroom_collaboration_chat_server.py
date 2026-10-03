@@ -1145,6 +1145,142 @@ class ClassroomChatServerSQLiteStore:
             expected += 1
         return tuple(decoded)
 
+    def redact_retention(
+        self,
+        *,
+        room_id: str,
+        retentions: tuple[str, ...],
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        """Redact expired non-persistent message bodies without breaking history.
+
+        This is a trusted server lifecycle operation, not a client moderation
+        action. Message identity, room sequence, sender, retention and timestamp
+        remain durable while the replicated body is irreversibly cleared.
+        """
+
+        room = _identifier(room_id, "room id")
+        if (
+            type(retentions) is not tuple
+            or not retentions
+            or len(set(retentions)) != len(retentions)
+            or any(
+                type(retention) is not str
+                or retention not in {"transient", "session"}
+                for retention in retentions
+            )
+        ):
+            raise ClassroomChatServerError(
+                "retention redaction policy is invalid"
+            )
+
+        placeholders = ",".join("?" for _ in retentions)
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                self._validate_no_authority_triggers(db)
+                self._validate_room_hidden_state(db, room)
+                candidates = db.execute(
+                    f"""
+                    SELECT *
+                    FROM classroom_chat_server_messages
+                    WHERE room_id=?
+                      AND redacted=0
+                      AND retention IN ({placeholders})
+                    ORDER BY sequence_no
+                    """,
+                    (room, *retentions),
+                ).fetchall()
+                if not candidates:
+                    db.commit()
+                    return ()
+
+                stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count, MAX(revision) AS maximum_revision
+                    FROM classroom_chat_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                item_count = stats["item_count"]
+                maximum_revision = stats["maximum_revision"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomChatServerError(
+                        "stored chat state revision count is invalid"
+                    )
+                if maximum_revision is None:
+                    if item_count != 0:
+                        raise ClassroomChatServerError(
+                            "stored chat state revision is not contiguous"
+                        )
+                else:
+                    maximum = _stored_nonnegative_integer(
+                        maximum_revision,
+                        "chat state revision",
+                        maximum=MAX_WIRE_INTEGER,
+                    )
+                    if maximum + 1 != item_count:
+                        raise ClassroomChatServerError(
+                            "stored chat state revision is not contiguous"
+                        )
+                if item_count + len(candidates) - 1 > MAX_WIRE_INTEGER:
+                    raise ClassroomChatServerError(
+                        "server chat state revision exhausted"
+                    )
+
+                updates: list[ChatMessageStateUpdate] = []
+                for offset, row in enumerate(candidates):
+                    message = self._row_message(row)
+                    if message.redacted:
+                        raise ClassroomChatServerError(
+                            "retention redaction candidate is already redacted"
+                        )
+                    if message.retention not in retentions:
+                        raise ClassroomChatServerError(
+                            "retention redaction candidate changed policy"
+                        )
+                    revision = item_count + offset
+                    db.execute(
+                        """
+                        UPDATE classroom_chat_server_messages
+                        SET body='', redacted=1
+                        WHERE room_id=? AND message_id=? AND redacted=0
+                        """,
+                        (room, message.message_id),
+                    )
+                    if db.total_changes <= 0:
+                        raise ClassroomChatServerError(
+                            "retention redaction lost message authority"
+                        )
+                    db.execute(
+                        """
+                        INSERT INTO classroom_chat_server_state_updates(
+                            room_id, revision, message_id, hidden, redacted
+                        ) VALUES(?,?,?,0,1)
+                        """,
+                        (room, revision, message.message_id),
+                    )
+                    updates.append(
+                        ChatMessageStateUpdate(
+                            room_id=room,
+                            message_id=message.message_id,
+                            revision=revision,
+                            hidden=False,
+                            redacted=True,
+                        )
+                    )
+                self._validate_room_hidden_state(db, room)
+                db.commit()
+                return tuple(updates)
+            except ClassroomChatServerError:
+                db.rollback()
+                raise
+            except sqlite3.Error:
+                db.rollback()
+                raise ClassroomChatServerError(
+                    "classroom chat server retention redaction failed"
+                ) from None
+
     def apply_moderation(
         self,
         commands: tuple[ChatModerationCommand, ...],
@@ -1614,6 +1750,24 @@ class ClassroomChatServerService:
             room_id=room,
             after_revision=after_revision,
             limit=bounded,
+        )
+
+    def redact_retention(
+        self,
+        *,
+        room_id: str,
+        retentions: tuple[str, ...],
+    ) -> tuple[ChatMessageStateUpdate, ...]:
+        """Run a trusted room lifecycle retention transition.
+
+        This method is intentionally not part of ChatTransportPort and accepts
+        no participant identity: callers must be trusted server lifecycle
+        composition, never browser/client RPC.
+        """
+
+        return self._store.redact_retention(
+            room_id=room_id,
+            retentions=retentions,
         )
 
     def apply_moderation(
