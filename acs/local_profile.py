@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import json
 import os
 import re
 import secrets
 import tempfile
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
@@ -18,6 +21,18 @@ _ALIAS_RE = re.compile(r"^Player-[0-9A-F]{8}$")
 _REQUIRED_FIELDS = frozenset(
     {"schema_version", "profile_id", "display_name", "generated_alias", "revision"}
 )
+_PROCESS_MUTATION_LOCKS: dict[str, threading.RLock] = {}
+_PROCESS_MUTATION_LOCKS_GUARD = threading.Lock()
+
+
+def _process_mutation_lock(path: Path) -> threading.RLock:
+    key = os.path.normcase(os.path.abspath(os.fspath(path)))
+    with _PROCESS_MUTATION_LOCKS_GUARD:
+        lock = _PROCESS_MUTATION_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PROCESS_MUTATION_LOCKS[key] = lock
+        return lock
 
 
 class LocalProfileError(ValueError):
@@ -185,6 +200,69 @@ class LocalProfileStore:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.backup_path = self.path.with_name(self.path.name + ".backup")
+        self.lock_path = self.path.with_name(self.path.name + ".lock")
+
+    @contextmanager
+    def _mutation_lock(self):
+        """Serialize profile mutations across threads, windows and processes.
+
+        The process-local lock makes same-process callers deterministic on every
+        platform. The stable sibling file lock is the cross-process authority and
+        is intentionally separate from the atomically replaced profile file.
+        No profile data is written to the lock file.
+        """
+        process_lock = _process_mutation_lock(self.lock_path)
+        with process_lock:
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.lock_path.is_symlink():
+                raise UnsafeLocalProfilePath("profile mutation lock must not be a symbolic link")
+            flags = os.O_RDWR | os.O_CREAT
+            no_follow = getattr(os, "O_NOFOLLOW", 0)
+            if no_follow:
+                flags |= no_follow
+            try:
+                fd = os.open(self.lock_path, flags, 0o600)
+            except OSError as exc:
+                raise LocalProfileError("local profile mutation lock is unavailable") from exc
+
+            locked = False
+            try:
+                # Reject a link swapped into place around open where the platform
+                # can still report it. POSIX O_NOFOLLOW also closes the open-time
+                # symlink race.
+                if self.lock_path.is_symlink():
+                    raise UnsafeLocalProfilePath("profile mutation lock must not be a symbolic link")
+                os.lseek(fd, 0, os.SEEK_SET)
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(fd, fcntl.LOCK_EX)
+                except OSError as exc:
+                    raise LocalProfileError("local profile mutation lock is unavailable") from exc
+                locked = True
+                yield
+            finally:
+                if locked:
+                    try:
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        if os.name == "nt":
+                            import msvcrt
+
+                            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                        else:
+                            import fcntl
+
+                            fcntl.flock(fd, fcntl.LOCK_UN)
+                    except OSError:
+                        # Durable profile state is already decided. Process/handle
+                        # close still releases the OS advisory lock.
+                        pass
+                os.close(fd)
 
     @staticmethod
     def _read_bounded(path: Path) -> bytes:
@@ -231,25 +309,27 @@ class LocalProfileStore:
         raise LocalProfileError("local profile is unreadable and has no recovery copy") from primary_error
 
     def create(self, display_name: str | None = None) -> LocalProfile:
-        if self.path.exists() or self.path.is_symlink() or self.backup_path.exists() or self.backup_path.is_symlink():
-            # Do not fabricate a new identity over unknown/corrupt persisted bytes.
-            existing = self.load()
-            if existing is not None:
-                raise LocalProfileConflict("local profile already exists")
-        profile = new_local_profile(display_name)
-        self._publish(profile, expected_revision=None, allow_initial=True)
-        return profile
+        with self._mutation_lock():
+            if self.path.exists() or self.path.is_symlink() or self.backup_path.exists() or self.backup_path.is_symlink():
+                # Do not fabricate a new identity over unknown/corrupt persisted bytes.
+                existing = self.load()
+                if existing is not None:
+                    raise LocalProfileConflict("local profile already exists")
+            profile = new_local_profile(display_name)
+            self._publish(profile, expected_revision=None, allow_initial=True)
+            return profile
 
     def rename(self, current: LocalProfile, display_name: str) -> LocalProfile:
         _validate_profile(current)
-        durable = self.load()
-        if durable is None:
-            raise LocalProfileConflict("local profile no longer exists")
-        if durable.profile_id != current.profile_id or durable.revision != current.revision:
-            raise LocalProfileConflict("local profile changed since it was read")
-        updated = current.renamed(display_name)
-        self._publish(updated, expected_revision=current.revision, allow_initial=False)
-        return updated
+        with self._mutation_lock():
+            durable = self.load()
+            if durable is None:
+                raise LocalProfileConflict("local profile no longer exists")
+            if durable.profile_id != current.profile_id or durable.revision != current.revision:
+                raise LocalProfileConflict("local profile changed since it was read")
+            updated = current.renamed(display_name)
+            self._publish(updated, expected_revision=current.revision, allow_initial=False)
+            return updated
 
     def repair_from_backup(self) -> LocalProfile:
         """Explicitly restore a verified recovery copy as the primary profile.
@@ -257,28 +337,29 @@ class LocalProfileStore:
         A valid primary is returned unchanged. A parseable newer primary still
         blocks recovery so an old backup can never silently downgrade identity.
         """
-        primary_exists = self.path.exists() or self.path.is_symlink()
-        if primary_exists:
-            try:
-                return self._read_profile(self.path)
-            except (UnsafeLocalProfilePath, UnsupportedLocalProfileSchema):
-                raise
-            except LocalProfileError:
-                pass
+        with self._mutation_lock():
+            primary_exists = self.path.exists() or self.path.is_symlink()
+            if primary_exists:
+                try:
+                    return self._read_profile(self.path)
+                except (UnsafeLocalProfilePath, UnsupportedLocalProfileSchema):
+                    raise
+                except LocalProfileError:
+                    pass
 
-        if not (self.backup_path.exists() or self.backup_path.is_symlink()):
-            raise LocalProfileError("no verified local-profile recovery copy is available")
-        backup_bytes = self._read_bounded(self.backup_path)
-        recovered = parse_local_profile_bytes(backup_bytes)
-        self._atomic_replace_bytes(self.path, backup_bytes)
-        # Read back the publication instead of assuming replace preserved bytes.
-        published_bytes = self._read_bounded(self.path)
-        if published_bytes != backup_bytes:
-            raise LocalProfileError("local profile recovery readback mismatch")
-        published = parse_local_profile_bytes(published_bytes)
-        if published != recovered:
-            raise LocalProfileError("local profile recovery semantic mismatch")
-        return published
+            if not (self.backup_path.exists() or self.backup_path.is_symlink()):
+                raise LocalProfileError("no verified local-profile recovery copy is available")
+            backup_bytes = self._read_bounded(self.backup_path)
+            recovered = parse_local_profile_bytes(backup_bytes)
+            self._atomic_replace_bytes(self.path, backup_bytes)
+            # Read back the publication instead of assuming replace preserved bytes.
+            published_bytes = self._read_bounded(self.path)
+            if published_bytes != backup_bytes:
+                raise LocalProfileError("local profile recovery readback mismatch")
+            published = parse_local_profile_bytes(published_bytes)
+            if published != recovered:
+                raise LocalProfileError("local profile recovery semantic mismatch")
+            return published
 
     def _assert_safe_target(self, path: Path) -> None:
         if path.is_symlink():
