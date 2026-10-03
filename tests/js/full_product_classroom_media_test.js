@@ -337,6 +337,7 @@ async function run() {
   deviceDocument.root = deviceRoot;
   let enumerateCalls = 0;
   let deviceEnumerationMode = "normal";
+  let deviceResultMode = "success";
   const mediaDevices = {
     enumerateDevices: () => {
       enumerateCalls += 1;
@@ -345,6 +346,7 @@ async function run() {
       }
       const devices = [
         { kind: "audioinput", deviceId: "mic-device-2", label: "USB microphone" },
+        { kind: "audioinput", deviceId: "mic-device-3", label: "Backup microphone" },
         { kind: "audiooutput", deviceId: "speaker-device-2", label: "" },
         { kind: "videoinput", deviceId: "camera-device-2", label: "USB camera" },
         { kind: "videoinput", deviceId: "x".repeat(513), label: "Invalid camera" }
@@ -366,6 +368,18 @@ async function run() {
     deviceSnapshot,
     (command, payload) => {
       deviceInvocation = { command, payload };
+      if (deviceResultMode === "structured-error") {
+        return Promise.resolve({
+          kind: "error",
+          payload: {
+            message: "Could not change media device.",
+            focus_target: "classroom-media-device-" + payload.kind
+          }
+        });
+      }
+      if (deviceResultMode === "reject") {
+        return Promise.reject(new Error("provider device failure must not escape"));
+      }
       return Promise.resolve({
         kind: "media-updated",
         payload: {
@@ -384,6 +398,7 @@ async function run() {
   assert.equal(enumerateCalls, 1);
   assert.match(deviceRoot.textContent, /Audio and video devices/);
   assert.match(deviceRoot.textContent, /USB microphone/);
+  assert.match(deviceRoot.textContent, /Backup microphone/);
   assert.match(deviceRoot.textContent, /Speakers 1/);
   assert.match(deviceRoot.textContent, /USB camera/);
   assert.doesNotMatch(deviceRoot.textContent, /Invalid camera/);
@@ -419,6 +434,33 @@ async function run() {
   assert.equal(rerenderedMicSelect.value, "mic-device-2");
   assert.equal(deviceDocument.activeElement, rerenderedMicSelect);
   assert.deepEqual(deviceAnnouncements, ["Media state updated."]);
+
+  // Failed provider mutations are presentation-atomic: native SELECT state
+  // remains on the last canonical provider acknowledgement, never the attempt.
+  deviceResultMode = "structured-error";
+  rerenderedMicSelect.value = "mic-device-3";
+  rerenderedMicSelect.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(rerenderedMicSelect.value, "mic-device-2");
+  assert.equal(deviceDocument.activeElement, rerenderedMicSelect);
+  assert.deepEqual(deviceAnnouncements, [
+    "Media state updated.",
+    "Could not change media device."
+  ]);
+
+  deviceResultMode = "reject";
+  rerenderedMicSelect.value = "mic-device-3";
+  rerenderedMicSelect.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(rerenderedMicSelect.value, "mic-device-2");
+  assert.equal(deviceDocument.activeElement, rerenderedMicSelect);
+  assert.deepEqual(deviceAnnouncements, [
+    "Media state updated.",
+    "Could not change media device.",
+    "Could not change media device."
+  ]);
+  assert.doesNotMatch(deviceRoot.textContent, /provider device failure must not escape/);
+  deviceResultMode = "success";
 
   const refresh = deviceRoot.querySelector("#classroom-media-device-refresh");
   assert.ok(refresh);

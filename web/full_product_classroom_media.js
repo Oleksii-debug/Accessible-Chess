@@ -175,6 +175,7 @@
       select.addEventListener("change", function () {
         const deviceId = safeDeviceId(select.value);
         if (!deviceId || select.disabled) return;
+        const confirmedDeviceId = safeDeviceId(selectedDeviceIds[definition.kind]);
         select.disabled = true;
         Promise.resolve().then(function () {
           return invoke("media.recover_device", {
@@ -187,11 +188,16 @@
           }
           if (result.kind !== "error") {
             selectedDeviceIds[definition.kind] = deviceId;
+          } else if (select.isConnected) {
+            // A rejected provider transaction must not leave the native
+            // selector exposing a device that never became canonical state.
+            select.value = confirmedDeviceId;
           }
           if (select.isConnected) select.disabled = false;
           applyEvent(root, result, invoke, announce, language);
         }).catch(function () {
           if (select.isConnected) {
+            select.value = confirmedDeviceId;
             select.disabled = false;
             if (typeof select.focus === "function") {
               select.focus({ preventScroll: true });
