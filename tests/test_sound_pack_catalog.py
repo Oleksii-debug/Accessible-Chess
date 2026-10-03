@@ -222,6 +222,8 @@ class SoundPackCatalogTests(unittest.TestCase):
             ("source_uri", "https://example.invalid/source#private-fragment"),
             ("license_uri", "urn:accessible-chess:test:license?token=secret"),
             ("license_uri", "urn:accessible-chess:test:license#fragment"),
+            ("source_uri", "https://example.invalid/source\u202ereversed"),
+            ("license_uri", "https://example.invalid/license\u200bhidden"),
             ("license_uri", "relative/license.txt"),
             ("license_uri", "javascript:alert(1)"),
         ):
@@ -233,6 +235,14 @@ class SoundPackCatalogTests(unittest.TestCase):
             values[field] = value
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 SoundPackRightsEvidence(**values)
+
+    def test_rights_license_id_rejects_unicode_format_control_spoofing(self):
+        with self.assertRaisesRegex(ValueError, "control characters"):
+            SoundPackRightsEvidence(
+                license_id="CC0\u202e-1.0",
+                source_uri="https://example.invalid/source",
+                license_uri="https://example.invalid/license",
+            )
 
     def test_rights_evidence_license_must_match_downloaded_manifest_authority(self):
         manifest = make_manifest()
