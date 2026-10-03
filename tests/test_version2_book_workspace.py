@@ -147,6 +147,39 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertFalse(workflow.active)
         self.assertEqual(reader.snapshot(), progress_before)
 
+    def test_excessive_semantic_comment_entries_fail_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Comment-heavy game",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n{Intro} 1. {Before} e4 {After} e5 * {Outro}',
+                        title="Bounded comments",
+                        block_id="bounded-comments",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        with patch(
+            "acs.version2_book_workspace._MAX_BOOK_SEMANTIC_COMMENT_ENTRIES",
+            1,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_oversized_semantic_reading_fails_closed_but_keeps_board_available(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
