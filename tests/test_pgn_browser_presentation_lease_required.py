@@ -89,12 +89,16 @@ class PgnBrowserPresentationLeaseRequiredTests(unittest.TestCase):
             r"^[0-9a-f]{64}$",
         )
 
-    def test_replacing_document_starts_a_new_unleased_bootstrap_epoch(self) -> None:
+    def test_replacing_document_does_not_drop_issued_lease_requirement(self) -> None:
         self.app.snapshot()
         self.app.set_document(PgnDocumentSession.from_text(DOCUMENT))
-        accepted = self.app.browser_command("pgn", "pgn.next_game", {})
-        self.assertEqual("selection", accepted["kind"])
-        self.assertEqual(1, self.app.session.workspace.selected_game_index)
+        rejected = self.app.browser_command("pgn", "pgn.next_game", {})
+        self.assertEqual("selection", rejected["kind"])
+        self.assertEqual(0, self.app.session.workspace.selected_game_index)
+        self.assertRegex(
+            rejected["payload"]["snapshot"]["presentation_token"],
+            r"^[0-9a-f]{64}$",
+        )
 
 
 if __name__ == "__main__":
