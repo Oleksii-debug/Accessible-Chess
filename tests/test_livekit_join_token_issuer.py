@@ -5,6 +5,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
 import json
+from pathlib import Path
 from types import SimpleNamespace
 import traceback
 import unittest
@@ -20,6 +21,11 @@ from acs.livekit_join_token_issuer import (
 
 
 NOW = datetime(2026, 10, 2, 21, 45, tzinfo=timezone.utc)
+ROOT = Path(__file__).resolve().parents[1]
+ISSUER_WORKFLOW = ROOT / ".github" / "workflows" / "livekit-join-token-issuer.yml"
+TWO_CLIENT_WORKFLOW = (
+    ROOT / ".github" / "workflows" / "classroom-livekit-two-client-media-smoke.yml"
+)
 
 
 def _b64(value):
@@ -354,6 +360,40 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveKitJoinTokenIssuerError, "timezone-aware"):
             self.issue(issuer, issued=NOW.replace(tzinfo=None))
         self.assertIsNone(api.access_credentials)
+
+    def test_qualification_workflows_bind_scope_to_immutable_event_base(self):
+        issuer_workflow = ISSUER_WORKFLOW.read_text(encoding="utf-8")
+        smoke_workflow = TWO_CLIENT_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            issuer_workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            issuer_workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", issuer_workflow)
+        for path in (
+            ".github/workflows/classroom-livekit-two-client-media-smoke.yml",
+            ".github/workflows/livekit-join-token-issuer.yml",
+            "acs/livekit_join_token_issuer.py",
+            "tests/js/livekit_two_client_media_smoke.js",
+            "tests/livekit_two_client_token_fixture.py",
+            "tests/test_livekit_join_token_issuer.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, issuer_workflow)
+
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            smoke_workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            smoke_workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", smoke_workflow)
 
     def test_real_pinned_sdk_emits_verified_source_scoped_jwt_when_installed(self):
         try:
