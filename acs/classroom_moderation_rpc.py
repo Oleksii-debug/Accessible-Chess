@@ -65,6 +65,18 @@ class ClassroomModerationProviderAdminPort(Protocol):
         ...
 
 
+class ClassroomModerationProviderStateVerifierPort(Protocol):
+    """Trusted read-only provider-state authority used only for crash recovery."""
+
+    async def moderation_effect_matches(
+        self,
+        *,
+        room_id: str,
+        command: ModerationCommand,
+    ) -> bool:
+        """Return exact True only when the command's state assignment already holds."""
+
+
 @dataclass(frozen=True, slots=True)
 class ModerationOperationState:
     """One ledger record, including pre-effect reservation ownership."""
@@ -311,14 +323,102 @@ class ClassroomModerationRpcService:
         authorization: ClassroomModerationAuthorizationPort,
         provider_admin: ClassroomModerationProviderAdminPort,
         ledger: ClassroomModerationOperationLedgerPort,
+        provider_state_verifier: (
+            ClassroomModerationProviderStateVerifierPort | None
+        ) = None,
     ) -> None:
         if authorization is None or provider_admin is None or ledger is None:
             raise TypeError("moderation RPC service ports are required")
+        if provider_state_verifier is not None and not hasattr(
+            provider_state_verifier,
+            "moderation_effect_matches",
+        ):
+            raise TypeError("moderation provider state verifier is invalid")
         self._authorization = authorization
         self._provider_admin = provider_admin
         self._ledger = ledger
+        self._provider_state_verifier = provider_state_verifier
         self._reservation_owner = uuid.uuid4().hex
         self._lock = asyncio.Lock()
+
+    async def reconcile_verified_pending(
+        self,
+        *,
+        room_id: str,
+        command: ModerationCommand,
+    ) -> None:
+        """Commit an ambiguous pending operation only after provider-state proof.
+
+        Recovery never reapplies a provider effect and never steals reservation
+        ownership. The durable owner recorded before the crash is reused solely
+        as the compare-and-set token for the existing ledger commit after a
+        trusted verifier proves the exact state assignment already holds.
+        """
+
+        room = _identifier(room_id, "room id")
+        if type(command) is not ModerationCommand:
+            raise ClassroomModerationRpcError(
+                "moderation recovery command is invalid"
+            )
+        verifier = self._provider_state_verifier
+        if verifier is None:
+            raise ClassroomModerationRpcError(
+                "moderation provider state verification is unavailable"
+            )
+        fingerprint = _fingerprint(command)
+
+        async with self._lock:
+            try:
+                state = self._ledger.operation_state(
+                    room_id=room,
+                    operation_id=command.operation_id,
+                )
+            except Exception:
+                raise ClassroomModerationRpcError(
+                    "moderation replay ledger read failed"
+                ) from None
+            if state is None:
+                raise ClassroomModerationRpcError(
+                    "moderation operation is not pending recovery"
+                )
+            state = _validated_ledger_state(
+                state,
+                expected_fingerprint=fingerprint,
+            )
+            if state.committed:
+                return
+            reservation_owner = state.reservation_owner
+            assert reservation_owner is not None
+
+            try:
+                matches = await verifier.moderation_effect_matches(
+                    room_id=room,
+                    command=command,
+                )
+            except Exception:
+                raise ClassroomModerationRpcError(
+                    "moderation provider state verification failed"
+                ) from None
+            if type(matches) is not bool:
+                raise ClassroomModerationRpcError(
+                    "moderation provider state verifier returned invalid result"
+                )
+            if not matches:
+                raise ClassroomModerationRpcError(
+                    "moderation provider state does not confirm pending operation"
+                )
+
+            try:
+                self._ledger.commit(
+                    room_id=room,
+                    operation_id=command.operation_id,
+                    fingerprint=fingerprint,
+                    reservation_owner=reservation_owner,
+                )
+            except Exception:
+                raise ClassroomModerationRpcError(
+                    "moderation replay ledger reconciliation commit failed"
+                ) from None
 
     async def handle_rpc(
         self,
@@ -450,6 +550,7 @@ __all__ = [
     "ClassroomModerationAuthorizationPort",
     "ClassroomModerationOperationLedgerPort",
     "ClassroomModerationProviderAdminPort",
+    "ClassroomModerationProviderStateVerifierPort",
     "ClassroomModerationRpcError",
     "ClassroomModerationRpcService",
     "ModerationOperationState",
