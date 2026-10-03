@@ -14,7 +14,9 @@ from scripts.build_user_sound_pack import (
     DEFAULT_EVENT_FILES,
     EVENT_VARIANTS,
     NEW_GAME_3D_IMPACT_MS,
+    NEW_GAME_DURATION_SECONDS_BY_VARIANT,
     NEW_GAME_IMPACT_MS,
+    NEW_GAME_IMPACTS_BY_VARIANT,
     SOUND_LAYERS,
     build_sound_pack,
 )
@@ -344,6 +346,65 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             layers = json.loads((destination / "layers.json").read_text(encoding="utf-8"))
             impacts = json.loads((destination / "newgame_impacts.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["files"], DEFAULT_EVENT_FILES)
+            self.assertEqual(
+                variants,
+                {
+                    "schema_version": 1,
+                    "events": {
+                        event: [
+                            {
+                                "id": variant_id,
+                                "file": file_name,
+                                "label_uk": label_uk,
+                                "label_en": label_en,
+                            }
+                            for variant_id, file_name, label_uk, label_en in options
+                        ]
+                        for event, options in EVENT_VARIANTS.items()
+                    },
+                },
+            )
+            self.assertEqual(
+                layers,
+                {
+                    "schema_version": 1,
+                    "events": {
+                        event: {
+                            variant_id: list(sequence)
+                            for variant_id, sequence in by_variant.items()
+                        }
+                        for event, by_variant in SOUND_LAYERS.items()
+                    },
+                },
+            )
+            self.assertEqual(
+                impacts,
+                {
+                    "schema_version": 2,
+                    "default_variant": "1",
+                    "variants": {
+                        variant_id: {
+                            "source_file": next(
+                                file_name
+                                for current_id, file_name, _uk, _en
+                                in EVENT_VARIANTS["start"]
+                                if current_id == variant_id
+                            ),
+                            "duration_seconds": NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                            "impact_count": len(impact_values),
+                            "impacts_ms": list(impact_values),
+                        }
+                        for variant_id, impact_values in NEW_GAME_IMPACTS_BY_VARIANT.items()
+                    },
+                    "analysis": {
+                        "window_ms": 20,
+                        "hop_ms": 5,
+                        "threshold_percentile": 60,
+                        "minimum_peak_separation_ms": 90,
+                        "three_d_selection": "32 strongest separated candidate peaks",
+                    },
+                },
+            )
             self.assertEqual(impacts["schema_version"], 2)
             self.assertEqual(impacts["default_variant"], "1")
             self.assertEqual(impacts["variants"]["1"]["impact_count"], 32)
