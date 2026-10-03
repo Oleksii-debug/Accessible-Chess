@@ -400,6 +400,43 @@ class BookTrainingWireContractTests(unittest.TestCase):
                     BookTrainingErrorCode.INVALID_FIELD,
                 )
 
+    def test_oversized_persisted_collections_fail_closed_before_normalization(self):
+        cases = []
+
+        heading_path = copy.deepcopy(self.payload)
+        heading_path["origin"]["heading_path"] = [f"Chapter {index}" for index in range(7)]
+        cases.append(("heading-path", heading_path))
+
+        steps = copy.deepcopy(self.payload)
+        step = copy.deepcopy(steps["definition"]["steps"][0])
+        steps["definition"]["steps"] = [copy.deepcopy(step) for _ in range(2049)]
+        cases.append(("steps", steps))
+
+        accepted_moves = copy.deepcopy(self.payload)
+        accepted_moves["definition"]["steps"][0]["accepted_moves"] = [
+            f"move-{index}" for index in range(65)
+        ]
+        cases.append(("accepted-moves", accepted_moves))
+
+        tags = copy.deepcopy(self.payload)
+        tags["definition"]["tags"] = [f"tag-{index}" for index in range(65)]
+        cases.append(("tags", tags))
+
+        metadata = copy.deepcopy(self.payload)
+        metadata["definition"]["metadata"] = {
+            f"key-{index}": f"value-{index}" for index in range(65)
+        }
+        cases.append(("metadata", metadata))
+
+        for label, payload in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
+
     def test_tampered_move_and_origin_digest_fail_closed(self):
         tampered_move = copy.deepcopy(self.payload)
         tampered_move["definition"]["steps"][0]["accepted_moves"] = ["d4"]
