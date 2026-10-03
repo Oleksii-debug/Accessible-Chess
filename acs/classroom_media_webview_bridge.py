@@ -9,6 +9,7 @@ from .classroom_media_webview_projection import (
     ClassroomMediaWebViewEvent,
     ClassroomMediaWebViewProjection,
 )
+from .classroom_realtime_media import MAX_DEVICE_ID_LENGTH
 from .full_product_ui_shell import concise_user_error
 
 
@@ -27,6 +28,7 @@ class ClassroomMediaWebViewBridge:
         mutation_owner = projection if mutations is None else mutations
         for name in (
             "set_local_source",
+            "recover_device",
             "set_publish_permission",
             "set_soft_mute",
             "set_all_students_publish_permission",
@@ -94,6 +96,23 @@ class ClassroomMediaWebViewBridge:
             raise TypeError("media browser boolean is invalid")
         return value
 
+    @staticmethod
+    def _device_kind(value: object) -> str:
+        if value not in {"microphone", "speaker", "camera"}:
+            raise ValueError("media device kind is invalid")
+        return str(value)
+
+    @staticmethod
+    def _device_id(value: object) -> str:
+        if (
+            type(value) is not str
+            or not value
+            or len(value) > MAX_DEVICE_ID_LENGTH
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in value)
+        ):
+            raise ValueError("media device id is invalid")
+        return value
+
     def dispatch(
         self,
         command: object,
@@ -116,6 +135,15 @@ class ClassroomMediaWebViewBridge:
                     source,
                     self._boolean(data["enabled"]),
                     focus_target=f"media-own-{source}-toggle",
+                )
+
+            if command_id == "media.recover_device":
+                self._exact(data, {"kind", "device_id"})
+                kind = self._device_kind(data["kind"])
+                return self._mutations.recover_device(
+                    kind,
+                    self._device_id(data["device_id"]),
+                    focus_target=f"classroom-media-device-{kind}",
                 )
 
             if command_id == "media.publish_permission":

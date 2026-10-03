@@ -281,6 +281,19 @@ class ClassroomMediaTransactionalWebView:
         except Exception:
             return self._mutation_error(focus_target=focus_target)
 
+    def recover_device(
+        self,
+        kind: str,
+        device_id: str,
+        *,
+        focus_target: str = "",
+    ) -> ClassroomMediaWebViewEvent:
+        try:
+            lease = self._binder.prepare_device_recovery(kind, device_id)
+            return self._dispatch_event(lease, focus_target=focus_target)
+        except Exception:
+            return self._mutation_error(focus_target=focus_target)
+
     def set_publish_permission(
         self,
         participant_key: str,

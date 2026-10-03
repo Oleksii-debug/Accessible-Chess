@@ -9,6 +9,7 @@ from acs.classroom_realtime_media import (
     ClassroomMediaController,
     ClassroomRole,
     JoinCredential,
+    MediaDeviceKind,
     MediaSource,
 )
 from acs.full_product_ui_shell import UILanguage
@@ -49,6 +50,7 @@ class FakeMedia:
     def __init__(self) -> None:
         self.local_calls = []
         self.moderation_calls = []
+        self.device_calls = []
 
     def connect(self, credential, *, enabled_sources):
         return None
@@ -66,7 +68,7 @@ class FakeMedia:
         self.moderation_calls.append(commands)
 
     def recover_device(self, kind, device_id, *, republish_enabled):
-        return None
+        self.device_calls.append((kind, device_id, republish_enabled))
 
 
 def join_credential(participant_id: str) -> JoinCredential:
@@ -279,6 +281,46 @@ def test_own_microphone_and_camera_actions_are_keyboard_button_ready_and_control
         item["payload"]["source"] == "camera" and item["payload"]["enabled"] is True
         for item in own["actions"]
     )
+
+
+def test_device_recovery_bridge_is_keyboard_safe_and_canonical_republish_is_not_browser_controlled():
+    controller, _roster, media, _labels, projection, bridge = composition("student-1")
+    controller.set_local_source(MediaSource.MICROPHONE, True)
+
+    event = bridge.dispatch(
+        "media.recover_device",
+        {"kind": "microphone", "device_id": "mic-device-2"},
+    )
+    assert event.kind == "media-updated"
+    assert event.payload["focus_target"] == "classroom-media-device-microphone"
+    assert media.device_calls[-1] == (
+        MediaDeviceKind.MICROPHONE,
+        "mic-device-2",
+        True,
+    )
+
+    speaker = bridge.dispatch(
+        "media.recover_device",
+        {"kind": "speaker", "device_id": "speaker-device-3"},
+    )
+    assert speaker.kind == "media-updated"
+    assert media.device_calls[-1] == (
+        MediaDeviceKind.SPEAKER,
+        "speaker-device-3",
+        False,
+    )
+
+    before = list(media.device_calls)
+    for payload in (
+        {"kind": "screen_share", "device_id": "device"},
+        {"kind": "camera", "device_id": ""},
+        {"kind": "camera", "device_id": "x" * 513},
+        {"kind": "camera", "device_id": "bad\x00device"},
+        {"kind": "camera", "device_id": "ok", "republish_enabled": True},
+    ):
+        failed = bridge.dispatch("media.recover_device", payload)
+        assert failed.kind == "error"
+    assert media.device_calls == before
 
 
 def test_batch_controls_target_students_only_and_do_not_change_board_control():
