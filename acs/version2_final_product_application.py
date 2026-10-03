@@ -9,7 +9,12 @@ from typing import Any
 
 from . import classroom_domain as cd
 from .classroom_collaboration_storage import AttachmentMetadata, ChatMessageMetadata
+from .classroom_collaboration_runtime import (
+    ClassroomCollaborationRuntime,
+    build_classroom_collaboration_http_runtime,
+)
 from .classroom_collaboration_webview import ClassroomCollaborationWebView
+from .classroom_realtime_media import ClassroomMediaController, ClassroomRosterPort
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -86,6 +91,7 @@ class Version2FinalProductApplication(Version2Application):
         self._teaching_plan: LessonSession | None = None
         self._teaching_state: TeachingSessionState | None = None
         self.collaboration: ClassroomCollaborationWebView | None = None
+        self._collaboration_runtime: ClassroomCollaborationRuntime | None = None
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -303,6 +309,76 @@ class Version2FinalProductApplication(Version2Application):
         )
         self.collaboration = collaboration
 
+    def configure_classroom_collaboration_http(
+        self,
+        *,
+        room_id: str,
+        participant_id: str,
+        roster: ClassroomRosterPort,
+        chat_endpoint_url: str,
+        file_endpoint_url: str,
+        chat_bearer_token_provider: Callable[[], str],
+        file_bearer_token_provider: Callable[[], str],
+        participant_label: Callable[[str], str],
+        collaboration_store_path: str | Path | None = None,
+        file_picker: Callable[[], Path | None] | None = None,
+        file_saver: Callable[[str, str], object] | None = None,
+        file_opener: Callable[[str, str], object] | None = None,
+        file_progress_event_sink: Callable[[dict[str, object]], object] | None = None,
+        moderation_allowed: Callable[[], bool] | None = None,
+        participant_moderation: ClassroomMediaController | None = None,
+        chat_retention: str = "session",
+        file_retention: str = "session",
+        chat_timeout_seconds: float = 15.0,
+        file_timeout_seconds: float = 30.0,
+        allow_insecure_loopback: bool = False,
+    ) -> ClassroomCollaborationRuntime:
+        """Compose and bind the approved authenticated Issue #29 HTTP runtime."""
+
+        self._assert_thread()
+        if self.collaboration is not None or getattr(
+            self, "_collaboration_runtime", None
+        ) is not None:
+            raise RuntimeError("Classroom collaboration is already bound")
+        if file_progress_event_sink is not None and not callable(
+            file_progress_event_sink
+        ):
+            raise TypeError("file_progress_event_sink must be callable")
+
+        path = (
+            Path(collaboration_store_path)
+            if collaboration_store_path is not None
+            else self.progress_store.path.parent / "classroom-collaboration.sqlite3"
+        )
+        runtime = build_classroom_collaboration_http_runtime(
+            room_id=room_id,
+            participant_id=participant_id,
+            roster=roster,
+            store_path=path,
+            chat_endpoint_url=chat_endpoint_url,
+            file_endpoint_url=file_endpoint_url,
+            chat_bearer_token_provider=chat_bearer_token_provider,
+            file_bearer_token_provider=file_bearer_token_provider,
+            participant_label=participant_label,
+            language=self.shell.language,
+            file_picker=file_picker,
+            file_saver=file_saver,
+            file_opener=file_opener,
+            moderation_allowed=moderation_allowed,
+            participant_moderation=participant_moderation,
+            chat_retention=chat_retention,
+            file_retention=file_retention,
+            chat_timeout_seconds=chat_timeout_seconds,
+            file_timeout_seconds=file_timeout_seconds,
+            allow_insecure_loopback=allow_insecure_loopback,
+        )
+        self.bind_classroom_collaboration(
+            runtime.webview,
+            file_progress_event_sink=file_progress_event_sink,
+        )
+        self._collaboration_runtime = runtime
+        return runtime
+
     def unbind_classroom_collaboration(self) -> None:
         """Remove the presentation binding without mutating durable collaboration data."""
 
@@ -311,6 +387,7 @@ class Version2FinalProductApplication(Version2Application):
         if collaboration is not None:
             collaboration.retire_browser_session()
         self.collaboration = None
+        self._collaboration_runtime = None
 
     def receive_classroom_chat(
         self,
@@ -415,7 +492,11 @@ class Version2FinalProductApplication(Version2Application):
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
                     "collaboration_available": self.collaboration is not None,
-                    "remote_transport": "not_approved",
+                    "remote_transport": (
+                        "classroom_collaboration_http"
+                        if getattr(self, "_collaboration_runtime", None) is not None
+                        else "not_approved"
+                    ),
                 },
             }
         )
