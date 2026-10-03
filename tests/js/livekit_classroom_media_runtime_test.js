@@ -589,6 +589,105 @@ async function testMalformedCrossedInstructionEscalatesToUnknownRecovery() {
   assert.equal(RecordingAdapter.instances.length, 0);
 }
 
+async function testMalformedModerationRetiresBeforeProviderBoundary() {
+  const baseCommand = {
+    operation_id: "operation-1",
+    actor_id: "teacher-1",
+    target_id: "student-1",
+    action: "soft_mute",
+    source: "microphone",
+    value: true
+  };
+  const cases = [
+    {
+      label: "extra command field",
+      commands: [Object.assign({}, baseCommand, { unexpected: true })]
+    },
+    {
+      label: "invalid actor identity",
+      commands: [Object.assign({}, baseCommand, { actor_id: "teacher 1" })]
+    },
+    {
+      label: "invalid soft mute source",
+      commands: [Object.assign({}, baseCommand, { source: "camera" })]
+    },
+    {
+      label: "duplicate operation identities",
+      commands: [
+        baseCommand,
+        Object.assign({}, baseCommand, { target_id: "student-2" })
+      ]
+    }
+  ];
+
+  for (let index = 0; index < cases.length; index += 1) {
+    RecordingAdapter.instances.length = 0;
+    const runtime = loadRuntime(RecordingAdapter);
+    const transaction = "host-" + String(index + 3).repeat(32);
+    const calls = [];
+    const event = dispatch(transaction, {
+      transaction_id: transaction,
+      operation: "apply_moderation",
+      chunk_index: 0,
+      chunk_count: 1,
+      commands: cases[index].commands
+    }, false);
+
+    const result = await runtime.execute(event, async (command, payload) => {
+      calls.push([command, payload.transaction_id || null]);
+      if (command === "media.provider_not_started") {
+        return { kind: "error", payload: { message: "sanitized" } };
+      }
+      throw new Error("malformed moderation crossed unexpected bridge command");
+    });
+
+    assert.equal(result.kind, "error", cases[index].label);
+    assert.deepEqual(
+      calls,
+      [["media.provider_not_started", transaction]],
+      cases[index].label
+    );
+    assert.equal(RecordingAdapter.instances.length, 0, cases[index].label);
+  }
+}
+
+async function testMalformedDeviceRecoveryRetiresBeforeProviderBoundary() {
+  const cases = [
+    { label: "oversized device id", deviceId: "x".repeat(513) },
+    { label: "control character device id", deviceId: "camera\u0000device" }
+  ];
+
+  for (let index = 0; index < cases.length; index += 1) {
+    RecordingAdapter.instances.length = 0;
+    const runtime = loadRuntime(RecordingAdapter);
+    const transaction = "host-" + String(index + 7).repeat(32);
+    const calls = [];
+    const event = dispatch(transaction, {
+      transaction_id: transaction,
+      operation: "recover_device",
+      kind: "camera",
+      device_id: cases[index].deviceId,
+      republish_enabled: false
+    }, false);
+
+    const result = await runtime.execute(event, async (command, payload) => {
+      calls.push([command, payload.transaction_id || null]);
+      if (command === "media.provider_not_started") {
+        return { kind: "error", payload: { message: "sanitized" } };
+      }
+      throw new Error("malformed device recovery crossed unexpected bridge command");
+    });
+
+    assert.equal(result.kind, "error", cases[index].label);
+    assert.deepEqual(
+      calls,
+      [["media.provider_not_started", transaction]],
+      cases[index].label
+    );
+    assert.equal(RecordingAdapter.instances.length, 0, cases[index].label);
+  }
+}
+
 async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
   let releaseFirst;
   class BlockingAdapter extends RecordingAdapter {
@@ -1039,6 +1138,8 @@ async function run() {
   await testCrossedTransactionConfigurationLossRequiresRecovery();
   await testMalformedSessionInstructionRetiresBeforeCredentialHandoff();
   await testMalformedCrossedInstructionEscalatesToUnknownRecovery();
+  await testMalformedModerationRetiresBeforeProviderBoundary();
+  await testMalformedDeviceRecoveryRetiresBeforeProviderBoundary();
   await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
   await testCleanProviderRebindRefreshesConfiguration();
   await testProviderRebindRejectsResidualDisconnectedState();
