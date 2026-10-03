@@ -635,8 +635,9 @@ def _publication_guard_hash(guard: _PublicationGuard) -> str:
 
 def _remove_publication_guard(guard: _PublicationGuard) -> None:
     """Remove only the exact guard inode that this upgrader created."""
-    if not guard.path.exists() and not guard.path.is_symlink():
-        return
+    # Once a guard has been created, disappearance is itself a coordination
+    # failure.  Treat it exactly like substitution instead of silently
+    # accepting a window in which the guarded old inode may have been lost.
     _require_publication_guard(guard)
     try:
         guard.path.unlink()
