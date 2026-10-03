@@ -37,7 +37,10 @@ _CONTROL_NAMES = {
     "sound-packs.lock",
 }
 _CONTROL_NAME_KEYS = frozenset(name.casefold() for name in _CONTROL_NAMES)
-_DERIVED_ROOT_DIRECTORIES = {"sound-cache"}
+_DERIVED_ROOT_DIRECTORIES = {
+    ".gametree-resume-discard",
+    "sound-cache",
+}
 _DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
 )
@@ -666,11 +669,11 @@ class Version2UpgradeCoordinator:
             relative_path = PurePosixPath(relative)
             if relative.casefold() in _CONTROL_NAME_KEYS:
                 continue
-            # Derived playback cache is disposable, not preservation-backed
-            # user state. Exclude only descendants of the exact root cache
-            # directory. The root object itself is still validated below, so a
-            # regular file named "sound-cache" remains user data and a
-            # symlink/reparse point still fails closed.
+            # Derived runtime/control subtrees are not preservation-backed user
+            # state. Exclude only descendants of exact root runtime directories.
+            # The root object itself is still validated below, so a regular file
+            # using one of these names remains user data and a symlink/reparse
+            # point still fails closed.
             if (
                 len(relative_path.parts) > 1
                 and relative_path.parts[0].casefold()
