@@ -8,6 +8,7 @@ from unittest import mock
 
 from acs.classroom_collaboration import (
     ClassroomCollaborationController,
+    CollaborationError,
     FileTransferProgress,
 )
 from acs.classroom_collaboration_storage import (
@@ -465,7 +466,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual(1, len(self.store.room_messages("room-1")))
 
-    def test_hidden_live_redelivery_clears_existing_unread_state(self) -> None:
+    def test_hidden_live_redelivery_fails_closed_without_mutating_unread_state(self) -> None:
         view = self.webview()
         message = ChatMessageMetadata(
             "remote-live-hidden",
@@ -481,16 +482,20 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             first.payload["collaboration"]["chat"]["unread_count"],
         )
 
-        hidden = view.receive_chat(replace(message, hidden=True))
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "live chat message cannot carry mutable state",
+        ):
+            view.receive_chat(replace(message, hidden=True))
 
-        self.assertEqual("collaboration.chat.received", hidden.kind)
-        self.assertNotIn("announcement", hidden.payload)
-        self.assertEqual(
-            0,
-            hidden.payload["collaboration"]["chat"]["unread_count"],
-        )
-        self.assertEqual((), hidden.payload["collaboration"]["chat"]["messages"])
-        self.assertEqual(set(), view._unread_message_ids)
+        # Live delivery is not a moderation-state authority. A forged/stale hidden
+        # bit must not mutate local presentation state; authoritative state sync
+        # performs hide/unread reconciliation (covered immediately below).
+        self.assertEqual({"remote-live-hidden"}, view._unread_message_ids)
+        stored = self.store.room_messages("room-1")
+        self.assertEqual(1, len(stored))
+        self.assertFalse(stored[0].hidden)
+        self.assertEqual("Visible before moderation", stored[0].body)
 
     def test_sync_removes_hidden_message_from_unread_count(self) -> None:
         view = self.webview()
