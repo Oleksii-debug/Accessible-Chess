@@ -240,6 +240,23 @@ async function main() {
     "stale key-repeat queued a second navigation before authoritative render"
   );
 
+  const pendingEnterAfterArrow = keyEvent("Enter");
+  deferredOptions[0].listeners.keydown(pendingEnterAfterArrow.event);
+  check(
+    pendingEnterAfterArrow.state.prevented,
+    "Enter during in-flight ArrowDown did not prevent stale activation"
+  );
+  const pendingEndAfterArrow = keyEvent("End");
+  deferredOptions[0].listeners.keydown(pendingEndAfterArrow.event);
+  check(
+    pendingEndAfterArrow.state.prevented,
+    "End during in-flight ArrowDown did not prevent stale navigation"
+  );
+  check(
+    deferredCalls.length === 1,
+    "mixed stale listbox keys escaped the shared in-flight gate"
+  );
+
   resolveNavigation(null);
   await flushPromises();
   await flushPromises();
