@@ -1089,6 +1089,21 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             [event.payload["file_progress"]["complete"] for event in progress_events],
         )
         session_key = uploaded.payload["collaboration"]["session_key"]
+        transfer_keys = {
+            event.payload["file_progress"]["transfer_key"]
+            for event in progress_events
+        }
+        self.assertEqual(1, len(transfer_keys))
+        first_transfer_key = next(iter(transfer_keys))
+        self.assertEqual(64, len(first_transfer_key))
+        self.assertNotEqual(
+            uploaded.payload["collaboration"]["files"]["items"][0]["file_key"],
+            first_transfer_key,
+        )
+        self.assertEqual(
+            first_transfer_key,
+            uploaded.payload["collaboration"]["files"]["transfer_progress"]["transfer_key"],
+        )
         for event in progress_events:
             self.assertEqual("collaboration.file.progress", event.kind)
             progress = event.payload["file_progress"]
@@ -1102,6 +1117,30 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             self.assertNotIn("rooms/room-1", exposed)
             self.assertNotIn("sha256", exposed.lower())
             self.assertNotIn("attachment-ui-1", exposed)
+
+        self.selected_file = self.root / "progress-two.pgn"
+        self.selected_file.write_bytes(b"abcdefghijkl")
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-ui-2", 6, 12),
+        )
+        progress_events.clear()
+        second = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("collaboration.file.sent", second.kind)
+        second_transfer_keys = {
+            event.payload["file_progress"]["transfer_key"]
+            for event in progress_events
+        }
+        self.assertEqual(1, len(second_transfer_keys))
+        second_transfer_key = next(iter(second_transfer_keys))
+        self.assertNotEqual(first_transfer_key, second_transfer_key)
+        self.assertEqual(
+            second_transfer_key,
+            second.payload["collaboration"]["files"]["transfer_progress"]["transfer_key"],
+        )
+        self.assertEqual(
+            12,
+            second.payload["collaboration"]["files"]["transfer_progress"]["total_bytes"],
+        )
 
     def test_broken_file_progress_sink_cannot_turn_valid_upload_into_failure(self) -> None:
         self.selected_file = self.root / "progress-sink-failure.pgn"
@@ -1494,6 +1533,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual(0, snapshot["chat"]["unread_count"])
         self.assertNotEqual(old_session_key, snapshot["session_key"])
         self.assertEqual(32, len(snapshot["session_key"]))
+        self.assertIsNone(snapshot["files"]["transfer_progress"])
 
         stale = view.dispatch(
             "collaboration.file.save",
