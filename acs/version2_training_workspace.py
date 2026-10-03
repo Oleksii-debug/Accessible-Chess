@@ -242,8 +242,24 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if bridge is None or material is None:
             raise RuntimeError("no Training exercise is active")
-        command_id = command.strip() if isinstance(command, str) else command
-        if command_id == "training.continue" and not (
+        # Normalize only exact, already-bounded browser text. Overlong
+        # exact strings and all non-exact values go unchanged to the bridge,
+        # whose boundary checks length/type before strip(). This workspace must
+        # not execute subclass strip/equality hooks or scan an oversized command.
+        command_id = (
+            command.strip()
+            if type(command) is str and len(command) <= 64
+            else command
+        )
+        classifiable_command = type(command_id) is str and len(command_id) <= 64
+        is_continue = classifiable_command and command_id == "training.continue"
+        is_language = classifiable_command and command_id == "training.language"
+        is_disabled_completed_action = classifiable_command and command_id in (
+            "training.hint",
+            "training.reveal",
+            "training.retry",
+        )
+        if is_continue and not (
             self.session.completed and self.has_next()
         ):
             # Continue is disabled unless a completed exercise has a validated
@@ -251,10 +267,7 @@ class Version2BookTrainingWorkspace:
             # current progress, so stale/forged WebView activation of a disabled
             # Continue control cannot perform durable I/O.
             return bridge.projection.generic_error()
-        if (
-            self.session.completed
-            and command_id in ("training.hint", "training.reveal", "training.retry")
-        ):
+        if self.session.completed and is_disabled_completed_action:
             # These controls are explicitly disabled in the canonical snapshot
             # after completion. Enforce the same boundary server-side so stale
             # DOM/native-menu activation cannot mutate transient feedback or
@@ -268,6 +281,22 @@ class Version2BookTrainingWorkspace:
         before_language = bridge.projection.language
         before_message = bridge.projection.presenter_message
         before_message_key = bridge.projection.presenter_message_key
+
+        def restore_active_state() -> None:
+            # Keep retained session/bridge references authoritative across
+            # rejected browser commands, render failures and durable CAS errors.
+            self.material = material
+            self._session = before_session
+            self.bridge = bridge
+            self._store = before_store
+            self._revision = revision
+            self.language = before_language
+            bridge.projection.restore_state(
+                before,
+                language=before_language,
+                message=before_message,
+                message_key=before_message_key,
+            )
 
         def restore_continue_state() -> None:
             # Continue can move the canonical BookReader and replace every active
@@ -286,24 +315,17 @@ class Version2BookTrainingWorkspace:
         try:
             event = bridge.dispatch(command_id, payload)
         except Exception:
-            if command_id == "training.continue":
+            if is_continue:
                 restore_continue_state()
             else:
                 # The bridge normally sanitizes projection failures. If the
                 # sanitizing error projection itself raises after a presenter or
                 # session mutation, restore the exact pre-command Training state
-                # before allowing the outer application boundary to sanitize it.
-                restored = ExerciseSession.restore(material.definition, before)
-                self._session = restored
-                self.language = before_language
-                self.bridge = self._bridge_for(
-                    restored,
-                    message=before_message,
-                    message_key=before_message_key,
-                )
-                self._revision = revision
+                # in place before allowing the outer application boundary to
+                # sanitize it.
+                restore_active_state()
             raise
-        if command_id == "training.continue":
+        if is_continue:
             if event.kind == "error":
                 restore_continue_state()
             return event
@@ -311,45 +333,29 @@ class Version2BookTrainingWorkspace:
             # Projection/render failures can happen after submit/hint/reset or
             # transient presenter state has already mutated. The bridge deliberately
             # converts those exceptions to a generic error, so restore the complete
-            # pre-command Training surface instead of leaving memory ahead of disk.
-            restored = ExerciseSession.restore(material.definition, before)
-            self._session = restored
-            self.language = before_language
-            self.bridge = self._bridge_for(
-                    restored,
-                    message=before_message,
-                    message_key=before_message_key,
-                )
-            self._revision = revision
+            # pre-command Training surface in place instead of leaving memory ahead
+            # of disk or invalidating retained session/bridge references.
+            restore_active_state()
             # The bridge can construct its generic error after partially mutating
             # presentation state (notably a rejected language switch). We have
             # just restored the authoritative pre-command projection, so never
             # return an error localized from the rejected transient state.
-            return self.bridge.projection.generic_error()
+            return bridge.projection.generic_error()
         after = self.session.snapshot()
         if after == before:
             # Presentation-only or semantically no-op commands must not depend on
             # durable storage. This also remains correct if future Book Training
             # content gains real hints: a changed hints_used counter will make the
             # snapshots differ and therefore take the durable write path below.
-            if command_id == "training.language":
+            if is_language:
                 self.language = self.bridge.projection.language
             return event
         try:
             self.save()
         except Exception:
             # A stale/busy durable write must not leave in-memory progress ahead
-            # of disk truth. Restore the exact pre-command canonical session and
-            # presentation language.
-            restored = ExerciseSession.restore(material.definition, before)
-            self._session = restored
-            self.language = before_language
-            self.bridge = self._bridge_for(
-                    restored,
-                    message=before_message,
-                    message_key=before_message_key,
-                )
-            self._revision = revision
+            # of disk truth or invalidate retained live Training references.
+            restore_active_state()
             raise
         return event
 
