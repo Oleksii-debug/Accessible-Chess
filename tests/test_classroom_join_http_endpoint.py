@@ -14,6 +14,7 @@ from acs.classroom_join_http_endpoint import (
     ClassroomJoinHttpEndpoint,
     JOIN_CREDENTIAL_PATH,
     MAX_AUTHORIZATION_BYTES,
+    MAX_REQUEST_BODY_EVENTS,
     MAX_REQUEST_HEADER_BYTES,
 )
 from acs.classroom_realtime_media import MediaSource
@@ -754,6 +755,47 @@ class ClassroomJoinHttpEndpointTests(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0]["type"], "http.response.start")
         self.assertEqual(sent[0]["status"], 401)
+
+    def test_request_body_event_budget_accepts_exact_boundary(self) -> None:
+        body = self.payload()
+        events = [
+            {"type": "http.request", "body": b"", "more_body": True}
+            for _ in range(MAX_REQUEST_BODY_EVENTS - 1)
+        ]
+        events.append(
+            {"type": "http.request", "body": body, "more_body": False}
+        )
+
+        sent = self.invoke(events=events)
+        status, _headers, response_body = self.response(sent)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(response_body)["room_id"], "room-1")
+        self.assertEqual(self.authenticator.calls, ["auth-token-1"])
+        self.assertEqual(len(self.authorization.calls), 2)
+        self.assertEqual(len(self.issuer.calls), 1)
+
+    def test_request_body_event_budget_rejects_zero_byte_fragment_dos(self) -> None:
+        body = self.payload()
+        events = [
+            {"type": "http.request", "body": b"", "more_body": True}
+            for _ in range(MAX_REQUEST_BODY_EVENTS)
+        ]
+        events.append(
+            {"type": "http.request", "body": body, "more_body": False}
+        )
+
+        sent = self.invoke(events=events)
+        status, _headers, response_body = self.response(sent)
+
+        self.assertEqual(status, 413)
+        self.assertEqual(
+            json.loads(response_body),
+            {"error": "request_too_fragmented"},
+        )
+        self.assertEqual(self.authenticator.calls, ["auth-token-1"])
+        self.assertEqual(self.authorization.calls, [])
+        self.assertEqual(self.issuer.calls, [])
 
     def test_client_disconnect_does_not_emit_partial_credential_response(self) -> None:
         sent = self.invoke(

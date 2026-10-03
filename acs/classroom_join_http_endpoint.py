@@ -25,6 +25,10 @@ from .classroom_join_credentials import (
 JOIN_CREDENTIAL_PATH = "/v1/classroom/join-credential"
 MAX_AUTHORIZATION_BYTES = 8192
 MAX_REQUEST_HEADER_BYTES = 16 * 1024
+# A maximally fragmented valid request can use one event per body byte plus
+# one final empty event carrying more_body=False. Anything beyond that cannot
+# encode additional valid request bytes and only burns event-loop turns.
+MAX_REQUEST_BODY_EVENTS = MAX_JOIN_REQUEST_BYTES + 1
 _BEARER_CHALLENGE = (
     (
         b"www-authenticate",
@@ -285,6 +289,11 @@ def _validated_headers(
         if _HEADER_NAME_RE.fullmatch(lowered) is None:
             raise _HttpReject(400, "invalid_headers")
         if any(byte < 32 or byte == 127 for byte in value):
+            # Authorization credential syntax is an authentication failure, not
+            # a generic request-shape oracle. Keep the same Bearer challenge for
+            # every malformed credential while retaining 400 for other headers.
+            if lowered == b"authorization":
+                raise _unauthorized()
             raise _HttpReject(400, "invalid_headers")
         grouped.setdefault(lowered, []).append(value)
 
@@ -398,7 +407,11 @@ async def _read_body(
     declared_length: int | None,
 ) -> bytes:
     body = bytearray()
+    event_count = 0
     while True:
+        event_count += 1
+        if event_count > MAX_REQUEST_BODY_EVENTS:
+            raise _HttpReject(413, "request_too_fragmented")
         event = await receive()
         if type(event) is not dict:
             raise _HttpReject(400, "invalid_request")
@@ -512,5 +525,6 @@ __all__ = [
     "ClassroomJoinHttpEndpoint",
     "JOIN_CREDENTIAL_PATH",
     "MAX_AUTHORIZATION_BYTES",
+    "MAX_REQUEST_BODY_EVENTS",
     "MAX_REQUEST_HEADER_BYTES",
 ]
