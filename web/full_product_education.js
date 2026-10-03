@@ -119,6 +119,11 @@
       pending.lockComposer ? "true" : "false"
     );
     wrapper.querySelectorAll("BUTTON").forEach(function (control) {
+      control.setAttribute(
+        "data-pending-was-disabled",
+        control.disabled ? "true" : "false"
+      );
+      control.disabled = true;
       control.setAttribute("aria-disabled", "true");
     });
     if (pending.lockComposer) {
@@ -136,6 +141,9 @@
     wrapper.removeAttribute("data-pending-command");
     wrapper.removeAttribute("data-pending-lock-composer");
     wrapper.querySelectorAll("BUTTON").forEach(function (control) {
+      const wasDisabled = control.getAttribute("data-pending-was-disabled");
+      if (wasDisabled === "false") control.disabled = false;
+      control.removeAttribute("data-pending-was-disabled");
       control.removeAttribute("aria-disabled");
     });
     if (lockComposer) {
