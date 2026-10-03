@@ -164,8 +164,27 @@ class Version2GameTreeResumeCoordinator:
         if directory is None:
             return
         try:
-            if any(directory.iterdir()):
-                return
+            before = directory.lstat()
+            entries = tuple(directory.iterdir())
+            after = directory.lstat()
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard guard directory could not be cleaned up",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+        if (
+            stat.S_ISLNK(after.st_mode)
+            or _is_reparse_point(after)
+            or not stat.S_ISDIR(after.st_mode)
+            or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+        ):
+            raise GameTreeResumeError(
+                "resume discard guard directory changed during cleanup",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        if entries:
+            return
+        try:
             directory.rmdir()
             _fsync_directory(directory.parent)
         except OSError as error:
