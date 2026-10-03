@@ -251,10 +251,10 @@ class Version2BookTrainingWorkspace:
             if type(command) is str and len(command) <= 64
             else command
         )
-        exact_command = type(command_id) is str
-        is_continue = exact_command and command_id == "training.continue"
-        is_language = exact_command and command_id == "training.language"
-        is_disabled_completed_action = exact_command and command_id in (
+        classifiable_command = type(command_id) is str and len(command_id) <= 64
+        is_continue = classifiable_command and command_id == "training.continue"
+        is_language = classifiable_command and command_id == "training.language"
+        is_disabled_completed_action = classifiable_command and command_id in (
             "training.hint",
             "training.reveal",
             "training.retry",
