@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import unittest
+from unittest import mock
 
+from acs.sound_events import SoundEvent
 from acs.sound_pack_catalog import (
     DownloadedSoundPack,
     SoundAssetDigest,
@@ -13,7 +15,12 @@ from acs.sound_pack_catalog import (
 )
 from acs.sound_pack_profile import SoundPackProfileCoordinator
 from acs.sound_profile_store import SoundProfileManager, SoundProfileWriteBlockedError
-from acs.sound_profiles import CORE_SOUND_EVENTS, OPTIONAL_CLASSROOM_SOUND_EVENTS, SoundPackManifest
+from acs.sound_profiles import (
+    CORE_SOUND_EVENTS,
+    OPTIONAL_CLASSROOM_SOUND_EVENTS,
+    OPTIONAL_OWNER_SOUND_EVENTS,
+    SoundPackManifest,
+)
 from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
 from acs.sound_settings_application import SoundSettingsApplication
 
@@ -126,12 +133,88 @@ class SoundSettingsApplicationTests(unittest.TestCase):
 
         snapshot = app.snapshot(language="en")
 
-        self.assertEqual(CORE_SOUND_EVENTS, tuple(item["event_id"] for item in snapshot["events"]))
+        semantic_owner_events = {event.value for event in SoundEvent}
+        expected = (
+            *CORE_SOUND_EVENTS,
+            *(
+                event_id
+                for event_id in OPTIONAL_OWNER_SOUND_EVENTS
+                if event_id in semantic_owner_events
+            ),
+        )
+        self.assertEqual(expected, tuple(item["event_id"] for item in snapshot["events"]))
         self.assertEqual("classic", snapshot["active_pack_id"])
         rendered = repr(snapshot)
         self.assertNotIn("payload_ref", rendered)
         self.assertNotIn("local_path", rendered)
         self.assertNotIn("audio/", rendered)
+
+    def test_optional_owner_events_follow_semantic_owner_and_custom_manifest(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        classic = SoundSettingsApplication(manager, runtime)
+
+        owner_events = tuple(
+            type("OwnerEvent", (), {"value": event_id})()
+            for event_id in (*CORE_SOUND_EVENTS, "mate", "draw")
+        )
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ):
+            classic_ids = tuple(
+                item["event_id"]
+                for item in classic.snapshot(language="en")["events"]
+            )
+
+        self.assertIn("mate", classic_ids)
+        self.assertIn("draw", classic_ids)
+
+        base = _manifest("local.owner")
+        files = dict(base.files)
+        files["mate"] = "audio/mate.wav"
+        local = SoundPackManifest(
+            pack_id=base.pack_id,
+            version=base.version,
+            title=base.title,
+            license_id=base.license_id,
+            files=files,
+            author=base.author,
+            provenance=base.provenance,
+        )
+        custom_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "local.owner",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        custom_manager = SoundProfileManager(
+            custom_storage,
+            lambda requested: requested,
+        )
+        custom_manager.load()
+        custom_runtime = ProfiledSoundRuntime(
+            _AssetPlayback(),
+            custom_manager.profile_provider,
+        )
+        custom = SoundSettingsApplication(
+            custom_manager,
+            custom_runtime,
+            installed_pack_provider=lambda: {"local.owner": local},
+        )
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ):
+            custom_ids = tuple(
+                item["event_id"]
+                for item in custom.snapshot(language="en")["events"]
+            )
+
+        self.assertIn("mate", custom_ids)
+        self.assertNotIn("draw", custom_ids)
 
     def test_master_and_per_event_edits_persist_through_single_profile_manager(self) -> None:
         storage, manager, _playback, runtime = self._profile_runtime()
