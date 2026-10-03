@@ -312,6 +312,55 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, coercive)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
 
+    def test_semantically_equivalent_noncanonical_wire_fails_closed(self):
+        cases = []
+
+        origin_target = copy.deepcopy(self.payload)
+        origin_target["origin"]["target_key"] = (
+            " " + origin_target["origin"]["target_key"] + " "
+        )
+        cases.append(("origin-target-whitespace", origin_target))
+
+        origin_block = copy.deepcopy(self.payload)
+        self.assertIsNotNone(origin_block["origin"]["block_id"])
+        origin_block["origin"]["block_id"] = (
+            " " + origin_block["origin"]["block_id"] + " "
+        )
+        cases.append(("origin-block-whitespace", origin_block))
+
+        exercise_id = copy.deepcopy(self.payload)
+        exercise_id["definition"]["exercise_id"] = (
+            " " + exercise_id["definition"]["exercise_id"] + " "
+        )
+        cases.append(("exercise-id-whitespace", exercise_id))
+
+        start_fen = copy.deepcopy(self.payload)
+        start_fen["definition"]["start_fen"] = (
+            " " + start_fen["definition"]["start_fen"] + " "
+        )
+        cases.append(("start-fen-whitespace", start_fen))
+
+        move_whitespace = copy.deepcopy(self.payload)
+        first_move = move_whitespace["definition"]["steps"][0]["accepted_moves"][0]
+        move_whitespace["definition"]["steps"][0]["accepted_moves"] = [
+            "  " + first_move + "  "
+        ]
+        cases.append(("accepted-move-whitespace", move_whitespace))
+
+        duplicate_move = copy.deepcopy(self.payload)
+        first_move = duplicate_move["definition"]["steps"][0]["accepted_moves"][0]
+        duplicate_move["definition"]["steps"][0]["accepted_moves"].append(first_move)
+        cases.append(("duplicate-accepted-move", duplicate_move))
+
+        for label, payload in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
+
     def test_tampered_move_and_origin_digest_fail_closed(self):
         tampered_move = copy.deepcopy(self.payload)
         tampered_move["definition"]["steps"][0]["accepted_moves"] = ["d4"]
