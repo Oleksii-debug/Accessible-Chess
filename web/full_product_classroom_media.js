@@ -58,6 +58,16 @@
     }
   }
 
+  function setMediaActionButtonsDisabled(root, disabled) {
+    if (!root || typeof root.querySelector !== "function") return;
+    const section = root.querySelector("#classroom-media-section");
+    if (!section || typeof section.querySelectorAll !== "function") return;
+    const buttons = section.querySelectorAll("button");
+    for (let index = 0; index < buttons.length; index += 1) {
+      buttons[index].disabled = disabled === true;
+    }
+  }
+
   function actionButton(action, invoke, announce, root, language) {
     if (!action || typeof action !== "object") return null;
     const command = String(action.command || "");
@@ -67,7 +77,11 @@
     const id = safeId(action.id);
     if (id) button.id = id;
     button.addEventListener("click", function () {
-      button.disabled = true;
+      // The Python provider arbiter owns one global mutation lease. Mirror that
+      // contract in the accessible DOM so keyboard/screen-reader users cannot
+      // activate a second media action that is guaranteed to be rejected while
+      // the first provider transaction is still settling.
+      setMediaActionButtonsDisabled(root, true);
       Promise.resolve().then(function () {
         return invoke(command, action.payload || {});
       }).then(function (result) {
@@ -76,13 +90,13 @@
         // only after a terminal event exists so duplicate click/retry cannot
         // race the sole global provider lease.
         return settleProviderEvent(result, invoke).then(function (terminal) {
-          if (button.isConnected) button.disabled = false;
+          setMediaActionButtonsDisabled(root, false);
           applyTerminalEvent(root, terminal, invoke, announce, language);
           return terminal;
         });
       }).catch(function () {
+        setMediaActionButtonsDisabled(root, false);
         if (button.isConnected) {
-          button.disabled = false;
           if (typeof button.focus === "function") {
             button.focus({ preventScroll: true });
           }
@@ -93,7 +107,7 @@
           "Could not change media state."
         ));
       }).finally(function () {
-        if (button.isConnected) button.disabled = false;
+        setMediaActionButtonsDisabled(root, false);
       });
     });
     return button;
