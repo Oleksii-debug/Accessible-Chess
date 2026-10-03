@@ -297,10 +297,7 @@
     if (!container || typeof container.replaceChildren !== "function") return false;
     const previousSession = container.getAttribute("data-progress-session");
     const previousKey = container.getAttribute("data-progress-key");
-    if (
-      previousSession === sessionKey &&
-      previousKey === progressInfo.transfer_key
-    ) {
+    if (previousSession === sessionKey) {
       const previousTransferred = Number(
         container.getAttribute("data-progress-transferred")
       );
@@ -313,14 +310,33 @@
         !Number.isSafeInteger(previousTotal) ||
         previousTransferred < 0 ||
         previousTotal < 0 ||
-        progressInfo.total_bytes !== previousTotal ||
-        progressInfo.transferred_bytes < previousTransferred ||
-        (
-          previousComplete &&
-          (!progressInfo.complete ||
-            progressInfo.transferred_bytes !== previousTransferred)
-        )
+        typeof previousKey !== "string" ||
+        !/^[0-9a-f]{64}$/.test(previousKey)
       ) {
+        return false;
+      }
+      if (previousKey === progressInfo.transfer_key) {
+        if (
+          progressInfo.total_bytes !== previousTotal ||
+          progressInfo.transferred_bytes < previousTransferred ||
+          (
+            previousComplete &&
+            (!progressInfo.complete ||
+              progressInfo.transferred_bytes !== previousTransferred)
+          )
+        ) {
+          return false;
+        }
+      } else if (
+        !previousComplete ||
+        progressInfo.transferred_bytes !== 0 ||
+        progressInfo.complete
+      ) {
+        // UI commands are single-flight. A different transfer identity is a
+        // valid next sequence only after the previous transfer reached its
+        // authoritative terminal sample and the next sequence starts at zero.
+        // This also prevents a delayed old-key event from replacing an active
+        // newer transfer.
         return false;
       }
     }
