@@ -1,0 +1,124 @@
+name: Classroom Media WebView
+
+on:
+  push:
+    branches:
+      - feature/classroom-media-accessible-presentation-20261002
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/classroom_media_webview_bridge.py'
+      - 'acs/classroom_media_webview_projection.py'
+      - 'acs/version2_final_product_application.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_final_release.py'
+      - 'tests/js/full_product_classroom_media_test.js'
+      - 'tests/test_classroom_media_web_asset.py'
+      - 'tests/test_classroom_media_webview.py'
+      - 'tests/test_p0g_final_product_runtime_reachability.py'
+      - 'tests/test_version2_final_product_composition.py'
+      - 'web/full_product_classroom_media.js'
+      - 'web/version2_final_product_bootstrap.js'
+      - '.github/workflows/classroom-media-webview.yml'
+      - '.github/workflows/p0g-final-product-runtime-reachability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-media-webview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove bounded media presentation scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$PR_BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+          test -n "$EVENT_BASE_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$PR_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+          test -n "$base"
+          git cat-file -e "$base^{commit}"
+          if ! git merge-base --is-ancestor "$base" HEAD; then
+            echo "Current Product base $base is not an ancestor of HEAD; synchronize the PR before qualification."
+            exit 1
+          fi
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-media-webview.yml'
+            '.github/workflows/p0g-final-product-runtime-reachability.yml'
+            'acs/classroom_media_webview_bridge.py'
+            'acs/classroom_media_webview_projection.py'
+            'acs/version2_education_mutation_release.py'
+            'acs/version2_final_product_application.py'
+            'acs/version2_final_release.py'
+            'tests/js/full_product_classroom_media_test.js'
+            'tests/test_classroom_media_web_asset.py'
+            'tests/test_classroom_media_webview.py'
+            'tests/test_p0g_final_product_runtime_reachability.py'
+            'tests/test_version2_final_product_composition.py'
+            'web/full_product_classroom_media.js'
+            'web/version2_final_product_bootstrap.js'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected classroom media presentation PR scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          git diff --check "$base...HEAD"
+          git diff --quiet "$base...HEAD" -- \
+            acs/chesscore.py \
+            acs/classroom_domain.py \
+            acs/classroom_realtime_media.py \
+            acs/remote_session.py \
+            acs/teaching_classroom_adapter.py
+          echo "CLASSROOM_MEDIA_LIVE_BASE=$base"
+          echo 'CLASSROOM_MEDIA_BOUNDED_SCOPE=PASS'
+
+      - name: Parse browser assets with Node
+        run: node --check web/livekit_classroom_media.js && node --check web/full_product_classroom_media.js && node --check web/version2_final_product_bootstrap.js
+
+      - name: Run executable classroom media DOM behavior
+        run: node tests/js/full_product_classroom_media_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed Python presentation seams
+        run: python -m compileall -q acs/classroom_media_webview_bridge.py acs/classroom_media_webview_projection.py acs/version2_final_product_application.py acs/version2_education_mutation_release.py acs/version2_final_release.py
+
+      - name: Run classroom media and final-product qualification
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_realtime_media
+          tests.test_classroom_media_webview
+          tests.test_classroom_media_web_asset
+          tests.test_version2_final_product_composition
+          tests.test_version2_final_release_binding
+          tests.test_p0g_final_product_runtime_reachability

@@ -27,10 +27,14 @@ env:
   LAUNCHER_BLOB: a564d90a9365ef5f42cd40db6df8e8c29f5d22b8
   SHIPPING_RELEASE_BLOB: 6631d8e8a000ed32f60a95f68d9b02cf0422c4df
   EDUCATION_RELEASE_BLOB: 7a772b33f01709eb5f7ab7db447aa0a48594b3de
+  EDUCATION_RELEASE_MEDIA_BLOB: c05d98fbb8b99170e41e01c0cd196f594b297d19
+  EDUCATION_RELEASE_MEDIA_SDK_BLOB: 20cd3b453060c5a1a32ca0f6edd91fcf5989fdcd
   P0_RUNTIME_BLOB: 14565e8b97f0dcd995a764127bd1badc17ff7e30
   P0_RUNTIME_DIRECTION_BLOB: ffd62735480c6b26a01aeeec672c020b9815c40c
   P0_RUNTIME_CONTEXT_BLOB: ffb190c333ee0cf5f211ad2739b329872a81d197
   REACHABILITY_TEST_BLOB: 28ccda2a560e34ea5b014de1b36c6ceb344b71f2
+  REACHABILITY_MEDIA_TEST_BLOB: d118c009c3f0af830a39632c63f374c11ebf447e
+  REACHABILITY_MEDIA_SDK_TEST_BLOB: facef95bd1a3e985cd084e37fe239b68d622285c
 
 jobs:
   final-product-runtime:
@@ -91,7 +95,15 @@ jobs:
           fi
           test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "$LAUNCHER_BLOB"
           test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "$SHIPPING_RELEASE_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_education_mutation_release.py)" = "$EDUCATION_RELEASE_BLOB"
+          education_blob="$(git rev-parse HEAD:acs/version2_education_mutation_release.py)"
+          case "$education_blob" in
+            "$EDUCATION_RELEASE_BLOB"|"$EDUCATION_RELEASE_MEDIA_BLOB"|"$EDUCATION_RELEASE_MEDIA_SDK_BLOB")
+              ;;
+            *)
+              printf 'Unexpected education release blob: %s\n' "$education_blob" >&2
+              exit 1
+              ;;
+          esac
           runtime_blob="$(git rev-parse HEAD:web/p0_accessibility_runtime.js)"
           case "$runtime_blob" in
             "$P0_RUNTIME_BLOB"|"$P0_RUNTIME_DIRECTION_BLOB"|"$P0_RUNTIME_CONTEXT_BLOB")
@@ -101,7 +113,15 @@ jobs:
               exit 1
               ;;
           esac
-          test "$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)" = "$REACHABILITY_TEST_BLOB"
+          reachability_test_blob="$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)"
+          case "$reachability_test_blob" in
+            "$REACHABILITY_TEST_BLOB"|"$REACHABILITY_MEDIA_TEST_BLOB"|"$REACHABILITY_MEDIA_SDK_TEST_BLOB")
+              ;;
+            *)
+              printf 'Unexpected P0-G reachability test blob: %s\n' "$reachability_test_blob" >&2
+              exit 1
+              ;;
+          esac
           grep -Fq 'from acs.version2_upgrade_status_release import main' run_accessible_chess_v2.py
           grep -Fq '"AccessibleChessTeacherSurface"' web/p0_accessibility_runtime.js
           grep -Fq 'wrapSurfaceRenderAnnouncement' web/p0_accessibility_runtime.js
