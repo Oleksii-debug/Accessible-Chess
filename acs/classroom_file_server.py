@@ -1164,15 +1164,19 @@ class ClassroomFileServerService:
     def drain_pending_deletions(self) -> int:
         """Trusted restart/operator recovery; no client authorization is involved."""
         completed = 0
+        incomplete = False
         for attachment_id, object_key in self._store.pending_deletions():
             try:
                 self._object_store.delete(object_key=object_key)
-            except Exception as error:
-                raise ClassroomFileServerError(
-                    "durable object deletion recovery failed"
-                ) from None
+            except Exception:
+                incomplete = True
+                continue
             self._store.complete_deletion(attachment_id)
             completed += 1
+        if incomplete:
+            raise ClassroomFileServerError(
+                "durable object deletion recovery incomplete"
+            )
         return completed
 
     def integrity_check(self) -> None:
