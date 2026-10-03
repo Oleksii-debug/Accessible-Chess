@@ -28,6 +28,7 @@ jobs:
     env:
       LIVE_BOOK_PARENT: 251ce76e5bc4f1f91336b8f93c5869a8fa6e7eb7
       COMPAT_TRAINING_PARENT: cfb7b352aa4248a3a4f45d7340b6a9a9d1a1d424
+      SESSION_AUTHORITY_HISTORY_PARENT: cf69f13cf4f7fa774ece00a25112146bc8adb71d
       PRIOR_CONVERGENCE_PARENT: 59865d5a4ab5594237ba0ccb701325a0664527b6
       BOOK_TRAINING_BLOB: 421ac6144651eca0a16f6edeee73646ca89f2d94
       TRAINING_BLOB: 345d6ea6e71ca76b83618f1fe845cfc51a62cc95
@@ -51,6 +52,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$LIVE_BOOK_PARENT" HEAD
           git merge-base --is-ancestor "$COMPAT_TRAINING_PARENT" HEAD
+          git merge-base --is-ancestor "$SESSION_AUTHORITY_HISTORY_PARENT" HEAD
           git merge-base --is-ancestor "$PRIOR_CONVERGENCE_PARENT" HEAD
 
           test "$(git rev-parse "HEAD:acs/book_training.py")" = "$BOOK_TRAINING_BLOB"
