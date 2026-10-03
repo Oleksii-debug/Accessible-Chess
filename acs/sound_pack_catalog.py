@@ -328,7 +328,12 @@ class SoundPackStoragePort(Protocol):
 
     def install_atomically(self, downloaded: DownloadedSoundPack) -> None: ...
 
-    def uninstall(self, pack_id: str) -> None: ...
+    def uninstall(
+        self,
+        pack_id: str,
+        *,
+        expected_manifest: SoundPackManifest | None = None,
+    ) -> None: ...
 
 
 class SoundPackSignatureVerifier(Protocol):
@@ -363,6 +368,7 @@ class SoundPackUninstallPlan:
     pack_id: str
     resulting_profile: SoundProfile
     remove_from_storage: bool
+    expected_manifest: SoundPackManifest | None = None
 
 
 class SoundPackManager:
@@ -576,6 +582,7 @@ class SoundPackManager:
                 pack_id=pack_id,
                 resulting_profile=self.resolve_profile(active_profile),
                 remove_from_storage=False,
+                expected_manifest=None,
             )
         if (
             active_profile.pack_id == pack_id
@@ -593,6 +600,7 @@ class SoundPackManager:
             pack_id=pack_id,
             resulting_profile=resulting_profile,
             remove_from_storage=True,
+            expected_manifest=installed[pack_id],
         )
 
     def commit_uninstall(self, plan: SoundPackUninstallPlan) -> None:
@@ -601,7 +609,14 @@ class SoundPackManager:
         if plan.pack_id == self._fallback_pack_id:
             raise SoundPackInstallError("the fallback sound pack cannot be uninstalled")
         if plan.remove_from_storage:
-            self._storage.uninstall(plan.pack_id)
+            if plan.expected_manifest is None:
+                raise SoundPackInstallError(
+                    "destructive uninstall plan is missing expected pack identity"
+                )
+            self._storage.uninstall(
+                plan.pack_id,
+                expected_manifest=plan.expected_manifest,
+            )
 
     def uninstall(self, pack_id: str, *, active_profile: SoundProfile) -> SoundProfile:
         """Backward-compatible one-step uninstall.
