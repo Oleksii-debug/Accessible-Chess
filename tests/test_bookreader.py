@@ -64,6 +64,26 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds 256"):
             BookReader.restore_snapshot(self.make_book(), malformed)
 
+    def test_restore_snapshot_bounds_mapping_iteration_before_field_materialization(self):
+        book = self.make_book()
+        payload = BookReader(book).snapshot()
+        keys = tuple(payload)
+
+        class OverProducingSnapshot(dict):
+            def __len__(self):
+                return len(keys)
+
+            def __iter__(self):
+                yield from keys
+                yield "unexpected"
+                raise AssertionError("restore must not consume beyond the bounded key probe")
+
+            def __getitem__(self, key):
+                return payload[key]
+
+        with self.assertRaisesRegex(ValueError, "changed while being read"):
+            BookReader.restore_snapshot(book, OverProducingSnapshot())
+
     def test_boundaries_and_invalid_return_points_fail_explicitly(self):
         reader = BookReader(self.make_book())
         with self.assertRaisesRegex(LookupError, "Beginning"):
