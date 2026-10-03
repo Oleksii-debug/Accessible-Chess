@@ -1,3 +1,5 @@
+import hashlib
+import json
 import unittest
 
 from acs.chesscore import Board
@@ -106,6 +108,21 @@ class CanonicalTrainingEvaluationTests(unittest.TestCase):
         self.assertEqual(d4.snapshot(), ExerciseSession.restore(definition, d4.snapshot()).snapshot())
 
 
+def _legacy_definition_digest(definition: ExerciseDefinition) -> str:
+    payload = {
+        "start_fen": definition.start_fen,
+        "steps": [sorted(step.accepted_moves) for step in definition.steps],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 class DeterministicResumeTests(unittest.TestCase):
     def make_unambiguous_definition(self):
         return ExerciseDefinition(
@@ -122,7 +139,7 @@ class DeterministicResumeTests(unittest.TestCase):
         session = ExerciseSession(definition)
         session.submit("e2e4")
         snapshot = session.snapshot()
-        self.assertEqual(3, snapshot["schema_version"])
+        self.assertEqual(4, snapshot["schema_version"])
         self.assertEqual(["e4"], snapshot["accepted_path"])
         self.assertEqual(session.current_fen, snapshot["position_fen"])
         restored = ExerciseSession.restore(definition, snapshot)
@@ -168,10 +185,11 @@ class DeterministicResumeTests(unittest.TestCase):
             if key not in {"accepted_path", "position_fen"}
         }
         legacy["schema_version"] = 2
+        legacy["definition_digest"] = _legacy_definition_digest(definition)
         restored = ExerciseSession.restore(definition, legacy)
         self.assertEqual(("e4",), restored.accepted_path)
         self.assertEqual(session.current_fen, restored.current_fen)
-        self.assertEqual(3, restored.snapshot()["schema_version"])
+        self.assertEqual(4, restored.snapshot()["schema_version"])
 
     def test_v2_distinct_alternative_snapshot_is_rejected_as_ambiguous(self):
         definition = ExerciseDefinition(
@@ -191,8 +209,24 @@ class DeterministicResumeTests(unittest.TestCase):
             if key not in {"accepted_path", "position_fen"}
         }
         legacy["schema_version"] = 2
+        legacy["definition_digest"] = _legacy_definition_digest(definition)
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             ExerciseSession.restore(definition, legacy)
+
+    def test_schema_v3_legacy_digest_migrates_to_v4(self) -> None:
+        definition = self.make_unambiguous_definition()
+        session = ExerciseSession(definition)
+        session.submit("e4")
+        legacy = session.snapshot()
+        legacy["schema_version"] = 3
+        legacy["definition_digest"] = _legacy_definition_digest(definition)
+
+        restored = ExerciseSession.restore(definition, legacy)
+        self.assertEqual(("e4",), restored.accepted_path)
+        self.assertEqual(session.current_fen, restored.current_fen)
+        upgraded = restored.snapshot()
+        self.assertEqual(4, upgraded["schema_version"])
+        self.assertNotEqual(legacy["definition_digest"], upgraded["definition_digest"])
 
     def test_future_or_unknown_snapshot_fields_fail_closed(self):
         definition = self.make_unambiguous_definition()

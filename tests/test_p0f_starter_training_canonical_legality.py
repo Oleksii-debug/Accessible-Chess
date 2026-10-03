@@ -17,7 +17,7 @@ from acs.starter_books_training_release import (
     build_release_starter_course,
     build_training_task_catalogue,
 )
-from acs.training import ExerciseSession
+from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 
 
 EXPECTED_TRAINING_TASKS = 144
@@ -441,6 +441,107 @@ class StarterTrainingCanonicalLegalityTests(unittest.TestCase):
                 self.assertEqual(session.accepted_path, resumed.accepted_path)
                 self.assertEqual(session.current_fen, resumed.current_fen)
                 self.assertEqual(snapshot, resumed.snapshot())
+
+    def test_shipped_session_v4_rejects_non_chess_definition_drift(self) -> None:
+        tasks = build_training_task_catalogue()
+        course = build_release_starter_course()
+        exercise_entries = BookIndex(course).of_kind(BookEntryKind.EXERCISE)
+        self.assertEqual(EXPECTED_TRAINING_TASKS, len(exercise_entries))
+        self.assertEqual(len(tasks), len(exercise_entries))
+
+        for task, entry in zip(tasks, exercise_entries, strict=True):
+            material = build_book_training_material(course, entry.target.key)
+            definition = material.definition
+            session = ExerciseSession(definition)
+            accepted = session.submit(task.answer_uci)
+            self.assertTrue(accepted.accepted)
+            self.assertTrue(accepted.completed)
+            snapshot = session.snapshot()
+            self.assertEqual(4, snapshot["schema_version"])
+
+            step = definition.steps[0]
+            mutations = (
+                (
+                    "title",
+                    ExerciseDefinition(
+                        definition.exercise_id,
+                        definition.start_fen,
+                        definition.steps,
+                        title=definition.title + " [forged]",
+                        tags=definition.tags,
+                        source_id=definition.source_id,
+                        metadata=definition.metadata,
+                    ),
+                ),
+                (
+                    "source_id",
+                    ExerciseDefinition(
+                        definition.exercise_id,
+                        definition.start_fen,
+                        definition.steps,
+                        title=definition.title,
+                        tags=definition.tags,
+                        source_id=str(definition.source_id) + ":forged",
+                        metadata=definition.metadata,
+                    ),
+                ),
+                (
+                    "metadata",
+                    ExerciseDefinition(
+                        definition.exercise_id,
+                        definition.start_fen,
+                        definition.steps,
+                        title=definition.title,
+                        tags=definition.tags,
+                        source_id=definition.source_id,
+                        metadata={**definition.metadata, "difficulty": "forged"},
+                    ),
+                ),
+                (
+                    "hint",
+                    ExerciseDefinition(
+                        definition.exercise_id,
+                        definition.start_fen,
+                        (
+                            ExerciseStep(
+                                step.accepted_moves,
+                                hint=(step.hint or "") + " [forged]",
+                                explanation=step.explanation,
+                            ),
+                        ),
+                        title=definition.title,
+                        tags=definition.tags,
+                        source_id=definition.source_id,
+                        metadata=definition.metadata,
+                    ),
+                ),
+                (
+                    "explanation",
+                    ExerciseDefinition(
+                        definition.exercise_id,
+                        definition.start_fen,
+                        (
+                            ExerciseStep(
+                                step.accepted_moves,
+                                hint=step.hint,
+                                explanation=(step.explanation or "") + " [forged]",
+                            ),
+                        ),
+                        title=definition.title,
+                        tags=definition.tags,
+                        source_id=definition.source_id,
+                        metadata=definition.metadata,
+                    ),
+                ),
+            )
+
+            for field, changed_definition in mutations:
+                with self.subTest(task_id=task.task_id, field=field):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "different exercise revision",
+                    ):
+                        ExerciseSession.restore(changed_definition, snapshot)
 
     def test_persisted_release_material_rejects_non_move_definition_drift(self) -> None:
         tasks = build_training_task_catalogue()
