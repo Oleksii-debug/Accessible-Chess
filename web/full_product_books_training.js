@@ -3,6 +3,13 @@
 
   const inFlightRoots = new WeakMap();
   const renderEpochs = new WeakMap();
+  const MAX_BOOKMARK_NAME = 80;
+  const MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024;
+  const MAX_BOOK_HEADING_PATH_PARTS = 6;
+  const MAX_BOOK_HEADING_PATH_TEXT = 360;
+  const MAX_STARTER_BOOKLETS = 24;
+  const MAX_TRAINING_SOLUTION_MOVES = 64;
+  const MAX_TRAINING_SOLUTION_TEXT = 128;
 
   function renderEpoch(root) {
     return renderEpochs.get(root) || 0;
@@ -133,6 +140,14 @@
     return value;
   }
 
+  function requireBoundedText(value, label, allowEmpty, limit) {
+    const text = requireText(value, label, allowEmpty);
+    if (text.indexOf("\x00") >= 0 || text.length > limit) {
+      throw new TypeError(label + " exceeds its canonical text contract");
+    }
+    return text;
+  }
+
   function requireActions(actions, commands, surface) {
     if (!Array.isArray(actions) || actions.length !== commands.length) {
       throw new TypeError(surface + " snapshot actions are incomplete");
@@ -155,15 +170,12 @@
 
   function requireBookmarkSpec(snapshot) {
     const bookmark = requireSnapshotRecord(snapshot, "bookmark", "Book");
-    requireText(bookmark.label, "Book bookmark label", false);
-    requireText(bookmark.value, "Book bookmark value", true);
-    requireText(bookmark.save_label, "Book bookmark save label", false);
-    requireText(bookmark.restore_label, "Book bookmark restore label", false);
-    if (!Number.isSafeInteger(bookmark.max_length) || bookmark.max_length < 1) {
+    requireBoundedText(bookmark.label, "Book bookmark label", false, 120);
+    requireBoundedText(bookmark.value, "Book bookmark value", false, MAX_BOOKMARK_NAME);
+    requireBoundedText(bookmark.save_label, "Book bookmark save label", false, 120);
+    requireBoundedText(bookmark.restore_label, "Book bookmark restore label", false, 120);
+    if (bookmark.max_length !== MAX_BOOKMARK_NAME) {
       throw new TypeError("Book bookmark max length is invalid");
-    }
-    if (bookmark.value.length > bookmark.max_length) {
-      throw new TypeError("Book bookmark value exceeds max length");
     }
   }
 
@@ -173,12 +185,14 @@
     if (typeof catalogue !== "object" || Array.isArray(catalogue)) {
       throw new TypeError("Book starter catalogue must be an object");
     }
-    requireText(catalogue.heading, "Book starter heading", false);
-    requireText(catalogue.label, "Book starter label", false);
-    requireText(catalogue.open_label, "Book starter open label", false);
-    requireText(catalogue.description, "Book starter description", true);
-    requireText(catalogue.current_id, "Book starter current id", true);
-    if (!Number.isSafeInteger(catalogue.booklet_count) || catalogue.booklet_count < 0) {
+    requireBoundedText(catalogue.heading, "Book starter heading", false, 360);
+    requireBoundedText(catalogue.label, "Book starter label", false, 120);
+    requireBoundedText(catalogue.open_label, "Book starter open label", false, 120);
+    requireBoundedText(catalogue.description, "Book starter description", true, 1200);
+    requireBoundedText(catalogue.current_id, "Book starter current id", true, 80);
+    if (!Number.isSafeInteger(catalogue.booklet_count) ||
+        catalogue.booklet_count < 0 ||
+        catalogue.booklet_count > MAX_STARTER_BOOKLETS) {
       throw new TypeError("Book starter booklet count is invalid");
     }
     if (!Array.isArray(catalogue.items) || catalogue.items.length !== catalogue.booklet_count + 1) {
@@ -189,8 +203,8 @@
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("Book starter item is invalid");
       }
-      requireText(item.material_id, "Book starter material id", false);
-      requireText(item.title, "Book starter material title", false);
+      requireBoundedText(item.material_id, "Book starter material id", false, 80);
+      requireBoundedText(item.title, "Book starter material title", false, 360);
       if (ids.has(item.material_id)) {
         throw new TypeError("Book starter material id is duplicated");
       }
@@ -204,7 +218,7 @@
   function requireBookSnapshot(snapshot) {
     const block = requireSnapshotRecord(snapshot, "block", "Book");
     requireDocumentSpec(snapshot, "Book");
-    requireText(snapshot.heading, "Book snapshot heading", false);
+    requireBoundedText(snapshot.heading, "Book snapshot heading", false, 360);
     requireBookmarkSpec(snapshot);
     requireStarterMaterials(snapshot);
     requireActions(
@@ -233,18 +247,29 @@
     if (typeof block.role !== "string" || roles.indexOf(block.role) < 0) {
       throw new TypeError("Book snapshot block role is invalid");
     }
-    requireText(block.kind, "Book snapshot block kind", true);
-    requireText(block.title, "Book snapshot block title", true);
-    requireText(block.text, "Book snapshot block text", true);
-    requireText(block.heading_path_label, "Book heading path label", false);
-    requireText(block.source_anchor, "Book source anchor", true);
-    requireText(block.source_label, "Book source label", false);
-    requireText(block.warning, "Book warning", true);
+    requireBoundedText(block.kind, "Book snapshot block kind", true, 80);
+    requireBoundedText(block.title, "Book snapshot block title", true, 360);
+    requireBoundedText(
+      block.text,
+      "Book snapshot block text",
+      true,
+      MAX_BOOK_BLOCK_VISIBLE_CHARS
+    );
+    requireBoundedText(block.heading_path_label, "Book heading path label", false, 120);
+    requireBoundedText(block.source_anchor, "Book source anchor", true, 160);
+    requireBoundedText(block.source_label, "Book source label", false, 120);
+    requireBoundedText(block.warning, "Book warning", true, 1000);
     if (typeof block.has_position !== "boolean") {
       throw new TypeError("Book snapshot position flag is invalid");
     }
     if (!Array.isArray(block.heading_path) ||
-        block.heading_path.some(function (part) { return typeof part !== "string"; })) {
+        block.heading_path.length > MAX_BOOK_HEADING_PATH_PARTS ||
+        block.heading_path.some(function (part) {
+          return typeof part !== "string" ||
+            !part ||
+            part.indexOf("\x00") >= 0 ||
+            part.length > MAX_BOOK_HEADING_PATH_TEXT;
+        })) {
       throw new TypeError("Book heading path is invalid");
     }
     if (block.role === "heading") {
@@ -264,10 +289,19 @@
       if (
         !Array.isArray(block.list.items) ||
         block.list.items.length < 1 ||
-        block.list.items.some(function (item) { return typeof item !== "string" || !item; })
+        block.list.items.some(function (item) {
+          return typeof item !== "string" || !item || item.indexOf("\x00") >= 0;
+        })
       ) {
         throw new TypeError("Book list items are invalid");
       }
+      let listVisibleChars = 0;
+      block.list.items.forEach(function (item) {
+        listVisibleChars += item.length;
+        if (listVisibleChars > MAX_BOOK_BLOCK_VISIBLE_CHARS) {
+          throw new TypeError("Book list exceeds the canonical visible-text budget");
+        }
+      });
       if (typeof block.list.ordered !== "boolean") {
         throw new TypeError("Book list ordered flag is invalid");
       }
@@ -299,10 +333,10 @@
     const answer = requireSnapshotRecord(snapshot, "answer", "Training");
     const resetDialog = requireSnapshotRecord(snapshot, "reset_dialog", "Training");
     requireDocumentSpec(snapshot, "Training");
-    requireText(snapshot.heading, "Training snapshot heading", false);
-    requireText(snapshot.title, "Training snapshot title", false);
-    requireText(snapshot.message, "Training snapshot message", true);
-    requireText(snapshot.solution_label, "Training solution label", false);
+    requireBoundedText(snapshot.heading, "Training snapshot heading", false, 360);
+    requireBoundedText(snapshot.title, "Training snapshot title", false, 360);
+    requireBoundedText(snapshot.message, "Training snapshot message", true, 1200);
+    requireBoundedText(snapshot.solution_label, "Training solution label", false, 120);
     if (snapshot.status !== "ready" &&
         snapshot.status !== "in_progress" &&
         snapshot.status !== "completed") {
@@ -327,16 +361,16 @@
     ["step_label", "of_label", "attempts_label", "mistakes_label", "hints_label"].forEach(
       function (field) { requireText(progress[field], "Training progress label", false); }
     );
-    requireText(answer.label, "Training answer label", false);
-    requireText(answer.submit_label, "Training submit label", false);
-    if (!Number.isSafeInteger(answer.max_length) || answer.max_length < 1) {
+    requireBoundedText(answer.label, "Training answer label", false, 120);
+    requireBoundedText(answer.submit_label, "Training submit label", false, 120);
+    if (answer.max_length !== MAX_TRAINING_SOLUTION_TEXT) {
       throw new TypeError("Training answer max length is invalid");
     }
     if (typeof answer.disabled !== "boolean" || answer.disabled !== progress.completed) {
       throw new TypeError("Training answer disabled state is inconsistent");
     }
     ["title", "text", "confirm_label", "cancel_label"].forEach(function (field) {
-      requireText(resetDialog[field], "Training reset dialog text", false);
+      requireBoundedText(resetDialog[field], "Training reset dialog text", false, 1200);
     });
     requireActions(
       snapshot.actions,
@@ -426,8 +460,8 @@
 
   function applyBookEvent(root, result, invoke, announce, fallbackMessage) {
     const payload = requireHostEvent(result, ["render", "error", "delegated"], "Book");
-    if (payload.announcement !== undefined && typeof payload.announcement !== "string") {
-      throw new TypeError("Book announcement must be text");
+    if (payload.announcement !== undefined) {
+      requireBoundedText(payload.announcement, "Book announcement", true, 1000);
     }
     if (result.kind === "render") {
       requireBookSnapshot(payload.snapshot);
@@ -604,8 +638,8 @@
 
   function applyTrainingEvent(root, result, invoke, announce, fallbackMessage) {
     const payload = requireHostEvent(result, ["render", "error"], "Training");
-    if (payload.announcement !== undefined && typeof payload.announcement !== "string") {
-      throw new TypeError("Training announcement must be text");
+    if (payload.announcement !== undefined) {
+      requireBoundedText(payload.announcement, "Training announcement", true, 1200);
     }
     let priorAnswer = "";
     const prior = root.querySelector("#training-answer");
@@ -621,7 +655,13 @@
       }
       if (payload.solution !== undefined &&
           (!Array.isArray(payload.solution) ||
-           payload.solution.some(function (move) { return typeof move !== "string"; }))) {
+           payload.solution.length > MAX_TRAINING_SOLUTION_MOVES ||
+           payload.solution.some(function (move) {
+             return typeof move !== "string" ||
+               !move ||
+               move.indexOf("\x00") >= 0 ||
+               move.length > MAX_TRAINING_SOLUTION_TEXT;
+           }))) {
         throw new TypeError("Training solution payload is invalid");
       }
       renderTrainingSurface(
