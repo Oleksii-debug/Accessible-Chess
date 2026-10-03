@@ -35,6 +35,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
+      CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
       HTML_ORIGINAL: cc949235fba8a9c3f7cb36587a52cb23eed5546d
       HTML_LIST_OWNER: 49756d2a6e702619b5ea54f0428fae07402fd1ef
       D06_RECOVERY_ROOT: 23956a6698ca07e65cb616e755fc934ec8842bce
@@ -66,13 +67,23 @@ jobs:
       - name: Bind live candidate geometry and bounded HTML scope
         shell: bash
         env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           base=""
-          if test -n "${PR_BASE_REF:-}"; then
+          if test -n "${PR_HEAD_REF:-}" && test "$PR_HEAD_REF" = "$CURRENT_PRODUCT_BRANCH"; then
+            git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"
+            live_product="$(git rev-parse "refs/remotes/origin/$CURRENT_PRODUCT_BRANCH")"
+            test "$live_product" = "$(git rev-parse HEAD)" || {
+              printf 'Current Product PR run is stale: ref=%s live_product=%s head=%s\n' \
+                "$CURRENT_PRODUCT_BRANCH" "$live_product" "$(git rev-parse HEAD)" >&2
+              exit 1
+            }
+            base="$(git rev-parse HEAD^)"
+          elif test -n "${PR_BASE_REF:-}"; then
             git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
             live_base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
             git merge-base --is-ancestor "$live_base" HEAD || {

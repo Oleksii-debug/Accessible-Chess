@@ -44,6 +44,14 @@ class V2HtmlCurrentD06RecoveryWorkflowTests(unittest.TestCase):
         self.assertNotIn("CURRENT_PARENT:", self.workflow)
         self.assertNotIn("fcfa2963a9bc71ab43f2e68b5118a7d4ec1aba9d", self.workflow)
         self.assertIn(
+            "CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
+            self.workflow,
+        )
+        self.assertIn(
+            "PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}",
+            self.workflow,
+        )
+        self.assertIn(
             "PR_BASE_REF: ${{ github.event.pull_request.base.ref }}",
             self.workflow,
         )
@@ -67,6 +75,28 @@ class V2HtmlCurrentD06RecoveryWorkflowTests(unittest.TestCase):
         self.assertIn('base="$(git rev-parse HEAD^)"', self.workflow)
         self.assertIn('git diff --check "$base" HEAD', self.workflow)
         self.assertIn("PR head is stale against live base", self.workflow)
+
+    def test_current_product_pr_is_scoped_to_latest_product_increment(self) -> None:
+        self.assertIn(
+            'if test -n "${PR_HEAD_REF:-}" && test "$PR_HEAD_REF" = "$CURRENT_PRODUCT_BRANCH"; then',
+            self.workflow,
+        )
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"',
+            self.workflow,
+        )
+        self.assertIn(
+            'live_product="$(git rev-parse "refs/remotes/origin/$CURRENT_PRODUCT_BRANCH")"',
+            self.workflow,
+        )
+        self.assertIn('test "$live_product" = "$(git rev-parse HEAD)"', self.workflow)
+        self.assertIn("Current Product PR run is stale", self.workflow)
+        self.assertIn('base="$(git rev-parse HEAD^)"', self.workflow)
+        product_case = self.workflow.index(
+            'if test -n "${PR_HEAD_REF:-}" && test "$PR_HEAD_REF" = "$CURRENT_PRODUCT_BRANCH"; then'
+        )
+        stacked_case = self.workflow.index('elif test -n "${PR_BASE_REF:-}"; then')
+        self.assertLess(product_case, stacked_case)
 
     def test_candidate_scope_is_allowlisted_without_requiring_every_owned_path(self) -> None:
         self.assertIn('changed="$(git diff --name-only "$base" HEAD | sort)"', self.workflow)
