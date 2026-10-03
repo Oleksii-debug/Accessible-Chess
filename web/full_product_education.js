@@ -1002,17 +1002,29 @@
         const item = node("li");
         item.id = String(message.dom_id || "");
         item.tabIndex = -1;
-        if (message.unread) item.setAttribute("data-unread", "true");
+        const messageUnread = !!message.unread && !message.redacted;
+        if (messageUnread) item.setAttribute("data-unread", "true");
         const sender = node("strong");
         const senderText = node("bdi", message.sender || "");
         senderText.setAttribute("dir", "auto");
         sender.appendChild(senderText);
         item.appendChild(sender);
         item.appendChild(document.createTextNode(": "));
-        const body = node("bdi", message.body || "");
-        body.setAttribute("dir", "auto");
-        item.appendChild(body);
-        if (message.unread) {
+        if (message.redacted) {
+          const redacted = node(
+            "span",
+            message.redacted_label || "Message content is no longer available."
+          );
+          redacted.id = item.id + "-redacted";
+          redacted.setAttribute("data-message-redacted", "true");
+          redacted.setAttribute("aria-live", "off");
+          item.appendChild(redacted);
+        } else {
+          const body = node("bdi", message.body || "");
+          body.setAttribute("dir", "auto");
+          item.appendChild(body);
+        }
+        if (messageUnread) {
           item.appendChild(document.createTextNode(" — "));
           const unreadMarker = node(
             "span",
