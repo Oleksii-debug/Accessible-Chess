@@ -125,6 +125,18 @@ class SoundRuntime:
             raise TypeError("sound settings provider must return SoundRuntimeSettings")
         return value
 
+    def stop_current(self) -> bool:
+        """Best-effort stop for presentation audio already accepted by the port."""
+
+        stop = getattr(self._playback, "stop", None)
+        if not callable(stop):
+            return False
+        try:
+            stop()
+        except Exception:
+            return False
+        return True
+
     def dispatch(self, events: Iterable[SoundEvent]) -> SoundPlaybackReport:
         ordered: list[SoundEvent] = []
         seen: set[SoundEvent] = set()
@@ -192,6 +204,21 @@ class GameSoundRuntime:
 
     def tick(self) -> SoundPlaybackReport:
         return self._runtime.dispatch(SoundEventPolicy.clock_tick())
+
+    def low_time(self) -> SoundPlaybackReport:
+        return self._runtime.dispatch(SoundEventPolicy.low_time())
+
+    def checkmate(self) -> SoundPlaybackReport:
+        if self._ended:
+            return SoundPlaybackReport((), (), ())
+        self._ended = True
+        return self._runtime.dispatch(SoundEventPolicy.checkmate())
+
+    def draw(self) -> SoundPlaybackReport:
+        if self._ended:
+            return SoundPlaybackReport((), (), ())
+        self._ended = True
+        return self._runtime.dispatch(SoundEventPolicy.draw())
 
     def end(self) -> SoundPlaybackReport:
         if self._ended:

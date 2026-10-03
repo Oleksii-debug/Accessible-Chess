@@ -93,6 +93,49 @@ class SettingsTests(unittest.TestCase):
             settings.reset()
             self.assertEqual(settings.data, DEFAULTS)
 
+    def test_newgame_animation_defaults_on_persists_and_requires_boolean(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            self.assertIs(settings.get("newgame_animation"), True)
+
+            settings.set("newgame_animation", False)
+            restored = Settings(path)
+            self.assertIs(restored.get("newgame_animation"), False)
+
+            with self.assertRaises(SettingsError):
+                restored.set("newgame_animation", 1)
+            with self.assertRaises(SettingsError):
+                restored.set("newgame_animation", "false")
+
+    def test_sound_variants_default_to_one_and_persist_per_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            self.assertEqual(settings.get("sound_move_variant"), "1")
+            self.assertEqual(settings.get("sound_capture_variant"), "1")
+            self.assertEqual(settings.get("sound_mate_variant"), "1")
+            self.assertEqual(settings.get("sound_draw_variant"), "1")
+            self.assertEqual(settings.get("sound_low_time_variant"), "1")
+            self.assertEqual(settings.get("low_time_policy"), "my_turn")
+            self.assertEqual(settings.get("low_time_seconds"), 30)
+
+            settings.set("sound_move_variant", "4")
+            settings.set("sound_capture_variant", "5")
+
+            clone = Settings(path)
+            self.assertEqual(clone.get("sound_move_variant"), "4")
+            self.assertEqual(clone.get("sound_capture_variant"), "5")
+            self.assertEqual(clone.get("sound_start_variant"), "1")
+
+    def test_sound_variant_id_rejects_path_or_empty_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            settings = Settings(Path(td) / "settings.json")
+            for value in ("", "../2", "two/2", " 2", "2 "):
+                with self.subTest(value=value):
+                    with self.assertRaises(SettingsError):
+                        settings.set("sound_move_variant", value)
+
     def test_unknown_key_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             settings = Settings(Path(td) / "settings.json")
