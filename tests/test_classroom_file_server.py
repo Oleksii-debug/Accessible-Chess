@@ -817,6 +817,87 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertNotIn(first.object_key, self.objects.objects)
         self.assertEqual(self.store.pending_deletions(), ())
 
+    def test_restart_rollback_removes_abandoned_upload_without_client_retry(self):
+        prepared = self.prepared(
+            attachment_id="restart-rollback-a0",
+            content=b"durable but not authoritative",
+        )
+        self.objects.raise_after_put_once = True
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ):
+            self.student1.upload(prepared)
+        self.assertIn(prepared.metadata.object_key, self.objects.objects)
+
+        reopened_store = ClassroomFileServerSQLiteStore(str(self.db_path))
+        reopened = ClassroomFileServerService(
+            store=reopened_store,
+            authorization=self.auth,
+            scanner=self.scanner,
+            object_store=self.objects,
+            quota=FileQuotaPolicy(max_file_bytes=64, max_room_bytes=96),
+        )
+
+        self.assertEqual(reopened.rollback_pending_uploads(), 1)
+        self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
+        self.assertEqual(reopened_store.pending_deletions(), ())
+        with reopened_store._connect() as db:
+            self.assertIsNone(
+                db.execute(
+                    "SELECT 1 FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (prepared.metadata.attachment_id,),
+                ).fetchone()
+            )
+
+        rebound = ClassroomFileServerClient(
+            service=reopened,
+            trusted_caller_identity="student-1",
+        )
+        stored = rebound.upload(prepared)
+        self.assertEqual(stored.sequence_no, 0)
+        self.assertEqual(stored.transfer_state, "stored")
+        reopened.integrity_check()
+
+    def test_restart_upload_rollback_failure_remains_durable_for_cleanup(self):
+        prepared = self.prepared(
+            attachment_id="restart-rollback-failure-a0",
+            content=b"cleanup later",
+        )
+        self.objects.raise_after_put_once = True
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ):
+            self.student1.upload(prepared)
+
+        reopened_store = ClassroomFileServerSQLiteStore(str(self.db_path))
+        reopened = ClassroomFileServerService(
+            store=reopened_store,
+            authorization=self.auth,
+            scanner=self.scanner,
+            object_store=self.objects,
+            quota=FileQuotaPolicy(max_file_bytes=64, max_room_bytes=96),
+        )
+        self.objects.delete_failures = 1
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable upload rollback incomplete",
+        ) as raised:
+            reopened.rollback_pending_uploads()
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertIn(prepared.metadata.object_key, self.objects.objects)
+        self.assertEqual(
+            reopened_store.pending_deletions(),
+            ((prepared.metadata.attachment_id, prepared.metadata.object_key),),
+        )
+        self.assertEqual(reopened.drain_pending_deletions(), 1)
+        self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
+        reopened.integrity_check()
+
     def test_ambiguous_put_then_cancel_delete_failure_recovers_after_restart(self):
         prepared = self.prepared(attachment_id="provisional-cancel-recovery")
         self.objects.raise_after_put_once = True
