@@ -269,20 +269,32 @@
         // A changed binding may replace the adapter only after the prior
         // provider session is proven quiescent. Never silently retarget a live
         // or cleanup-required LiveKit room.
-        const previous = this._adapter.snapshot();
-        exactKeys(
-          previous,
-          [
-            "connected",
-            "cleanup_required",
-            "room_id",
-            "participant_id",
-            "microphone_enabled",
-            "camera_enabled",
-            "screen_share_enabled"
-          ],
-          "prior media provider snapshot"
-        );
+        let previous;
+        try {
+          previous = this._adapter.snapshot();
+          exactKeys(
+            previous,
+            [
+              "connected",
+              "cleanup_required",
+              "room_id",
+              "participant_id",
+              "microphone_enabled",
+              "camera_enabled",
+              "screen_share_enabled"
+            ],
+            "prior media provider snapshot"
+          );
+        } catch (_error) {
+          // If the prior adapter cannot prove quiescence, do not retarget it
+          // and do not forget it. Schedule teardown before any later provider
+          // mutation can cross the boundary.
+          this._cleanupRetryPending = true;
+          this._transportRetryAt = 0;
+          throw new Error(
+            "media provider configuration changed while prior adapter state is unknown"
+          );
+        }
         if (previous.connected !== false ||
             previous.cleanup_required !== false ||
             previous.room_id !== null ||
@@ -304,8 +316,12 @@
         moderationParticipantIdentity: nextConfig.moderation_participant_identity,
         onTransportLost: (snapshot) => {
           if (this._adapter === adapter) {
-            this._transportLossSnapshot = snapshot;
-            this._transportRetryAt = 0;
+            if (!this._rememberTransportLossSnapshot(snapshot)) {
+              // A provider transport-loss signal with unusable state is still
+              // evidence that the old Room must not authorize new media work.
+              this._cleanupRetryPending = true;
+              this._transportRetryAt = 0;
+            }
           }
         }
       });
