@@ -237,7 +237,8 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
                 {"body": "Durable runtime draft"},
             )
         self.assertEqual("error", failed.kind)
-        self.assertEqual(first_calls, ["message-" + first_calls[0].split("message-", 1)[1]])
+        self.assertEqual(len(first_calls), 1)
+        self.assertTrue(first_calls[0].startswith("message-"))
         self.assertIsNotNone(first.chat_outbox)
         assert first.chat_outbox is not None
         pending_id = first.chat_outbox.entries()[0].message_id
