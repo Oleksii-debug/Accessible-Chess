@@ -527,6 +527,36 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_full_sound_inventory_rejects_nonfinite_duration_even_with_checksums(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            inventory_path = (
+                root / "AccessibleChess" / "assets" / "sounds" / "inventory.json"
+            )
+            notice_path = root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json"
+            raw = json.loads(inventory_path.read_text(encoding="utf-8"))
+            raw["files"][0]["duration_seconds"] = float("nan")
+            malformed = json.dumps(raw, sort_keys=True) + "\n"
+            inventory_path.write_text(malformed, encoding="utf-8")
+            notice_path.write_text(malformed, encoding="utf-8")
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "non-finite JSON number: NaN",
+                ),
+            ):
+                _validate_tree(root)
+
     def test_full_sound_inventory_notice_is_required_independently_of_checksums(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
