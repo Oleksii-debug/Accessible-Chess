@@ -85,6 +85,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("book.next_game", BindingContext.BOOK_READER, "Next book game"),
     _action("book.bookmark", BindingContext.BOOK_READER, "Save book return point"),
     _action("book.open_position", BindingContext.BOOK_READER, "Open book position on board"),
+    _action("book.open_game", BindingContext.BOOK_READER, "Open book game on board"),
     _action("book.return", BindingContext.BOOK_READER, "Return to book"),
     _action("training.submit", BindingContext.DOCUMENT, "Submit training answer"),
     _action("training.hint", BindingContext.DOCUMENT, "Training hint"),
