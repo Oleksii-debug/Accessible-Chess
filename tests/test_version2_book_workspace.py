@@ -162,6 +162,30 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertEqual(workflow.revision, 0)
         self.assertEqual(reader.snapshot(), progress_before)
 
+    def test_semantic_tree_mode_mismatch_falls_back_without_disabling_valid_board_content(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Semantic mode mismatch",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable game")],
+            )
+        )
+        before = reader.snapshot()
+
+        with patch.object(
+            bridge.projection,
+            "_semantic_tree_snapshot",
+            return_value={"kind": "variation"},
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        actions = {item["command"]: item["enabled"] for item in snapshot["actions"]}
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertIn("шахівниця", snapshot["block"]["warning"])
+        self.assertTrue(actions["book.open_game"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
     def test_semantic_tree_rejects_stale_parent_from_an_inactive_branch(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
