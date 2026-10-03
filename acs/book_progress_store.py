@@ -1018,6 +1018,7 @@ class BookProgressStore:
                     assert type(primary_generation) is int
                     if backup_generation > primary_generation or (
                         backup_generation == primary_generation
+                        and primary_generation > 0
                         and backup_base_raw != previous_raw
                     ):
                         raise BookProgressStoreError(
