@@ -1162,12 +1162,12 @@ class ClassroomChatServerSQLiteStore:
         if (
             type(retentions) is not tuple
             or not retentions
-            or len(set(retentions)) != len(retentions)
             or any(
                 type(retention) is not str
                 or retention not in {"transient", "session"}
                 for retention in retentions
             )
+            or len(set(retentions)) != len(retentions)
         ):
             raise ClassroomChatServerError(
                 "retention redaction policy is invalid"
@@ -1240,7 +1240,7 @@ class ClassroomChatServerSQLiteStore:
                             "retention redaction candidate changed policy"
                         )
                     revision = item_count + offset
-                    db.execute(
+                    updated = db.execute(
                         """
                         UPDATE classroom_chat_server_messages
                         SET body='', redacted=1
@@ -1248,7 +1248,7 @@ class ClassroomChatServerSQLiteStore:
                         """,
                         (room, message.message_id),
                     )
-                    if db.total_changes <= 0:
+                    if updated.rowcount != 1:
                         raise ClassroomChatServerError(
                             "retention redaction lost message authority"
                         )
