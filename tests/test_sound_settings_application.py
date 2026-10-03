@@ -573,6 +573,43 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertFalse(item["compatible"])
         self.assertFalse(item["installed_compatible"])
 
+    def test_same_version_catalog_conflict_warns_without_replacing_verified_local_pack(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        conflict_manifest = SoundPackManifest(
+            pack_id=installed.pack_id,
+            version=installed.version,
+            title="Conflicting catalog metadata",
+            license_id=installed.license_id,
+            files=dict(installed.files),
+            author=installed.author,
+            provenance="conflicting provider metadata",
+        )
+        entry = _entry(conflict_manifest)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("version_conflict", item["state"])
+        self.assertFalse(item["can_install"])
+        self.assertEqual("2.0.0", item["installed_version"])
+
+        selected = app.select_pack("soft", language="en")
+        self.assertTrue(selected.ok)
+        self.assertEqual("soft", profiles.current.pack_id)
+
     def test_stale_catalog_does_not_offer_downgrade_for_newer_installed_pack(self) -> None:
         classic = _manifest("classic")
         installed = _manifest("soft", "2.0.0")
