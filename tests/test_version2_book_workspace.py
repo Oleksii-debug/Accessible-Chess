@@ -258,6 +258,36 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertFalse(workflow.active)
         self.assertEqual(workflow.revision, 0)
 
+    def test_excessive_semantic_detail_count_fails_closed_but_keeps_board_available(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Metadata-heavy game",
+                blocks=[
+                    Game(
+                        pgn='[Event "Bounded"]\n[Result "*"]\n\n1. e4 e5 *',
+                        title="Bounded metadata",
+                        block_id="bounded-metadata",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        with patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_DETAILS", 0):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_excessive_semantic_item_count_fails_closed_but_keeps_board_available(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
