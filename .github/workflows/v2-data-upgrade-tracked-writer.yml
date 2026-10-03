@@ -95,14 +95,14 @@ jobs:
           acs/education_workspace_store.py=773bb02701288af6b37c07771d67ede6a627dafb
           acs/version2_final_product_application.py=b90927d8e026a9debfca5cd7d7d095bb1f40413d
           acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
-          acs/version2_upgrade_base.py=0fff99efbad0d28736584a90002ed22ed9600f15
+          acs/version2_upgrade_base.py=02b0f47c6e36de9e9063e9d16a2e3fbebcf85ee2
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
           tests/test_v2_upgrade_sound_artifact_control.py=9e26a615c933042378ef33004b54ac2c45ff404c
           tests/test_v2_upgrade_root_writer_artifact_grammar.py=a458adb2c80a37e251578d1f1a49b12cc6473297
           tests/test_v2_upgrade_training_progress_artifact_control.py=cd0be4e3d9e0cff14f8d2b1288d92e3b9a428465
           tests/test_v2_upgrade_self_coordination_artifact_control.py=88a69a82e19d504590d63762ef5d44ff639d34a3
-          tests/test_v2_upgrade_education_workspace_artifact_control.py=59680b965bd95eb447aebe62c467824a9a9613a7
+          tests/test_v2_upgrade_education_workspace_artifact_control.py=db99b0298133443ff52abf72e656dd2c9061d031
           tests/test_v2_upgrade_publish_race_audit.py=96239e179da44fd5c2671733df4613b298733927
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           LOCKS
