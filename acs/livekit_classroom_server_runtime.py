@@ -8,6 +8,7 @@ LiveKitAPI client, exposes only the already-bounded moderation adapter, and
 closes the provider session deterministically.
 """
 
+import asyncio
 from importlib import metadata
 import importlib
 import ipaddress
@@ -32,7 +33,13 @@ class LiveKitClassroomServerRuntimeError(RuntimeError):
 class LiveKitClassroomServerRuntime:
     """Own one explicit-credential LiveKitAPI client for server moderation."""
 
-    __slots__ = ("_client", "_moderation_admin", "_closed", "_closing")
+    __slots__ = (
+        "_client",
+        "_moderation_admin",
+        "_closed",
+        "_closing",
+        "_cleanup_required",
+    )
 
     def __init__(
         self,
@@ -44,6 +51,7 @@ class LiveKitClassroomServerRuntime:
         self._moderation_admin = moderation_admin
         self._closed = False
         self._closing = False
+        self._cleanup_required = False
 
     @classmethod
     async def open(
@@ -99,6 +107,8 @@ class LiveKitClassroomServerRuntime:
             if self._closed
             else "closing"
             if self._closing
+            else "cleanup_required"
+            if self._cleanup_required
             else "open"
         )
         return (
@@ -117,6 +127,10 @@ class LiveKitClassroomServerRuntime:
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime is closing"
             )
+        if self._cleanup_required:
+            raise LiveKitClassroomServerRuntimeError(
+                "LiveKit server runtime requires cleanup"
+            )
         return self._moderation_admin
 
     @property
@@ -132,21 +146,30 @@ class LiveKitClassroomServerRuntime:
             )
         close = getattr(self._client, "aclose", None)
         if not callable(close):
+            self._cleanup_required = True
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server client lifecycle API is unavailable"
             )
         self._closing = True
         try:
             await close()
-        except Exception:
-            # Keep the runtime open so the owner retains the only cleanup
-            # handle and can retry provider shutdown. Publishing a false
-            # terminal state here would silently leak the underlying session.
+        except asyncio.CancelledError:
+            # Cancellation leaves provider shutdown outcome unknown. Retain the
+            # only cleanup handle but never republish moderation authority until
+            # a later close attempt completes successfully.
             self._closing = False
+            self._cleanup_required = True
+            raise
+        except Exception:
+            # Provider close may have partially taken effect. Keep the runtime as
+            # the retryable cleanup owner, but fail closed for moderation use.
+            self._closing = False
+            self._cleanup_required = True
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime close failed"
             ) from None
         self._closing = False
+        self._cleanup_required = False
         self._closed = True
 
     async def __aenter__(self) -> "LiveKitClassroomServerRuntime":
@@ -157,6 +180,10 @@ class LiveKitClassroomServerRuntime:
         if self._closing:
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime is closing"
+            )
+        if self._cleanup_required:
+            raise LiveKitClassroomServerRuntimeError(
+                "LiveKit server runtime requires cleanup"
             )
         return self
 
