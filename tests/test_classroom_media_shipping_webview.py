@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections import deque
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.classroom_media_host_transactions import (
     ClassroomMediaHostTransactionPort,
@@ -875,6 +877,40 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
                 config,
             )
         self.assertIsNotNone(controller_a)
+
+    def test_shipping_main_forwards_trusted_application_configure(self):
+        from acs import version2_upgrade_status_release as shipping_release
+
+        configure = lambda _application: None
+        composed = (object(), object(), object(), object())
+        with (
+            patch.object(
+                shipping_release._education_release,
+                "_final_product_mutation_bindings",
+                return_value=nullcontext(),
+            ),
+            patch.object(
+                shipping_release,
+                "create_version2_release_application",
+                return_value=composed,
+            ) as create,
+            patch.object(
+                shipping_release._release_ui,
+                "run_version2_release_window",
+            ) as run_window,
+        ):
+            shipping_release.main(application_configure=configure)
+
+        create.assert_called_once_with(
+            defer_ui=True,
+            application_configure=configure,
+        )
+        run_window.assert_called_once_with(
+            composed[0],
+            composed[1],
+            composed[2],
+            file_runtime_factory=composed[3],
+        )
 
     def test_release_application_configure_runs_before_browser_publication(self):
         source = (

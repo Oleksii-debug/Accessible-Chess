@@ -381,8 +381,9 @@
     const payload = event && event.payload && typeof event.payload === "object"
       ? event.payload
       : {};
-    const value = String(payload.transaction_id || "");
-    return /^(?:host|session)-[0-9a-f]{32}$/.test(value) ? value : "";
+    const value = payload.transaction_id;
+    return typeof value === "string" &&
+      /^(?:host|session)-[0-9a-f]{32}$/.test(value) ? value : "";
   }
 
   function mediaProviderBoundaryCrossed(event) {

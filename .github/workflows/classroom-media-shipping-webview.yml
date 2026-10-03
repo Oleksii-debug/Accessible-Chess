@@ -18,6 +18,7 @@ on:
       - 'acs/version2_package_preflight.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_release_payload.py'
+      - 'acs/version2_upgrade_status_release.py'
       - 'tests/js/livekit_classroom_media_adapter_test.js'
       - 'tests/js/livekit_classroom_media_runtime_test.js'
       - 'tests/test_classroom_media_provider_binder.py'
@@ -85,6 +86,7 @@ jobs:
             'acs/version2_package_preflight.py'
             'acs/version2_release_app.py'
             'acs/version2_release_payload.py'
+            'acs/version2_upgrade_status_release.py'
             'tests/js/livekit_classroom_media_adapter_test.js'
             'tests/js/livekit_classroom_media_runtime_test.js'
             'tests/test_classroom_media_provider_binder.py'
@@ -138,6 +140,7 @@ jobs:
           acs/version2_package_preflight.py
           acs/version2_release_app.py
           acs/version2_release_payload.py
+          acs/version2_upgrade_status_release.py
           tests/test_classroom_media_provider_binder.py
           tests/test_classroom_media_shipping_webview.py
 
