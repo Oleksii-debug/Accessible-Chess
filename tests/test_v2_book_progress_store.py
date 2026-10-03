@@ -1104,6 +1104,51 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_backup_publication_rechecks_primary_after_temp_fsync(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:backup-primary-guard", reader)
+        reader.go_to(2)
+        self.store.save("book:backup-primary-guard", reader)
+
+        primary_before = self.path.read_bytes()
+        backup_before = self.store.backup_path.read_bytes()
+        external_primary = b'{"entries":{},"generation":99,"schema_version":2}'
+        real_mkstemp = tempfile.mkstemp
+        injected = False
+
+        def primary_changes_during_backup_temp_write(*args, **kwargs):
+            nonlocal injected
+            descriptor, name = real_mkstemp(*args, **kwargs)
+            if kwargs.get("prefix") == f".{self.store.backup_path.name}.":
+                self.path.write_bytes(external_primary)
+                injected = True
+            return descriptor, name
+
+        reader.go_to(3)
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=primary_changes_during_backup_temp_write,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:backup-primary-guard", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertEqual(self.path.read_bytes(), external_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_before)
+        self.assertNotEqual(primary_before, external_primary)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.store.backup_path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
     def test_save_preserves_newer_backup_when_primary_advances_before_backup_publish(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
