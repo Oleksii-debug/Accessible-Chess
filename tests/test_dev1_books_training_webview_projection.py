@@ -628,6 +628,25 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertEqual("😀" * 180, snapshot["title"])
         self.assertEqual(360, len(snapshot["title"].encode("utf-16-le")) // 2)
 
+    def test_training_language_token_is_bounded_before_normalization(self) -> None:
+        before = self.projection.language
+
+        class HostileLanguage(str):
+            stripped = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).stripped = True
+                raise AssertionError("language subclass must not reach normalization")
+
+        with self.assertRaisesRegex(TypeError, "language must be UILanguage"):
+            self.projection.set_language(HostileLanguage("en"))
+        self.assertFalse(HostileLanguage.stripped)
+        self.assertIs(before, self.projection.language)
+
+        with self.assertRaisesRegex(ValueError, "unsupported UI language"):
+            self.projection.set_language("e" * 9)
+        self.assertIs(before, self.projection.language)
+
     def test_training_host_rejects_string_subclasses_before_string_operations(self) -> None:
         class HostileText(str):
             def __contains__(self, _item) -> bool:
