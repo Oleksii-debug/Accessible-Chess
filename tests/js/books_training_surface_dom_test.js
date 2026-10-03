@@ -397,6 +397,8 @@ async function run() {
     "variation moves are not nested in authored order");
   const variationTail = find(variationItem, "LI", "Branch tail <b>literal</b>");
   check(variationTail !== null, "variation trailing comment is not visible");
+  check(semanticBlock.descendants().every((item) => item.tagName !== "B"),
+    "variation trailing comment must remain literal text");
   check(variationItem.children[variationItem.children.length - 1].tagName === "UL",
     "variation trailing comment must follow its nested move list");
   check(find(semanticBlock, "LI", "<img onerror=bad()>") !== null,
@@ -457,6 +459,27 @@ async function run() {
     "non-array semantic items must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "non-array semantic items must not steal reading focus");
+
+  const malformedTail = semanticGameSnapshot();
+  malformedTail.block.semantic_tree.items[1].trailing_comments = { text: "bad" };
+  let malformedTailRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedTail,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedTailRejected = true;
+  }
+  check(malformedTailRejected, "non-array variation trailing comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed trailing comments must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed trailing comments must not steal reading focus");
 
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {
