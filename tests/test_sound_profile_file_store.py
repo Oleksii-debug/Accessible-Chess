@@ -341,6 +341,38 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             self.assertTrue(redirected)
             self.assertEqual([], list(outside.iterdir()))
 
+    def test_profile_temp_path_swap_is_rejected_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            path = root / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+            external = root / "external-profile.json"
+            sentinel = b'{"external":true}\n'
+            external.write_bytes(sentinel)
+            real_mkstemp = tempfile.mkstemp
+
+            def swapped_mkstemp(*args, **kwargs):
+                descriptor, name = real_mkstemp(*args, **kwargs)
+                temp_path = Path(name)
+                temp_path.unlink()
+                os.link(external, temp_path)
+                return descriptor, name
+
+            with mock.patch(
+                "acs.sound_profile_file_store.tempfile.mkstemp",
+                side_effect=swapped_mkstemp,
+            ), self.assertRaisesRegex(
+                SoundProfileFileError,
+                "private regular file|changed before publication",
+            ):
+                storage.write_profile_atomically(SoundProfile().to_mapping())
+
+            self.assertEqual(sentinel, external.read_bytes())
+            self.assertFalse(
+                path.exists(),
+                "a substituted temporary pathname must never become profile authority",
+            )
+
     def test_hardlinked_profile_lock_never_writes_external_inode(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
