@@ -406,6 +406,14 @@ def _validated_payload(
                 raise LiveKitClientSdkStageError("LiveKit NOTICE payload is invalid")
             notice_bytes = archive_notice
 
+        if (
+            expected_integrity == LIVEKIT_CLIENT_NPM_INTEGRITY
+            and _sha256_bytes(notice_bytes) != LIVEKIT_CLIENT_NOTICE_SHA256
+        ):
+            raise LiveKitClientSdkStageError(
+                "LiveKit NOTICE SHA-256 does not match the pinned release"
+            )
+
     return bundle, license_bytes, notice_bytes
 
 
