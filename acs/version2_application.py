@@ -922,16 +922,39 @@ class Version2Application:
     def browser_command(self, area, command, payload=None):
         self._assert_thread()
         try:
-            if area == "review":
+            # Browser surface names and shell/review envelopes are authority
+            # inputs. Validate exact bounded JSON-shaped values before equality,
+            # hashing, prefix scans or payload truthiness can run subclass hooks.
+            if type(area) is not str or len(area) > 16:
+                raise ValueError("invalid browser surface")
+            area_id = area
+            empty_authority_payload = payload is None or (
+                type(payload) is dict and len(payload) == 0
+            )
+            if area_id == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
-                if command not in allowed or payload: raise ValueError("invalid review command")
+                if (
+                    type(command) is not str
+                    or len(command) > 64
+                    or command not in allowed
+                    or not empty_authority_payload
+                ):
+                    raise ValueError("invalid review command")
                 result = self.router.dispatch(command).value
                 if getattr(result, "kind", None) is BookBoardUiEventKind.FAILED: return self._error()
                 return {"kind": "review", "payload": {}}
-            if area == "shell":
-                if payload: raise ValueError("shell accepts no authority payload")
-                if type(command) is not str or not (command.startswith("screen.") or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}):
+            if area_id == "shell":
+                if not empty_authority_payload:
+                    raise ValueError("shell accepts no authority payload")
+                if (
+                    type(command) is not str
+                    or len(command) > 64
+                    or not (
+                        command.startswith("screen.")
+                        or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}
+                    )
+                ):
                     raise ValueError("unsupported shell command")
                 if command == "screen.training":
                     # Route changes are modal-blocked by the shell. Apply the same
@@ -958,7 +981,7 @@ class Version2Application:
                             if isinstance(projected_screen, dict):
                                 projected_screen["focus_target"] = self._focus
                 return projected
-            if area == "training":
+            if area_id == "training":
                 try:
                     return asdict(self._dispatch_training_surface_command(command, payload))
                 except Exception:
@@ -966,10 +989,10 @@ class Version2Application:
                         "kind": "error",
                         "payload": {"message": self._training_error_message()},
                     }
-            if area == "books":
+            if area_id == "books":
                 value = self._dispatch_book_surface_command(command, payload)
                 return asdict(value)
-            bridge = {"pgn": self.pgn, "library": self.library}.get(area)
+            bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
             value = bridge.dispatch(command, payload)
             return asdict(value)
