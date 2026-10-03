@@ -18,6 +18,7 @@ from typing import Any
 from .classroom_sound import ClassroomSoundRuntime
 from .sound_events import SoundEvent
 from .sound_pack_catalog import (
+    MAX_SOUND_PACK_CATALOG_ENTRIES,
     SoundPackCatalogEntry,
     SoundPackDownloadPort,
     SoundPackInstallError,
@@ -194,6 +195,8 @@ def _provider_catalog(
         return {}
     if not isinstance(catalog, Mapping):
         raise TypeError("sound pack catalog must be a mapping or None")
+    if len(catalog) > MAX_SOUND_PACK_CATALOG_ENTRIES:
+        raise ValueError("sound pack catalog exceeds the resource limit")
     normalized: dict[str, SoundPackCatalogEntry] = {}
     for pack_id, entry in catalog.items():
         if type(pack_id) is not str or not isinstance(entry, SoundPackCatalogEntry):
