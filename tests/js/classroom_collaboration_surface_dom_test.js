@@ -520,23 +520,55 @@ check(
 
 const fileProgressRoot = new FakeElement("div");
 const fileProgressAnnouncements = [];
+let fileProgressInvokeCount = 0;
 window.AccessibleChessEducationSurface.render(
   fileProgressRoot,
   snapshot,
-  () => new Promise(() => {}),
+  () => {
+    fileProgressInvokeCount += 1;
+    return new Promise(() => {});
+  },
   (message) => fileProgressAnnouncements.push(message),
   "",
   "Action failed"
 );
 const fileProgressSync = fileProgressRoot.querySelector("#collaboration-file-sync");
+fileProgressSync.focus();
 fileProgressSync.listeners.click();
 fileProgressSync.listeners.click();
 check(
   fileProgressAnnouncements.filter(
     (message) => message === "Refreshing files…"
   ).length === 1 &&
+  fileProgressInvokeCount === 1 &&
+  !fileProgressSync.disabled &&
+  fileProgressSync.getAttribute("aria-disabled") === "true" &&
+  fileProgressRoot.querySelector("#collaboration-file-choose").disabled &&
   fileProgressRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "true",
-  "pending file refresh must announce one concise phase and remain single-flight"
+  "pending file refresh must retain its active focus anchor while all other actions are natively disabled"
+);
+window.AccessibleChessEducationSurface.apply(
+  fileProgressRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: { collaboration: snapshot.collaboration }
+  },
+  () => Promise.resolve({ kind: "noop", payload: {} }),
+  () => {},
+  "Action failed"
+);
+const redrawnFileProgressSync = fileProgressRoot.querySelector("#collaboration-file-sync");
+check(
+  document.activeElement === redrawnFileProgressSync &&
+  !redrawnFileProgressSync.disabled &&
+  redrawnFileProgressSync.getAttribute("aria-disabled") === "true" &&
+  fileProgressRoot.querySelector("#collaboration-file-choose").disabled,
+  "external collaboration redraw must preserve the pending action focus anchor without reopening the action"
+);
+redrawnFileProgressSync.listeners.click();
+check(
+  fileProgressInvokeCount === 1,
+  "focusable pending action anchor must still be single-flight"
 );
 
 input.value = "Prepared reply";
