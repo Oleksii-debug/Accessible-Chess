@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import stat
 import tempfile
@@ -282,6 +283,278 @@ def _zip_tree(root: Path, destination: Path) -> None:
 
 
 class Version2PackagePreflightTests(unittest.TestCase):
+    def test_sha256_rejects_pathname_replacement_between_lstat_and_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            target = base / "payload.bin"
+            replacement = base / "replacement.bin"
+            target.write_bytes(b"original package bytes")
+            replacement.write_bytes(b"replacement package bytes")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being opened",
+                ):
+                    package_preflight._sha256(target)
+            self.assertTrue(swapped)
+
+    def test_manifest_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            manifest = root / MANIFEST_NAME
+            replacement = root / "manifest-replacement.tmp"
+            replacement.write_bytes(manifest.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == manifest and not swapped:
+                    swapped = True
+                    os.replace(replacement, manifest)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "release manifest changed while being opened",
+                ):
+                    package_preflight._manifest(root)
+            self.assertTrue(swapped)
+
+    def test_checksum_inventory_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            payload = root / "payload.txt"
+            payload.write_bytes(b"payload")
+            checksum = root / CHECKSUMS_NAME
+            digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+            checksum.write_text(f"{digest}  payload.txt\n", encoding="utf-8")
+            replacement = root / "checksum-replacement.tmp"
+            replacement.write_bytes(checksum.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == checksum and not swapped:
+                    swapped = True
+                    os.replace(replacement, checksum)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed while being opened",
+                ):
+                    package_preflight._checksums(
+                        root,
+                        (CHECKSUMS_NAME, "payload.txt"),
+                    )
+            self.assertTrue(swapped)
+
+    def test_tree_rechecks_checksums_after_hygiene_phase(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            target = root / "AccessibleChess" / "assets" / "content.dat"
+
+            def mutate_after_first_checksum(*_args, **_kwargs):
+                target.write_bytes(b"late mutation after initial checksum validation")
+
+            with patch.object(
+                package_preflight,
+                "_scan_text_hygiene",
+                side_effect=mutate_after_first_checksum,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package checksum mismatch: AccessibleChess/assets/content.dat",
+                ):
+                    _validate_tree(root)
+
+    def test_winforms_accessibility_config_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            config = base / "AccessibleChess.exe.config"
+            config.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+            replacement = base / "replacement.config"
+            replacement.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == config and not swapped:
+                    swapped = True
+                    os.replace(replacement, config)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "WinForms accessibility app-config changed while being opened",
+                ):
+                    validate_winforms_accessibility_app_config(config)
+            self.assertTrue(swapped)
+
+    def test_semantic_text_authorities_reject_pathname_replacement(self):
+        cases = (
+            (
+                Path("AccessibleChess/assets/sounds/manifest.json"),
+                "packaged sound manifest changed while being opened",
+            ),
+            (
+                Path("THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"),
+                "sound provenance notice changed while being opened",
+            ),
+            (
+                Path("THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"),
+                "Stockfish GPL notice changed while being opened",
+            ),
+        )
+        for relative, expected in cases:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                root = base / "package"
+                root.mkdir()
+                _make_tree(root)
+                target = root / relative
+                replacement = base / "replacement.tmp"
+                replacement.write_bytes(target.read_bytes())
+                original_open = Path.open
+                swapped = False
+
+                def replacing_open(path_self, *args, **kwargs):
+                    nonlocal swapped
+                    if path_self == target and not swapped:
+                        swapped = True
+                        os.replace(replacement, target)
+                    return original_open(path_self, *args, **kwargs)
+
+                with patch.object(Path, "open", new=replacing_open):
+                    with self.assertRaisesRegex(
+                        Version2PackagePreflightError,
+                        expected,
+                    ):
+                        _validate_tree(root)
+                self.assertTrue(swapped)
+
+    def test_pe_structure_check_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            target = base / "AccessibleChess.exe"
+            target.write_bytes(_minimal_windows_pe())
+            replacement = base / "replacement.exe"
+            replacement.write_bytes(_minimal_windows_pe())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "Windows PE candidate changed while being opened",
+                ):
+                    package_preflight._has_windows_pe_structure(target)
+            self.assertTrue(swapped)
+
+    def test_hygiene_scan_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            target = root / "payload.txt"
+            target.write_bytes(b"clean package text")
+            replacement = base / "replacement.txt"
+            replacement.write_bytes(b"replacement package text")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being opened: payload.txt",
+                ):
+                    package_preflight._scan_text_hygiene(
+                        root,
+                        ("payload.txt",),
+                        PackageLimits(),
+                    )
+            self.assertTrue(swapped)
+
+    def test_sound_asset_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            event = next(iter(SoundEvent))
+            target = root / "AccessibleChess" / "assets" / "sounds" / f"{event.value}.wav"
+            replacement = base / "replacement.wav"
+            replacement.write_bytes(target.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    f"packaged sound asset {event.value} changed while being opened",
+                ):
+                    _validate_tree(root)
+            self.assertTrue(swapped)
+
+    def test_truncated_declared_sound_frames_are_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            event = next(iter(SoundEvent))
+            target = root / "AccessibleChess" / "assets" / "sounds" / f"{event.value}.wav"
+            payload = target.read_bytes()
+            target.write_bytes(payload[:-2])
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                f"packaged sound asset is truncated: {event.value}",
+            ):
+                _validate_tree(root)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
