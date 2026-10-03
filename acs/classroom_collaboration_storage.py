@@ -1148,6 +1148,10 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment state update references unknown room attachment"
                         )
                     current = self._attachment_from_row(row)
+                    if current.transfer_state not in {"stored", "deleted"}:
+                        raise CollaborationStorageError(
+                            "attachment state update requires authoritative history"
+                        )
                     _validate_transfer_transition(
                         current.transfer_state,
                         update.transfer_state,
@@ -1338,6 +1342,10 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment state update references unknown room attachment"
                         )
                     current = self._attachment_from_row(row)
+                    if current.transfer_state not in {"stored", "deleted"}:
+                        raise CollaborationStorageError(
+                            "attachment state update requires authoritative history"
+                        )
                     _validate_transfer_transition(
                         current.transfer_state,
                         update.transfer_state,
