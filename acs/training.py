@@ -438,6 +438,8 @@ class ExerciseSession:
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
         fields = _snapshot_fields(snapshot)
+        if not fields:
+            raise ValueError("invalid exercise snapshot field count")
         if "schema_version" not in fields:
             raise ValueError("invalid exercise snapshot fields (missing fields: schema_version)")
         schema_version = _snapshot_value(snapshot, "schema_version")
