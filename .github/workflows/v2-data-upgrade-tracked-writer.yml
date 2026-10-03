@@ -78,7 +78,7 @@ jobs:
           acs/version2_upgrade_base.py=db7c957e24f09215e2296b52bf403f76bd81e2e8
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
-          tests/test_v2_upgrade_sound_artifact_control.py=aedbc4cf265c7785feb10b45e663473ad8adda84
+          tests/test_v2_upgrade_sound_artifact_control.py=dd3b395659320dc8a1c80b337cb821398f2e64b5
           tests/test_v2_upgrade_publish_race_audit.py=96239e179da44fd5c2671733df4613b298733927
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
           LOCKS
