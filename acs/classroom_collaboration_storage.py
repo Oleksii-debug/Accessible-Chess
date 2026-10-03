@@ -92,6 +92,8 @@ class ChatMessageMetadata:
                 raise ValueError("message body contains invalid Unicode surrogate")
         if self.retention not in {"transient", "session", "persistent"}:
             raise ValueError("unsupported retention policy")
+        if self.redacted and self.retention == "persistent":
+            raise ValueError("persistent chat content cannot be retention-redacted")
         if type(self.hidden) is not bool:
             raise ValueError("hidden flag must be boolean")
         if self.sent_at_unix_ms is not None and (
@@ -401,9 +403,34 @@ class ClassroomCollaborationSQLiteStore:
         self._migrate()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path)
-        db.row_factory = sqlite3.Row
-        return db
+        db: sqlite3.Connection | None = None
+        try:
+            db = sqlite3.connect(self.path)
+            db.row_factory = sqlite3.Row
+            # Retention redaction is a privacy boundary on the Windows client
+            # too. Do not leave expired message payloads recoverable from
+            # SQLite free space after body='' is committed.
+            db.execute("PRAGMA secure_delete=ON")
+            secure_delete = db.execute("PRAGMA secure_delete").fetchone()
+            if (
+                secure_delete is None
+                or type(secure_delete[0]) is not int
+                or secure_delete[0] != 1
+            ):
+                raise CollaborationStorageError(
+                    "collaboration SQLite secure deletion is unavailable"
+                )
+            return db
+        except CollaborationStorageError:
+            if db is not None:
+                db.close()
+            raise
+        except sqlite3.Error as exc:
+            if db is not None:
+                db.close()
+            raise CollaborationStorageError(
+                "collaboration SQLite open failed"
+            ) from exc
 
     def _migrate(self) -> None:
         with closing(self._connect()) as db, db:
@@ -938,7 +965,8 @@ class ClassroomCollaborationSQLiteStore:
                             "message state updates have an unresolved revision gap"
                         )
                     message_row = db.execute(
-                        "SELECT room_id, hidden, redacted FROM collaboration_messages WHERE message_id=?",
+                        "SELECT room_id, retention, hidden, redacted "
+                        "FROM collaboration_messages WHERE message_id=?",
                         (update.message_id,),
                     ).fetchone()
                     if message_row is None or message_row["room_id"] != room_id:
@@ -953,6 +981,10 @@ class ClassroomCollaborationSQLiteStore:
                         message_row["redacted"],
                         "message redacted flag",
                     )
+                    if update.redacted and message_row["retention"] == "persistent":
+                        raise CollaborationStorageError(
+                            "persistent chat content cannot be retention-redacted"
+                        )
                     if update.hidden and not hidden:
                         db.execute(
                             "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
@@ -1065,7 +1097,8 @@ class ClassroomCollaborationSQLiteStore:
                         )
                     message = db.execute(
                         """
-                        SELECT room_id, hidden, redacted FROM collaboration_messages
+                        SELECT room_id, retention, hidden, redacted
+                        FROM collaboration_messages
                         WHERE message_id=?
                         """,
                         (update.message_id,),
@@ -1082,6 +1115,10 @@ class ClassroomCollaborationSQLiteStore:
                         message["redacted"],
                         "message redacted flag",
                     )
+                    if update.redacted and message["retention"] == "persistent":
+                        raise CollaborationStorageError(
+                            "persistent chat content cannot be retention-redacted"
+                        )
                     if update.hidden and not hidden:
                         db.execute(
                             "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
