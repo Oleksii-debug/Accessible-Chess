@@ -607,7 +607,8 @@ def _validate_history(
             raise ClassroomChatRpcError("chat history contains invalid message")
         if message.room_id != room_id or message.sent_at_unix_ms is None:
             raise ClassroomChatRpcError("chat history crossed room or timestamp boundary")
-        if previous is not None and message.sequence_no != previous + 1:
+        expected = 0 if previous is None else previous + 1
+        if message.sequence_no != expected:
             raise ClassroomChatRpcError("chat history has an unresolved sequence gap")
         if message.message_id in seen:
             raise ClassroomChatRpcError("chat history contains duplicate message id")
