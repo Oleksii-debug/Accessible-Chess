@@ -865,6 +865,46 @@ class ClassroomCollaborationWebView:
             focus_target="collaboration-chat-input",
         )
 
+    def receive_chat(
+        self,
+        message: ChatMessageMetadata,
+    ) -> ClassroomCollaborationWebViewEvent:
+        """Project a trusted-host live chat delivery into the current UI session."""
+
+        before_ids = {
+            item.message_id
+            for item in self._store.room_messages(
+                self._controller.room_id,
+                include_hidden=True,
+            )
+        }
+        received = self._controller.receive_chat(message)
+        is_new = received.message_id not in before_ids
+        pending_recovered = (
+            self._pending_chat is not None
+            and self._pending_chat[0] == received.message_id
+        )
+        if pending_recovered:
+            self._pending_chat = None
+
+        announcement = ""
+        if (
+            is_new
+            and not received.hidden
+            and received.sender_id != self._controller.local_participant_id
+        ):
+            self._unread_message_ids.add(received.message_id)
+            announcement = (
+                f"{self._label(received.sender_id)}: "
+                f"{self._announcement_body(received.body)}"
+            )
+        elif pending_recovered:
+            announcement = _LABELS[self._language]["sent"]
+        return self._event(
+            "collaboration.chat.received",
+            announcement=announcement,
+        )
+
     def _sync_chat(self) -> ClassroomCollaborationWebViewEvent:
         before = {
             item.message_id
@@ -1123,6 +1163,46 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.file.opened",
             announcement=self._file_announcement("file_opened", attachment.display_name),
+        )
+
+    def receive_file(
+        self,
+        attachment: AttachmentMetadata,
+    ) -> ClassroomCollaborationWebViewEvent:
+        """Project a trusted-host live file delivery into the current UI session."""
+
+        before = {
+            item.attachment_id: (item.transfer_state, item.scan_state)
+            for item in self._store.room_attachments(self._controller.room_id)
+        }
+        received = self._controller.receive_file(attachment)
+        prior_state = before.get(received.attachment_id)
+        if received.sender_id == self._controller.local_participant_id:
+            if received.transfer_state != "failed" or received.scan_state == "blocked":
+                self._prepared.pop(received.attachment_id, None)
+
+        announcement = ""
+        if (
+            received.attachment_id not in before
+            and received.sender_id != self._controller.local_participant_id
+        ):
+            announcement = self._file_announcement(
+                "new_file",
+                received.display_name,
+            )
+        elif (
+            received.sender_id == self._controller.local_participant_id
+            and prior_state is not None
+            and prior_state[0] in {"uploading", "failed"}
+            and received.transfer_state == "stored"
+        ):
+            announcement = self._file_announcement(
+                "file_sent",
+                received.display_name,
+            )
+        return self._event(
+            "collaboration.file.received",
+            announcement=announcement,
         )
 
     def _retry_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
