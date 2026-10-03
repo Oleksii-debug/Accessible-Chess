@@ -184,6 +184,21 @@ class ClassroomMediaTransactionalWebView:
         )
         return self._projection.error_event(focus_target=focus)
 
+    def _mutation_error(
+        self,
+        *,
+        focus_target: str = "",
+    ) -> ClassroomMediaWebViewEvent:
+        """Preserve a recovery latch created while preparing a browser mutation."""
+
+        recovery = self._binder.recovery_status
+        if recovery is not None and recovery.lease.transaction_id is not None:
+            return self._recovery_event(
+                recovery.lease.transaction_id,
+                focus_target=focus_target,
+            )
+        return self._safe_error(focus_target=focus_target)
+
     def _provider_callback_error(
         self,
         transaction_id: str = "",
@@ -264,7 +279,7 @@ class ClassroomMediaTransactionalWebView:
             lease = self._binder.prepare_local_source(source, enabled)
             return self._dispatch_event(lease, focus_target=focus_target)
         except Exception:
-            return self._safe_error(focus_target=focus_target)
+            return self._mutation_error(focus_target=focus_target)
 
     def set_publish_permission(
         self,
@@ -285,7 +300,7 @@ class ClassroomMediaTransactionalWebView:
             )
             return self._dispatch_event(lease, focus_target=focus_target)
         except Exception:
-            return self._safe_error(focus_target=focus_target)
+            return self._mutation_error(focus_target=focus_target)
 
     def set_soft_mute(
         self,
@@ -304,7 +319,7 @@ class ClassroomMediaTransactionalWebView:
             )
             return self._dispatch_event(lease, focus_target=focus_target)
         except Exception:
-            return self._safe_error(focus_target=focus_target)
+            return self._mutation_error(focus_target=focus_target)
 
     def set_all_students_publish_permission(
         self,
@@ -322,7 +337,7 @@ class ClassroomMediaTransactionalWebView:
             )
             return self._dispatch_event(lease, focus_target=focus_target)
         except Exception:
-            return self._safe_error(focus_target=focus_target)
+            return self._mutation_error(focus_target=focus_target)
 
     def set_all_students_soft_mute(
         self,
@@ -338,7 +353,7 @@ class ClassroomMediaTransactionalWebView:
             )
             return self._dispatch_event(lease, focus_target=focus_target)
         except Exception:
-            return self._safe_error(focus_target=focus_target)
+            return self._mutation_error(focus_target=focus_target)
 
     def remove_participant(
         self,
@@ -357,7 +372,7 @@ class ClassroomMediaTransactionalWebView:
             )
             return self._dispatch_event(lease, focus_target=focus_target)
         except Exception:
-            return self._safe_error(focus_target=focus_target)
+            return self._mutation_error(focus_target=focus_target)
 
     # Trusted Python session entrypoints.  Browser payloads never accept a token.
 
