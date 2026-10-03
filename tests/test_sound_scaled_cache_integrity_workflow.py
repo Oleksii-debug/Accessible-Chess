@@ -13,10 +13,22 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_nested_product_candidate_uses_exact_event_base_sha(self) -> None:
+    def test_nested_product_candidate_reconciles_event_base_to_live_product(self) -> None:
         self.assertIn('BASE_SHA: ${{ github.event.pull_request.base.sha }}', self.text)
-        self.assertIn('test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"', self.text)
-        self.assertIn('git diff --check "$BASE_SHA" HEAD', self.text)
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$product_ref:refs/remotes/origin/$product_ref"',
+            self.text,
+        )
+        self.assertIn(
+            'live_product="$(git rev-parse "refs/remotes/origin/$product_ref")"',
+            self.text,
+        )
+        self.assertIn('git merge-base --is-ancestor "$BASE_SHA" "$live_product"', self.text)
+        self.assertIn('git merge-base --is-ancestor "$live_product" HEAD', self.text)
+        self.assertIn('test "$(git merge-base "$live_product" HEAD)" = "$live_product"', self.text)
+        self.assertIn('scope_base="$live_product"', self.text)
+        self.assertIn('git diff --check "$scope_base" HEAD', self.text)
+        self.assertNotIn('git diff --check "$BASE_SHA" HEAD', self.text)
 
     def test_retained_product_mode_is_exact_blob_bound(self) -> None:
         self.assertIn('if [ "$HEAD_REF" = "$product_ref" ]; then', self.text)
@@ -34,7 +46,8 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
 
     def test_nested_scope_stays_sound_owner_only(self) -> None:
         self.assertIn("Unexpected sound-cache scope:", self.text)
-        self.assertNotIn('git diff --name-only "$base" HEAD', self.text)
+        self.assertIn('git diff --name-only "$scope_base" HEAD', self.text)
+        self.assertNotIn('git diff --name-only "$BASE_SHA" HEAD', self.text)
         for approved in (
             "acs/sound_events.py",
             "acs/sound_runtime.py",
