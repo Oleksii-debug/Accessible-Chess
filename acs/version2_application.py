@@ -490,6 +490,10 @@ class Version2Application:
                 raise ValueError("PGN position creation accepts no payload")
             if self.shell.current_route.route_id != "board":
                 raise ValueError("PGN position creation requires the visible Board")
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before replacing the PGN document")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("return to the book before replacing the PGN document")
             if self._board_position_provider is None:
                 raise ValueError("current board position is unavailable")
             position = self._board_position_provider()
@@ -639,7 +643,13 @@ class Version2Application:
                 if result.kind is FileWorkflowEventKind.IMPORT_STARTED:
                     self._events.append(asdict(ui.prepare()))
                 elif result.kind is FileWorkflowEventKind.IMPORT_CANCELLING:
-                    self._events.append(asdict(ui.host_cancelling()))
+                    # A result observer may already have advanced the canonical
+                    # import projection to a terminal phase before the host's
+                    # late cancelling event reaches this direct/native path.
+                    # Terminal projection state wins; never regress it or raise
+                    # from host_cancelling() after completion.
+                    if ui.phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+                        self._events.append(asdict(ui.host_cancelling()))
                 else:
                     self._file_event(result)
             return result
