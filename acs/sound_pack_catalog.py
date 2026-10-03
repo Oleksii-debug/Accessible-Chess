@@ -14,7 +14,12 @@ import re
 from types import MappingProxyType
 from typing import Mapping, Protocol
 
-from .sound_profiles import SoundPackManifest, SoundProfile, _safe_audio_path
+from .sound_profiles import (
+    SoundPackManifest,
+    SoundProfile,
+    _safe_audio_path,
+    _semantic_version_key,
+)
 
 
 DEFAULT_MAX_SOUND_PACK_BYTES = 32 * 1024 * 1024
@@ -157,6 +162,7 @@ class SoundPackState(str, Enum):
     NOT_INSTALLED = "not_installed"
     CURRENT = "current"
     DIFFERENT_VERSION = "different_version"
+    CATALOG_OLDER = "catalog_older"
     INCOMPATIBLE = "incompatible"
 
 
@@ -211,6 +217,16 @@ class SoundPackManager:
             raise SoundPackInstallError("sound pack is incompatible with this application")
         if entry.total_bytes > self._max_bytes:
             raise SoundPackInstallError("sound pack exceeds the configured size limit")
+        current = dict(self._storage.installed()).get(entry.manifest.pack_id)
+        if current is not None:
+            if not isinstance(current, SoundPackManifest):
+                raise SoundPackInstallError("installed sound pack metadata is invalid")
+            if _semantic_version_key(current.version) > _semantic_version_key(
+                entry.manifest.version
+            ):
+                raise SoundPackInstallError(
+                    "sound pack catalog version is older than the installed version"
+                )
 
         downloaded = self._downloader.download(entry, max_bytes=self._max_bytes)
         self._validate_download(entry, downloaded)
@@ -361,8 +377,14 @@ class SoundPackManager:
             state = SoundPackState.INCOMPATIBLE
         elif current is None:
             state = SoundPackState.NOT_INSTALLED
+        elif not isinstance(current, SoundPackManifest):
+            raise SoundPackInstallError("installed sound pack metadata is invalid")
         elif current.version == entry.manifest.version:
             state = SoundPackState.CURRENT
+        elif _semantic_version_key(current.version) > _semantic_version_key(
+            entry.manifest.version
+        ):
+            state = SoundPackState.CATALOG_OLDER
         else:
             state = SoundPackState.DIFFERENT_VERSION
         return SoundPackCatalogStatus(
