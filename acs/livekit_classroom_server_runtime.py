@@ -45,6 +45,18 @@ class LiveKitClassroomServerRuntimeError(RuntimeError):
         return self._cleanup_runtime
 
 
+class LiveKitClassroomServerCleanupCancelled(asyncio.CancelledError):
+    """Cancelled failed-open cleanup that still preserves the only retry owner."""
+
+    def __init__(self, cleanup_runtime: "LiveKitClassroomServerRuntime") -> None:
+        super().__init__("LiveKit server initialization cleanup was cancelled")
+        self._cleanup_runtime = cleanup_runtime
+
+    @property
+    def cleanup_runtime(self) -> "LiveKitClassroomServerRuntime":
+        return self._cleanup_runtime
+
+
 class LiveKitClassroomServerRuntime:
     """Own one explicit-credential LiveKitAPI client for server moderation."""
 
@@ -84,6 +96,19 @@ class LiveKitClassroomServerRuntime:
         )
 
     @classmethod
+    async def _cleanup_after_failed_open(
+        cls,
+        client: object,
+    ) -> "LiveKitClassroomServerRuntime | None":
+        try:
+            cleaned = await _close_failed_client(client)
+        except asyncio.CancelledError:
+            raise LiveKitClassroomServerCleanupCancelled(
+                cls._cleanup_owner(client)
+            ) from None
+        return None if cleaned else cls._cleanup_owner(client)
+
+    @classmethod
     async def open(
         cls,
         *,
@@ -121,17 +146,27 @@ class LiveKitClassroomServerRuntime:
                 moderation_admin=moderation_admin,
             )
         except LiveKitClassroomServerRuntimeError as error:
-            if client is not None and not await _close_failed_client(client):
+            cleanup_runtime = (
+                None
+                if client is None
+                else await cls._cleanup_after_failed_open(client)
+            )
+            if cleanup_runtime is not None:
                 raise LiveKitClassroomServerRuntimeError(
                     str(error),
-                    cleanup_runtime=cls._cleanup_owner(client),
+                    cleanup_runtime=cleanup_runtime,
                 ) from None
             raise
         except Exception:
-            if client is not None and not await _close_failed_client(client):
+            cleanup_runtime = (
+                None
+                if client is None
+                else await cls._cleanup_after_failed_open(client)
+            )
+            if cleanup_runtime is not None:
                 raise LiveKitClassroomServerRuntimeError(
                     "LiveKit server runtime initialization failed",
-                    cleanup_runtime=cls._cleanup_owner(client),
+                    cleanup_runtime=cleanup_runtime,
                 ) from None
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime initialization failed"
@@ -344,6 +379,7 @@ async def _close_failed_client(client: object) -> bool:
 
 
 __all__ = [
+    "LiveKitClassroomServerCleanupCancelled",
     "LiveKitClassroomServerRuntime",
     "LiveKitClassroomServerRuntimeError",
     "MAX_PROVIDER_CREDENTIAL_CHARS",
