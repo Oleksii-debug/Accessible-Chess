@@ -651,27 +651,12 @@ class Version2Application:
                     if self.book_workflow is not None and self.book_workflow.active:
                         raise ValueError("book board review is already active")
                 before_view = self.book_delegate.view() if self.book_workflow.active else None
-                before_reader = self.reader.snapshot() if opening_board else None
-                before_language = self.books.projection.language if opening_board else None
-                before_bookmark = self.books.projection.bookmark_name if opening_board else None
                 result = self.book_delegate(action, payload)
                 if result.kind is BookBoardUiEventKind.FAILED:
                     raise ValueError(
                         concise_user_error("", language=self.shell.language)
                     )
                 if result.kind in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
-                    if result.kind is BookBoardUiEventKind.BOARD_OPENED and opening_board:
-                        try:
-                            self.save_book_progress()
-                        except Exception:
-                            self._restore_book_progress(
-                                before_reader,
-                                language=before_language,
-                                bookmark_name=before_bookmark,
-                            )
-                            raise ValueError(
-                                concise_user_error("", language=self.shell.language)
-                            ) from None
                     try:
                         self._project_board_position(self.book_delegate.view().current_fen)
                     except Exception:
