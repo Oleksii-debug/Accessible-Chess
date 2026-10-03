@@ -84,6 +84,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
     def _sound_message(self, uk: str, en: str) -> str:
         return uk if self.lang == "uk" else en
 
+    def _stop_current_sound(self) -> None:
+        runtime = self._sound_runtime
+        stop = getattr(runtime, "stop_current", None) if runtime is not None else None
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
+        self._clock_sound_not_before = 0.0
+
     def _sound_variant_options(self, event: SoundEvent) -> tuple[dict[str, str], ...]:
         options = ()
         resolver = self._sound_asset_resolver
@@ -223,9 +233,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             }
         try:
             self._settings.set("sounds", enabled)
-            if not enabled and self._sound_runtime is not None:
-                self._sound_runtime.stop_current()
-                self._clock_sound_not_before = 0.0
+            if not enabled:
+                self._stop_current_sound()
         except Exception:
             return {
                 "ok": False,
@@ -290,9 +299,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             }
         try:
             self._settings.set("volume", volume)
-            if volume == 0 and self._sound_runtime is not None:
-                self._sound_runtime.stop_current()
-                self._clock_sound_not_before = 0.0
+            if volume == 0:
+                self._stop_current_sound()
         except Exception:
             return {
                 "ok": False,
