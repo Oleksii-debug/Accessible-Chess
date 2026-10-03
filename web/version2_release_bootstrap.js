@@ -125,8 +125,13 @@
       const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
       return validFocusId(block.dom_id) ? block.dom_id : "";
     }
-    if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
-      return "training-answer";
+    if (routeId === "training" &&
+        snapshot.training &&
+        typeof snapshot.training === "object" &&
+        !Array.isArray(snapshot.training)) {
+      return validFocusId(snapshot.training.focus_target)
+        ? snapshot.training.focus_target
+        : "";
     }
     return emptyStatusId(routeId);
   }
@@ -269,14 +274,15 @@
       return;
     }
     if (routeId === "training") {
-      const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
+      const canonicalFocus = productSurfaceFocusTarget(snapshot, routeId) || "training-answer";
+      const focus = requestedFocus === "training-prompt" ? canonicalFocus : requestedFocus;
       if (snapshot.training && global.AccessibleChessTrainingSurface) {
         global.AccessibleChessTrainingSurface.render(
           workspace,
           snapshot.training,
           areaInvoke("training"),
           announce,
-          focus || "training-answer"
+          focus || canonicalFocus
         );
       } else {
         renderEmptyProduct(routeId, heading);
