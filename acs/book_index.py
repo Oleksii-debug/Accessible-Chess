@@ -22,6 +22,7 @@ from .bookdocument import (
     Position,
     VariationTree,
 )
+from .search_policy import normalize_search_term, normalize_search_text, search_fold
 
 
 class BookEntryKind(str, Enum):
@@ -72,12 +73,30 @@ class BookIndex:
         # the validate-then-reread TOCTOU window without introducing a second
         # Book parser or chess-rules authority.
         snapshot = BookDocument.from_dict(document.as_dict())
-        self.document = document
+        self._document_snapshot = snapshot
         self._entries = tuple(self._build_entries(snapshot))
+        # A flat ListBlock has one navigation target and a concise first-item
+        # label. Retain search-only projections of its remaining items from
+        # the SAME validated detached snapshot, never from mutable authoring
+        # blocks, so search covers the whole visible list without flattening
+        # the published label or introducing duplicate navigation targets.
+        self._additional_list_search_texts = {
+            index: tuple(
+                search_fold(normalize_search_text(item)) or ""
+                for item in block.items[1:]
+            )
+            for index, block in enumerate(snapshot.blocks)
+            if isinstance(block, ListBlock) and len(block.items) > 1
+        }
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
         self._by_key = {key: tuple(entries) for key, entries in by_key.items()}
+
+    @property
+    def document(self) -> BookDocument:
+        """Return a detached copy of the exact snapshot owned by this index."""
+        return BookDocument.from_dict(self._document_snapshot.as_dict())
 
     @property
     def entries(self) -> tuple[BookIndexEntry, ...]:
@@ -190,7 +209,7 @@ class BookIndex:
         return matches[0]
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
-        """Case-insensitive semantic label search preserving linear reading order."""
+        """Search semantic labels and every list item in linear reading order."""
         if type(text) is not str:
             raise TypeError("Search text must be a string")
         if kinds is not None:
@@ -198,11 +217,25 @@ class BookIndex:
                 isinstance(kind, BookEntryKind) for kind in kinds
             ):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
-        needle = text.strip().casefold()
-        if not needle:
+        normalized_needle = normalize_search_term(text, name="Book search text")
+        if normalized_needle is None:
             raise ValueError("Search text must not be empty")
+        needle = search_fold(normalized_needle)
+        assert needle is not None
         return tuple(
             entry
             for entry in self._entries
-            if (kinds is None or entry.kind in kinds) and needle in entry.label.casefold()
+            if (kinds is None or entry.kind in kinds)
+            and (
+                needle in (search_fold(normalize_search_text(entry.label)) or "")
+                or (
+                    entry.kind is BookEntryKind.LIST
+                    and any(
+                        needle in item
+                        for item in self._additional_list_search_texts.get(
+                            entry.target.index, ()
+                        )
+                    )
+                )
+            )
         )
