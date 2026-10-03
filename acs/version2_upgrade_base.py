@@ -928,7 +928,12 @@ class _UpgradeLock:
             raise Version2UpgradeError(
                 "upgrade lock changed while opening"
             ) from exc
-        self._require_private_regular(current)
+        try:
+            self._require_private_regular(current)
+        except Version2UpgradeError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock changed while opening"
+            ) from exc
         if self._identity(opened) != self._identity(current):
             raise Version2UpgradeError(
                 "upgrade lock changed while opening"
@@ -1094,22 +1099,23 @@ class Version2UpgradeCoordinator:
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
             if relative.casefold() in _CONTROL_NAME_KEYS:
-                # Control/coordination paths are not preservation-backed, but
-                # the exact root object must still be authenticated. A
-                # symlink/reparse alias must not bypass the upgrader's
-                # fail-closed filesystem boundary merely because it uses a
-                # canonical control filename. These writer-owned controls are
-                # files, never directories or other special objects.
+                # A canonical control *file* is writer-owned and excluded only
+                # after authenticating it as one private regular inode. A
+                # directory that merely has the same name cannot be a lock or
+                # journal file; preserve its descendants as user data. Symlinks,
+                # reparse points, and special objects still fail closed through
+                # _safe_stat/the regular-file boundary.
                 control_info = _safe_stat(path, "user-data control entry")
-                if not stat.S_ISREG(control_info.st_mode):
-                    raise Version2UpgradeError(
-                        "user-data control entry must be a regular file"
-                    )
-                if int(getattr(control_info, "st_nlink", 1)) != 1:
-                    raise Version2UpgradeError(
-                        "user-data control entry must be a private file"
-                    )
-                continue
+                if not stat.S_ISDIR(control_info.st_mode):
+                    if not stat.S_ISREG(control_info.st_mode):
+                        raise Version2UpgradeError(
+                            "user-data control entry must be a regular file"
+                        )
+                    if int(getattr(control_info, "st_nlink", 1)) != 1:
+                        raise Version2UpgradeError(
+                            "user-data control entry must be a private file"
+                        )
+                    continue
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
             # The root object itself is still validated below, so a regular file
@@ -1209,7 +1215,7 @@ class Version2UpgradeCoordinator:
             total += int(info.st_size)
             if len(files) > self.limits.max_files:
                 raise Version2UpgradeError(
-                    "user-data backup exceeds file-count limit"
+                    "user-data backup exceeds file count limit"
                 )
             if total > self.limits.max_bytes:
                 raise Version2UpgradeError("user-data backup exceeds byte limit")
