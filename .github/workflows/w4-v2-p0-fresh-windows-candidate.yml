@@ -223,8 +223,13 @@ jobs:
           import json, os
           from pathlib import Path
           from scripts.build_user_sound_pack import (
+              DEFAULT_EVENT_FILES,
+              EVENT_VARIANTS,
               EXPECTED_SOURCE_INVENTORY_SHA256,
               EXPECTED_SOURCE_WAV_COUNT,
+              NEW_GAME_DURATION_SECONDS_BY_VARIANT,
+              NEW_GAME_IMPACTS_BY_VARIANT,
+              SOUND_LAYERS,
           )
 
           root = Path('release-inputs/sounds')
@@ -277,11 +282,74 @@ jobs:
           if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
               raise SystemExit('USER_SOUND_PACK_NEWGAME_IMPACT_COUNT_INVALID')
 
+          expected_manifest = {
+              'schema_version': 1,
+              'files': DEFAULT_EVENT_FILES,
+          }
+          expected_variants = {
+              'schema_version': 1,
+              'events': {
+                  event: [
+                      {
+                          'id': variant_id,
+                          'file': file_name,
+                          'label_uk': label_uk,
+                          'label_en': label_en,
+                      }
+                      for variant_id, file_name, label_uk, label_en in options
+                  ]
+                  for event, options in EVENT_VARIANTS.items()
+              },
+          }
+          expected_layers = {
+              'schema_version': 1,
+              'events': {
+                  event: {
+                      variant_id: list(sequence)
+                      for variant_id, sequence in by_variant.items()
+                  }
+                  for event, by_variant in SOUND_LAYERS.items()
+              },
+          }
+          expected_impacts = {
+              'schema_version': 2,
+              'default_variant': '1',
+              'variants': {
+                  variant_id: {
+                      'source_file': next(
+                          file_name
+                          for current_id, file_name, _uk, _en
+                          in EVENT_VARIANTS['start']
+                          if current_id == variant_id
+                      ),
+                      'duration_seconds': NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                      'impact_count': len(impact_values),
+                      'impacts_ms': list(impact_values),
+                  }
+                  for variant_id, impact_values in NEW_GAME_IMPACTS_BY_VARIANT.items()
+              },
+              'analysis': {
+                  'window_ms': 20,
+                  'hop_ms': 5,
+                  'threshold_percentile': 60,
+                  'minimum_peak_separation_ms': 90,
+                  'three_d_selection': '32 strongest separated candidate peaks',
+              },
+          }
+          if manifest != expected_manifest:
+              raise SystemExit('USER_SOUND_PACK_MANIFEST_SEMANTICS_MISMATCH')
+          if variants != expected_variants:
+              raise SystemExit('USER_SOUND_PACK_VARIANT_SEMANTICS_MISMATCH')
+          if layers != expected_layers:
+              raise SystemExit('USER_SOUND_PACK_LAYER_SEMANTICS_MISMATCH')
+          if impacts != expected_impacts:
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_SEMANTICS_MISMATCH')
           wavs = [path for path in (root / 'library').rglob('*') if path.is_file() and path.suffix.lower() == '.wav']
           if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
               raise SystemExit('USER_SOUND_PACK_LIBRARY_WAV_COUNT_MISMATCH')
           print(f'USER_SOUND_PACK_WAV_COUNT={len(wavs)}')
           print(f'USER_SOUND_PACK_INVENTORY_SHA256={EXPECTED_SOURCE_INVENTORY_SHA256}')
+          print('USER_SOUND_PACK_CATALOG_SEMANTICS=PASS')
           print('USER_SOUND_PACK_EXACT=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_VALIDATION_FAILED'}
@@ -379,8 +447,13 @@ jobs:
           from pathlib import Path
           from acs.version2_package_preflight import validate_version2_package_tree
           from scripts.build_user_sound_pack import (
+              DEFAULT_EVENT_FILES,
+              EVENT_VARIANTS,
               EXPECTED_SOURCE_INVENTORY_SHA256,
               EXPECTED_SOURCE_WAV_COUNT,
+              NEW_GAME_DURATION_SECONDS_BY_VARIANT,
+              NEW_GAME_IMPACTS_BY_VARIANT,
+              SOUND_LAYERS,
           )
 
           extraction = Path('fresh-extraction')
@@ -411,6 +484,7 @@ jobs:
           if int(inventory.get('source_archive_bytes', -1)) <= 0:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SIZE_MISSING')
 
+          manifest = json.loads((sound_root / 'manifest.json').read_text(encoding='utf-8'))
           variants = json.loads((sound_root / 'variants.json').read_text(encoding='utf-8'))
           layers = json.loads((sound_root / 'layers.json').read_text(encoding='utf-8'))
           impacts = json.loads((sound_root / 'newgame_impacts.json').read_text(encoding='utf-8'))
@@ -431,6 +505,68 @@ jobs:
           if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_IMPACT_COUNT_INVALID')
 
+          expected_manifest = {
+              'schema_version': 1,
+              'files': DEFAULT_EVENT_FILES,
+          }
+          expected_variants = {
+              'schema_version': 1,
+              'events': {
+                  event: [
+                      {
+                          'id': variant_id,
+                          'file': file_name,
+                          'label_uk': label_uk,
+                          'label_en': label_en,
+                      }
+                      for variant_id, file_name, label_uk, label_en in options
+                  ]
+                  for event, options in EVENT_VARIANTS.items()
+              },
+          }
+          expected_layers = {
+              'schema_version': 1,
+              'events': {
+                  event: {
+                      variant_id: list(sequence)
+                      for variant_id, sequence in by_variant.items()
+                  }
+                  for event, by_variant in SOUND_LAYERS.items()
+              },
+          }
+          expected_impacts = {
+              'schema_version': 2,
+              'default_variant': '1',
+              'variants': {
+                  variant_id: {
+                      'source_file': next(
+                          file_name
+                          for current_id, file_name, _uk, _en
+                          in EVENT_VARIANTS['start']
+                          if current_id == variant_id
+                      ),
+                      'duration_seconds': NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                      'impact_count': len(impact_values),
+                      'impacts_ms': list(impact_values),
+                  }
+                  for variant_id, impact_values in NEW_GAME_IMPACTS_BY_VARIANT.items()
+              },
+              'analysis': {
+                  'window_ms': 20,
+                  'hop_ms': 5,
+                  'threshold_percentile': 60,
+                  'minimum_peak_separation_ms': 90,
+                  'three_d_selection': '32 strongest separated candidate peaks',
+              },
+          }
+          if manifest != expected_manifest:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_MANIFEST_SEMANTICS_MISMATCH')
+          if variants != expected_variants:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_VARIANT_SEMANTICS_MISMATCH')
+          if layers != expected_layers:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LAYER_SEMANTICS_MISMATCH')
+          if impacts != expected_impacts:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_SEMANTICS_MISMATCH')
           wavs = [
               path for path in (sound_root / 'library').rglob('*')
               if path.is_file() and path.suffix.lower() == '.wav'
@@ -439,6 +575,7 @@ jobs:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH')
           print(f'FRESH_EXTRACTION_PREFLIGHT_FILES={len(report.inventory)}')
           print(f'FRESH_EXTRACTION_USER_SOUND_WAV_COUNT={len(wavs)}')
+          print('FRESH_EXTRACTION_USER_SOUND_CATALOG_SEMANTICS=PASS')
           print('FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE=PASS')
           print('FRESH_EXTRACTION_USER_SOUND_PACK=PASS')
           print('FRESH_EXTRACTION_PREFLIGHT=PASS')
