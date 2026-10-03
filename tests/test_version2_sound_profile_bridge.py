@@ -154,6 +154,33 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         self.assertEqual(31, result["snapshot"]["master_volume_percent"])
         self.assertIn("refreshed", result["message"].lower())
 
+    def test_future_schema_bridge_blocks_mutations_and_returns_authoritative_snapshot(self) -> None:
+        api, manager, playback = _api()
+        manager._writes_blocked = True
+        before = manager.current
+
+        cases = (
+            ("set_master", {"enabled": False}),
+            ("set_event", {"event_id": "move", "enabled": False}),
+            ("install_pack", {"pack_id": "soft", "activate": False}),
+            ("uninstall_pack", {"pack_id": "soft"}),
+            ("select_pack", {"pack_id": "soft"}),
+        )
+        for command, payload in cases:
+            with self.subTest(command=command):
+                result = api.sound_settings_command(command, payload)
+                self.assertFalse(result["ok"])
+                self.assertTrue(result["snapshot"]["writes_blocked"])
+                self.assertEqual("classic", result["snapshot"]["active_pack_id"])
+                self.assertEqual(before, manager.current)
+
+        self.assertEqual([], playback.requests)
+
+        preview = api.sound_settings_command("preview", {"event_id": "move"})
+        self.assertTrue(preview["ok"])
+        self.assertTrue(preview["snapshot"]["writes_blocked"])
+        self.assertEqual(1, len(playback.requests))
+
     def test_browser_pack_commands_route_only_closed_world_payloads(self) -> None:
         api, manager, _ = _api()
         sound = api._sound_settings_application
