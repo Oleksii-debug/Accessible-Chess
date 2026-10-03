@@ -137,6 +137,64 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             self.assertTrue(link.is_symlink())
             self.assertEqual(target.read_bytes(), b"user-owned-target")
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "Windows symlink creation requires environment-specific privileges",
+    )
+    def test_exact_control_name_symlink_fails_closed_before_exclusion(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            target = Path(td) / "outside-control.bin"
+            target.write_bytes(b"user-owned-control-target")
+            link = root / "book-progress.json.lock"
+            link.symlink_to(target)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "must not be a symlink or reparse point",
+            ):
+                coordinator._files()
+
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(target.read_bytes(), b"user-owned-control-target")
+
+    def test_exact_control_name_directory_is_traversed_as_user_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            control_directory = root / "book-progress.json.lock"
+            control_directory.mkdir()
+            child = control_directory / "keep.bin"
+            child.write_bytes(b"directory-user-data")
+
+            regular_control = root / "gametree-resume.json.lock"
+            regular_control.write_bytes(b"canonical-control")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            self.assertIn("book-progress.json.lock/keep.bin", files)
+            self.assertNotIn("gametree-resume.json.lock", files)
+
+            backup, manifest = coordinator._create_backup(
+                "control-object-shape-validation"
+            )
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            self.assertIn("book-progress.json.lock/keep.bin", paths)
+            self.assertNotIn("gametree-resume.json.lock", paths)
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / "book-progress.json.lock"
+                    / "keep.bin"
+                ).read_bytes(),
+                b"directory-user-data",
+            )
+
     def test_casefolded_exact_generated_shapes_still_match_writer_grammar(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
