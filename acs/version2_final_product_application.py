@@ -344,6 +344,13 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError(
                 "Classroom media cannot be unbound while provider recovery is active"
             )
+        if (
+            transactions is not None
+            and transactions.projection.controller.state.connected
+        ):
+            raise RuntimeError(
+                "Classroom media cannot be unbound while provider session is connected"
+            )
         self.media = None
         self.media_transactions = None
 
