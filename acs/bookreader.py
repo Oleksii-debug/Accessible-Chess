@@ -33,6 +33,7 @@ _BOOK_READER_SNAPSHOT_FIELDS = frozenset(
 _MAX_RETURN_POINTS = 1000
 _MAX_RETURN_POINT_NAME_CHARS = 256
 _MAX_TARGET_KEY_CHARS = 4096
+_MAX_SNAPSHOT_FIELD_CHARS = max(len(field) for field in _BOOK_READER_SNAPSHOT_FIELDS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,6 +398,10 @@ class BookReader:
             raise ValueError(
                 "invalid BookReader snapshot fields (field names must be strings)"
             )
+        if any(len(field) > _MAX_SNAPSHOT_FIELD_CHARS for field in snapshot_keys):
+            raise ValueError(
+                "invalid BookReader snapshot fields (field name exceeds supported bound)"
+            )
         if len(set(snapshot_keys)) != len(snapshot_keys):
             raise ValueError("invalid BookReader snapshot fields (duplicate fields)")
         fields = set(snapshot_keys)
@@ -451,21 +456,32 @@ class BookReader:
             ) from exc
         if len(return_point_keys) != return_point_count:
             raise ValueError("Book reader snapshot return_points changed while being read")
-        if any(type(name) is not str for name in return_point_keys):
-            raise TypeError("Return point name must be a string")
-        if len(set(return_point_keys)) != len(return_point_keys):
-            raise ValueError("Book reader snapshot contains duplicate return point names")
+        validated_return_point_keys: list[tuple[str, str]] = []
+        seen_return_point_names: set[str] = set()
+        for name in return_point_keys:
+            if type(name) is not str:
+                raise TypeError("Return point name must be a string")
+            # Bound each raw scalar before hashing it for duplicate detection.
+            # Mapping-count limits alone do not cap CPU when a hostile snapshot
+            # supplies a small number of enormous string keys.
+            validated_name = cls._return_point_name(name)
+            if validated_name in seen_return_point_names:
+                raise ValueError(
+                    "Book reader snapshot contains duplicate return point names"
+                )
+            seen_return_point_names.add(validated_name)
+            validated_return_point_keys.append((name, validated_name))
         try:
             raw_return_point_items = tuple(
-                (name, raw_return_points[name]) for name in return_point_keys
+                (validated_name, raw_return_points[raw_name])
+                for raw_name, validated_name in validated_return_point_keys
             )
         except Exception as exc:
             raise TypeError(
                 "Book reader snapshot return_points must be a stable mapping"
             ) from exc
         return_points: dict[str, str] = {}
-        for name, key in raw_return_point_items:
-            validated_name = cls._return_point_name(name)
+        for validated_name, key in raw_return_point_items:
             validated_key = cls._durable_target(
                 key,
                 name="Book reader snapshot target key",
@@ -494,28 +510,43 @@ class BookReader:
             ) from exc
         if len(fallback_digest_keys) != fallback_digest_count:
             raise ValueError("Book reader snapshot fallback_digests changed while being read")
-        if any(type(key) is not str for key in fallback_digest_keys):
-            raise TypeError("Book reader fallback digest keys and values must be strings")
-        if len(set(fallback_digest_keys)) != len(fallback_digest_keys):
-            raise ValueError("Book reader snapshot contains duplicate fallback digest keys")
+        validated_fallback_digest_keys: list[tuple[str, str]] = []
+        seen_fallback_digest_keys: set[str] = set()
+        for key in fallback_digest_keys:
+            if type(key) is not str:
+                raise TypeError(
+                    "Book reader fallback digest keys and values must be strings"
+                )
+            # Validate the raw key length before set insertion hashes attacker-
+            # controlled text. This keeps the advertised mapping-count bound a
+            # real aggregate work bound rather than only an item-count bound.
+            validated_key = cls._durable_target(
+                key,
+                name="Book reader fallback digest key",
+            )
+            if not validated_key.startswith("index:"):
+                raise ValueError(
+                    "Book reader fallback digests may only bind index targets"
+                )
+            if validated_key in seen_fallback_digest_keys:
+                raise ValueError(
+                    "Book reader snapshot contains duplicate fallback digest keys"
+                )
+            seen_fallback_digest_keys.add(validated_key)
+            validated_fallback_digest_keys.append((key, validated_key))
         try:
             raw_fallback_digest_items = tuple(
-                (key, raw_fallback_digests[key]) for key in fallback_digest_keys
+                (validated_key, raw_fallback_digests[raw_key])
+                for raw_key, validated_key in validated_fallback_digest_keys
             )
         except Exception as exc:
             raise TypeError(
                 "Book reader snapshot fallback_digests must be a stable mapping"
             ) from exc
         fallback_digests: dict[str, str] = {}
-        for key, digest in raw_fallback_digest_items:
-            validated_key = cls._durable_target(
-                key,
-                name="Book reader fallback digest key",
-            )
+        for validated_key, digest in raw_fallback_digest_items:
             if type(digest) is not str:
                 raise TypeError("Book reader fallback digest keys and values must be strings")
-            if not validated_key.startswith("index:"):
-                raise ValueError("Book reader fallback digests may only bind index targets")
             if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
                 raise ValueError("Book reader fallback digest must be lowercase SHA-256 hex")
             fallback_digests[validated_key] = digest

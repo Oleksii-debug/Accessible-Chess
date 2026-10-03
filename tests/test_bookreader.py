@@ -125,6 +125,56 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fallback_digests changed while being read"):
             BookReader.restore_snapshot(book, fallback_snapshot)
 
+    def test_restore_snapshot_bounds_scalar_keys_before_value_materialization(self):
+        book = self.make_book()
+
+        class ValueForbiddenMapping(Mapping):
+            def __init__(self, keys):
+                self.keys = tuple(keys)
+
+            def __len__(self):
+                return len(self.keys)
+
+            def __iter__(self):
+                yield from self.keys
+
+            def __getitem__(self, key):
+                raise AssertionError(
+                    "oversized snapshot keys must fail before value materialization"
+                )
+
+        valid = BookReader(book).snapshot()
+        oversized_field = "x" * 64
+        top_level = ValueForbiddenMapping(
+            (
+                "schema_version",
+                "current_target",
+                "return_points",
+                oversized_field,
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "field name exceeds supported bound"):
+            BookReader.restore_snapshot(book, top_level)
+
+        return_snapshot = dict(valid)
+        oversized_return_name = " " * 256 + "x"
+        return_snapshot["return_points"] = ValueForbiddenMapping(
+            (oversized_return_name,)
+        )
+        with self.assertRaisesRegex(ValueError, "exceeds 256"):
+            BookReader.restore_snapshot(book, return_snapshot)
+
+        fallback_reader = BookReader(book)
+        fallback_reader.go_to(1)
+        fallback_snapshot = fallback_reader.snapshot()
+        oversized_fallback_key = "index:" + ("9" * 4091)
+        self.assertGreater(len(oversized_fallback_key), 4096)
+        fallback_snapshot["fallback_digests"] = ValueForbiddenMapping(
+            (oversized_fallback_key,)
+        )
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            BookReader.restore_snapshot(book, fallback_snapshot)
+
     def test_boundaries_and_invalid_return_points_fail_explicitly(self):
         reader = BookReader(self.make_book())
         with self.assertRaisesRegex(LookupError, "Beginning"):
