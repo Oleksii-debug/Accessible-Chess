@@ -607,6 +607,134 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertEqual(workflow.revision, 0)
         self.assertEqual(reader.snapshot(), progress_before)
 
+    def test_malformed_presenter_comment_topology_fails_closed_but_keeps_board_available(self):
+        for malformed_kind in ("variation_move_comments", "move_trailing_comments"):
+            with self.subTest(malformed_kind=malformed_kind):
+                reader, workflow, bridge, _ = self.compose(
+                    BookDocument(
+                        title="Comment topology safety",
+                        blocks=[
+                            Game(
+                                pgn='[Result "*"]\n\n1. e4 (1. d4 *) e5 *',
+                                title="Comment topology safety",
+                                block_id="comment-topology-safety",
+                            )
+                        ],
+                    )
+                )
+                progress_before = reader.snapshot()
+                move = SimpleNamespace(
+                    kind="move",
+                    depth=0,
+                    node_id="g0:main/m0",
+                    parent_id=None,
+                    label="1. e4",
+                    comments=(),
+                    comments_before=(),
+                    comments_after=(),
+                    trailing_comments=(
+                        ("misplaced line tail",)
+                        if malformed_kind == "move_trailing_comments"
+                        else ()
+                    ),
+                    result=None,
+                )
+                variation = SimpleNamespace(
+                    kind="variation",
+                    depth=1,
+                    node_id="g0:main/m0/v0",
+                    parent_id="g0:main/m0",
+                    label="Variation 1",
+                    comments=("branch",),
+                    comments_before=(
+                        ("misplaced before",)
+                        if malformed_kind == "variation_move_comments"
+                        else ()
+                    ),
+                    comments_after=(),
+                    trailing_comments=(),
+                    result="*",
+                )
+                malformed_view = SimpleNamespace(
+                    game_index=0,
+                    items=(move, variation),
+                    title="Alpha — Beta",
+                    result="*",
+                    tags=(),
+                )
+                fake_presenter = SimpleNamespace(view=lambda: malformed_view)
+
+                with patch(
+                    "acs.version2_book_workspace.PgnTreePresenter",
+                    return_value=fake_presenter,
+                ):
+                    snapshot = bridge.projection.snapshot()
+
+                self.assertNotIn("semantic_tree", snapshot["block"])
+                self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+                open_action = next(
+                    action
+                    for action in snapshot["actions"]
+                    if action["command"] == "book.open_position"
+                )
+                self.assertTrue(open_action["enabled"])
+                self.assertFalse(workflow.active)
+                self.assertEqual(workflow.revision, 0)
+                self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_malformed_presenter_item_container_fails_closed(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Item container safety",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e4 e5 *',
+                        title="Item container safety",
+                        block_id="item-container-safety",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+        valid_item = SimpleNamespace(
+            kind="move",
+            depth=0,
+            node_id="g0:main/m0",
+            parent_id=None,
+            label="1. e4",
+            comments=(),
+            comments_before=(),
+            comments_after=(),
+            trailing_comments=(),
+            result=None,
+        )
+        malformed_view = SimpleNamespace(
+            game_index=0,
+            items=[valid_item],
+            title="Alpha — Beta",
+            result="*",
+            tags=(),
+        )
+        fake_presenter = SimpleNamespace(view=lambda: malformed_view)
+
+        with patch(
+            "acs.version2_book_workspace.PgnTreePresenter",
+            return_value=fake_presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("шахівниц", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertTrue(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_invalid_game_semantics_fail_closed_without_breaking_book_snapshot(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
