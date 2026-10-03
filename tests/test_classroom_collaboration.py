@@ -368,6 +368,53 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (delivered,),
         )
 
+    def test_ambiguous_chat_retry_accepts_authoritative_hidden_state(self):
+        controller = self.controller()
+        accepted_hidden = ChatMessageMetadata(
+            "ambiguous-hidden",
+            "room-1",
+            "student-1",
+            0,
+            "Accepted then moderated",
+            hidden=True,
+            sent_at_unix_ms=1700000000000,
+        )
+        calls = 0
+
+        def send_with_moderation_race(draft):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                self.chat.messages[accepted_hidden.message_id] = accepted_hidden
+                self.chat.ordered = [accepted_hidden]
+                self.chat.state_updates = [
+                    ChatMessageStateUpdate(
+                        room_id=accepted_hidden.room_id,
+                        message_id=accepted_hidden.message_id,
+                        revision=0,
+                    )
+                ]
+                raise RuntimeError("chat delivery acknowledgement was lost")
+            return accepted_hidden
+
+        with patch.object(
+            self.chat,
+            "send_message",
+            side_effect=send_with_moderation_race,
+        ):
+            recovered = controller.send_chat(
+                message_id=accepted_hidden.message_id,
+                body=accepted_hidden.body,
+            )
+
+        self.assertEqual(2, calls)
+        self.assertEqual(accepted_hidden, recovered)
+        self.assertTrue(recovered.hidden)
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (accepted_hidden,),
+        )
+
     def test_ambiguous_chat_send_recovers_exact_history_identity_after_retry_failure(self):
         controller = self.controller()
         accepted = ChatMessageMetadata(
