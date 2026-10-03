@@ -345,11 +345,20 @@ function installNewGameVisualSequence() {
             && key === 'n'
             && !(typeof capture !== 'undefined' && capture)
         ) {
+            // Chromium owns Ctrl+N unless the application suppresses it before
+            // the asynchronous central keymap resolver returns. Suppress the
+            // browser window command, then honour the *current* remappable
+            // binding instead of hard-coding file.new.
             event.preventDefault();
             event.stopPropagation();
-            newGameVisualPending = true;
-            const execute = window.executeAction;
-            if (typeof execute === 'function') void execute('file.new');
+            const chord = typeof eventChord === 'function' ? eventChord(event) : 'Ctrl+N';
+            if (typeof resolveBinding === 'function') {
+                void resolveBinding(chord, 'document', 'document').then(action => {
+                    if (!action || action.actionId !== 'file.new') return;
+                    const execute = window.executeAction;
+                    if (typeof execute === 'function') void execute(action.actionId);
+                });
+            }
             return;
         }
         if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
