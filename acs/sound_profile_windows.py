@@ -22,7 +22,7 @@ import threading
 import wave
 
 from .sound_events import SoundEvent
-from .sound_pack_store import FilesystemSoundPackStore
+from .sound_pack_store import FilesystemSoundPackStore, SoundPackAssetSnapshot
 from .sound_runtime import SoundAssetRequest
 from .sound_windows import PackagedSoundAssetResolver
 
@@ -111,20 +111,26 @@ class ProfiledWindowsSoundPlaybackAdapter:
             raise ValueError("classic pack sound_id must equal the semantic event id")
         return event
 
-    def _resolve(self, request: SoundAssetRequest) -> tuple[Path, str]:
+    def _resolve(
+        self,
+        request: SoundAssetRequest,
+    ) -> tuple[Path | SoundPackAssetSnapshot, str]:
         if request.pack_id == self._classic:
             # Keep the shipped packaged manifest as the sole classic authority.
             event = self._classic_event(request)
             return self._packaged.resolve(event), f"classic-{event.value}"
-        source = self._installed.resolve_asset(request.pack_id, request.sound_id)
-        if source is None:
+        snapshot = self._installed.read_asset_snapshot(
+            request.pack_id,
+            request.sound_id,
+        )
+        if snapshot is None:
             raise FileNotFoundError("selected sound-pack asset is unavailable")
-        if source.suffix.casefold() != ".wav":
+        if Path(snapshot.relative_path).suffix.casefold() != ".wav":
             raise ValueError("Windows profile playback currently requires WAV assets")
         key = hashlib.sha256(
             f"{request.pack_id}\0{request.sound_id}".encode("utf-8")
         ).hexdigest()[:24]
-        return source, f"custom-{key}"
+        return snapshot, f"custom-{key}"
 
     def play_sound(self, request: SoundAssetRequest) -> None:
         if not isinstance(request, SoundAssetRequest):
@@ -142,11 +148,17 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 source, cache_key = self._resolve(request)
                 if request.pack_id == self._classic and request.volume == 100:
                     # Packaged classic assets are immutable release resources.
+                    assert isinstance(source, Path)
                     playable = source
+                elif isinstance(source, SoundPackAssetSnapshot):
+                    # The store revalidated the exact descriptor bytes against the
+                    # active manifest digest. Never reopen its pathname here.
+                    playable = self._scaled_bytes(
+                        source.content,
+                        cache_key,
+                        request.volume,
+                    )
                 else:
-                    # Custom packs are mutable across install/update/uninstall.
-                    # Snapshot even 100% playback into the content-addressed cache
-                    # so storage mutation cannot invalidate the resolved pathname.
                     playable = self._scaled_copy(source, cache_key, request.volume)
                 import winsound
 
@@ -283,6 +295,15 @@ class ProfiledWindowsSoundPlaybackAdapter:
 
         self._ensure_real_cache_dir()
         source_bytes = source.read_bytes()
+        return self._scaled_bytes(source_bytes, cache_key, volume)
+
+    def _scaled_bytes(
+        self,
+        source_bytes: bytes,
+        cache_key: str,
+        volume: int,
+    ) -> Path:
+        self._ensure_real_cache_dir()
         source_digest = hashlib.sha256(source_bytes).hexdigest()
         destination = self._cache_dir / (
             f"{cache_key}-v{volume}-s{PROFILED_SCALED_SOUND_CACHE_FORMAT_VERSION}-"
