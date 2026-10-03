@@ -345,14 +345,31 @@
     const openPosition = snapshot.actions[8];
     const openGame = snapshot.actions[9];
     const returnFromBoard = snapshot.actions[10];
-    if (openPosition.enabled !== block.has_position) {
-      throw new TypeError("Book open-position action disagrees with block position state");
+    const hasBoardState = snapshot.board_active !== undefined;
+    if (hasBoardState && typeof snapshot.board_active !== "boolean") {
+      throw new TypeError("Book board-active state is invalid");
     }
-    if (openGame.enabled !== (block.kind === "Game")) {
-      throw new TypeError("Book open-game action disagrees with block game state");
-    }
-    if (returnFromBoard.enabled !== true) {
-      throw new TypeError("Book return action must remain enabled");
+    if (hasBoardState) {
+      const boardActive = snapshot.board_active;
+      if (openPosition.enabled !== (block.has_position && !boardActive)) {
+        throw new TypeError("Book open-position action disagrees with board state");
+      }
+      if (openGame.enabled !== (block.kind === "Game" && !boardActive)) {
+        throw new TypeError("Book open-game action disagrees with board state");
+      }
+      if (returnFromBoard.enabled !== boardActive) {
+        throw new TypeError("Book return action disagrees with board state");
+      }
+    } else {
+      if (openPosition.enabled !== block.has_position) {
+        throw new TypeError("Book open-position action disagrees with block position state");
+      }
+      if (openGame.enabled !== (block.kind === "Game")) {
+        throw new TypeError("Book open-game action disagrees with block game state");
+      }
+      if (returnFromBoard.enabled !== true) {
+        throw new TypeError("Book return action must remain enabled");
+      }
     }
   }
 
