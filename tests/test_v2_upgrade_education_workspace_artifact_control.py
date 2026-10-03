@@ -146,23 +146,23 @@ class V2UpgradeEducationWorkspaceArtifactControlTests(unittest.TestCase):
                 {"education-workspace.json"},
             )
 
-    def test_legacy_peer_lock_directory_fails_closed_without_deleting_contents(self):
+    def test_legacy_peer_lock_directory_is_ignored_but_contents_are_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
             lock_directory = root / ".education-workspace.json.lock"
             lock_directory.mkdir()
-            kept = lock_directory / "keep.bin"
-            kept.write_bytes(b"directory-user-data")
+            (lock_directory / "keep.bin").write_bytes(b"directory-user-data")
 
-            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
-            with self.assertRaisesRegex(
-                Version2UpgradeError,
-                "control entry must be a regular file",
-            ):
-                coordinator._files()
+            files = self._relative_files(
+                Version2UpgradeCoordinator(UserDataLayout(root))
+            )
 
-            self.assertEqual(kept.read_bytes(), b"directory-user-data")
+            self.assertIn(
+                ".education-workspace.json.lock/keep.bin",
+                files,
+            )
+
     def test_exact_control_symlink_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"

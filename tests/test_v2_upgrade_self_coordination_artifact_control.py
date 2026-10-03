@@ -85,7 +85,7 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2UpgradeError,
-                    "private regular file|opened safely|changed while opening",
+                    "opened safely|changed while opening",
                 ):
                     with _UpgradeLock(lock):
                         pass
@@ -106,11 +106,18 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 root / "settings.json.tmp",
                 root / ".settings.json.abcd_123.tmp",
                 root / "..v2-upgrade-state.json.xy_987ab.tmp",
-                root / ".settings.json.publish-guard-a1b2c3d4e5f6",
-                root / ".library.acsdb.publish-guard-012345abcdef",
             )
             for path in derived:
                 path.write_bytes(b"derived-runtime-state")
+            settings_guard = root / ".settings.json.publish-guard-a1b2c3d4e5f6"
+            try:
+                os.link(root / "settings.json", settings_guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+            # Filename grammar alone is not ownership proof. Without a current
+            # Library target, this exact-looking guard is preservation-backed.
+            library_guard = root / ".library.acsdb.publish-guard-012345abcdef"
+            library_guard.write_bytes(b"private-library-guard-lookalike")
 
             near_misses = (
                 root / ".settings.json.publish-guard-a1b2c3d4e5f",
@@ -143,7 +150,7 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             self.assertNotIn("settings.json.tmp", files)
             self.assertNotIn(".settings.json.abcd_123.tmp", files)
             self.assertNotIn("..v2-upgrade-state.json.xy_987ab.tmp", files)
-            self.assertIn(
+            self.assertNotIn(
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 files,
             )
@@ -165,13 +172,21 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             self.assertIn("settings.json", paths)
             self.assertNotIn(".settings.json.abcd_123.tmp", paths)
             self.assertNotIn("..v2-upgrade-state.json.xy_987ab.tmp", paths)
-            self.assertIn(
+            self.assertNotIn(
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 paths,
             )
             self.assertIn(
                 ".library.acsdb.publish-guard-012345abcdef",
                 paths,
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / ".library.acsdb.publish-guard-012345abcdef"
+                ).read_bytes(),
+                b"private-library-guard-lookalike",
             )
             self.assertIn("settings.json.tmp/keep.bin", paths)
             self.assertEqual(
@@ -196,12 +211,15 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             (root / "prefs.json").write_bytes(b"{}")
             (root / "prefs.json.tmp").write_bytes(b"settings-writer-temp")
             (root / ".prefs.json.a1_b2c3d.tmp").write_bytes(b"upgrade-temp")
-            (
-                root / ".prefs.json.publish-guard-abcdef012345"
-            ).write_bytes(b"settings-guard")
-            (
-                root / ".games.sqlite.publish-guard-fedcba543210"
-            ).write_bytes(b"library-guard")
+            settings_guard = root / ".prefs.json.publish-guard-abcdef012345"
+            library = root / "games.sqlite"
+            library.write_bytes(b"current-library")
+            library_guard = root / ".games.sqlite.publish-guard-fedcba543210"
+            try:
+                os.link(root / "prefs.json", settings_guard)
+                os.link(library, library_guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
             canonical_name_lookalike = root / "settings.json.tmp"
             canonical_name_lookalike.write_bytes(b"custom-layout-user-data")
 
@@ -212,11 +230,11 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             self.assertIn("prefs.json", files)
             self.assertNotIn("prefs.json.tmp", files)
             self.assertNotIn(".prefs.json.a1_b2c3d.tmp", files)
-            self.assertIn(
+            self.assertNotIn(
                 ".prefs.json.publish-guard-abcdef012345",
                 files,
             )
-            self.assertIn(
+            self.assertNotIn(
                 ".games.sqlite.publish-guard-fedcba543210",
                 files,
             )
@@ -297,39 +315,38 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
-            settings = root / "settings.json"
-            library = root / "library.acsdb"
-            settings.write_bytes(b"x")
-            library.write_bytes(b"y")
+            durable = root / "settings.json"
+            durable.write_bytes(b"x")
             for name in (
                 "settings.json.tmp",
                 ".settings.json.abcd_123.tmp",
                 "..v2-upgrade-state.json.xy_987ab.tmp",
             ):
                 (root / name).write_bytes(b"z" * 4096)
-            settings_guard = root / ".settings.json.publish-guard-a1b2c3d4e5f6"
-            library_guard = root / ".library.acsdb.publish-guard-012345abcdef"
             try:
-                os.link(settings, settings_guard)
-                os.link(library, library_guard)
+                os.link(
+                    durable,
+                    root / ".settings.json.publish-guard-a1b2c3d4e5f6",
+                )
             except (OSError, NotImplementedError):
                 self.skipTest("hard-link creation is unavailable on this runner")
 
             coordinator = Version2UpgradeCoordinator(
                 UserDataLayout(root),
-                limits=UpgradeLimits(max_files=2, max_bytes=8),
+                limits=UpgradeLimits(max_files=1, max_bytes=8),
             )
             self.assertEqual(
                 self._relative_files(coordinator),
-                {"settings.json", "library.acsdb"},
+                {"settings.json"},
             )
 
-            settings.write_bytes(b"y" * 16)
+            durable.write_bytes(b"y" * 16)
             with self.assertRaisesRegex(
                 Version2UpgradeError,
                 "backup exceeds byte limit",
             ):
                 coordinator._files()
+
     def test_noncanonical_publication_guards_remain_preservation_backed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
