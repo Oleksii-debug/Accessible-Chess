@@ -367,22 +367,32 @@
         item.state === "version_conflict"
       )
     ) {
+      const catalogRightsMetadata = item.catalog_rights_auditable === true
+        ? " " +
+          text("Джерело прав каталогу: ", "Catalog rights source: ") +
+          String(item.catalog_rights_source_uri || "") + ". " +
+          text("Доказ ліцензії каталогу: ", "Catalog license evidence: ") +
+          String(item.catalog_license_uri || "") + "."
+        : " " + text(
+            "Аудитований доказ прав кандидата каталогу відсутній.",
+            "Auditable rights evidence for the catalog candidate is unavailable."
+          );
       catalogMetadata =
         " " + text("Версія каталогу: ", "Catalog version: ") + catalogVersion + ". " +
         text("Автор каталогу: ", "Catalog author: ") + String(item.catalog_author || "") + ". " +
         text("Ліцензія каталогу: ", "Catalog license: ") + String(item.catalog_license_id || "") + ". " +
         text("Походження каталогу: ", "Catalog provenance: ") +
-          String(item.catalog_provenance || "") + ".";
+          String(item.catalog_provenance || "") + "." + catalogRightsMetadata;
     }
     const rightsMetadata = item.rights_auditable === true
       ? " " +
-        text("Джерело прав каталогу: ", "Catalog rights source: ") +
+        text("Джерело прав: ", "Rights source: ") +
         String(item.rights_source_uri || "") + ". " +
-        text("Доказ ліцензії каталогу: ", "Catalog license evidence: ") +
+        text("Доказ ліцензії: ", "License evidence: ") +
         String(item.license_uri || "") + "."
       : " " + text(
-          "Аудитований доказ прав каталогу відсутній.",
-          "Auditable catalog rights evidence is unavailable."
+          "Аудитований доказ прав поточної версії відсутній.",
+          "Auditable rights evidence for the current version is unavailable."
         );
     metadata.textContent =
       text("Версія ", "Version ") + String(item.version || "") + ". " +
