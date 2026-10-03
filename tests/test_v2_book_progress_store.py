@@ -1080,6 +1080,81 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
         self.assertFalse(self.path.exists())
 
+    def test_new_lock_fsync_failure_is_stable_and_retryable(self) -> None:
+        with mock.patch(
+            "acs.book_progress_store.os.fsync",
+            side_effect=OSError("simulated lock fsync failure"),
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertFalse(self.store._lock_path.exists())
+        self.assertFalse(self.path.exists())
+
+        # A transient initialization failure must not poison the canonical lock
+        # pathname for every subsequent application start.
+        self.assertFalse(self.store.has("book:one"))
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+
+    def test_new_lock_short_marker_write_is_stable_and_retryable(self) -> None:
+        with mock.patch(
+            "acs.book_progress_store.os.write",
+            return_value=0,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertFalse(self.store._lock_path.exists())
+        self.assertFalse(self.path.exists())
+
+        self.assertFalse(self.store.has("book:one"))
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open lock pathname is a POSIX-specific cleanup race probe",
+    )
+    def test_failed_lock_initialization_never_unlinks_substituted_foreign_path(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        foreign = self.path.parent / "foreign-after-lock-create.bin"
+        foreign_bytes = b"user-owned-lock-replacement"
+        foreign.write_bytes(foreign_bytes)
+        real_fsync = os.fsync
+        injected = False
+
+        def replace_lock_then_fail(descriptor: int) -> None:
+            nonlocal injected
+            if not injected:
+                os.replace(foreign, self.store._lock_path)
+                injected = True
+                raise OSError("simulated lock durability failure")
+            real_fsync(descriptor)
+
+        with mock.patch(
+            "acs.book_progress_store.os.fsync",
+            side_effect=replace_lock_then_fail,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
+        self.assertFalse(self.path.exists())
+
     def test_preexisting_empty_lock_is_rejected_without_initialization(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"")
