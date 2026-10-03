@@ -170,7 +170,14 @@ class BookProgressStoreTests(unittest.TestCase):
 
     def test_invalid_book_keys_fail_before_any_file_mutation(self) -> None:
         reader = BookReader(self.original_document())
-        bad = ["", " book", "book ", "line\nbreak", "x" * (MAX_BOOK_KEY_CHARS + 1)]
+        bad = [
+            "",
+            " book",
+            "book ",
+            "line\nbreak",
+            "\ud800",
+            "x" * (MAX_BOOK_KEY_CHARS + 1),
+        ]
         for key in bad:
             with self.subTest(key=key):
                 with self.assertRaises(BookProgressStoreError):
@@ -178,6 +185,34 @@ class BookProgressStoreTests(unittest.TestCase):
         with self.assertRaises(BookProgressStoreError):
             self.store.save(123, reader)  # type: ignore[arg-type]
         self.assertFalse(self.path.exists())
+
+    def test_invalid_unicode_scalar_in_persisted_snapshot_fails_stably(self) -> None:
+        payload = {
+            "schema_version": BOOK_PROGRESS_STORE_SCHEMA_VERSION,
+            "generation": 1,
+            "entries": {
+                "book:invalid-unicode": {
+                    "schema_version": 2,
+                    "current_target": "\ud800",
+                    "return_points": {},
+                    "fallback_digests": {},
+                }
+            },
+        }
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(
+            json.dumps(payload, ensure_ascii=True),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:invalid-unicode")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
 
     def test_snapshot_resource_limit_is_checked_before_restore(self) -> None:
         huge_target = "x" * (MAX_BOOK_SNAPSHOT_BYTES + 1)
