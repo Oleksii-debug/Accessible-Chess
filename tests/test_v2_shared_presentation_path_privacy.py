@@ -60,6 +60,9 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         "file:///C:/Users/PrivateUser/Documents/study.pgn",
         "file:///C:/Users/Public/My Private Folder/PrivateUser/study.pgn",
         "file://private-server/Public Share/PrivateUser/study.pgn",
+        "file:%2F%2F%2Fhome%2FPrivateUser%2Fstudy.pgn",
+        "file:%5C%5Cprivate-server%5Cprivate-share%5CPrivateUser%5Cstudy.pgn",
+        "file:C%3A%5CUsers%5CPrivateUser%5Cstudy.pgn",
         "file:/home/PrivateUser/study.pgn",
         "/home/PrivateUser/study.pgn",
         "/opt/accessible-chess/private/study.pgn",
@@ -68,6 +71,9 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         "/run/user/1000/private.sock",
         "/root/private/study.pgn",
         "/Applications/AccessibleChess/private/study.pgn",
+        "/Volumes/PrivateDisk/PrivateUser/study.pgn",
+        "/Library/Application Support/AccessibleChess/PrivateUser/study.pgn",
+        "/System/Volumes/Data/Users/PrivateUser/study.pgn",
     )
 
     SAFE_DOMAIN_TEXT = (
