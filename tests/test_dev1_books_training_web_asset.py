@@ -58,7 +58,7 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
     def test_wrong_training_answer_is_preserved_locally_but_accepted_answer_clears(self) -> None:
         text = self.text
         self.assertIn('let priorAnswer = ""', text)
-        self.assertIn('if (!payload.clear_answer && priorAnswer)', text)
+        self.assertIn('if (payload.clear_answer !== true && priorAnswer)', text)
         self.assertIn('next.value = priorAnswer', text)
         self.assertNotIn("accepted_moves", text)
         self.assertNotIn("start_fen", text)
