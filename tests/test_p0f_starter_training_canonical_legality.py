@@ -442,6 +442,110 @@ class StarterTrainingCanonicalLegalityTests(unittest.TestCase):
                 self.assertEqual(session.current_fen, resumed.current_fen)
                 self.assertEqual(snapshot, resumed.snapshot())
 
+    def test_persisted_release_material_rejects_non_move_definition_drift(self) -> None:
+        tasks = build_training_task_catalogue()
+        course = build_release_starter_course()
+        exercise_entries = BookIndex(course).of_kind(BookEntryKind.EXERCISE)
+        self.assertEqual(len(tasks), len(exercise_entries))
+
+        for ordinal, (task, entry) in enumerate(
+            zip(tasks, exercise_entries, strict=True)
+        ):
+            material = build_book_training_material(course, entry.target.key)
+            next_task = tasks[(ordinal + 1) % len(tasks)]
+            self.assertNotEqual(task.fen, next_task.fen)
+
+            mutations = (
+                ("exercise_id", lambda definition: definition.__setitem__(
+                    "exercise_id", str(definition["exercise_id"]) + "-forged"
+                )),
+                ("start_fen", lambda definition: definition.__setitem__(
+                    "start_fen", next_task.fen
+                )),
+                ("title", lambda definition: definition.__setitem__(
+                    "title", str(definition["title"]) + " [forged]"
+                )),
+                ("tags", lambda definition: definition.__setitem__(
+                    "tags", [*definition["tags"], "forged"]
+                )),
+                ("source_id", lambda definition: definition.__setitem__(
+                    "source_id", "forged-source-id"
+                )),
+                ("metadata", lambda definition: definition.__setitem__(
+                    "metadata", {**definition["metadata"], "difficulty": "forged"}
+                )),
+                ("hint", lambda definition: definition["steps"][0].__setitem__(
+                    "hint", "forged hint"
+                )),
+                ("explanation", lambda definition: definition["steps"][0].__setitem__(
+                    "explanation", "forged explanation"
+                )),
+            )
+
+            for field, mutate in mutations:
+                with self.subTest(task_id=task.task_id, field=field):
+                    payload = json.loads(
+                        json.dumps(material.as_dict(), ensure_ascii=False)
+                    )
+                    definition = payload["definition"]
+                    self.assertIsInstance(definition, dict)
+                    mutate(definition)
+
+                    with self.assertRaises(BookTrainingError) as caught:
+                        restore_book_training_material(course, payload)
+                    self.assertEqual(
+                        BookTrainingErrorCode.STALE_ORIGIN,
+                        caught.exception.code,
+                    )
+
+    def test_persisted_release_material_rejects_semantic_origin_identity_drift(self) -> None:
+        course = build_release_starter_course()
+        exercise_entries = BookIndex(course).of_kind(BookEntryKind.EXERCISE)
+        self.assertEqual(EXPECTED_TRAINING_TASKS, len(exercise_entries))
+
+        for ordinal, entry in enumerate(exercise_entries):
+            material = build_book_training_material(course, entry.target.key)
+            next_entry = exercise_entries[(ordinal + 1) % len(exercise_entries)]
+            self.assertNotEqual(entry.target.key, next_entry.target.key)
+
+            origin_mutations = (
+                ("target_key", next_entry.target.key),
+                (
+                    "block_id",
+                    str(material.origin.block_id) + "-forged"
+                    if material.origin.block_id is not None
+                    else "forged-block-id",
+                ),
+                (
+                    "source_anchor",
+                    str(material.origin.source_anchor) + ":forged"
+                    if material.origin.source_anchor is not None
+                    else "forged:source:anchor",
+                ),
+                (
+                    "book_fingerprint",
+                    "0" * 64
+                    if material.origin.book_fingerprint != "0" * 64
+                    else "1" * 64,
+                ),
+            )
+
+            for field, forged_value in origin_mutations:
+                with self.subTest(target=entry.target.key, field=field):
+                    payload = json.loads(
+                        json.dumps(material.as_dict(), ensure_ascii=False)
+                    )
+                    origin = payload["origin"]
+                    self.assertIsInstance(origin, dict)
+                    origin[field] = forged_value
+
+                    with self.assertRaises(BookTrainingError) as caught:
+                        restore_book_training_material(course, payload)
+                    self.assertEqual(
+                        BookTrainingErrorCode.STALE_ORIGIN,
+                        caught.exception.code,
+                    )
+
     def test_persisted_release_material_rejects_tampered_training_definition(self) -> None:
         tasks = build_training_task_catalogue()
         course = build_release_starter_course()
