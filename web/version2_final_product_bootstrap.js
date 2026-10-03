@@ -471,6 +471,7 @@
           currentLanguage,
           {
             binding_active: mediaStatus.media_binding_active === true,
+            transaction_active: mediaStatus.media_transaction_active === true,
             recovery_required: mediaStatus.media_recovery_required === true
           }
         );
