@@ -176,6 +176,25 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _ensure_real_dir_chain(path: Path, label: str) -> None:
+    """Create missing storage directories with durable parent links."""
+
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    chain = tuple(reversed(absolute.parents)) + (absolute,)
+    for directory in chain:
+        if os.path.lexists(directory):
+            _require_real_dir(directory, label)
+            continue
+        parent = directory.parent
+        _require_real_dir_chain(parent, label)
+        try:
+            directory.mkdir(exist_ok=True)
+        except OSError as exc:
+            raise SoundPackStoreError(f"{label} could not be created") from exc
+        _require_real_dir(directory, label)
+        _fsync_directory(parent)
+
+
 def _fsync_directory_tree(root: Path, *, max_directories: int) -> None:
     """Flush staged directory entries bottom-up before publishing the tree."""
 
@@ -638,12 +657,10 @@ class FilesystemSoundPackStore:
             self._mutation_lock_path.parent,
             "sound pack storage parent",
         )
-        try:
-            self._mutation_lock_path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack storage mutation lock is unavailable"
-            ) from exc
+        _ensure_real_dir_chain(
+            self._mutation_lock_path.parent,
+            "sound pack storage parent",
+        )
         _require_real_dir_chain(
             self._mutation_lock_path.parent,
             "sound pack storage parent",
@@ -729,39 +746,14 @@ class FilesystemSoundPackStore:
         return self._pack_dir(pack_id) / "versions" / _stable_version(version)
 
     def _ensure_pack_parent(self, pack_id: str) -> tuple[Path, Path]:
-        root_existed = os.path.lexists(self.root)
         _require_real_dir_chain(self.root.parent, "sound pack storage parent")
-        try:
-            self.root.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise SoundPackStoreError("sound pack root could not be created") from exc
-        _require_real_dir_chain(self.root, "sound pack root")
-        if not root_existed:
-            _fsync_directory(self.root.parent)
+        _ensure_real_dir_chain(self.root, "sound pack root")
 
         pack_dir = self._pack_dir(pack_id)
-        pack_existed = os.path.lexists(pack_dir)
-        try:
-            pack_dir.mkdir(exist_ok=True)
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack identity directory could not be created"
-            ) from exc
-        _require_real_dir(pack_dir, "sound pack identity directory")
-        if not pack_existed:
-            _fsync_directory(self.root)
+        _ensure_real_dir_chain(pack_dir, "sound pack identity directory")
 
         versions = pack_dir / "versions"
-        versions_existed = os.path.lexists(versions)
-        try:
-            versions.mkdir(exist_ok=True)
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack versions directory could not be created"
-            ) from exc
-        _require_real_dir(versions, "sound pack versions directory")
-        if not versions_existed:
-            _fsync_directory(pack_dir)
+        _ensure_real_dir_chain(versions, "sound pack versions directory")
         return pack_dir, versions
 
     @staticmethod
