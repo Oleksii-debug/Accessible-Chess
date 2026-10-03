@@ -104,6 +104,27 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.browser_command("books", "book.next_game")
         return book, self.app.reader.location()
 
+    def test_whole_app_book_snapshot_exposes_semantic_game_reading_without_board_activation(self):
+        _book, origin = self._open_book_game()
+
+        snapshot = self.app.snapshot()
+        book = snapshot["books"]
+        tree = book["block"].get("semantic_tree")
+
+        self.assertIsInstance(tree, dict)
+        self.assertGreaterEqual(len(tree["items"]), 5)
+        self.assertIn("e4", tree["items"][0]["label"])
+        self.assertEqual(tree["items"][1]["kind"], "variation")
+        self.assertEqual(tree["items"][1]["depth"], 1)
+        self.assertIn("d4", tree["items"][2]["label"])
+        self.assertIn("$1", tree["items"][2]["label"])
+        serialized = json.dumps(book, ensure_ascii=False)
+        self.assertNotIn("[Event", serialized)
+        self.assertNotIn(str(self.root), serialized)
+        self.assertEqual(self.app.reader.location(), origin)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertFalse(snapshot["book_board_active"])
+
     def test_book_registry_linear_actions_reach_canonical_reader(self):
         book = self.root / "linear-reading.md"
         book.write_text("# Розділ\n\nПерший абзац.\n\nДругий абзац.\n", encoding="utf-8")
