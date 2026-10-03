@@ -183,10 +183,15 @@ class TrainingWebViewProjection:
     ) -> TrainingWebViewEvent:
         before_snapshot = self._presenter.snapshot()
         before_message = self._presenter.message
+        before_message_key = self._presenter.message_key
         try:
             return operation()
         except Exception:
-            self._presenter.restore_state(before_snapshot, message=before_message)
+            self._presenter.restore_state(
+                before_snapshot,
+                message=before_message,
+                message_key=before_message_key,
+            )
             raise
 
     def set_language(self, language: UILanguage | str) -> TrainingWebViewEvent:
