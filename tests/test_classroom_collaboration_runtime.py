@@ -1008,6 +1008,24 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             )
             self.assertEqual("collaboration.chat.sent", sent["kind"])
             second.refresh_classroom_chat()
+            initial_remote_message = second_runtime.store.room_messages(room)[0]
+            self.assertEqual("Shared over production HTTP", initial_remote_message.body)
+            self.assertFalse(initial_remote_message.redacted)
+
+            redaction_updates = chat_server.redact_retention(
+                room_id=room,
+                retentions=("session",),
+            )
+            self.assertEqual(1, len(redaction_updates))
+            self.assertTrue(redaction_updates[0].redacted)
+            second.refresh_classroom_chat()
+            redacted_remote_message = second_runtime.store.room_messages(room)[0]
+            self.assertEqual("", redacted_remote_message.body)
+            self.assertTrue(redacted_remote_message.redacted)
+            self.assertNotIn(
+                "Shared over production HTTP",
+                repr(second_runtime.webview.safe_snapshot()),
+            )
 
             uploaded = first.browser_command(
                 "classes",
@@ -1027,13 +1045,11 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             first.unbind_classroom_collaboration()
             second.unbind_classroom_collaboration()
 
-        self.assertEqual(
-            ("Shared over production HTTP",),
-            tuple(
-                item.body
-                for item in second_runtime.store.room_messages(room)
-            ),
-        )
+        final_messages = second_runtime.store.room_messages(room)
+        self.assertEqual(1, len(final_messages))
+        self.assertEqual("", final_messages[0].body)
+        self.assertTrue(final_messages[0].redacted)
+        self.assertEqual("session", final_messages[0].retention)
         remote_files = second_runtime.store.room_attachments(room)
         self.assertEqual(1, len(remote_files))
         self.assertEqual("two-client-shared.pgn", remote_files[0].display_name)
