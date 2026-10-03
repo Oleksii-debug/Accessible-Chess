@@ -23,6 +23,12 @@ from acs.classroom_collaboration_storage import (
 ROOM = "room-1"
 STUDENT = "student-1"
 TEACHER = "teacher-1"
+CHAT_HTTP_WORKFLOW = (
+    __import__("pathlib").Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "classroom-chat-http-endpoint.yml"
+)
 
 
 class Authenticator:
@@ -259,6 +265,33 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             start["status"],
             headers,
             json.loads(body_event["body"].decode("utf-8")),
+        )
+
+    def test_workflow_qualifies_exact_live_stacked_http_scope(self) -> None:
+        workflow = CHAT_HTTP_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            'test "$BASE_REF" = "feature/classroom-chat-rpc-core-20261002"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$LIVE_BASE_SHA" HEAD',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$LIVE_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            "tests.test_classroom_chat_rpc",
+            workflow,
+        )
+        self.assertIn(
+            "tests.test_classroom_collaboration_chat_server",
+            workflow,
         )
 
     async def test_https_send_binds_bearer_identity_and_sets_private_headers(self) -> None:
