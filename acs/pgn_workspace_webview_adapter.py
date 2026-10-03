@@ -169,10 +169,12 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         token: str | None,
     ) -> PgnWebViewEvent | None:
         if token is None:
-            # Retain compatibility for non-browser callers. Current production
-            # WebView snapshots always carry an opaque lease and therefore get
-            # the stronger stale-render guarantee below.
-            return None
+            # This adapter is the browser authority boundary. Production PGN
+            # snapshots always publish an opaque lease, so an omitted lease
+            # cannot identify the DOM state that originated the command.
+            # Trusted host callers use the canonical command/router layer
+            # directly and do not need this browser compatibility escape hatch.
+            return self._resync_rejected_action()
         try:
             expected = self._presentation_token(self._workspace_view)
         except Exception:
