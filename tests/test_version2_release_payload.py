@@ -294,6 +294,88 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             expected_provenance,
         )
 
+    def test_release_sound_manifest_rejects_pathname_replacement(self) -> None:
+        product = self.root / "sound-product-manifest"
+        sound_root = product / payload.DEFAULT_SOUND_RELATIVE_DIR
+        sound_root.parent.mkdir(parents=True)
+        payload.shutil.copytree(self.sounds, sound_root)
+        target = sound_root / "manifest.json"
+        replacement = self.root / "replacement-sound-manifest.json"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "sound manifest changed while being opened",
+            ):
+                payload._validate_sound_pack(product)
+        self.assertTrue(swapped)
+
+    def test_release_sound_wav_rejects_pathname_replacement(self) -> None:
+        product = self.root / "sound-product-wav"
+        sound_root = product / payload.DEFAULT_SOUND_RELATIVE_DIR
+        sound_root.parent.mkdir(parents=True)
+        payload.shutil.copytree(self.sounds, sound_root)
+        event = next(iter(SoundEvent))
+        target = sound_root / f"{event.value}.wav"
+        replacement = self.root / "replacement-sound.wav"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "release sound WAV changed while being opened",
+            ):
+                payload._validate_sound_pack(product)
+        self.assertTrue(swapped)
+
+    def test_release_sound_provenance_rejects_pathname_replacement(self) -> None:
+        product = self.root / "sound-product-provenance"
+        sound_root = product / payload.DEFAULT_SOUND_RELATIVE_DIR
+        sound_root.parent.mkdir(parents=True)
+        payload.shutil.copytree(self.sounds, sound_root)
+        notices = self.root / "sound-notices"
+        notices.mkdir()
+        target = sound_root / payload._SOUND_PROVENANCE_SOURCE
+        replacement = self.root / "replacement-sound-provenance.json"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "sound provenance changed while being opened",
+            ):
+                payload._publish_sound_provenance(product, notices)
+        self.assertTrue(swapped)
+        self.assertEqual(list(notices.iterdir()), [])
+
     def test_tree_copy_never_dereferences_links_and_revalidates_destination(self) -> None:
         output = self.root / "payload-copy-boundary"
         with (
