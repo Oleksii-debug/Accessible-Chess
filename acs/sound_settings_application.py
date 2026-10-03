@@ -547,11 +547,8 @@ class SoundSettingsApplication:
         installed_local = self._installed_local_packs()
         if pack_id not in self._catalog and pack_id not in installed_local:
             raise ValueError("unknown sound pack")
-        if self._profiles.current.pack_id == pack_id:
-            fallback = self._packs.fallback_pack_id
-            if fallback != "classic":
-                raise RuntimeError("unsupported sound pack fallback authority")
-            self._save_pack_profile("classic", None)
+        if self._packs.fallback_pack_id != "classic":
+            raise RuntimeError("unsupported sound pack fallback authority")
         self._packs.uninstall(pack_id)
         message = "Sound pack removed." if language == "en" else "Набір звуків видалено."
         return self._result(message, language=language)
