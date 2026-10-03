@@ -261,6 +261,36 @@ check(
   document.activeElement === progressFocus && announcements.length === announcementsBeforeProgress,
   "incremental progress must not steal focus or announce every byte sample"
 );
+const redrawWithProgress = collaboration([], 0, false, "session-a");
+redrawWithProgress.files.transfer_progress = {
+  name: "lesson.pgn",
+  transferred_bytes: 512,
+  total_bytes: 1024,
+  complete: false,
+  label: "File transfer progress",
+  text: "Transferred 512 B of 1.0 KB: lesson.pgn."
+};
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.synced",
+    payload: { collaboration: redrawWithProgress }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter") !== null &&
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "512" &&
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 512 B of 1.0 KB: lesson.pgn.",
+  "collaboration redraw must restore the latest safe transfer progress from snapshot state"
+);
+check(
+  document.activeElement === root.querySelector("#collaboration-file-choose"),
+  "progress-preserving redraw must also restore the stable keyboard focus anchor"
+);
 window.AccessibleChessEducationSurface.apply(
   root,
   {
