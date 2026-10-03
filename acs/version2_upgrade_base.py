@@ -2350,8 +2350,16 @@ class Version2UpgradeCoordinator:
         )
         source = backup / "data" / self.layout.library_name
         database = None
+        work_identity: os.stat_result | None = None
+        publish_identity: os.stat_result | None = None
         try:
             size, digest = _stable_copy(source, work)
+            work_identity = os.lstat(work)
+            _require_published_temp_identity(
+                work,
+                work_identity,
+                label="library migration work file",
+            )
             if size != entry["size"] or digest != entry["sha256"]:
                 raise Version2UpgradeError(
                     "library migration source backup changed"
@@ -2366,11 +2374,22 @@ class Version2UpgradeCoordinator:
             if callable(close):
                 close()
             database = None
+            _require_published_temp_identity(
+                work,
+                work_identity,
+                label="library migration work file",
+            )
 
             _, _, publish_schema, publish_state = _sqlite_backup(
                 work,
                 publish,
                 schema_validator=self._validate_library_schema,
+            )
+            publish_identity = os.lstat(publish)
+            _require_published_temp_identity(
+                publish,
+                publish_identity,
+                label="library migration publication candidate",
             )
             if publish_schema != ACSDB_SCHEMA_VERSION:
                 raise Version2UpgradeError(
@@ -2396,9 +2415,34 @@ class Version2UpgradeCoordinator:
             )
             self._prepare_library_publication(str(original_state))
 
+            # Re-authenticate the exact publish inode and logical state
+            # immediately before touching the canonical Library pathname.
+            _require_published_temp_identity(
+                publish,
+                publish_identity,
+                label="library migration publication candidate",
+            )
+            if (
+                _library_state_sha256(
+                    publish,
+                    schema_validator=self._validate_library_schema,
+                )
+                != publish_state
+            ):
+                raise Version2UpgradeError(
+                    "library migration publication candidate changed"
+                )
+            _require_published_temp_identity(
+                publish,
+                publish_identity,
+                label="library migration publication candidate",
+            )
+
             guard: _PublicationGuard | None = _publication_guard(
                 self.layout.library_path
             )
+            candidate_published = False
+            preserve_guard = False
             try:
                 assert guard is not None
                 _require_publication_guard(guard)
@@ -2418,46 +2462,92 @@ class Version2UpgradeCoordinator:
                     raise Version2UpgradeError(
                         "tracked user data changed during library publication"
                     )
-                os.replace(publish, self.layout.library_path)
-                _fsync_dir(self.layout.root)
-                _require_publication_guard(guard)
-                guard_state = _library_state_sha256(
-                    guard.path,
-                    schema_validator=self._validate_library_schema,
+                _require_published_temp_identity(
+                    publish,
+                    publish_identity,
+                    label="library migration publication candidate",
                 )
-                _require_publication_guard(guard)
-                if guard_state != original_state:
-                    # Preserve a writer that committed to the authenticated old
-                    # inode after the final re-authentication but before replace.
-                    _require_publication_guard(guard)
-                    os.replace(guard.path, self.layout.library_path)
-                    guard = None
+                os.replace(publish, self.layout.library_path)
+                candidate_published = True
+                try:
+                    # Accept success only if the canonical pathname now names
+                    # the exact private inode that _sqlite_backup authenticated.
+                    _require_published_temp_identity(
+                        self.layout.library_path,
+                        publish_identity,
+                        label="library migration publication",
+                    )
                     _fsync_dir(self.layout.root)
-                    raise Version2UpgradeError(
-                        "tracked user data changed during library publication"
+                    _require_published_temp_identity(
+                        self.layout.library_path,
+                        publish_identity,
+                        label="library migration publication",
                     )
-                if (
-                    self._library_schema() != ACSDB_SCHEMA_VERSION
-                    or self._tracked_state_sha256(self.layout.library_name)
-                    != publish_state
-                ):
-                    raise Version2UpgradeError(
-                        "library migration publication verification failed"
+                    _require_publication_guard(guard)
+                    guard_state = _library_state_sha256(
+                        guard.path,
+                        schema_validator=self._validate_library_schema,
                     )
-                return True
+                    _require_publication_guard(guard)
+                    if guard_state != original_state:
+                        # Preserve a writer that committed to the authenticated
+                        # old inode after final re-authentication but before the
+                        # replace. That writer's exact inode wins.
+                        _require_publication_guard(guard)
+                        os.replace(guard.path, self.layout.library_path)
+                        guard = None
+                        _fsync_dir(self.layout.root)
+                        raise Version2UpgradeError(
+                            "tracked user data changed during library publication"
+                        )
+                    if (
+                        self._library_schema() != ACSDB_SCHEMA_VERSION
+                        or self._tracked_state_sha256(self.layout.library_name)
+                        != publish_state
+                    ):
+                        # The old authenticated inode remains reachable through
+                        # the guard. Do not discard that recovery evidence when
+                        # the new candidate becomes ambiguous after replacement.
+                        preserve_guard = True
+                        raise Version2UpgradeError(
+                            "library migration publication verification failed"
+                        )
+                    return True
+                except BaseException:
+                    if candidate_published and guard is not None:
+                        # A post-replace failure makes ownership of the canonical
+                        # pathname ambiguous. Keep the exact old inode reachable;
+                        # later recovery can distinguish this stale guard from
+                        # active generated state by inode relationship.
+                        preserve_guard = True
+                    raise
             finally:
-                if guard is not None:
+                if guard is not None and not preserve_guard:
                     _remove_publication_guard(guard)
         finally:
             if database is not None:
                 close = getattr(database, "close", None)
                 if callable(close):
                     close()
-            for candidate in (work, publish):
-                for path in (
-                    candidate,
-                    *(Path(str(candidate) + suffix) for suffix in _DB_SIDECARS),
-                ):
+            for candidate, expected_identity in (
+                (work, work_identity),
+                (publish, publish_identity),
+            ):
+                # Main temporary files are removed only while their path still
+                # names the exact inode created by this migration. A substituted
+                # pathname may contain user-owned bytes and must be preserved.
+                if candidate.exists() or candidate.is_symlink():
+                    try:
+                        _require_published_temp_identity(
+                            candidate,
+                            expected_identity,
+                            label="library migration temporary",
+                        )
+                        candidate.unlink()
+                    except Exception:
+                        pass
+                for suffix in _DB_SIDECARS:
+                    path = Path(str(candidate) + suffix)
                     if path.exists() or path.is_symlink():
                         try:
                             info = _safe_stat(path, "library migration temporary")
