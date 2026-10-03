@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/library_import_service.py'
       - 'tests/test_d07_library_import_service.py'
+      - 'tests/test_d07_library_import_reuse_final_cancel.py'
       - '.github/workflows/library-import-result-contract.yml'
   workflow_dispatch:
 
@@ -64,17 +65,23 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/library-import-result-contract.yml' \
             'acs/library_import_service.py' \
+            'tests/test_d07_library_import_reuse_final_cancel.py' \
             'tests/test_d07_library_import_service.py' | sort)"
           test "$changed" = "$expected"
           echo 'LIBRARY_IMPORT_RESULT_SCOPE=PASS'
 
       - name: Compile exact import surface
-        run: python -m compileall -q acs/library_import_service.py tests/test_d07_library_import_service.py
+        run: >-
+          python -m compileall -q
+          acs/library_import_service.py
+          tests/test_d07_library_import_service.py
+          tests/test_d07_library_import_reuse_final_cancel.py
 
       - name: Focused D07 import regressions
         run: >-
           python -m unittest -v
           tests.test_d07_library_import_service
+          tests.test_d07_library_import_reuse_final_cancel
           tests.test_acsdb
           tests.test_v2_library_acsdb_search_v4
           tests.test_v2_library_search_service_v4
