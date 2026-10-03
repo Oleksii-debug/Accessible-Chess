@@ -13,6 +13,7 @@ from acs.full_product_native_menu import (
     install_full_product_windows_native_menu,
 )
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
+from acs.keybindings import BindingContext
 from acs.full_product_webview_adapter import FullProductWebViewAdapter
 from acs.ui_native_menu import native_menu_attachment_state
 
@@ -165,6 +166,14 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ]
         for item in actions:
             registry.definition(item.action_id)
+        self.assertIn("book.open_game", [item.action_id for item in actions])
+        self.assertEqual(
+            BindingContext.BOOK_READER,
+            registry.definition("book.open_game").context,
+        )
+        books_menu = next(menu for menu in menus if menu.menu_id == "books")
+        open_game = next(item for item in books_menu.items if item.action_id == "book.open_game")
+        self.assertEqual("Open game on board", open_game.label)
         restart = next(item for item in menus[7].items if item.action_id == "analysis.restart")
         self.assertTrue(restart.label.endswith("\tCtrl+Alt+R"))
         help_item = next(item for item in menus[13].items if item.action_id == "screen.help")
@@ -172,6 +181,9 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
         self.assertEqual("&Файл", ua[0].label)
         self.assertEqual("&Учитель/Клас", ua[11].label)
+        ua_books = next(menu for menu in ua if menu.menu_id == "books")
+        ua_open_game = next(item for item in ua_books.items if item.action_id == "book.open_game")
+        self.assertEqual("Відкрити партію на дошці", ua_open_game.label)
 
     def test_native_and_webview_actions_share_router_and_focus_restoration(self) -> None:
         controller, calls, commands, exits = make_controller()
