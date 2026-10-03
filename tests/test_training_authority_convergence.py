@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+import unittest
+from collections import UserDict
+from unittest.mock import patch
+
+from acs.bookdocument import BookDocument, Heading
+from acs.bookreader import BookReader
+from acs.book_webview_bridge import BookWebViewBridge
+from acs.book_webview_projection import BookWebViewProjection
+from acs.chesscore import Board
+from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
+from acs.full_product_ui_shell import UILanguage
+from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
+from acs.training_webview_bridge import TrainingWebViewBridge
+from acs.training_webview_projection import TrainingWebViewProjection
+
+
+class TrainingAuthorityConvergenceTests(unittest.TestCase):
+    def definition(self) -> ExerciseDefinition:
+        return ExerciseDefinition(
+            "authority",
+            Board.START,
+            (
+                ExerciseStep(
+                    frozenset({"e4"}),
+                    hint="Authored hint",
+                    explanation="Authored explanation",
+                ),
+                ExerciseStep(frozenset({"e5"})),
+            ),
+            title="Canonical training",
+        )
+
+    def test_session_preserves_finite_collection_and_mapping_compatibility(self) -> None:
+        definition = ExerciseDefinition(
+            "compat",
+            Board.START,
+            iter((ExerciseStep(frozenset({"e4"})),)),
+            tags=iter(("Tactic", "Opening")),
+            metadata=UserDict({"origin": "book"}),
+        )
+        session = ExerciseSession(definition)
+        self.assertEqual(("tactic", "opening"), session.canonical_definition.tags)
+        self.assertEqual({"origin": "book"}, session.canonical_definition.metadata)
+        self.assertTrue(session.submit("e4").completed)
+
+    def test_session_detaches_from_caller_owned_step_mutation(self) -> None:
+        step = ExerciseStep(frozenset({"e4"}))
+        definition = ExerciseDefinition("detached", Board.START, (step,))
+        session = ExerciseSession(definition)
+
+        object.__setattr__(step, "accepted_moves", frozenset({"d4"}))
+
+        self.assertEqual(frozenset({"e4"}), session.current_step().accepted_moves)
+        self.assertTrue(session.submit("e4").completed)
+
+    def test_bound_definition_replacement_fails_closed(self) -> None:
+        session = ExerciseSession(self.definition())
+        session.definition = ExerciseDefinition(
+            "replacement",
+            Board.START,
+            (ExerciseStep(frozenset({"d4"})),),
+        )
+
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.current_step()
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.snapshot()
+
+    def test_low_level_bound_mutation_fails_before_semantic_use(self) -> None:
+        session = ExerciseSession(self.definition())
+        object.__setattr__(session.definition.steps[0], "hint", "changed")
+
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.request_hint()
+
+    def test_hostile_internal_container_substitution_does_not_execute_hooks(self) -> None:
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile metadata len must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("hostile metadata items must not execute")
+
+        session = ExerciseSession(self.definition())
+        object.__setattr__(session.definition, "metadata", HostileDict({"x": "y"}))
+
+        with self.assertRaisesRegex(TypeError, "exact dict"):
+            session.snapshot()
+        self.assertFalse(HostileDict.touched)
+
+    def test_snapshot_non_text_key_fails_deterministically(self) -> None:
+        session = ExerciseSession(self.definition())
+        snapshot = session.snapshot()
+        snapshot[7] = snapshot.pop("status")  # type: ignore[index]
+
+        with self.assertRaisesRegex(TypeError, "field names must be strings"):
+            ExerciseSession.restore(self.definition(), snapshot)
+
+    def test_restore_state_is_atomic_and_preserves_session_identity(self) -> None:
+        session = ExerciseSession(self.definition())
+        retained = session
+        session.submit("e4")
+        before = session.snapshot()
+        invalid = dict(before)
+        invalid["status"] = "ready"
+
+        with self.assertRaises(ValueError):
+            session.restore_state(invalid)
+
+        self.assertIs(retained, session)
+        self.assertEqual(before, session.snapshot())
+
+        fresh = ExerciseSession(self.definition())
+        baseline = fresh.snapshot()
+        fresh.submit("e4")
+        fresh.restore_state(baseline)
+        self.assertIsNotNone(fresh.current_step())
+        self.assertEqual(baseline, fresh.snapshot())
+
+    def test_projection_has_message_contract_on_initial_snapshot(self) -> None:
+        presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
+        projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
+
+        snapshot = projection.snapshot()
+
+        self.assertEqual("", presenter.message)
+        self.assertIsNone(presenter.message_key)
+        self.assertEqual("ready", snapshot["status"])
+
+    def test_presentation_message_relocalizes_but_authored_hint_does_not(self) -> None:
+        presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
+        projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
+
+        wrong = projection.submit("Nf3")
+        self.assertEqual("retry", presenter.message_key)
+        self.assertIn("Try again", wrong.payload["announcement"])
+
+        switched = projection.set_language(UILanguage.UA)
+        self.assertEqual("retry", presenter.message_key)
+        self.assertEqual("Спробуйте ще раз.", presenter.message)
+        self.assertEqual("Спробуйте ще раз.", switched.payload["snapshot"]["message"])
+
+        hinted = projection.hint()
+        self.assertEqual("Authored hint", hinted.payload["announcement"])
+        self.assertIsNone(presenter.message_key)
+        projection.set_language(UILanguage.EN)
+        self.assertEqual("Authored hint", presenter.message)
+
+    def test_invalid_message_key_is_rejected_before_progress_restore(self) -> None:
+        presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
+        before = presenter.snapshot()
+        presenter.session.submit("e4")
+        progressed = presenter.snapshot()
+
+        with self.assertRaisesRegex(ValueError, "message key is invalid"):
+            presenter.restore_state(before, message="stale", message_key="unknown")
+
+        self.assertEqual(progressed, presenter.snapshot())
+
+    def test_failed_submit_render_rolls_back_progress_message_and_identity(self) -> None:
+        presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
+        projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
+        projection.submit("Nf3")
+        before = presenter.snapshot()
+        before_message = presenter.message
+        before_key = presenter.message_key
+        retained = presenter.session
+
+        with patch.object(projection, "_render", side_effect=ValueError("render failed")):
+            with self.assertRaisesRegex(ValueError, "render failed"):
+                projection.submit("e4")
+
+        self.assertIs(retained, presenter.session)
+        self.assertEqual(before, presenter.snapshot())
+        self.assertEqual(before_message, presenter.message)
+        self.assertEqual(before_key, presenter.message_key)
+
+    def test_failed_hint_reset_reveal_and_retry_renders_are_atomic(self) -> None:
+        operations = ("hint", "reset", "reveal", "retry")
+        for operation in operations:
+            with self.subTest(operation=operation):
+                presenter = TrainingPresenter(
+                    ExerciseSession(self.definition()),
+                    language=UILanguage.EN,
+                )
+                projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
+                projection.submit("Nf3")
+                before = presenter.snapshot()
+                before_message = presenter.message
+                before_key = presenter.message_key
+
+                with patch.object(projection, "_render", side_effect=ValueError("render failed")):
+                    with self.assertRaisesRegex(ValueError, "render failed"):
+                        if operation == "hint":
+                            projection.hint()
+                        elif operation == "reset":
+                            projection.reset(confirmed=True)
+                        elif operation == "reveal":
+                            projection.reveal()
+                        else:
+                            projection.retry()
+
+                self.assertEqual(before, presenter.snapshot())
+                self.assertEqual(before_message, presenter.message)
+                self.assertEqual(before_key, presenter.message_key)
+
+    def test_browser_payload_dict_subclasses_fail_before_hooks(self) -> None:
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("payload len must never execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("payload items must never execute")
+
+        book_presenter = BookReaderPresenter(
+            BookReader(BookDocument(title="Book", blocks=[Heading(text="Heading", level=1)])),
+            language=UILanguage.EN,
+        )
+        book = BookWebViewBridge(
+            BookWebViewProjection(
+                book_presenter,
+                lambda _action, _payload: None,
+                language=UILanguage.EN,
+            )
+        )
+        training_presenter = TrainingPresenter(
+            ExerciseSession(self.definition()),
+            language=UILanguage.EN,
+        )
+        training = TrainingWebViewBridge(
+            TrainingWebViewProjection(training_presenter, language=UILanguage.EN)
+        )
+
+        self.assertEqual("error", book.dispatch("book.next", HostileDict()).kind)
+        self.assertFalse(HostileDict.touched)
+        self.assertEqual("error", training.dispatch("training.hint", HostileDict()).kind)
+        self.assertFalse(HostileDict.touched)
+
+
+if __name__ == "__main__":
+    unittest.main()
