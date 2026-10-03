@@ -15,6 +15,8 @@ def _localized_message(exc: ValueError, language: str) -> str:
         return "Хід має бути 'w' або 'b'"
     if message == "each piece must be followed by a square, for example N f3":
         return "Кожна фігура повинна мати поле, наприклад N f3"
+    if message == "position text contains too many piece-square tokens":
+        return "Текст позиції містить забагато описів фігур"
     if message.startswith("unknown piece symbol: "):
         return "Невідома фігура: " + message.removeprefix("unknown piece symbol: ")
     if message.startswith("square ") and message.endswith(" is specified more than once"):
