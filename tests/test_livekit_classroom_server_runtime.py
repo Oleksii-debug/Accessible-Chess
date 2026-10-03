@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import traceback
 import unittest
 
@@ -11,6 +12,13 @@ from acs.livekit_classroom_server_runtime import (
     MAX_PROVIDER_CREDENTIAL_CHARS,
     MAX_PROVIDER_ENDPOINT_CHARS,
 )
+SERVER_RUNTIME_WORKFLOW = (
+    Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "livekit-classroom-server-runtime.yml"
+)
+
 from tests.test_livekit_classroom_moderation_admin import (
     FakeApi as ModerationFakeApi,
     FakeRoomService,
@@ -351,6 +359,22 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(entered.moderation_admin)
         self.assertTrue(runtime.closed)
         self.assertEqual(client.close_calls, 1)
+
+    async def test_workflow_scope_uses_immutable_pull_request_base(self):
+        workflow = SERVER_RUNTIME_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", workflow)
 
     async def test_repr_redacts_endpoint_and_credentials(self):
         endpoint = "https://secret-classroom.example.invalid"
