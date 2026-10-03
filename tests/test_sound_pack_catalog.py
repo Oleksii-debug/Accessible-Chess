@@ -38,8 +38,17 @@ class FakeStorage:
         self.install_calls.append(downloaded)
         self.items[downloaded.manifest.pack_id] = downloaded.manifest
 
-    def uninstall(self, pack_id):
+    def uninstall(self, pack_id, *, expected_manifest=None):
         self.uninstall_calls.append(pack_id)
+        current = self.items.get(pack_id)
+        if (
+            expected_manifest is not None
+            and current is not None
+            and current != expected_manifest
+        ):
+            raise SoundPackInstallError(
+                "sound pack changed before conditional uninstall"
+            )
         self.items.pop(pack_id, None)
 
 
@@ -616,7 +625,7 @@ class SoundPackCatalogTests(unittest.TestCase):
             def install_atomically(self, value):
                 self.install_calls.append(value)
 
-            def uninstall(self, pack_id):
+            def uninstall(self, pack_id, *, expected_manifest=None):
                 self.uninstall_calls.append(pack_id)
 
         cases = (
