@@ -1,0 +1,450 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+const SOURCE = fs.readFileSync(
+  path.join(__dirname, "..", "..", "web", "livekit_classroom_media_runtime.js"),
+  "utf8"
+);
+
+function loadRuntime(Adapter) {
+  const sandbox = {
+    Promise,
+    URL,
+    setTimeout,
+    clearTimeout,
+    LivekitClient: { Room: function Room() {} },
+    AccessibleChessLiveKitMedia: {
+      LiveKitClassroomMediaAdapter: Adapter
+    }
+  };
+  sandbox.window = sandbox;
+  vm.runInNewContext(SOURCE, sandbox, {
+    filename: "livekit_classroom_media_runtime.js"
+  });
+  return sandbox.AccessibleChessClassroomMediaProviderRuntime;
+}
+
+function dispatch(transactionId, provider, crossed) {
+  return {
+    kind: "provider-dispatch",
+    payload: {
+      transaction_id: transactionId,
+      provider,
+      provider_boundary_crossed: crossed,
+      focus_target: "classroom-media-heading"
+    }
+  };
+}
+
+function configResult() {
+  return {
+    kind: "provider-config",
+    payload: {
+      config: {
+        server_url: "wss://media.example.test",
+        moderation_participant_identity: "moderation-service"
+      }
+    }
+  };
+}
+
+class RecordingAdapter {
+  constructor(options) {
+    this.options = options;
+    this.calls = [];
+    this._snapshot = {
+      connected: false,
+      cleanup_required: false,
+      room_id: null,
+      participant_id: null,
+      microphone_enabled: false,
+      camera_enabled: false,
+      screen_share_enabled: false
+    };
+    RecordingAdapter.instances.push(this);
+  }
+
+  async connect(credential, enabledSources) {
+    this.calls.push(["connect", credential, enabledSources]);
+    this._snapshot = {
+      connected: true,
+      cleanup_required: false,
+      room_id: credential.room_id,
+      participant_id: credential.participant_id,
+      microphone_enabled: false,
+      camera_enabled: false,
+      screen_share_enabled: false
+    };
+    return this.snapshot();
+  }
+
+  async reconnect(credential, enabledSources) {
+    this.calls.push(["reconnect", credential, enabledSources]);
+    return this.connect(credential, enabledSources);
+  }
+
+  async disconnect() {
+    this.calls.push(["disconnect"]);
+    this._snapshot = {
+      connected: false,
+      cleanup_required: false,
+      room_id: null,
+      participant_id: null,
+      microphone_enabled: false,
+      camera_enabled: false,
+      screen_share_enabled: false
+    };
+    return this.snapshot();
+  }
+
+  async setLocalSource(source, enabled) {
+    this.calls.push(["setLocalSource", source, enabled]);
+    return this.snapshot();
+  }
+
+  async applyModeration(commands) {
+    this.calls.push(["applyModeration", commands]);
+  }
+
+  async recoverDevice(kind, deviceId, republishEnabled) {
+    this.calls.push(["recoverDevice", kind, deviceId, republishEnabled]);
+    return this.snapshot();
+  }
+
+  snapshot() {
+    return Object.assign({}, this._snapshot);
+  }
+}
+RecordingAdapter.instances = [];
+
+async function testMultiChunkMarksProviderBoundaryOnce() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const transaction = "host-" + "1".repeat(32);
+  const first = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "apply_moderation",
+    chunk_index: 0,
+    chunk_count: 2,
+    commands: [{
+      operation_id: "op-1",
+      actor_id: "teacher-1",
+      target_id: "student-1",
+      action: "soft_mute",
+      source: "microphone",
+      value: true
+    }]
+  }, false);
+  const second = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "apply_moderation",
+    chunk_index: 1,
+    chunk_count: 2,
+    commands: [{
+      operation_id: "op-2",
+      actor_id: "teacher-1",
+      target_id: "student-2",
+      action: "soft_mute",
+      source: "microphone",
+      value: true
+    }]
+  }, true);
+
+  const bridgeCalls = [];
+  async function invoke(command, payload) {
+    bridgeCalls.push([command, payload]);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: transaction } };
+    }
+    if (command === "media.provider_effect_success" && payload.chunk_index === 0) {
+      return second;
+    }
+    if (command === "media.provider_effect_success" && payload.chunk_index === 1) {
+      return {
+        kind: "media-updated",
+        payload: { snapshot: {}, focus_target: "classroom-media-heading" }
+      };
+    }
+    throw new Error("unexpected bridge command " + command);
+  }
+
+  const result = await runtime.execute(first, invoke);
+  assert.equal(result.kind, "media-updated");
+  assert.equal(
+    bridgeCalls.filter((item) => item[0] === "media.provider_dispatched").length,
+    1
+  );
+  assert.deepEqual(
+    RecordingAdapter.instances[0].calls.map((item) => item[0]),
+    ["applyModeration", "applyModeration"]
+  );
+  assert.deepEqual(
+    bridgeCalls
+      .filter((item) => item[0] === "media.provider_effect_success")
+      .map((item) => item[1].chunk_index),
+    [0, 1]
+  );
+}
+
+async function testJoinTakesCredentialBeforeDispatchAndReturnsExactSnapshot() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const transaction = "session-" + "2".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+  const order = [];
+
+  async function invoke(command, payload) {
+    order.push(command);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: transaction,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: transaction } };
+    }
+    if (command === "media.provider_session_success") {
+      assert.deepEqual(payload.snapshot, {
+        connected: true,
+        cleanup_required: false,
+        room_id: "room-1",
+        participant_id: "student-1",
+        microphone_enabled: false,
+        camera_enabled: false,
+        screen_share_enabled: false
+      });
+      return {
+        kind: "media-updated",
+        payload: { snapshot: { connected: true } }
+      };
+    }
+    throw new Error("unexpected bridge command " + command);
+  }
+
+  const result = await runtime.execute(event, invoke);
+  assert.equal(result.kind, "media-updated");
+  assert.deepEqual(order, [
+    "media.provider_config",
+    "media.provider_take_credential",
+    "media.provider_dispatched",
+    "media.provider_session_success"
+  ]);
+  assert.equal(RecordingAdapter.instances[0].calls[0][0], "connect");
+  assert.equal(RecordingAdapter.instances[0].calls[0][1].token, "one-shot-secret");
+  assert.equal(JSON.stringify(result).includes("one-shot-secret"), false);
+}
+
+async function testMissingRuntimeConfigurationRetiresBeforeDispatch() {
+  class NeverAdapter extends RecordingAdapter {
+    constructor(options) {
+      super(options);
+      throw new Error("adapter must not be constructed");
+    }
+  }
+  const runtime = loadRuntime(NeverAdapter);
+  const transaction = "host-" + "3".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: true
+  }, false);
+  const calls = [];
+
+  const result = await runtime.execute(event, async (command) => {
+    calls.push(command);
+    if (command === "media.provider_config") {
+      return { kind: "error", payload: {} };
+    }
+    if (command === "media.provider_not_started") {
+      return { kind: "error", payload: { message: "sanitized" } };
+    }
+    throw new Error("unexpected command");
+  });
+
+  assert.equal(result.kind, "error");
+  assert.deepEqual(calls, [
+    "media.provider_config",
+    "media.provider_not_started"
+  ]);
+  assert.equal(calls.includes("media.provider_dispatched"), false);
+}
+
+async function testCleanConnectFailureUsesExactCleanFailureCallback() {
+  class CleanFailAdapter extends RecordingAdapter {
+    async connect() {
+      this.calls.push(["connect-failed-clean"]);
+      throw new Error("provider detail");
+    }
+  }
+  const runtime = loadRuntime(CleanFailAdapter);
+  const transaction = "session-" + "4".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+  const calls = [];
+
+  const result = await runtime.execute(event, async (command, payload) => {
+    calls.push(command);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: transaction,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: transaction } };
+    }
+    if (command === "media.provider_connection_failed_clean") {
+      assert.equal(payload.snapshot.connected, false);
+      assert.equal(payload.snapshot.cleanup_required, false);
+      return { kind: "error", payload: { message: "sanitized" } };
+    }
+    throw new Error("unexpected command " + command);
+  });
+
+  assert.equal(result.kind, "error");
+  assert.equal(calls.includes("media.provider_failed"), false);
+  assert.equal(calls.includes("media.provider_connection_failed_clean"), true);
+}
+
+async function testProviderEffectFailureRequiresRecoveryCallback() {
+  class EffectFailAdapter extends RecordingAdapter {
+    async setLocalSource() {
+      this.calls.push(["setLocalSource-failed"]);
+      throw new Error("provider detail");
+    }
+  }
+  const runtime = loadRuntime(EffectFailAdapter);
+  const transaction = "host-" + "5".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "set_local_source",
+    source: "microphone",
+    enabled: true
+  }, false);
+  const calls = [];
+
+  const result = await runtime.execute(event, async (command) => {
+    calls.push(command);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: transaction } };
+    }
+    if (command === "media.provider_failed") {
+      return {
+        kind: "error",
+        payload: { message: "sanitized", recovery_required: true }
+      };
+    }
+    throw new Error("unexpected command " + command);
+  });
+
+  assert.equal(result.payload.recovery_required, true);
+  assert.deepEqual(calls, [
+    "media.provider_config",
+    "media.provider_dispatched",
+    "media.provider_failed"
+  ]);
+}
+
+async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
+  let releaseFirst;
+  class BlockingAdapter extends RecordingAdapter {
+    async setLocalSource(source, enabled) {
+      this.calls.push(["setLocalSource", source, enabled]);
+      await new Promise((resolve) => { releaseFirst = resolve; });
+    }
+  }
+  const runtime = loadRuntime(BlockingAdapter);
+  const firstTx = "host-" + "6".repeat(32);
+  const secondTx = "host-" + "7".repeat(32);
+  const first = dispatch(firstTx, {
+    transaction_id: firstTx,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: true
+  }, false);
+  const second = dispatch(secondTx, {
+    transaction_id: secondTx,
+    operation: "set_local_source",
+    source: "microphone",
+    enabled: true
+  }, false);
+  const retired = [];
+
+  async function invoke(command, payload) {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_dispatched") {
+      return {
+        kind: "provider-ready",
+        payload: { transaction_id: payload.transaction_id }
+      };
+    }
+    if (command === "media.provider_not_started") {
+      retired.push(payload.transaction_id);
+      return { kind: "error", payload: { message: "busy" } };
+    }
+    if (command === "media.provider_effect_success") {
+      return { kind: "media-updated", payload: { snapshot: {} } };
+    }
+    throw new Error("unexpected command " + command);
+  }
+
+  const firstPromise = runtime.execute(first, invoke);
+  while (typeof releaseFirst !== "function") {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const secondResult = await runtime.execute(second, invoke);
+  assert.equal(secondResult.kind, "error");
+  assert.deepEqual(retired, [secondTx]);
+  releaseFirst();
+  const firstResult = await firstPromise;
+  assert.equal(firstResult.kind, "media-updated");
+  assert.equal(RecordingAdapter.instances[0].calls.length, 1);
+}
+
+async function run() {
+  await testMultiChunkMarksProviderBoundaryOnce();
+  await testJoinTakesCredentialBeforeDispatchAndReturnsExactSnapshot();
+  await testMissingRuntimeConfigurationRetiresBeforeDispatch();
+  await testCleanConnectFailureUsesExactCleanFailureCallback();
+  await testProviderEffectFailureRequiresRecoveryCallback();
+  await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
+  console.log("LIVEKIT_CLASSROOM_MEDIA_TRANSACTION_RUNTIME=PASS");
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
