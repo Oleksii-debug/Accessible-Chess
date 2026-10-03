@@ -80,9 +80,23 @@ class _InjectedClassicPlaybackBridge:
         if request.pack_id != "classic":
             raise ValueError("legacy injected playback supports only the classic pack")
         if request.event_id == "low_time":
-            if not request.preview:
-                raise ValueError("classic low-time is preview-only")
-            event = SoundEvent.TICK
+            try:
+                event = SoundEvent("low_time")
+            except ValueError:
+                # Until the packaged-sound owner lands in the current Product
+                # base, retain the diagnostic preview-only Tick bridge. Once
+                # low_time exists canonically, use that event directly.
+                if not request.preview:
+                    raise ValueError(
+                        "classic low-time is unavailable until the packaged sound "
+                        "authority exposes a distinct low_time event"
+                    )
+                event = SoundEvent.TICK
+            else:
+                if request.sound_id != "low_time":
+                    raise ValueError(
+                        "legacy injected low-time playback requires low_time sound id"
+                    )
         else:
             try:
                 event = SoundEvent(request.event_id)
