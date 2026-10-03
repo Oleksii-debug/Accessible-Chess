@@ -51,6 +51,9 @@ jobs:
         with:
           python-version: '3.12.10'
 
+      - name: Install pinned targeted test runner
+        run: python -m pip install -q pytest==8.4.2
+
       - name: Prove bounded current-Product scope
         shell: bash
         env:
@@ -110,6 +113,13 @@ jobs:
           tests/test_dev3_sound_failure_isolation.py
           tests/test_sound_scaled_cache_integrity_workflow.py
 
+      - name: Validate WebView script and fallback keymap syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/stage1_release_bootstrap.js
+          python -m json.tool web/keybindings.json >/dev/null
+
       - name: Run sound regressions
         run: >-
           python -m unittest -v
@@ -123,3 +133,9 @@ jobs:
           tests.test_sound_events
           tests.test_dev3_sound_failure_isolation
           tests.test_sound_scaled_cache_integrity_workflow
+
+      - name: Run remappable Ctrl+N pytest contracts
+        run: >-
+          python -m pytest -q
+          tests/test_ui_keymap_adapter.py
+          tests/test_webapp_keymap_api.py
