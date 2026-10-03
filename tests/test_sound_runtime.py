@@ -319,16 +319,19 @@ class PackagedSoundResolverTests(unittest.TestCase):
                         "label_en": "Variant 1",
                     }
                 ]
-            events[SoundEvent.MOVE.value][0]["file"] = "../move.wav"
             (root / "manifest.json").write_text(
                 json.dumps({"schema_version": 1, "files": files}), encoding="utf-8"
             )
-            (root / "variants.json").write_text(
-                json.dumps({"schema_version": 1, "events": events}), encoding="utf-8"
-            )
-
-            with self.assertRaises(ValueError):
-                PackagedSoundAssetResolver(tmp).load_variant_catalog()
+            for unsafe in ("../move.wav", "..\\move.wav", "/move.wav", "C:\\move.wav"):
+                with self.subTest(unsafe=unsafe):
+                    changed = json.loads(json.dumps(events))
+                    changed[SoundEvent.MOVE.value][0]["file"] = unsafe
+                    (root / "variants.json").write_text(
+                        json.dumps({"schema_version": 1, "events": changed}),
+                        encoding="utf-8",
+                    )
+                    with self.assertRaises(ValueError):
+                        PackagedSoundAssetResolver(tmp).load_variant_catalog()
 
     def test_missing_asset_is_explicit_error_not_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
