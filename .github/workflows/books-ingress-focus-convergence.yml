@@ -105,8 +105,13 @@ jobs:
           test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '2e9263f2b21f53e28d483ed38fa961956c0d2622'
           test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = '247b7d4bbd2d9e0e7d7fc6a89c5cef45e63e65e7'
           test "$(git rev-parse HEAD:acs/training_webview_bridge.py)" = 'c3e6e52873f2ec1e2d5bdbc70d227a402963405b'
-          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = '93387132c55130f2be9d050000e1923ec88414f4'
           test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = '485147fbcfd3a52705b611df4ad315c46d4e54bf'
+
+          # This dedicated gate is the BookProgress authority for #1460 because
+          # the generic historical topology workflow is intentionally skipped.
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = 'b7ad9899f614c42589b9f53fddbebe59dee2b9c7'
+          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = '81d5eb59a0b4b8f292480d2dd4c1f82fa4a36b7a'
+          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = '6aa9cddc68a630228e3a2266c5dcf3382b86a674'
 
           echo 'BOOKS_INGRESS_FOCUS_CONVERGENCE_GEOMETRY=PASS'
 
