@@ -108,6 +108,23 @@ class BookProjectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "navigation availability flags"):
                 self.projection.snapshot()
 
+    def test_snapshot_rejects_oversized_list_before_element_scan(self) -> None:
+        block = self.presenter.current()
+        oversized = ("item",) * 65536 + (object(),)
+
+        with self.assertRaisesRegex(ValueError, "item-count budget"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=oversized,  # type: ignore[arg-type]
+                    list_ordered=False,
+                    list_start=None,
+                )
+            )
+
     def test_snapshot_rejects_numbers_that_webview_cannot_represent_exactly(self) -> None:
         block = self.presenter.current()
         too_large = 1 << 53
