@@ -492,6 +492,7 @@ class JsonSoundProfileStorage:
                 )
 
             temp_path: Path | None = None
+            descriptor: int | None = None
             try:
                 descriptor, temp_name = tempfile.mkstemp(
                     prefix=f".{self.path.name}.",
@@ -499,10 +500,32 @@ class JsonSoundProfileStorage:
                     dir=self.path.parent,
                 )
                 temp_path = Path(temp_name)
-                with os.fdopen(descriptor, "wb") as stream:
+                opened = os.fstat(descriptor)
+                _require_regular_metadata(
+                    opened,
+                    message="sound profile temporary is not a regular file",
+                )
+                if int(getattr(opened, "st_nlink", 1)) != 1:
+                    raise SoundProfileFileError(
+                        "sound profile temporary is not a private regular file"
+                    )
+                with os.fdopen(descriptor, "wb", closefd=False) as stream:
                     stream.write(encoded)
                     stream.flush()
                     os.fsync(stream.fileno())
+                written = os.fstat(descriptor)
+                current = os.lstat(temp_path)
+                _require_regular_metadata(
+                    current,
+                    message="sound profile temporary is not a regular file",
+                )
+                if (
+                    int(getattr(current, "st_nlink", 1)) != 1
+                    or self._file_identity(current) != self._file_identity(written)
+                ):
+                    raise SoundProfileFileError(
+                        "sound profile temporary changed before publication"
+                    )
                 os.replace(temp_path, self.path)
                 temp_path = None
                 _fsync_directory(self.path.parent)
@@ -516,6 +539,11 @@ class JsonSoundProfileStorage:
                     "sound profile storage could not be updated"
                 ) from exc
             finally:
+                if descriptor is not None:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
                 if temp_path is not None:
                     try:
                         temp_path.unlink(missing_ok=True)
