@@ -1310,6 +1310,7 @@ class FilesystemSoundPackStore:
             ) from exc
 
         cleanup = True
+        repair_backup: Path | None = None
         try:
             _require_real_dir(staging, "sound pack local staging directory")
             for relative, digest in sorted(digests.items()):
@@ -1384,8 +1385,24 @@ class FilesystemSoundPackStore:
                         expected_version=manifest.version,
                     )
                 except (TypeError, ValueError, SoundPackStoreError):
-                    self._remove_without_following(destination)
-                    _fsync_directory(versions_dir)
+                    # Preserve the unverified existing bytes until the staged
+                    # replacement has crossed final verification. A transient
+                    # filesystem/read failure must not turn reinstall into
+                    # destructive data loss.
+                    try:
+                        repair_backup = Path(
+                            tempfile.mkdtemp(
+                                prefix=f".{manifest.pack_id}-{manifest.version}-repair-",
+                                dir=versions_dir,
+                            )
+                        )
+                        repair_backup.rmdir()
+                        os.replace(destination, repair_backup)
+                        _fsync_directory(versions_dir)
+                    except OSError as exc:
+                        raise SoundPackStoreError(
+                            "unverified sound pack version could not be quarantined"
+                        ) from exc
                 else:
                     if (
                         current_manifest == manifest
@@ -1407,6 +1424,18 @@ class FilesystemSoundPackStore:
                 os.replace(staging, destination)
                 cleanup = False
             except OSError as exc:
+                if repair_backup is not None and not os.path.lexists(destination):
+                    try:
+                        os.replace(repair_backup, destination)
+                        repair_backup = None
+                        _fsync_directory(versions_dir)
+                    except OSError:
+                        # Keep the quarantined copy for recovery; never replace
+                        # the primary publication failure.
+                        pass
+                    raise SoundPackStoreError(
+                        "sound pack version could not be published atomically"
+                    ) from exc
                 if destination.exists():
                     try:
                         current_manifest, current_digests, current_rights = self._verify_version(
@@ -1460,11 +1489,29 @@ class FilesystemSoundPackStore:
                     except SoundPackStoreError:
                         # Preserve the integrity failure as the primary error.
                         pass
+                if repair_backup is not None and not os.path.lexists(destination):
+                    try:
+                        os.replace(repair_backup, destination)
+                        repair_backup = None
+                        _fsync_directory(versions_dir)
+                    except OSError:
+                        # The quarantined original remains recoverable by an
+                        # operator even if automatic restoration cannot finish.
+                        pass
                 raise
 
             # The active pointer may only reference a version after its final,
             # revalidated directory entry crossed the crash-durability boundary.
             _fsync_directory(versions_dir)
+            if repair_backup is not None:
+                try:
+                    self._remove_without_following(repair_backup)
+                    repair_backup = None
+                    _fsync_directory(versions_dir)
+                except SoundPackStoreError:
+                    # Hidden repair backup is non-authoritative. Cleanup failure
+                    # must not invalidate the verified replacement.
+                    pass
             self._publish_active(
                 pack_dir, manifest.pack_id, manifest.version
             )
