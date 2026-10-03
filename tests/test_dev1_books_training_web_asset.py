@@ -68,6 +68,14 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('dialog.showModal()', text)
         self.assertIn('opener.focus({ preventScroll: true })', text)
         self.assertIn('{ confirmed: true }', text)
+        self.assertIn(
+            'if (result && result.kind === "render" && dialog.open) dialog.close()',
+            text,
+        )
+        self.assertGreaterEqual(
+            text.count("const activeFlight = inFlightRoots.get(root)"),
+            2,
+        )
 
     def test_wrong_training_answer_is_preserved_locally_but_accepted_answer_clears(self) -> None:
         text = self.text
