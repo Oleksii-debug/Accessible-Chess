@@ -298,6 +298,41 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertIn("Requested", path.read_text(encoding="utf-8"))
             self.assertEqual(saved.sha256, open_pgn(path).source.sha256)
 
+    def test_temporary_regular_file_swap_is_rejected_before_publication(self):
+        games = parse_games('[Event "Requested"]\n[Result "*"]\n\n1. Nf3 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "destination-regular-swap.pgn"
+            real_fingerprint = pgn_service_module.fingerprint
+            temporary_fingerprints = 0
+
+            def replace_bytes_after_first_fingerprint(candidate, *args, **kwargs):
+                nonlocal temporary_fingerprints
+                candidate_path = Path(candidate)
+                result = real_fingerprint(candidate_path, *args, **kwargs)
+                if candidate_path.suffix == ".tmp":
+                    temporary_fingerprints += 1
+                    if temporary_fingerprints == 1:
+                        candidate_path.write_text(
+                            '[Event "Substituted"]\n[Result "*"]\n\n1. d4 *\n',
+                            encoding="utf-8",
+                        )
+                return result
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=replace_bytes_after_first_fingerprint,
+            ):
+                with self.assertRaisesRegex(
+                    PgnFileError,
+                    "temporary file changed before publication",
+                ):
+                    save_pgn_atomic(path, games)
+
+            self.assertEqual(temporary_fingerprints, 2)
+            self.assertFalse(path.exists())
+            self.assertEqual(list(root.glob(path.name + ".*.tmp")), [])
+
     @unittest.skipIf(os.name == "nt", "POSIX symlink swap regression")
     def test_temporary_symlink_swap_is_rejected_before_publication(self):
         games = parse_games('[Event "Requested"]\n[Result "*"]\n\n1. Nf3 *\n')
