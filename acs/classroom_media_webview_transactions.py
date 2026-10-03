@@ -436,6 +436,34 @@ class ClassroomMediaTransactionalWebView:
             return self._safe_error(focus_target=focus_target)
         return self._projection.updated_event(focus_target=focus_target)
 
+    def resolve_recovery_after_authoritative_reconciliation(
+        self,
+        transaction_id: str,
+        *,
+        focus_target: str = "classroom-media-heading",
+    ) -> ClassroomMediaWebViewEvent:
+        """Trusted-host completion after provider state was reconciled externally.
+
+        This is deliberately not a browser callback.  The browser/provider cannot
+        clear its own ambiguous outcome; a trusted host must first reconcile the
+        authoritative provider state, then release the exact recovery transaction.
+        """
+
+        transaction = _transaction_id(transaction_id)
+        status = self._binder.recovery_status
+        if (
+            status is None
+            or status.lease.transaction_id != transaction
+        ):
+            raise MediaProviderExecutionError(
+                "media provider recovery transaction is unknown"
+            )
+        self._binder.resolve_recovery(transaction)
+        stored_focus = self._forget(transaction)
+        return self._projection.updated_event(
+            focus_target=stored_focus or focus_target,
+        )
+
     # Trusted Python session entrypoints.  Browser payloads never accept a token.
 
     def prepare_join(
@@ -524,17 +552,6 @@ class ClassroomMediaTransactionalWebView:
                     return self._recovery_event(transaction_id)
                 focus = self._forget(transaction_id)
                 return self._safe_error(focus_target=focus)
-
-            if command_id == "media.provider_session_recovery_clean":
-                _exact(data, {"transaction_id", "snapshot"})
-                transaction_id = _transaction_id(data["transaction_id"])
-                snapshot = _clean_disconnected_snapshot(data["snapshot"])
-                self._binder.resolve_clean_session_recovery(
-                    transaction_id,
-                    snapshot,
-                )
-                focus = self._forget(transaction_id)
-                return self._projection.updated_event(focus_target=focus)
 
             if command_id in {
                 "media.provider_failed",
