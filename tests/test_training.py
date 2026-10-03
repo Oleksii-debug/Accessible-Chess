@@ -707,6 +707,14 @@ class ExerciseSessionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid exercise counters"):
                     ExerciseSession.restore(definition, forged)
 
+    def test_snapshot_status_is_bounded_before_enum_lookup(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        snapshot["status"] = "x" * 12
+
+        with self.assertRaisesRegex(ValueError, "status text is too long"):
+            ExerciseSession.restore(definition, snapshot)
+
     def test_invalid_snapshot_cannot_claim_false_completion(self):
         definition = self.make_definition()
         snapshot = ExerciseSession(definition).snapshot()
