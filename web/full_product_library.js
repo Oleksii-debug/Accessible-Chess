@@ -173,7 +173,7 @@
     const list = node("ul");
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", snapshot.results_heading || "");
-    rows.forEach(function (row) {
+    rows.forEach(function (row, index) {
       const option = node("li");
       option.id = String(row.dom_id || "");
       option.setAttribute("role", "option");
@@ -192,8 +192,13 @@
       option.addEventListener("keydown", function (event) {
         if (event.key === "ArrowUp" || event.key === "ArrowDown") {
           event.preventDefault();
+          const delta = event.key === "ArrowUp" ? -1 : 1;
+          const targetIndex = index + delta;
+          // The listbox owns its local edge. Do not convert a normal keyboard
+          // boundary into a backend LookupError / NVDA error announcement.
+          if (targetIndex < 0 || targetIndex >= rows.length) return;
           invokeCommand(root, invoke, announce, snapshot, "library.move", {
-            delta: event.key === "ArrowUp" ? -1 : 1
+            delta: delta
           });
         } else if (event.key === "Enter") {
           event.preventDefault();
