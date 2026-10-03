@@ -1,6 +1,7 @@
 import copy
 import json
 import unittest
+from unittest.mock import patch
 
 from acs.book_training import (
     BOOK_TRAINING_SCHEMA_VERSION,
@@ -310,6 +311,83 @@ class BookTrainingWireContractTests(unittest.TestCase):
         coercive["origin"]["index_at_export"] = True
         with self.assertRaises(BookTrainingError) as caught:
             restore_book_training_material(self.book, coercive)
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_wire_step_count_is_rejected_before_step_materialization(self):
+        oversized = copy.deepcopy(self.payload)
+        raw_step = copy.deepcopy(oversized["definition"]["steps"][0])
+        oversized["definition"]["steps"] = [raw_step] * 2049
+
+        with patch(
+            "acs.book_training.ExerciseStep",
+            side_effect=AssertionError("oversized step list must fail before ExerciseStep"),
+        ) as step_type:
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, oversized)
+
+        step_type.assert_not_called()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_wire_accepted_move_count_is_rejected_before_frozenset_and_step(self):
+        oversized = copy.deepcopy(self.payload)
+        oversized["definition"]["steps"][0]["accepted_moves"] = ["e4"] * 65
+
+        with patch(
+            "acs.book_training.ExerciseStep",
+            side_effect=AssertionError("oversized accepted_moves must fail before ExerciseStep"),
+        ) as step_type:
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, oversized)
+
+        step_type.assert_not_called()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_wire_move_scalar_bound_precedes_domain_normalization(self):
+        oversized = copy.deepcopy(self.payload)
+        oversized["definition"]["steps"][0]["accepted_moves"] = ["e4" + (" " * 63)]
+
+        with patch(
+            "acs.book_training.ExerciseStep",
+            side_effect=AssertionError("raw oversized move must fail before normalization"),
+        ) as step_type:
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, oversized)
+
+        step_type.assert_not_called()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_wire_tags_and_metadata_counts_are_bounded_before_definition_build(self):
+        oversized_tags = copy.deepcopy(self.payload)
+        oversized_tags["definition"]["tags"] = ["tag"] * 257
+        with patch(
+            "acs.book_training.ExerciseDefinition",
+            side_effect=AssertionError("oversized tags must fail before definition build"),
+        ) as definition_type:
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, oversized_tags)
+        definition_type.assert_not_called()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+        oversized_metadata = copy.deepcopy(self.payload)
+        oversized_metadata["definition"]["metadata"] = {
+            f"k{index}": "v" for index in range(257)
+        }
+        with patch(
+            "acs.book_training.ExerciseDefinition",
+            side_effect=AssertionError("oversized metadata must fail before definition build"),
+        ) as definition_type:
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, oversized_metadata)
+        definition_type.assert_not_called()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_wire_origin_heading_path_count_is_bounded(self):
+        oversized = copy.deepcopy(self.payload)
+        oversized["origin"]["heading_path"] = ["Heading"] * 257
+
+        with self.assertRaises(BookTrainingError) as caught:
+            restore_book_training_material(self.book, oversized)
+
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
 
     def test_tampered_move_and_origin_digest_fail_closed(self):
