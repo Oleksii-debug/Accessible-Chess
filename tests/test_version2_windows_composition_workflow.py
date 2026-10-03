@@ -72,6 +72,8 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
             "V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB",
             "V2_ACCEPTED_STAGE1_UI_BLOB",
             "V2_ACCEPTED_P0G_STAGE1_UI_BLOB",
+            "V2_ACCEPTED_ENGINE_TIMEOUT_STAGE1_UI_BLOB",
+            "V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB",
             "V2_ACCEPTED_PGN_WORKSPACE_BLOB",
             "V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB",
         ):
@@ -86,6 +88,24 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn("tools/qa", self.workflow)
+
+    def test_reviewed_stage1_core_successor_is_not_branch_name_coupled(self) -> None:
+        self.assertIn(
+            "V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB: b579ca0f59ba20f6b69b3a4b7d89589256d54852",
+            self.workflow,
+        )
+        self.assertIn(
+            'b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|"$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB"',
+            self.workflow,
+        )
+        self.assertNotIn(
+            "integration/clock-engine-serial-intake-20261002",
+            self.workflow,
+        )
+        self.assertNotIn(
+            "github.event.pull_request.head.ref",
+            self.workflow,
+        )
 
     def test_dual_os_broad_qualification_and_diagnostics_remain_required(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.workflow)
