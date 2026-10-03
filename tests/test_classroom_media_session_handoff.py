@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import json
 from threading import Thread
 import unittest
 from unittest import mock
@@ -179,6 +180,12 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         self.assertNotIn(
             "secret-server-issued-token",
             str(first["credential"]),
+        )
+        encoded = json.dumps(first, ensure_ascii=False)
+        decoded = json.loads(encoded)
+        self.assertEqual(
+            decoded["credential"]["token"],
+            "secret-server-issued-token",
         )
         with self.assertRaisesRegex(
             MediaSessionHandoffError,
