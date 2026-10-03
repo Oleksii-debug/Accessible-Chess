@@ -188,6 +188,11 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
 
         self.assertEqual(controller.state, before)
         self.assertEqual(host.recovery_effect, effect)
+        status = host.recovery_status
+        self.assertEqual(status.effect, effect)
+        self.assertEqual(status.confirmed_chunk_count, 0)
+        self.assertEqual(status.total_chunk_count, 1)
+        self.assertTrue(status.provider_outcome_unknown)
         with self.assertRaises(MediaHostRecoveryRequired):
             host.prepare_local_source(MediaSource.MICROPHONE, True)
 
@@ -201,10 +206,15 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         self.assertEqual(controller.state, before)
         self.assertIsNone(host.pending_effect)
         self.assertEqual(host.recovery_effect, effect)
+        status = host.recovery_status
+        self.assertEqual(status.confirmed_chunk_count, 0)
+        self.assertEqual(status.total_chunk_count, 1)
+        self.assertTrue(status.provider_outcome_unknown)
         with self.assertRaises(MediaHostRecoveryRequired):
             host.prepare_local_source(MediaSource.MICROPHONE, True)
         host.resolve_recovery(effect.transaction_id)
         self.assertIsNone(host.recovery_effect)
+        self.assertIsNone(host.recovery_status)
 
     def test_stale_revision_after_provider_success_latches_recovery(self):
         controller, _roster, _session, _port, host = self.make_host()
@@ -220,6 +230,10 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
             host.commit_provider_success(effect.transaction_id)
         self.assertEqual(controller.state, state_after_loss)
         self.assertEqual(host.recovery_effect, effect)
+        status = host.recovery_status
+        self.assertEqual(status.confirmed_chunk_count, 1)
+        self.assertEqual(status.total_chunk_count, 1)
+        self.assertFalse(status.provider_outcome_unknown)
         self.assertIsNone(host.pending_effect)
 
     def test_success_ack_is_single_use(self):
@@ -354,6 +368,10 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         with self.assertRaises(MediaHostRecoveryRequired):
             host.commit_provider_success(effect.transaction_id)
         self.assertEqual(host.recovery_effect, effect)
+        status = host.recovery_status
+        self.assertEqual(status.confirmed_chunk_count, 1)
+        self.assertEqual(status.total_chunk_count, 1)
+        self.assertFalse(status.provider_outcome_unknown)
         self.assertFalse(
             controller.participant_policy("student-1")
             .source(MediaSource.MICROPHONE)
@@ -546,6 +564,10 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
 
         self.assertIsNone(host.pending_effect)
         self.assertEqual(host.recovery_effect, effect)
+        status = host.recovery_status
+        self.assertEqual(status.confirmed_chunk_count, 0)
+        self.assertEqual(status.total_chunk_count, 3)
+        self.assertTrue(status.provider_outcome_unknown)
         for index in range(1, 61):
             self.assertFalse(
                 controller.participant_policy(f"student-{index}")
@@ -575,6 +597,10 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         host.provider_failed(effect.transaction_id)
 
         self.assertEqual(host.recovery_effect, effect)
+        status = host.recovery_status
+        self.assertEqual(status.confirmed_chunk_count, 1)
+        self.assertEqual(status.total_chunk_count, 3)
+        self.assertTrue(status.provider_outcome_unknown)
         for index in range(1, 61):
             self.assertFalse(
                 controller.participant_policy(f"student-{index}")
@@ -583,6 +609,32 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
             )
         with self.assertRaises(MediaHostRecoveryRequired):
             host.prepare_local_source(MediaSource.CAMERA, True)
+
+    def test_provider_not_started_after_confirmed_prefix_records_known_partial_state(self):
+        _controller, _roster, _session, _port, host = self.make_host(
+            "teacher-1",
+            student_count=60,
+        )
+        effect = host.prepare_all_students_soft_mute(
+            actor_id="teacher-1",
+            muted=True,
+            operation_id="large-mute-not-started",
+        )
+
+        self.assertIsNone(
+            host.acknowledge_provider_chunk_success(effect.transaction_id, 0)
+        )
+        with self.assertRaisesRegex(
+            MediaHostRecoveryRequired,
+            "already partially applied",
+        ):
+            host.provider_not_started(effect.transaction_id)
+
+        status = host.recovery_status
+        self.assertEqual(status.effect, effect)
+        self.assertEqual(status.confirmed_chunk_count, 1)
+        self.assertEqual(status.total_chunk_count, 3)
+        self.assertFalse(status.provider_outcome_unknown)
 
     def test_moderation_chunk_size_fits_current_livekit_rpc_envelope(self):
         commands = tuple(
