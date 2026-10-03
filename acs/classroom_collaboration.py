@@ -293,17 +293,15 @@ class ClassroomCollaborationController:
                         "ambiguous chat recovery returned duplicate message identity"
                     )
                 recovered = matches[0]
-                if (
-                    recovered.room_id != draft.room_id
-                    or recovered.sender_id != draft.sender_id
-                    or recovered.body != draft.body
-                    or recovered.retention != draft.retention
-                    or recovered.sent_at_unix_ms is None
-                ):
-                    raise CollaborationError(
-                        "recovered chat message changed immutable message identity"
-                    )
+                self._validate_recovered_message(draft, recovered)
                 return self._persist_chat_with_gap_recovery(recovered)
+            # A first call may have committed before its acknowledgement was
+            # lost, and moderation may hide that accepted message before this
+            # exact retry returns. Hidden is mutable state, not immutable send
+            # identity, so preserve the authoritative hidden result instead of
+            # turning a successful idempotent recovery into a false send error.
+            self._validate_recovered_message(draft, delivered)
+            return self._persist_chat_with_gap_recovery(delivered)
         self._validate_delivered_message(draft, delivered)
         return self._persist_chat_with_gap_recovery(delivered)
 
@@ -1134,6 +1132,24 @@ class ClassroomCollaborationController:
         if attachment.transfer_state not in allowed_states:
             raise CollaborationError(
                 "file history contains non-durable attachment state"
+            )
+
+    @staticmethod
+    def _validate_recovered_message(
+        draft: ChatDraft,
+        message: ChatMessageMetadata,
+    ) -> None:
+        if (
+            type(message) is not ChatMessageMetadata
+            or message.message_id != draft.message_id
+            or message.room_id != draft.room_id
+            or message.sender_id != draft.sender_id
+            or message.body != draft.body
+            or message.retention != draft.retention
+            or message.sent_at_unix_ms is None
+        ):
+            raise CollaborationError(
+                "recovered chat message changed immutable message identity"
             )
 
     def _validate_delivered_message(
