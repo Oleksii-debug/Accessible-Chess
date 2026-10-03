@@ -122,6 +122,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         return {
             "enabled": bool(snapshot.get("master_enabled", True)),
             "volume": int(snapshot.get("master_volume_percent", 80)),
+            "writes_blocked": snapshot.get("writes_blocked") is True,
             "events": [
                 str(item.get("event_id"))
                 for item in events
