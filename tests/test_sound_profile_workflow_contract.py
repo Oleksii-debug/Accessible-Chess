@@ -40,6 +40,19 @@ class SoundProfileWorkflowContractTests(unittest.TestCase):
                 )
                 self.assertIn(PRODUCT_REF, text)
 
+    def test_pinned_product_must_equal_fresh_live_base_branch(self) -> None:
+        for name, text in self.texts.items():
+            with self.subTest(workflow=name):
+                self.assertIn(
+                    'git fetch --no-tags origin "refs/heads/${{ github.event.pull_request.base.ref }}"',
+                    text,
+                )
+                self.assertIn('live_product="$(git rev-parse FETCH_HEAD)"', text)
+                self.assertIn(
+                    'test "$live_product" = "$CURRENT_PRODUCT_BASE"',
+                    text,
+                )
+
     def test_each_candidate_proves_its_pinned_product_ancestry(self) -> None:
         for name, text in self.texts.items():
             with self.subTest(workflow=name):
