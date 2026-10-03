@@ -262,7 +262,10 @@
         previous.transfer_key === next.transfer_key &&
         previous.total_bytes === next.total_bytes &&
         previous.transferred_bytes === next.transferred_bytes &&
-        previous.complete === next.complete
+        previous.complete === next.complete &&
+        previous.name === next.name &&
+        previous.label === next.label &&
+        previous.text === next.text
       );
     }
     if (previous.transfer_key === next.transfer_key) {
