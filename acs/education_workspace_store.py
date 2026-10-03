@@ -77,6 +77,41 @@ def _canonical_bytes(payload: Mapping[str, object]) -> bytes:
     return bytes(data)
 
 
+def _replace_published_path(source: Path, destination: Path) -> None:
+    """Atomically publish one prepared file with platform durability intent."""
+
+    if os.name != "nt":
+        os.replace(source, destination)
+        return
+
+    # CPython's os.replace() uses the Windows replace-existing move semantics
+    # but does not expose MOVEFILE_WRITE_THROUGH. Use the native flag here so
+    # namespace publication itself, not only reopened destination contents, is
+    # flushed before success is reported.
+    import ctypes
+
+    move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move_file_ex.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+    )
+    move_file_ex.restype = ctypes.c_int
+    movefile_replace_existing = 0x00000001
+    movefile_write_through = 0x00000008
+    if not move_file_ex(
+        os.fspath(source),
+        os.fspath(destination),
+        movefile_replace_existing | movefile_write_through,
+    ):
+        error_code = ctypes.get_last_error()
+        raise OSError(
+            error_code,
+            f"durable Windows workspace replacement failed (Win32 {error_code})",
+            os.fspath(destination),
+        )
+
+
 def _sync_published_path(path: Path) -> None:
     """Confirm the replaced namespace entry is on stable storage.
 
@@ -419,7 +454,7 @@ class EducationWorkspaceStore:
                     temporary = None
                     raise
 
-                os.replace(temporary, self.path)
+                _replace_published_path(temporary, self.path)
                 temporary = None
                 try:
                     _sync_published_path(self.path)
