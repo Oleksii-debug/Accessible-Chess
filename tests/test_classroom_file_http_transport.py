@@ -345,6 +345,32 @@ class ClassroomFileHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             json.loads(body["body"].decode("utf-8")),
         )
 
+    def test_workflow_qualifies_exact_live_stacked_file_http_scope(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-file-http-transport.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'test "$BASE_REF" = "feature/classroom-file-rpc-core-20261003"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$LIVE_BASE_SHA" HEAD',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$LIVE_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn("tests.test_classroom_file_rpc", workflow)
+        self.assertIn("tests.test_classroom_file_server", workflow)
+
     async def test_binary_upload_preserves_opaque_bytes_and_authenticated_identity(self):
         content = b"\x00\xffopaque\nbytes"
         sent = await self.invoke(request=upload_request(content))
@@ -360,6 +386,50 @@ class ClassroomFileHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hashlib.sha256(content).hexdigest(), metadata.sha256)
         self.assertEqual("stored", payload["attachment"]["transfer_state"])
         self.assertEqual("clean", payload["attachment"]["scan_state"])
+
+    async def test_desktop_emitted_upload_frame_is_accepted_by_real_endpoint(self):
+        content = b"\x00client-to-endpoint\xff"
+        stored = attachment_wire(
+            body=content,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        stored["sequence_no"] = 0
+        FakeHttpConnection.instances = []
+        FakeHttpConnection.response = FakeHttpResponse(
+            {"v": 1, "ok": True, "attachment": stored}
+        )
+        transport = ClassroomFileHttpRpcCall(
+            endpoint_url="https://files.example.test/v1/classroom/files",
+            bearer_token_provider=lambda: "wire-token",
+        )
+
+        with patch(
+            "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+            FakeHttpConnection,
+        ):
+            transport.call(upload_request(content))
+
+        emitted = FakeHttpConnection.instances[0]
+        raw_body = b"".join(emitted.sent_parts)
+        request_headers = [
+            (
+                name.lower().encode("ascii"),
+                value.encode("ascii"),
+            )
+            for name, value in emitted.headers
+        ]
+        sent = await self.invoke(
+            raw_body=raw_body,
+            headers=request_headers,
+        )
+
+        status, _, payload = self.response(sent)
+        self.assertEqual(200, status)
+        self.assertEqual("stored", payload["attachment"]["transfer_state"])
+        self.assertEqual(1, len(self.backend.upload_calls))
+        self.assertEqual(content, self.backend.upload_calls[0][2])
+        self.assertEqual(["wire-token"], self.auth.calls)
 
     async def test_nonupload_request_has_no_binary_tail_and_forwards_room(self):
         request = {
