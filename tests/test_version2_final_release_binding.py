@@ -45,6 +45,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
             "p0_accessibility_runtime.js",
             "livekit_classroom_media.js",
             "classroom_media_host_executor.js",
+            "classroom_media_provider_runtime.js",
         )
         for name in resources:
             (web / name).write_text("// test resource\n", encoding="utf-8")
@@ -243,17 +244,20 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         sdk_label = "LiveKit browser SDK"
         adapter_label = "Classroom LiveKit media adapter"
         executor_label = "Classroom media host executor"
+        runtime_label = "Classroom media provider runtime"
         teacher_label = "V2 Teacher surface"
         media_label = "V2 Classroom media surface"
         bootstrap_label = "V2 final-product bootstrap"
         self.assertEqual(labels.count(sdk_label), 1)
         self.assertEqual(labels.count(adapter_label), 1)
         self.assertEqual(labels.count(executor_label), 1)
+        self.assertEqual(labels.count(runtime_label), 1)
         self.assertEqual(labels.count(media_label), 1)
         self.assertLess(labels.index(sdk_label), labels.index(adapter_label))
         self.assertLess(labels.index(adapter_label), labels.index(executor_label))
-        self.assertLess(labels.index(executor_label), labels.index(teacher_label))
-        self.assertLess(labels.index(executor_label), labels.index(media_label))
+        self.assertLess(labels.index(executor_label), labels.index(runtime_label))
+        self.assertLess(labels.index(runtime_label), labels.index(teacher_label))
+        self.assertLess(labels.index(runtime_label), labels.index(media_label))
         self.assertLess(labels.index(media_label), labels.index(bootstrap_label))
         self.assertIn("LivekitClient", dict(sources)[sdk_label])
 
@@ -275,6 +279,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         self.assertNotIn("LiveKit browser SDK", labels)
         self.assertNotIn("Classroom LiveKit media adapter", labels)
         self.assertNotIn("Classroom media host executor", labels)
+        self.assertNotIn("Classroom media provider runtime", labels)
         self.assertEqual(labels.count("V2 Classroom media surface"), 1)
 
     def test_partial_livekit_vendor_root_fails_closed(self) -> None:
