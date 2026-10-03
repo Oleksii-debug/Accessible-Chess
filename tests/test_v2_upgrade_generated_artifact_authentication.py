@@ -95,6 +95,65 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             with self.subTest(relative=relative):
                 self._assert_symlink_alias_fails_closed(relative)
 
+    def test_hardlinked_private_generated_names_remain_preservation_backed(self):
+        digest = "a" * 64
+        generated = (
+            "gametree-resume.json.abcd_123.tmp",
+            "gametree-resume.json.cas-abcd_123.bak",
+            ".book-progress.json.abcd_123.tmp",
+            ".book-progress.json.bak.abcd_123.tmp",
+            ".education-workspace.json.abcd_123.tmp",
+            f"training-progress/.{digest}.json.lock",
+            f"training-progress/.{digest}.json.abcd_123.tmp",
+            "settings.json.tmp",
+            ".settings.json.abcd_123.tmp",
+            "..v2-upgrade-state.json.abcd_123.tmp",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            source = root / "important-user-data.bin"
+            source.write_bytes(b"preserve-this-inode")
+
+            created: list[Path] = []
+            try:
+                for relative in generated:
+                    alias = root / relative
+                    alias.parent.mkdir(parents=True, exist_ok=True)
+                    os.link(source, alias)
+                    created.append(alias)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+            files = {
+                path.relative_to(root).as_posix()
+                for path in self._coordinator(root)._files()
+            }
+            self.assertIn(source.name, files)
+            for alias in created:
+                self.assertIn(alias.relative_to(root).as_posix(), files)
+                self.assertEqual(alias.read_bytes(), b"preserve-this-inode")
+
+    def test_publication_guard_hardlink_remains_generated_coordination_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b'{"schema_version":1}')
+            guard = root / ".settings.json.publish-guard-abcdef123456"
+            try:
+                os.link(settings, guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+            files = {
+                path.relative_to(root).as_posix()
+                for path in self._coordinator(root)._files()
+            }
+            self.assertIn("settings.json", files)
+            self.assertNotIn(guard.name, files)
+            self.assertEqual(guard.read_bytes(), settings.read_bytes())
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO creation is unavailable")
     def test_generated_filename_special_object_is_not_silently_discarded(self):
         with tempfile.TemporaryDirectory() as td:
