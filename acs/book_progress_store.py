@@ -763,7 +763,11 @@ class BookProgressStore:
         raced_creator = False
         descriptor = -1
         existing: os.stat_result | None = None
-        for attempt in range(64):
+        # An O_EXCL creator exposes an empty inode briefly before its one-byte
+        # marker is durable. Another process may first observe that inode after
+        # creation, without itself seeing FileExistsError. Wait only for the
+        # exact private inode to become initialized; never write into it.
+        for attempt in range(250):
             try:
                 existing = os.lstat(self._lock_path)
             except FileNotFoundError:
@@ -775,8 +779,8 @@ class BookProgressStore:
                 ) from None
             if existing is not None:
                 self._require_private_lock_metadata(existing)
-                if raced_creator and existing.st_size == 0:
-                    if attempt == 63:
+                if existing.st_size == 0:
+                    if attempt == 249:
                         raise BookProgressStoreError(
                             "book progress storage lock was not initialized by its creator",
                             code=BookProgressStoreErrorCode.IO_FAILURE,
@@ -797,7 +801,7 @@ class BookProgressStore:
                 break
             except FileExistsError:
                 raced_creator = True
-                if attempt == 63:
+                if attempt == 249:
                     raise BookProgressStoreError(
                         "book progress storage lock changed while being opened",
                         code=BookProgressStoreErrorCode.IO_FAILURE,
@@ -897,18 +901,15 @@ class BookProgressStore:
                             "book progress storage lock changed while being initialized",
                             code=BookProgressStoreErrorCode.IO_FAILURE,
                         )
-                    os.lseek(descriptor, 0, os.SEEK_SET)
-                    marker = os.read(descriptor, 2)
                 except OSError:
                     raise BookProgressStoreError(
                         "book progress storage lock could not be validated",
                         code=BookProgressStoreErrorCode.IO_FAILURE,
                     ) from None
-                if marker != b"\0":
-                    raise BookProgressStoreError(
-                        "book progress storage lock changed while being initialized",
-                        code=BookProgressStoreErrorCode.IO_FAILURE,
-                    )
+                # The creator already proved a one-byte write and fsync on this
+                # exact private inode. Avoid a pre-lock Windows CRT readback
+                # race here; _require_lock_descriptor_current() re-reads the
+                # canonical marker immediately after the OS lock is acquired.
             try:
                 final_path = os.lstat(self._lock_path)
             except OSError:
