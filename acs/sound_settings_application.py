@@ -223,6 +223,14 @@ class SoundSettingsApplication:
         local = installed_local.get(profile.pack_id)
         if local is not None:
             return local if self._local_pack_compatible(local) else None
+        if (
+            self._installed_audit_provider is not None
+            or self._installed_pack_provider is not None
+        ):
+            # The installed snapshot is authoritative for this application
+            # operation. Do not mix it with a second storage read through the
+            # coordinator, which could observe a different active version.
+            return None
         entry = self._catalog.get(profile.pack_id)
         if entry is None or self._packs is None or not entry.compatible:
             return None
