@@ -308,6 +308,64 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     package_preflight._sha256(target)
             self.assertTrue(swapped)
 
+    def test_manifest_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            manifest = root / MANIFEST_NAME
+            replacement = root / "manifest-replacement.tmp"
+            replacement.write_bytes(manifest.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == manifest and not swapped:
+                    swapped = True
+                    os.replace(replacement, manifest)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "release manifest changed while being opened",
+                ):
+                    package_preflight._manifest(root)
+            self.assertTrue(swapped)
+
+    def test_checksum_inventory_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            payload = root / "payload.txt"
+            payload.write_bytes(b"payload")
+            checksum = root / CHECKSUMS_NAME
+            digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+            checksum.write_text(f"{digest}  payload.txt\n", encoding="utf-8")
+            replacement = root / "checksum-replacement.tmp"
+            replacement.write_bytes(checksum.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == checksum and not swapped:
+                    swapped = True
+                    os.replace(replacement, checksum)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed while being opened",
+                ):
+                    package_preflight._checksums(
+                        root,
+                        (CHECKSUMS_NAME, "payload.txt"),
+                    )
+            self.assertTrue(swapped)
+
     def test_tree_rechecks_checksums_after_hygiene_phase(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
