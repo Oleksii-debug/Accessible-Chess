@@ -43,6 +43,7 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
             "version2-windows-composition",
             "d01-pgn-workspace-webview",
             "w4-v2-p0-fresh-windows-candidate",
+            "w6-v2-package-preflight-current-runtime",
         ):
             self.assertIn(approved, self.text)
 
@@ -52,7 +53,31 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
         self.assertEqual(self.text.count("jobs:"), 1)
         self.assertEqual(self.text.count("if __name__"), 0)
         self.assertIn(
-            "w4-v2-p0-fresh-windows-candidate)\\.yml)$' || true)",
+            "w4-v2-p0-fresh-windows-candidate)\\.yml)            self.text,
+        )
+
+    def test_dual_os_regressions_and_contract_run(self) -> None:
+        self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)
+        for module in (
+            "tests.test_sound_runtime",
+            "tests.test_sound_events",
+            "tests.test_stage1_engine_play_ui",
+            "tests.test_dev3_sound_failure_isolation",
+            "tests.test_sound_scaled_cache_integrity_workflow",
+            "tests.test_version2_release_payload",
+            "tests.test_w4_v2_p0_fresh_candidate_workflow",
+        ):
+            self.assertIn(module, self.text)
+
+    def test_superseded_sound_runs_are_cancelled(self) -> None:
+        self.assertIn("group: sound-scaled-cache-integrity-", self.text)
+        self.assertIn("cancel-in-progress: true", self.text)
+
+
+if __name__ == "__main__":
+    unittest.main()
+ || true)",
+        self.assertIn("w6-v2-package-preflight-current-runtime", self.text)
             self.text,
         )
 
