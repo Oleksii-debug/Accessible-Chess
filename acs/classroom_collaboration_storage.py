@@ -207,6 +207,19 @@ def _canonical_id(value: object, label: str) -> str:
     return value
 
 
+def _stored_integer(
+    value: object,
+    label: str,
+    *,
+    maximum: int = MAX_WIRE_INTEGER,
+) -> int:
+    if type(value) is not int or not 0 <= value <= maximum:
+        raise CollaborationStorageError(
+            f"stored {label} must be a bounded non-negative integer"
+        )
+    return value
+
+
 def _safe_object_key(value: object) -> str:
     if type(value) is not str or not value or len(value) > MAX_OBJECT_KEY_CHARS:
         raise ValueError("object_key must be a bounded relative storage key")
@@ -754,7 +767,11 @@ class ClassroomCollaborationSQLiteStore:
                     "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
                     (room_id,),
                 ).fetchone()
-                previous = None if cursor is None else int(cursor["revision"])
+                previous = (
+                    None
+                    if cursor is None
+                    else _stored_integer(cursor["revision"], "state revision")
+                )
                 for update in updates:
                     if update.room_id != room_id:
                         raise CollaborationStorageError(
@@ -821,7 +838,11 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-        return None if row is None else int(row["revision"])
+        return (
+            None
+            if row is None
+            else _stored_integer(row["revision"], "state revision")
+        )
 
     def apply_message_state_updates(
         self,
@@ -842,7 +863,11 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-            previous = None if row is None else int(row["revision"])
+            previous = (
+                None
+                if row is None
+                else _stored_integer(row["revision"], "state revision")
+            )
             try:
                 for update in updates:
                     if update.room_id != room_id:
@@ -1237,16 +1262,10 @@ class ClassroomCollaborationSQLiteStore:
                             (attachment.attachment_id,),
                         ).fetchone()
                         if watermark is not None:
-                            try:
-                                stored_revision = int(watermark["revision"])
-                            except (TypeError, ValueError, OverflowError):
-                                raise CollaborationStorageError(
-                                    "stored attachment snapshot watermark is invalid"
-                                ) from None
-                            if not 0 <= stored_revision <= MAX_WIRE_INTEGER:
-                                raise CollaborationStorageError(
-                                    "stored attachment snapshot watermark is invalid"
-                                )
+                            stored_revision = _stored_integer(
+                                watermark["revision"],
+                                "attachment snapshot watermark",
+                            )
                             if (
                                 snapshot_state_revision is None
                                 or watermark["room_id"] != room_id
@@ -1276,7 +1295,11 @@ class ClassroomCollaborationSQLiteStore:
                     "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                     (room_id,),
                 ).fetchone()
-                previous = None if cursor is None else int(cursor["revision"])
+                previous = (
+                    None
+                    if cursor is None
+                    else _stored_integer(cursor["revision"], "state revision")
+                )
                 for update in updates:
                     if update.room_id != room_id:
                         raise CollaborationStorageError(
@@ -1309,16 +1332,10 @@ class ClassroomCollaborationSQLiteStore:
                             raise CollaborationStorageError(
                                 "stored attachment snapshot watermark crossed room boundary"
                             )
-                        try:
-                            watermark_revision = int(watermark["revision"])
-                        except (TypeError, ValueError, OverflowError):
-                            raise CollaborationStorageError(
-                                "stored attachment snapshot watermark is invalid"
-                            ) from None
-                        if not 0 <= watermark_revision <= MAX_WIRE_INTEGER:
-                            raise CollaborationStorageError(
-                                "stored attachment snapshot watermark is invalid"
-                            )
+                        watermark_revision = _stored_integer(
+                            watermark["revision"],
+                            "attachment snapshot watermark",
+                        )
                     covered_by_snapshot = (
                         watermark_revision is not None
                         and watermark["room_id"] == room_id
@@ -1506,17 +1523,10 @@ class ClassroomCollaborationSQLiteStore:
             raise CollaborationStorageError(
                 "stored attachment snapshot watermark crossed room boundary"
             )
-        try:
-            revision = int(row["revision"])
-        except (TypeError, ValueError, OverflowError):
-            raise CollaborationStorageError(
-                "stored attachment snapshot watermark is invalid"
-            ) from None
-        if not 0 <= revision <= MAX_WIRE_INTEGER:
-            raise CollaborationStorageError(
-                "stored attachment snapshot watermark is invalid"
-            )
-        return revision
+        return _stored_integer(
+            row["revision"],
+            "attachment snapshot watermark",
+        )
 
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
@@ -1525,7 +1535,11 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-        return None if row is None else int(row["revision"])
+        return (
+            None
+            if row is None
+            else _stored_integer(row["revision"], "state revision")
+        )
 
     def apply_attachment_state_updates(
         self,
@@ -1548,7 +1562,11 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-            previous = None if row is None else int(row["revision"])
+            previous = (
+                None
+                if row is None
+                else _stored_integer(row["revision"], "state revision")
+            )
             try:
                 for update in updates:
                     if update.room_id != room_id:
