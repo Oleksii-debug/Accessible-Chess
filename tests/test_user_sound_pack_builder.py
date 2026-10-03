@@ -231,6 +231,18 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 "library/Russian/Draw.wav",
             )
             self.assertEqual(
+                [item["id"] for item in variants["events"]["low_time"]],
+                ["1", "2"],
+            )
+            self.assertEqual(
+                variants["events"]["low_time"][0]["file"],
+                "library/Board/coach.wav",
+            )
+            self.assertEqual(
+                variants["events"]["low_time"][1]["file"],
+                "library/Board/failhigh.wav",
+            )
+            self.assertEqual(
                 layers["events"]["move"]["1"],
                 ["library/Board/MOVE.WAV", "library/Board/MOVEHIT1.WAV"],
             )
