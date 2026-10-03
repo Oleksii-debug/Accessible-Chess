@@ -22,6 +22,19 @@ _MAX_BOOKMARK_NAME = 80
 # truncating reader-visible/copyable content to a small UI preview.
 _MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024
 _MAX_BOOK_LIST_ITEMS = 65536
+_MAX_BOOK_HEADING_PATH_PARTS = 6
+_BOOK_ROLE_BY_KIND = {
+    "Heading": "heading",
+    "Paragraph": "paragraph",
+    "List": "list",
+    "Position": "group",
+    "Diagram": "img",
+    "Game": "group",
+    "VariationTree": "tree",
+    "Exercise": "group",
+    "Note": "note",
+}
+_POSITION_KINDS = {"Position", "Diagram", "Exercise", "VariationTree"}
 
 _LABELS = {
     UILanguage.UA: {
@@ -166,7 +179,7 @@ class BookWebViewProjection:
 
     def _result_announcement(self, key: str) -> str:
         """Return one localized deterministic success result for the Books surface."""
-        if key not in {"saved", "restored", "opened", "returned"}:
+        if key not in {"saved", "restored", "opened", "game_opened", "returned"}:
             raise ValueError("unsupported book result announcement")
         return _LABELS[self._language][key]
 
@@ -205,9 +218,17 @@ class BookWebViewProjection:
             type(block.heading_level) is not int or not 1 <= block.heading_level <= 6
         ):
             raise ValueError("book heading level is invalid")
+        if type(block.kind) is not str or block.kind not in _BOOK_ROLE_BY_KIND:
+            raise ValueError("book block kind is invalid")
         role = str(block.role)
-        if role not in {"heading", "paragraph", "img", "group", "tree", "note", "list"}:
-            raise ValueError("book block role is invalid")
+        if role != _BOOK_ROLE_BY_KIND[block.kind]:
+            raise ValueError("book block kind/role is inconsistent")
+        if type(block.heading_path) is not tuple or len(block.heading_path) > _MAX_BOOK_HEADING_PATH_PARTS:
+            raise ValueError("book heading path is invalid")
+        if any(type(part) is not str or not part.strip() for part in block.heading_path):
+            raise ValueError("book heading path is invalid")
+        if (block.position_fen is not None) != (block.kind in _POSITION_KINDS):
+            raise ValueError("book block position presence disagrees with semantic kind")
         if type(block.list_items) is not tuple or any(
             type(item) is not str or not item.strip() for item in block.list_items
         ):
