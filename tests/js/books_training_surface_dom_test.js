@@ -562,6 +562,40 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed root result must not steal reading focus");
 
+  const malformedSemanticTextFields = [
+    ["players", false],
+    ["players_label", { text: "Players" }],
+    ["result_label", 0],
+    ["metadata_label", ["Metadata"]],
+    ["comments_label", false],
+    ["intro_comments_label", { text: "Intro" }],
+    ["outro_comments_label", 1],
+    ["warnings_label", ["Warnings"]],
+    ["label", { text: "Moves" }]
+  ];
+  malformedSemanticTextFields.forEach(function (entry) {
+    const malformed = semanticGameSnapshot();
+    malformed.block.semantic_tree[entry[0]] = entry[1];
+    let rejected = false;
+    try {
+      window.AccessibleChessBookSurface.render(
+        bookRoot,
+        malformed,
+        bookInvoke,
+        announce,
+        "book-block-5",
+        "Action failed"
+      );
+    } catch (error) {
+      rejected = true;
+    }
+    check(rejected, "non-text semantic " + entry[0] + " must fail closed");
+    check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+      "malformed semantic labels must not replace the prior readable DOM");
+    check(document.activeElement === focusBeforeMalformed,
+      "malformed semantic labels must not steal reading focus");
+  });
+
   const malformedMetadata = semanticGameSnapshot();
   malformedMetadata.block.semantic_tree.metadata = { Event: "bad" };
   let malformedMetadataRejected = false;
