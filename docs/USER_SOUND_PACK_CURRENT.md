@@ -36,7 +36,7 @@ The full 330-file source library is retained in the built sound pack so future v
 - Missing/broken assets never fall back to a Windows system beep.
 - Multi-second NEWGAME and clock WAVs use non-blocking Windows playback so the keyboard and UI remain responsive.
 - Variant selection is persisted per event.
-- NEWGAME visual placement uses 32 detected impact times from the supplied 8.521723-second WAV; the same timing authority is emitted as newgame_impacts.json by the pack builder.
+- NEWGAME visual placement uses 32 detected impact times for the default 2D WAV and a separate 32-impact timeline for the distinct 3D NEWGAME WAV. The selected start-sound variant chooses the matching animation timeline; both are emitted in newgame_impacts.json by the pack builder.
 - Release validation checks every selectable variant, not only the defaults.
 
 ## Distribution boundary
