@@ -889,6 +889,23 @@ class ClassroomCollaborationWebView:
     ) -> ClassroomCollaborationWebViewEvent:
         """Project a trusted-host live chat delivery into the current UI session."""
 
+        if type(message) is ChatMessageMetadata:
+            pending_fingerprints = tuple(
+                fingerprint
+                for fingerprint, message_id in self._pending_chat.items()
+                if message_id == message.message_id
+            )
+            if pending_fingerprints:
+                fingerprint = self._chat_draft_fingerprint(message.body)
+                if (
+                    fingerprint not in pending_fingerprints
+                    or message.sender_id != self._controller.local_participant_id
+                    or message.retention != self._chat_retention
+                ):
+                    raise ValueError(
+                        "live chat conflicts with pending send identity"
+                    )
+
         before_ids = {
             item.message_id
             for item in self._store.room_messages(
@@ -942,21 +959,36 @@ class ClassroomCollaborationWebView:
                 message=_LABELS[self._language]["chat_sync_failed"],
                 focus_target="collaboration-chat-sync",
             )
-        current_message_ids = {
-            item.message_id
-            for item in self._store.room_messages(
-                self._controller.room_id,
-                include_hidden=True,
-            )
-        }
-        recovered_fingerprints = tuple(
-            fingerprint
-            for fingerprint, message_id in self._pending_chat.items()
-            if message_id in current_message_ids
+        current_messages = self._store.room_messages(
+            self._controller.room_id,
+            include_hidden=True,
         )
-        pending_recovered = bool(recovered_fingerprints)
+        current_by_id = {
+            item.message_id: item
+            for item in current_messages
+        }
+        recovered_fingerprints: list[str] = []
+        pending_conflict = False
+        for fingerprint, message_id in self._pending_chat.items():
+            item = current_by_id.get(message_id)
+            if item is None:
+                continue
+            if (
+                item.sender_id == self._controller.local_participant_id
+                and item.retention == self._chat_retention
+                and self._chat_draft_fingerprint(item.body) == fingerprint
+            ):
+                recovered_fingerprints.append(fingerprint)
+            else:
+                pending_conflict = True
         for fingerprint in recovered_fingerprints:
             self._pending_chat.pop(fingerprint, None)
+        if pending_conflict:
+            return self._error(
+                message=_LABELS[self._language]["send_failed"],
+                focus_target="collaboration-chat-sync",
+            )
+        pending_recovered = bool(recovered_fingerprints)
         new_remote = tuple(
             item
             for item in incoming

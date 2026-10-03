@@ -319,6 +319,50 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("collaboration.chat.sent", sent_again.kind)
         self.assertEqual(next_calls, ["message-ui-2"])
 
+    def test_chat_sync_does_not_confirm_mutated_pending_identity(self) -> None:
+        view = self.webview()
+        calls: list[str] = []
+
+        def failed_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append(message_id)
+            raise RuntimeError("ambiguous chat transport")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=failed_send,
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Expected pending body"},
+            )
+        self.assertEqual("error", failed.kind)
+        pending_id = calls[0]
+
+        accepted_with_wrong_body = ChatMessageMetadata(
+            pending_id,
+            "room-1",
+            "student-1",
+            0,
+            "Unexpected body",
+            retention="session",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.messages[pending_id] = accepted_with_wrong_body
+        self.chat.ordered = [accepted_with_wrong_body]
+
+        synced = view.dispatch("collaboration.chat.sync", {})
+        self.assertEqual("error", synced.kind)
+        self.assertEqual(
+            "Message send was not confirmed. Retry or refresh chat.",
+            synced.payload["message"],
+        )
+        self.assertEqual(1, len(view._pending_chat))
+        self.assertEqual(
+            (accepted_with_wrong_body,),
+            self.store.room_messages("room-1", include_hidden=True),
+        )
+
     def test_chat_history_is_bounded_pageable_and_keeps_semantic_order(self) -> None:
         for sequence in range(105):
             self.store.append_message(
@@ -450,6 +494,39 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             recovered.payload["collaboration"]["chat"]["unread_count"],
         )
         self.assertEqual(1, len(self.store.room_messages("room-1")))
+
+    def test_trusted_live_chat_echo_rejects_pending_identity_with_changed_body(self) -> None:
+        view = self.webview()
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=RuntimeError("ambiguous provider send"),
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Original pending body"},
+            )
+        self.assertEqual("error", failed.kind)
+        pending_id = next(iter(view._pending_chat.values()))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "live chat conflicts with pending send identity",
+        ):
+            view.receive_chat(
+                ChatMessageMetadata(
+                    pending_id,
+                    "room-1",
+                    "student-1",
+                    0,
+                    "Mutated pending body",
+                    retention="session",
+                    sent_at_unix_ms=1700000000000,
+                )
+            )
+
+        self.assertEqual(1, len(view._pending_chat))
+        self.assertEqual((), self.store.room_messages("room-1"))
 
     def test_trusted_live_file_push_is_visible_without_manual_refresh(self) -> None:
         view = self.webview()
