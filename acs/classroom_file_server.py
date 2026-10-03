@@ -309,8 +309,14 @@ class ClassroomFileServerSQLiteStore:
     def existing_upload(
         self,
         metadata: AttachmentMetadata,
-    ) -> AttachmentMetadata | None:
-        """Return an exact previously accepted upload before rescanning a retry."""
+    ) -> tuple[AttachmentMetadata | None, bool]:
+        """Return terminal replay state plus whether exact bytes already passed scan.
+
+        An uploading row exists only after this exact immutable payload passed
+        a clean server-side scan. It deliberately survives an ambiguous
+        object-store write, so an exact retry can repeat the idempotent
+        put/finalize sequence without depending on a later scanner result.
+        """
         with closing(self._connect()) as db:
             row = db.execute(
                 "SELECT * FROM classroom_file_server_attachments "
@@ -318,13 +324,13 @@ class ClassroomFileServerSQLiteStore:
                 (metadata.attachment_id,),
             ).fetchone()
         if row is None:
-            return None
+            return None, False
         if self._row_immutable_tuple(row) != self._immutable_tuple(metadata):
             raise CollaborationConflictError(
                 "attachment identity was reused with different payload"
             )
         if row["transfer_state"] == "stored":
-            return self._terminal_from_row(row)
+            return self._terminal_from_row(row), True
         if row["transfer_state"] == "deleted":
             raise CollaborationConflictError(
                 "deleted attachment identity cannot be reused"
@@ -337,7 +343,7 @@ class ClassroomFileServerSQLiteStore:
             raise ClassroomFileServerError(
                 "stored upload reservation has invalid state"
             )
-        return None
+        return None, True
 
     def reserve_upload(
         self,
@@ -960,35 +966,36 @@ class ClassroomFileServerService:
             attachment_id=metadata.attachment_id,
             retention=metadata.retention,
         )
-        existing = self._store.existing_upload(metadata)
+        existing, scan_approved = self._store.existing_upload(metadata)
         if existing is not None:
             # Exact retry of a committed upload is recovery, not a new scan or
             # policy decision. The accepted immutable identity is authoritative.
             return existing
-        try:
-            scan_state = self._scanner.scan(
-                room_id=metadata.room_id,
-                sender_id=caller,
-                display_name=metadata.display_name,
-                sha256=metadata.sha256,
-                content=content,
-            )
-        except Exception:
-            scan_state = "failed"
-        if scan_state not in {"clean", "blocked", "failed"}:
-            raise ClassroomFileServerError(
-                "malware scanner returned invalid state"
-            )
-        if scan_state != "clean":
-            return replace(
-                metadata,
-                transfer_state="failed",
-                scan_state=scan_state,
-            )
+        if not scan_approved:
+            try:
+                scan_state = self._scanner.scan(
+                    room_id=metadata.room_id,
+                    sender_id=caller,
+                    display_name=metadata.display_name,
+                    sha256=metadata.sha256,
+                    content=content,
+                )
+            except Exception:
+                scan_state = "failed"
+            if scan_state not in {"clean", "blocked", "failed"}:
+                raise ClassroomFileServerError(
+                    "malware scanner returned invalid state"
+                )
+            if scan_state != "clean":
+                return replace(
+                    metadata,
+                    transfer_state="failed",
+                    scan_state=scan_state,
+                )
 
-        existing = self._store.reserve_upload(metadata, quota=self._quota)
-        if existing is not None:
-            return existing
+            existing = self._store.reserve_upload(metadata, quota=self._quota)
+            if existing is not None:
+                return existing
         try:
             self._object_store.put(
                 object_key=metadata.object_key,
