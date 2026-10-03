@@ -32,10 +32,7 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             }
             required.update(
                 Path(file_name.removeprefix("library/"))
-                for by_variant in __import__(
-                    "scripts.build_user_sound_pack",
-                    fromlist=["SOUND_LAYERS"],
-                ).SOUND_LAYERS.values()
+                for by_variant in SOUND_LAYERS.values()
                 for sequence in by_variant.values()
                 for file_name in sequence
             )
