@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 from acs.classroom_media_host_transactions import (
@@ -27,6 +28,13 @@ from acs.classroom_realtime_media import (
     JoinCredential,
     MediaSource,
 )
+from acs.classroom_media_webview_projection import ClassroomMediaWebViewProjection
+from acs.classroom_media_webview_transactions import (
+    ClassroomMediaBrowserProviderConfig,
+    ClassroomMediaTransactionalWebView,
+)
+from acs.full_product_ui_shell import UILanguage
+from acs.version2_final_product_application import Version2FinalProductApplication
 
 
 NOW = datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)
@@ -163,6 +171,37 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNone(binder.active_lease)
         return result
 
+    def test_application_rejects_transactional_unbind_while_connected(self):
+        controller, roster, _host, _sessions, _arbiter, binder = self.make_composition()
+        application = object.__new__(Version2FinalProductApplication)
+        application.shell = SimpleNamespace(language=UILanguage.EN)
+        application.media = None
+        application.media_transactions = None
+        application._assert_thread = lambda: None
+        labels = {
+            participant_id: participant_id.replace("-", " ").title()
+            for participant_id in roster.participant_ids()
+        }
+        application.bind_classroom_media(
+            controller,
+            lambda: dict(labels),
+            provider_binder=binder,
+            provider_config=ClassroomMediaBrowserProviderConfig(
+                "wss://media.example.test",
+                "moderation-bot",
+            ),
+        )
+        self.join(controller, roster, binder)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "provider session is connected",
+        ):
+            application.unbind_classroom_media()
+
+        self.assertIsNotNone(application.media)
+        self.assertIsNotNone(application.media_transactions)
+
     def test_session_lease_is_acquired_before_prepare_and_blocks_effect_prepare(self):
         _controller, roster, host, sessions, arbiter, binder = self.make_composition()
         lease = binder.prepare_join(
@@ -221,7 +260,7 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNotNone(sessions.pending_effect)
         binder.provider_not_started(lease.transaction_id)
 
-    def test_credential_handoff_without_provider_dispatch_latches_global_known_recovery(self):
+    def test_credential_handoff_without_provider_dispatch_latches_global_unknown_recovery(self):
         _controller, roster, _host, sessions, arbiter, binder = self.make_composition()
         lease = binder.prepare_join(
             credential(roster.local_id),
@@ -236,8 +275,9 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNone(arbiter.active_lease)
         status = binder.recovery_status
         self.assertIsNotNone(status)
-        self.assertFalse(status.provider_outcome_unknown)
-        self.assertFalse(status.lease.provider_boundary_crossed)
+        self.assertTrue(status.provider_outcome_unknown)
+        self.assertTrue(status.lease.provider_boundary_crossed)
+        self.assertTrue(sessions.recovery_status.provider_outcome_unknown)
         self.assertIsNotNone(sessions.recovery_status)
 
         with self.assertRaises(MediaProviderExecutionRecoveryRequired):
@@ -440,6 +480,47 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNotNone(retry)
         binder.provider_not_started(retry.transaction_id)
 
+    def test_duplicate_callback_preserves_existing_recovery_for_browser(self):
+        controller, roster, _host, _sessions, _arbiter, binder = self.make_composition()
+        self.join(controller, roster, binder)
+        projection = ClassroomMediaWebViewProjection(
+            controller,
+            lambda: {
+                participant_id: participant_id
+                for participant_id in roster.participant_ids()
+            },
+        )
+        transactions = ClassroomMediaTransactionalWebView(
+            projection,
+            binder,
+            ClassroomMediaBrowserProviderConfig(
+                "wss://media.example.test",
+                "moderation-bot",
+            ),
+        )
+
+        dispatch = transactions.set_local_source(
+            MediaSource.CAMERA,
+            True,
+            focus_target="classroom-media-heading",
+        )
+        transaction_id = dispatch.payload["transaction_id"]
+        binder.mark_provider_dispatched(transaction_id)
+        binder.provider_failed(transaction_id)
+        self.assertIsNotNone(binder.recovery_status)
+
+        duplicate = transactions.dispatch_provider(
+            "media.provider_not_started",
+            {"transaction_id": transaction_id},
+        )
+
+        self.assertEqual(duplicate.kind, "error")
+        self.assertIsNone(duplicate.payload["snapshot"])
+        self.assertTrue(duplicate.payload["recovery_required"])
+        self.assertEqual(duplicate.payload["transaction_id"], transaction_id)
+        self.assertIsNotNone(binder.recovery_status)
+        binder.resolve_recovery(transaction_id)
+
     def test_provider_failure_latches_global_recovery_and_blocks_other_owner(self):
         controller, roster, _host, _sessions, arbiter, binder = self.make_composition()
         self.join(controller, roster, binder)
@@ -501,6 +582,10 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         )
         secret = binder.take_session_credential(lease.transaction_id)
         self.assertEqual(secret["token"], TOKEN)
+        self.assertTrue(arbiter.active_lease.provider_boundary_crossed)
+        self.assertEqual(repr(secret), "<redacted media session credential>")
+        with self.assertRaisesRegex(TypeError, "credential handoff is immutable"):
+            secret["token"] = "substitute-token"
 
         self.assertNotIn(TOKEN, repr(binder))
         self.assertNotIn(TOKEN, repr(binder.active_lease))
