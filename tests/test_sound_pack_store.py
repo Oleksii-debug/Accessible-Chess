@@ -704,6 +704,38 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual([], errors)
             self.assertNotIn(second.pack_id, second_store.installed())
 
+    def test_mutation_lock_swap_after_lstat_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            lock_path = store._mutation_lock_path
+            lock_path.write_bytes(b"\0")
+            replacement = root / "replacement.lock"
+            replacement.write_bytes(b"\0")
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(path) == lock_path and not swapped:
+                    swapped = True
+                    os.replace(replacement, lock_path)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch(
+                "acs.sound_pack_store.os.open",
+                side_effect=swap_before_open,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "lock changed before secure open",
+            ):
+                with store._exclusive_mutation():
+                    self.fail("mutation lock identity swap must fail closed")
+
+            self.assertTrue(swapped)
+
     @unittest.skipIf(
         __import__("os").name == "nt",
         "ordinary Windows test runners cannot create symlinks reliably",
