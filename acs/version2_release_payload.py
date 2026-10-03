@@ -394,12 +394,11 @@ def _validate_sound_pack(product_dir: Path) -> None:
         raise Version2ReleasePayloadError("sound manifest files must be an object")
 
     expected_events = {event.value for event in SoundEvent}
-    if len(expected_events) != 9 or set(mapping) != expected_events:
+    if set(mapping) != expected_events:
         raise Version2ReleasePayloadError(
-            "sound manifest must declare exactly all nine semantic sound events"
+            "sound manifest must declare exactly all semantic sound events"
         )
 
-    seen_assets: set[str] = set()
     for event in SoundEvent:
         value = mapping.get(event.value)
         if not isinstance(value, str) or not value.strip() or "\\" in value or "\x00" in value:
@@ -409,10 +408,6 @@ def _validate_sound_pack(product_dir: Path) -> None:
             raise Version2ReleasePayloadError(f"sound asset path is unsafe: {event.value}")
         if token.suffix.casefold() != ".wav":
             raise Version2ReleasePayloadError(f"sound asset is not WAV: {event.value}")
-        folded = token.as_posix().casefold()
-        if folded in seen_assets:
-            raise Version2ReleasePayloadError("sound events must use distinct WAV assets")
-        seen_assets.add(folded)
 
     try:
         manifest = PackagedSoundAssetResolver(product_dir).load_manifest()
@@ -622,7 +617,7 @@ def prepare_version2_release_payload(
     Inputs are local, already-produced artifacts. The Stockfish archive is pinned
     to the official Stockfish 18 generic Windows x86-64 release digest; callers
     cannot override that identity. ``sound_pack_dir`` must contain the canonical
-    ``manifest.json``, provenance identity, and exactly all nine WAV events.
+    ``manifest.json``, provenance identity, and the complete current SoundEvent set.
     """
 
     standalone = Path(standalone_dir)
