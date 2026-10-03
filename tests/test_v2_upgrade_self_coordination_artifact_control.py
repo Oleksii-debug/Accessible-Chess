@@ -85,7 +85,7 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2UpgradeError,
-                    "opened safely|changed while opening",
+                    "private regular file|opened safely|changed while opening",
                 ):
                     with _UpgradeLock(lock):
                         pass
