@@ -252,6 +252,37 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         # indexed block reads, not zero and not repeated per semantic class.
         self.assertEqual(counted.reads, 6)
 
+    def test_navigation_availability_stops_after_all_semantic_classes_are_found(self) -> None:
+        document = BookDocument(
+            title="Bounded semantic scan",
+            blocks=[
+                Paragraph(text="far previous", block_id="far-previous"),
+                Game(pgn='[Result "*"]\n\n1. e4 *', title="Previous game", block_id="previous-game"),
+                Position(fen=Board.START, block_id="previous-position"),
+                Heading(text="Previous heading", level=2, block_id="previous-heading"),
+                Paragraph(text="cursor", block_id="cursor"),
+                Heading(text="Next heading", level=2, block_id="next-heading"),
+                Exercise(
+                    fen=Board.START,
+                    prompt="Next position-like block",
+                    answer_text="e4",
+                    block_id="next-position",
+                ),
+                Game(pgn='[Result "*"]\n\n1. d4 *', title="Next game", block_id="next-game"),
+                Paragraph(text="far next", block_id="far-next"),
+            ],
+        )
+        reader = BookReader(document)
+        reader.go_to(4)
+        counted = CountingBlocks(reader._indexed_document.blocks)
+        reader._indexed_document.blocks = counted
+        counted.reads = 0
+
+        availability = reader.navigation_availability()
+
+        self.assertTrue(all(availability.values()))
+        self.assertEqual(counted.reads, 6)
+
     def test_presenter_never_rereads_live_block_after_location_validation(self) -> None:
         document = self.make_document()
         reader = BookReader(document)
