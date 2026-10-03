@@ -780,6 +780,7 @@ class ClassroomCollaborationController:
             )
             self._validate_uploaded_result(uploading, result)
         except CollaborationQuotaError as error:
+            close_progress()
             self._store.update_attachment_state(
                 uploading.attachment_id,
                 transfer_state="failed",
@@ -854,6 +855,7 @@ class ClassroomCollaborationController:
             )
             self._validate_uploaded_result(uploading, result)
         except CollaborationQuotaError as error:
+            close_progress()
             self._store.update_attachment_state(
                 current.attachment_id,
                 transfer_state="failed",
