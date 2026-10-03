@@ -5,8 +5,10 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+import acs.version2_upgrade_base as upgrade_base_module
 from acs.version2_upgrade import (
     UserDataLayout,
     Version2UpgradeCoordinator,
@@ -115,6 +117,120 @@ class V2UpgradeTrackedWriterConflictTests(unittest.TestCase):
                 ).run()
 
             self.assertIn("external-v1.pgn", self._source_names(library))
+
+    def test_recovery_settings_writer_in_final_replace_window_is_restored_from_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_text(
+                json.dumps({"language": "en", "volume": 20}), encoding="utf-8"
+            )
+
+            def crash_after_settings(phase: str) -> None:
+                if phase == "settings-migrated":
+                    raise _Crash()
+
+            with self.assertRaises(_Crash):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=crash_after_settings
+                ).run()
+
+            external_bytes = (
+                json.dumps({"language": "uk", "volume": 94}, ensure_ascii=False)
+                + "\n"
+            ).encode("utf-8")
+            real_stable_copy = upgrade_base_module._stable_copy
+            injected = False
+
+            def race_restore_copy(source, destination, **kwargs):
+                nonlocal injected
+                if Path(destination) == settings and not injected:
+                    injected = True
+                    settings.write_bytes(external_bytes)
+                return real_stable_copy(source, destination, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_stable_copy",
+                side_effect=race_restore_copy,
+            ):
+                with self.assertRaises(Version2UpgradeRecoveryError):
+                    Version2UpgradeCoordinator(
+                        UserDataLayout(root)
+                    ).recover_interrupted()
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                settings.read_bytes(),
+                external_bytes,
+                "recovery silently overwrote the final-window Settings writer",
+            )
+
+    def test_recovery_library_writer_in_final_replace_window_is_restored_from_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+
+            def crash_after_library(phase: str) -> None:
+                if phase == "library-migrated":
+                    raise _Crash()
+
+            with self.assertRaises(_Crash):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=crash_after_library
+                ).run()
+
+            real_stable_copy = upgrade_base_module._stable_copy
+            injected = False
+
+            def race_restore_copy(source, destination, **kwargs):
+                nonlocal injected
+                if Path(destination) == library and not injected:
+                    injected = True
+                    connection = sqlite3.connect(library)
+                    try:
+                        connection.execute(
+                            "INSERT INTO sources(source_name,source_format,sha256,imported_at) "
+                            "VALUES(?,?,?,?)",
+                            (
+                                "external-recovery-window-v6.pgn",
+                                "pgn",
+                                "7" * 64,
+                                "2026-10-04T00:20:00+02:00",
+                            ),
+                        )
+                        connection.commit()
+                    finally:
+                        connection.close()
+                return real_stable_copy(source, destination, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_stable_copy",
+                side_effect=race_restore_copy,
+            ):
+                with self.assertRaises(Version2UpgradeRecoveryError):
+                    Version2UpgradeCoordinator(
+                        UserDataLayout(root)
+                    ).recover_interrupted()
+
+            self.assertTrue(injected)
+            with AcsDatabase(library) as reopened:
+                self.assertEqual(reopened.verify_integrity(), ACSDB_SCHEMA_VERSION)
+                names = [
+                    str(row["source_name"])
+                    for row in reopened.conn.execute(
+                        "SELECT source_name FROM sources ORDER BY id"
+                    ).fetchall()
+                ]
+            self.assertIn(
+                "external-recovery-window-v6.pgn",
+                names,
+                "recovery silently overwrote the final-window Library writer",
+            )
 
     def test_interrupted_recovery_preserves_newer_external_tracked_settings(self) -> None:
         with tempfile.TemporaryDirectory() as td:
