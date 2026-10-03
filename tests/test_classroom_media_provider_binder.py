@@ -221,7 +221,7 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNotNone(sessions.pending_effect)
         binder.provider_not_started(lease.transaction_id)
 
-    def test_credential_handoff_without_provider_dispatch_latches_global_known_recovery(self):
+    def test_credential_handoff_without_provider_dispatch_latches_global_unknown_recovery(self):
         _controller, roster, _host, sessions, arbiter, binder = self.make_composition()
         lease = binder.prepare_join(
             credential(roster.local_id),
@@ -236,8 +236,9 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNone(arbiter.active_lease)
         status = binder.recovery_status
         self.assertIsNotNone(status)
-        self.assertFalse(status.provider_outcome_unknown)
-        self.assertFalse(status.lease.provider_boundary_crossed)
+        self.assertTrue(status.provider_outcome_unknown)
+        self.assertTrue(status.lease.provider_boundary_crossed)
+        self.assertTrue(sessions.recovery_status.provider_outcome_unknown)
         self.assertIsNotNone(sessions.recovery_status)
 
         with self.assertRaises(MediaProviderExecutionRecoveryRequired):
@@ -501,6 +502,10 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         )
         secret = binder.take_session_credential(lease.transaction_id)
         self.assertEqual(secret["token"], TOKEN)
+        self.assertTrue(arbiter.active_lease.provider_boundary_crossed)
+        self.assertEqual(repr(secret), "<redacted media session credential>")
+        with self.assertRaisesRegex(TypeError, "credential handoff is immutable"):
+            secret["token"] = "substitute-token"
 
         self.assertNotIn(TOKEN, repr(binder))
         self.assertNotIn(TOKEN, repr(binder.active_lease))
