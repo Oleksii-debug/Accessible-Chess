@@ -194,6 +194,57 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(backward.value.kind, "render")
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_book_stale_write_rebinds_external_canonical_progress(self):
+        book = self.root / "stale-write.md"
+        book.write_text(
+            "# Chapter\n\nFirst paragraph.\n\nSecond paragraph.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(
+            self.app.browser_command("shell", "book.open")["kind"],
+            "delegated",
+        )
+        store = self.app.progress_store
+        key = self.app.book_key
+        document = self.app.reader.document
+        before = self.app.reader.snapshot()
+
+        external_reader = BookReader(document)
+        external_reader.go_to(2)
+        external_store = BookProgressStore(store.path)
+        injected = False
+
+        def external_generation_wins(_book_key, _reader):
+            nonlocal injected
+            if not injected:
+                external_store.save(key, external_reader)
+                injected = True
+            raise BookProgressStoreError(
+                "external Book progress generation won",
+                code=BookProgressStoreErrorCode.STALE_WRITE,
+            )
+
+        with patch.object(
+            store,
+            "save",
+            side_effect=external_generation_wins,
+        ):
+            result = self.app.browser_command("books", "book.next")
+
+        self.assertTrue(injected)
+        self.assertEqual("error", result["kind"])
+        self.assertIsNotNone(self.app.reader)
+        self.assertNotEqual(before, self.app.reader.snapshot())
+        self.assertEqual(
+            external_reader.snapshot(),
+            self.app.reader.snapshot(),
+            "STALE_WRITE rollback overwrote the canonical external Book progress",
+        )
+        persisted = external_store.restore_primary(key, document)
+        self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+
     def test_book_durability_unknown_reloads_visible_canonical_progress(self):
         book = self.root / "durability-unknown.md"
         book.write_text(
@@ -604,6 +655,94 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(restarted.shell.current_route.route_id, route_before)
         self.assertFalse(store.path.exists())
         self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
+
+    def test_training_continue_stale_write_rebinds_external_canonical_progress(self):
+        after_e4 = Board()
+        after_e4.push_text("e4")
+        after_e4_e5 = Board()
+        after_e4_e5.push_text("e4")
+        after_e4_e5.push_text("e5")
+        document = BookDocument(
+            title="Training stale progress",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Find the first move.",
+                    answer_text="e4",
+                    block_id="training-one",
+                ),
+                Exercise(
+                    fen=after_e4.fen(),
+                    prompt="Find the reply.",
+                    answer_text="e5",
+                    block_id="training-two",
+                ),
+                Exercise(
+                    fen=after_e4_e5.fen(),
+                    prompt="Find the developing move.",
+                    answer_text="Nf3",
+                    block_id="training-three",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:training-stale"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        store = self.app.progress_store
+        store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        self.assertTrue(self.app._start_training_from_current_book())
+        self.app.shell.open_route("training")
+
+        submitted = self.app.browser_command(
+            "training",
+            "training.submit",
+            {"answer": "e4"},
+        )
+        self.assertNotEqual("error", submitted["kind"])
+        self.assertTrue(self.app.training_workspace.session.completed)
+
+        external_reader = BookReader(document)
+        external_reader.go_to(2)
+        external_store = BookProgressStore(store.path)
+        injected = False
+
+        def external_generation_wins(_book_key, _reader):
+            nonlocal injected
+            if not injected:
+                external_store.save(self.app.book_key, external_reader)
+                injected = True
+            raise BookProgressStoreError(
+                "external Training progress generation won",
+                code=BookProgressStoreErrorCode.STALE_WRITE,
+            )
+
+        with patch.object(
+            store,
+            "save",
+            side_effect=external_generation_wins,
+        ):
+            result = self.app.browser_command(
+                "training",
+                "training.continue",
+            )
+
+        self.assertTrue(injected)
+        self.assertEqual("error", result["kind"])
+        self.assertIsNotNone(self.app.reader)
+        self.assertEqual(2, self.app.reader.index)
+        self.assertEqual("training-three", self.app.reader.location().block_id)
+        self.assertIsNotNone(self.app.training_workspace)
+        self.assertIs(self.app.training_workspace.reader, self.app.reader)
+        persisted = external_store.restore_primary(self.app.book_key, document)
+        self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
+        self.assertEqual("training", self.app.shell.current_route.route_id)
 
     def test_training_continue_durability_unknown_rebinds_to_canonical_successor(self):
         board = Board()
