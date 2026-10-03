@@ -73,7 +73,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         route = self.app.browser_command("shell", "screen.training")
         self.assertEqual(route["kind"], "route")
         self.assertEqual(route["payload"]["route_id"], "training")
-        self.assertEqual(route["payload"]["focus_target"], "training-prompt")
+        self.assertEqual(route["payload"]["focus_target"], "training-answer")
         self.assertEqual(self.app.shell.current_route.route_id, "training")
         self.assertIsNotNone(self.app.training_workspace)
         self.assertIsNotNone(self.app.training)
