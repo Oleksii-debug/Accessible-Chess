@@ -41,9 +41,29 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
         self.assertEqual(self.text.count("- name: Compile sound authority"), 1)
         self.assertEqual(self.text.count("- name: Run sound regressions"), 1)
         self.assertIn(
-            "sound-scaled-cache-integrity\\.yml)$' || true)",
+            "w4-v2-p0-fresh-windows-candidate)\\.yml)
+
+    def test_dual_os_regressions_and_contract_run(self) -> None:
+        self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)
+        self.assertIn("tests.test_sound_runtime", self.text)
+        self.assertIn("tests.test_sound_events", self.text)
+        self.assertIn("tests.test_dev3_sound_failure_isolation", self.text)
+        self.assertIn("tests.test_sound_scaled_cache_integrity_workflow", self.text)
+        self.assertIn("tests.test_version2_release_payload", self.text)
+        self.assertIn("tests.test_w4_v2_p0_fresh_candidate_workflow", self.text)
+
+
+if __name__ == "__main__":
+    unittest.main()
+ || true)",
             self.text,
         )
+        for approved in (
+            "version2-windows-composition",
+            "d01-pgn-workspace-webview",
+            "w4-v2-p0-fresh-windows-candidate",
+        ):
+            self.assertIn(approved, self.text)
 
     def test_dual_os_regressions_and_contract_run(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)
