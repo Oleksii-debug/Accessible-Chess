@@ -355,6 +355,31 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
+    def test_newgame_visual_serial_advances_for_standard_and_engine_game_starts(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                self.assertEqual(api.get_state()["newGameVisualSerial"], 0)
+
+                first = api.new_game()
+                self.assertTrue(first["ok"], first)
+                self.assertEqual(first["newGameVisualSerial"], 1)
+                self.assertEqual(api.get_state()["newGameVisualSerial"], 1)
+                self.assertEqual(playback.calls[-1], (SoundEvent.START, 80))
+
+                engine = api.start_engine_game("white", 5, 1, 0)
+                self.assertTrue(engine["ok"], engine)
+                self.assertEqual(engine["newGameVisualSerial"], 2)
+                self.assertEqual(api.get_state()["newGameVisualSerial"], 2)
+                self.assertEqual(
+                    [event for event, _volume in playback.calls].count(SoundEvent.START),
+                    2,
+                )
+            finally:
+                api.close_analysis()
+                runtime.close()
+
     def test_engine_first_move_does_not_interrupt_long_newgame_sound(self) -> None:
         playback = _Playback()
         with tempfile.TemporaryDirectory() as td:
@@ -617,6 +642,10 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("await soundStateLoadPromise", text)
         self.assertIn("function startNewGameVisualSequence()", text)
         self.assertIn("function finishNewGameVisualSequence()", text)
+        self.assertIn("function syncNewGameVisualFromState()", text)
+        self.assertIn("currentState.newGameVisualSerial", text)
+        self.assertIn("newGameVisualSeenSerial", text)
+        self.assertIn("window.syncNewGameVisualFromState = syncNewGameVisualFromState", text)
         self.assertIn("prefers-reduced-motion: reduce", text)
         self.assertIn("piece.setAttribute('aria-hidden', 'true')", text)
         self.assertIn("document.addEventListener('keydown'", text)
