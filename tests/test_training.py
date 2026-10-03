@@ -482,6 +482,25 @@ class ExerciseSessionTests(unittest.TestCase):
                 metadata={7: "starter"},
             )
 
+    def test_step_accepted_moves_are_snapshotted_once_and_scalar_text_is_rejected(self):
+        with self.assertRaisesRegex(TypeError, "finite collection"):
+            ExerciseStep("e4")  # type: ignore[arg-type]
+
+        class ChangingCollection:
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                return iter(("e4", "d4"))
+
+        with self.assertRaisesRegex(ValueError, "changed while being read"):
+            ExerciseStep(ChangingCollection())  # type: ignore[arg-type]
+
+        authored = ["e4"]
+        step = ExerciseStep(authored)  # type: ignore[arg-type]
+        authored[0] = "d4"
+        self.assertEqual(frozenset({"e4"}), step.accepted_moves)
+
     def test_empty_move_empty_step_and_scalar_coercion_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "at least one"):
             ExerciseStep(frozenset())
