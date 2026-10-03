@@ -162,6 +162,22 @@
     renderProfileState(profileState, true);
   }
 
+  function profileFeatureUnavailable() {
+    const message = uiText(
+      "Локальний профіль недоступний. Наявні дані профілю не змінено.",
+      "Local profile is unavailable. Existing profile data was not changed."
+    );
+    profileStatus.textContent = message;
+    const wasOpen = profileDialog.open;
+    if (wasOpen) profileDialog.close();
+    profileButton.disabled = true;
+    if (wasOpen) {
+      focusById("v2-nav-" + currentRouteId) || focusById("board-launcher");
+    }
+    announce(message);
+    return false;
+  }
+
   function applyProfileResult(result, closeOnSuccess) {
     if (!result || result.ok !== true) {
       if (result && result.stateChanged === true) renderProfileState(result);
@@ -180,7 +196,9 @@
 
   function loadProfile(openIfMissing) {
     const bridge = api();
-    if (!bridge || typeof bridge.profile_snapshot !== "function") return Promise.resolve(false);
+    if (!bridge || typeof bridge.profile_snapshot !== "function") {
+      return Promise.resolve(profileFeatureUnavailable());
+    }
     return bridge.profile_snapshot().then(function (result) {
       if (!result || result.ok !== true) {
         renderProfileState(null);
@@ -229,7 +247,10 @@
     const bridge = api();
     const rename = !!(profileState && profileState.exists);
     const method = rename ? "profile_rename" : "profile_create";
-    if (!bridge || typeof bridge[method] !== "function") return;
+    if (!bridge || typeof bridge[method] !== "function") {
+      profileFeatureUnavailable();
+      return;
+    }
     if (!beginProfileMutation()) return;
     let call;
     try {
@@ -260,7 +281,10 @@
   });
   profileSkip.addEventListener("click", function () {
     const bridge = api();
-    if (!bridge || typeof bridge.profile_create !== "function") return;
+    if (!bridge || typeof bridge.profile_create !== "function") {
+      profileFeatureUnavailable();
+      return;
+    }
     if (!beginProfileMutation()) return;
     let call;
     try {
@@ -283,7 +307,10 @@
   });
   profileRepair.addEventListener("click", function () {
     const bridge = api();
-    if (!bridge || typeof bridge.profile_repair !== "function") return;
+    if (!bridge || typeof bridge.profile_repair !== "function") {
+      profileFeatureUnavailable();
+      return;
+    }
     if (!beginProfileMutation()) return;
     let call;
     try {
