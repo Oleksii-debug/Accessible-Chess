@@ -614,15 +614,25 @@ class ClassroomChatServerSQLiteStore:
                             "chat sending is disabled for participant"
                         )
 
-                maximum_sequence = db.execute(
+                sequence_stats = db.execute(
                     """
-                    SELECT MAX(sequence_no)
+                    SELECT COUNT(*) AS item_count, MAX(sequence_no) AS maximum_sequence
                     FROM classroom_chat_server_messages
                     WHERE room_id=?
                     """,
                     (draft.room_id,),
-                ).fetchone()[0]
+                ).fetchone()
+                item_count = sequence_stats["item_count"]
+                maximum_sequence = sequence_stats["maximum_sequence"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomChatServerError(
+                        "stored message count is invalid"
+                    )
                 if maximum_sequence is None:
+                    if item_count != 0:
+                        raise ClassroomChatServerError(
+                            "stored message sequence is not contiguous"
+                        )
                     sequence = 0
                 else:
                     if (
@@ -635,6 +645,10 @@ class ClassroomChatServerSQLiteStore:
                     if maximum_sequence == MAX_WIRE_INTEGER:
                         raise ClassroomChatServerError(
                             "server message sequence exhausted"
+                        )
+                    if maximum_sequence + 1 != item_count:
+                        raise ClassroomChatServerError(
+                            "stored message sequence is not contiguous"
                         )
                     sequence = maximum_sequence + 1
                 db.execute(
@@ -827,15 +841,25 @@ class ClassroomChatServerSQLiteStore:
                                 """,
                                 (room, command.message_id),
                             )
-                            maximum_revision = db.execute(
+                            revision_stats = db.execute(
                                 """
-                                SELECT MAX(revision)
+                                SELECT COUNT(*) AS item_count, MAX(revision) AS maximum_revision
                                 FROM classroom_chat_server_state_updates
                                 WHERE room_id=?
                                 """,
                                 (room,),
-                            ).fetchone()[0]
+                            ).fetchone()
+                            revision_count = revision_stats["item_count"]
+                            maximum_revision = revision_stats["maximum_revision"]
+                            if type(revision_count) is not int or revision_count < 0:
+                                raise ClassroomChatServerError(
+                                    "stored moderation revision count is invalid"
+                                )
                             if maximum_revision is None:
+                                if revision_count != 0:
+                                    raise ClassroomChatServerError(
+                                        "stored moderation revision is not contiguous"
+                                    )
                                 revision = 0
                             else:
                                 if (
@@ -848,6 +872,10 @@ class ClassroomChatServerSQLiteStore:
                                 if maximum_revision == MAX_WIRE_INTEGER:
                                     raise ClassroomChatServerError(
                                         "server moderation revision exhausted"
+                                    )
+                                if maximum_revision + 1 != revision_count:
+                                    raise ClassroomChatServerError(
+                                        "stored moderation revision is not contiguous"
                                     )
                                 revision = maximum_revision + 1
                             db.execute(
