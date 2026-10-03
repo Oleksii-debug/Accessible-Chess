@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -162,6 +163,33 @@ class SoundCachePathSafetyTests(unittest.TestCase):
 
             self.assertFalse((outside / "nested").exists())
             self.assertEqual([], list(outside.iterdir()))
+
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "ordinary Windows runners cannot reliably create symlinks",
+    )
+    def test_scaled_cache_symlink_is_rebuilt_as_local_regular_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-cache-entry-symlink-") as raw:
+            root = Path(raw)
+            source = root / "source.wav"
+            _write_wav(source)
+            cache = root / "cache"
+            adapter = _cache_adapter(cache, mock.Mock())
+
+            destination = adapter._scaled_copy(source, "custom-redirection", 50)
+            expected = destination.read_bytes()
+            outside = root / "outside.wav"
+            outside.write_bytes(expected)
+            destination.unlink()
+            destination.symlink_to(outside)
+
+            repaired = adapter._scaled_copy(source, "custom-redirection", 50)
+
+            self.assertEqual(destination, repaired)
+            self.assertFalse(repaired.is_symlink())
+            self.assertEqual(expected, repaired.read_bytes())
+            self.assertEqual(expected, outside.read_bytes())
 
 
 class SoundCachePlaybackLockTests(unittest.TestCase):
