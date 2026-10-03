@@ -171,6 +171,46 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertEqual(list(Path(td).glob(".pack.building-*")), [])
 
+    def test_zip_source_rejects_windows_unsafe_member_names(self):
+        cases = (
+            ("reserved", "library/Board/CON.wav", "Windows-portable"),
+            ("trailing-space", "library/Board/MOVE.WAV ", "Windows-portable"),
+            ("normalized", "library//Board/MOVE.WAV", "unsafe ZIP member path"),
+        )
+        for label, member, expected in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                archive = root / "sounds.zip"
+                with zipfile.ZipFile(archive, "w") as writer:
+                    writer.writestr(member, b"x")
+                destination = root / "pack"
+                with self.assertRaisesRegex(Exception, expected):
+                    build_sound_pack(archive, destination)
+                self.assertFalse(destination.exists())
+
+    def test_zip_source_rejects_file_directory_topology_in_both_orders(self):
+        cases = (
+            (
+                ("library/Board", b"file"),
+                ("library/Board/MOVE.WAV", b"child"),
+            ),
+            (
+                ("library/Board/MOVE.WAV", b"child"),
+                ("library/Board", b"file"),
+            ),
+        )
+        for members in cases:
+            with self.subTest(order=members), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                archive = root / "sounds.zip"
+                with zipfile.ZipFile(archive, "w") as writer:
+                    for name, data in members:
+                        writer.writestr(name, data)
+                destination = root / "pack"
+                with self.assertRaisesRegex(Exception, "file/directory topology collision"):
+                    build_sound_pack(archive, destination)
+                self.assertFalse(destination.exists())
+
     def test_zip_source_rejects_symlink_members(self):
         with tempfile.TemporaryDirectory() as td:
             archive = Path(td) / "sounds.zip"
