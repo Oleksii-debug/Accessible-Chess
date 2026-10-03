@@ -209,7 +209,7 @@ class PgnWebViewProjection:
             or "\x00" in item.node_id
         ):
             raise ValueError("PGN presenter node id is invalid")
-        if item.kind not in {"move", "variation"}:
+        if type(item.kind) is not str or item.kind not in {"move", "variation"}:
             raise ValueError("PGN presenter item kind is invalid")
         if type(item.depth) is not int or not 0 <= item.depth < _MAX_PGN_DEPTH:
             raise ValueError("PGN presenter item depth is invalid")
@@ -427,6 +427,8 @@ class PgnWebViewProjection:
 
     def snapshot(self) -> dict[str, object]:
         view = self._presenter.view()
+        if type(view) is not PgnGameView or type(view.game_index) is not int:
+            raise TypeError("PGN presenter view is invalid")
         count = self._count(view)
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
