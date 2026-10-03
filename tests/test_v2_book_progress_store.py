@@ -291,6 +291,64 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertTrue((displaced / f"{self.path.name}.lock").exists())
 
+    def test_temp_descriptor_is_bound_before_payload_write_after_directory_swap_back(self) -> None:
+        if os.name == "nt":
+            self.skipTest("Windows does not reliably allow renaming the open lock directory")
+
+        self.path.parent.mkdir(parents=True)
+        displaced = Path(self.tempdir.name) / "state-original-displaced"
+        foreign = Path(self.tempdir.name) / "state-foreign-temp"
+        real_mkstemp = tempfile.mkstemp
+        foreign_temp: Path | None = None
+        swapped = False
+
+        def create_temp_during_round_trip_directory_swap(*args, **kwargs):
+            nonlocal foreign_temp, swapped
+            if swapped:
+                return real_mkstemp(*args, **kwargs)
+
+            original = self.path.parent
+            original.rename(displaced)
+            original.mkdir()
+            descriptor, temp_name = real_mkstemp(*args, **kwargs)
+            temp_basename = Path(temp_name).name
+            original.rename(foreign)
+            displaced.rename(original)
+            foreign_temp = foreign / temp_basename
+            swapped = True
+
+            # tempfile reports the pre-rename canonical pathname. After the
+            # round trip that pathname now resolves through the restored
+            # original directory, while the descriptor still names the inode
+            # stranded in the foreign directory.
+            return descriptor, os.fspath(original / temp_basename)
+
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=create_temp_during_round_trip_directory_swap,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:directory-round-trip-temp",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(swapped)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.store.backup_path.exists())
+        self.assertIsNotNone(foreign_temp)
+        assert foreign_temp is not None
+        self.assertTrue(foreign_temp.exists())
+        self.assertEqual(
+            foreign_temp.read_bytes(),
+            b"",
+            "progress payload must not be written before temp pathname binding",
+        )
+
     def test_invalid_book_keys_fail_before_any_file_mutation(self) -> None:
         reader = BookReader(self.original_document())
         bad = [
