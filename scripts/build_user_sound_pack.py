@@ -327,6 +327,8 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
     inventory_doc = {
         "schema_version": 1,
         "source": PROVENANCE_SOURCE,
+        "license_id": PROVENANCE_LICENSE,
+        "creator": PROVENANCE_CREATOR,
         "file_count": len(inventory),
         "source_inventory_sha256": source_inventory_sha256,
         "files": inventory,
