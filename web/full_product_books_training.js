@@ -270,6 +270,128 @@
     };
   }
 
+  function validateBookBlock(block) {
+    if (!block || typeof block !== "object" || Array.isArray(block)) {
+      throw new TypeError("Book snapshot block is required");
+    }
+    if (!Number.isSafeInteger(block.index) || block.index < 0) {
+      throw new TypeError("Book snapshot block index is invalid");
+    }
+    const expectedBlockId = "book-block-" + String(block.index);
+    if (block.dom_id !== expectedBlockId) {
+      throw new TypeError("Book snapshot block identity is invalid");
+    }
+    const roles = {
+      heading: true,
+      paragraph: true,
+      img: true,
+      group: true,
+      tree: true,
+      note: true,
+      list: true
+    };
+    if (
+      typeof block.role !== "string" ||
+      !Object.prototype.hasOwnProperty.call(roles, block.role)
+    ) {
+      throw new TypeError("Book block role is invalid");
+    }
+    ["kind", "title", "text", "source_anchor", "source_label", "warning"].forEach(
+      function (name) {
+        if (
+          block[name] !== undefined &&
+          block[name] !== null &&
+          typeof block[name] !== "string"
+        ) {
+          throw new TypeError("Book block " + name + " must be text");
+        }
+      }
+    );
+    if (block.has_position !== undefined && typeof block.has_position !== "boolean") {
+      throw new TypeError("Book block position flag is invalid");
+    }
+    if (
+      block.heading_level !== undefined &&
+      block.heading_level !== null &&
+      (!Number.isSafeInteger(block.heading_level) ||
+        block.heading_level < 1 ||
+        block.heading_level > 6)
+    ) {
+      throw new TypeError("Book heading level is invalid");
+    }
+    if (!Array.isArray(block.heading_path)) {
+      throw new TypeError("Book heading path must be an array");
+    }
+    for (let index = 0; index < block.heading_path.length; index += 1) {
+      if (
+        !Object.prototype.hasOwnProperty.call(block.heading_path, index) ||
+        typeof block.heading_path[index] !== "string" ||
+        !block.heading_path[index].trim()
+      ) {
+        throw new TypeError("Book heading path is invalid");
+      }
+    }
+    if (block.heading_path.length && (
+      typeof block.heading_path_label !== "string" ||
+      !block.heading_path_label.trim()
+    )) {
+      throw new TypeError("Book heading path label is invalid");
+    }
+    if (block.source_anchor && (
+      typeof block.source_label !== "string" || !block.source_label.trim()
+    )) {
+      throw new TypeError("Book source label is invalid");
+    }
+
+    const hasList = block.list !== undefined && block.list !== null;
+    if (block.role === "list") {
+      if (!hasList || typeof block.list !== "object" || Array.isArray(block.list)) {
+        throw new TypeError("Book list specification is invalid");
+      }
+      if (
+        !Array.isArray(block.list.items) ||
+        block.list.items.length < 1 ||
+        typeof block.list.ordered !== "boolean"
+      ) {
+        throw new TypeError("Book list contents are invalid");
+      }
+      for (let index = 0; index < block.list.items.length; index += 1) {
+        if (
+          !Object.prototype.hasOwnProperty.call(block.list.items, index) ||
+          typeof block.list.items[index] !== "string" ||
+          !block.list.items[index].trim()
+        ) {
+          throw new TypeError("Book list items are invalid");
+        }
+      }
+      if (
+        block.list.start !== null &&
+        block.list.start !== undefined &&
+        (!Number.isSafeInteger(block.list.start) || block.list.start < 1)
+      ) {
+        throw new TypeError("Book list start is invalid");
+      }
+      if (!block.list.ordered && block.list.start !== null && block.list.start !== undefined) {
+        throw new TypeError("unordered Book list cannot have a start");
+      }
+    } else if (hasList) {
+      throw new TypeError("non-list Book block contains list metadata");
+    }
+    return expectedBlockId;
+  }
+
+  function validateBookLanguage(snapshot) {
+    if (
+      !snapshot.document ||
+      typeof snapshot.document !== "object" ||
+      Array.isArray(snapshot.document) ||
+      (snapshot.document.lang !== "en" && snapshot.document.lang !== "uk")
+    ) {
+      throw new TypeError("Book document language is invalid");
+    }
+    return snapshot.document.lang;
+  }
+
   function appendSemanticDetails(container, label, items, headingId) {
     if (!items.length) return;
     const heading = node("h4", label);
@@ -531,7 +653,7 @@
   }
 
   function renderBookBlock(host, block) {
-    const role = String(block.role || "group");
+    const role = block.role;
     let content;
     const hasSemanticTree = Object.prototype.hasOwnProperty.call(block, "semantic_tree") &&
       block.semantic_tree !== undefined && block.semantic_tree !== null;
@@ -543,19 +665,22 @@
       content.setAttribute("role", "group");
       if (block.title) {
         const title = node("h3", block.title);
-        title.id = String(block.dom_id || "") + "-title";
+        title.id = block.dom_id + "-title";
         content.setAttribute("aria-labelledby", title.id);
         content.appendChild(title);
       }
       renderBookSemanticTree(content, block);
-    } else if (block.list && Array.isArray(block.list.items)) {
+      if (!content.attributes["aria-labelledby"]) {
+        content.setAttribute("aria-labelledby", block.dom_id + "-semantic-heading");
+      }
+    } else if (role === "list") {
       content = node(block.list.ordered ? "ol" : "ul");
       if (block.list.ordered && Number.isSafeInteger(block.list.start) && block.list.start > 0) {
         content.setAttribute("start", String(block.list.start));
       }
       block.list.items.forEach(function (text) { content.appendChild(node("li", text)); });
     } else if (role === "heading") {
-      const level = Math.min(6, Math.max(1, Number(block.heading_level || 2)));
+      const level = block.heading_level || 2;
       content = node("h" + level, block.text || block.title || "");
     } else if (role === "paragraph") {
       content = node("p", block.text || "");
@@ -587,7 +712,7 @@
     content.tabIndex = -1;
     host.appendChild(content);
 
-    const headingPath = Array.isArray(block.heading_path) ? block.heading_path : [];
+    const headingPath = block.heading_path;
     if (headingPath.length) {
       const nav = node("nav");
       nav.setAttribute("aria-label", block.heading_path_label || "");
@@ -654,16 +779,8 @@
     main.appendChild(section);
   }
 
-  function applySnapshotLanguage(element, snapshot) {
-    const documentState = snapshot && snapshot.document && typeof snapshot.document === "object"
-      ? snapshot.document
-      : {};
-    const language = typeof documentState.lang === "string"
-      ? documentState.lang.trim().toLowerCase()
-      : "";
-    if (language === "en" || language === "uk") {
-      element.setAttribute("lang", language);
-    }
+  function applySnapshotLanguage(element, language) {
+    element.setAttribute("lang", language);
   }
 
   function renderBookSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
@@ -675,16 +792,8 @@
     if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
       throw new TypeError("Book snapshot is required");
     }
-    if (!snapshot.block || typeof snapshot.block !== "object" || Array.isArray(snapshot.block)) {
-      throw new TypeError("Book snapshot block is required");
-    }
-    if (!Number.isSafeInteger(snapshot.block.index) || snapshot.block.index < 0) {
-      throw new TypeError("Book snapshot block index is invalid");
-    }
-    const expectedBlockId = "book-block-" + String(snapshot.block.index);
-    if (snapshot.block.dom_id !== expectedBlockId) {
-      throw new TypeError("Book snapshot block identity is invalid");
-    }
+    const language = validateBookLanguage(snapshot);
+    const expectedBlockId = validateBookBlock(snapshot.block);
     if (requestedFocus && requestedFocus !== expectedBlockId) {
       throw new TypeError("Book focus target does not match the rendered block");
     }
@@ -694,7 +803,7 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
-    applySnapshotLanguage(main, snapshot);
+    applySnapshotLanguage(main, language);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(main, starterCatalogue, invoke, announce, fallbackMessage);
     const block = snapshot.block;
