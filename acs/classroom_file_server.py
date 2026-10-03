@@ -450,17 +450,32 @@ class ClassroomFileServerSQLiteStore:
                     raise ClassroomFileServerError(
                         "upload reservation is not finalizable"
                     )
-                last = db.execute(
+                sequence_stats = db.execute(
                     """
-                    SELECT MAX(sequence_no) AS last_sequence
+                    SELECT COUNT(*) AS item_count,
+                           MAX(sequence_no) AS last_sequence
                     FROM classroom_file_server_attachments
                     WHERE room_id=? AND transfer_state IN ('stored','deleted')
                     """,
                     (row["room_id"],),
-                ).fetchone()["last_sequence"]
+                ).fetchone()
+                item_count = sequence_stats["item_count"]
+                last = sequence_stats["last_sequence"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomFileServerError(
+                        "authoritative file sequence count is corrupt"
+                    )
                 if last is None:
+                    if item_count != 0:
+                        raise ClassroomFileServerError(
+                            "authoritative file sequence has a gap"
+                        )
                     sequence = 0
                 elif type(last) is int and 0 <= last < MAX_WIRE_INTEGER:
+                    if last + 1 != item_count:
+                        raise ClassroomFileServerError(
+                            "authoritative file sequence has a gap"
+                        )
                     sequence = last + 1
                 else:
                     raise ClassroomFileServerError(
@@ -543,14 +558,32 @@ class ClassroomFileServerSQLiteStore:
                         "attachment has invalid cancellation state"
                     )
 
-                revisions = db.execute(
-                    "SELECT MAX(revision) AS last_revision "
-                    "FROM classroom_file_server_state_updates WHERE room_id=?",
+                revision_stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count,
+                           MAX(revision) AS last_revision
+                    FROM classroom_file_server_state_updates
+                    WHERE room_id=?
+                    """,
                     (row["room_id"],),
-                ).fetchone()["last_revision"]
+                ).fetchone()
+                revision_count = revision_stats["item_count"]
+                revisions = revision_stats["last_revision"]
+                if type(revision_count) is not int or revision_count < 0:
+                    raise ClassroomFileServerError(
+                        "attachment state revision count is corrupt"
+                    )
                 if revisions is None:
+                    if revision_count != 0:
+                        raise ClassroomFileServerError(
+                            "attachment state revision has a gap"
+                        )
                     revision = 0
                 elif type(revisions) is int and 0 <= revisions < MAX_WIRE_INTEGER:
+                    if revisions + 1 != revision_count:
+                        raise ClassroomFileServerError(
+                            "attachment state revision has a gap"
+                        )
                     revision = revisions + 1
                 else:
                     raise ClassroomFileServerError(
