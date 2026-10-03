@@ -758,10 +758,52 @@ class ClassroomChatServerSQLiteStore:
                         )
                     }
                     if "redacted" not in state_columns:
+                        # v2/v3 constrained hidden=1 at table level. Adding a
+                        # redacted column in place would still reject a
+                        # redaction-only state transition, so rebuild the state
+                        # authority atomically with the v4 monotonic-state shape.
+                        db.execute(
+                            "DROP INDEX IF EXISTS "
+                            "idx_classroom_chat_server_state_updates_message"
+                        )
                         db.execute(
                             "ALTER TABLE classroom_chat_server_state_updates "
-                            "ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0 "
-                            "CHECK(redacted IN (0,1))"
+                            "RENAME TO classroom_chat_server_state_updates_v3"
+                        )
+                        db.execute(
+                            """
+                            CREATE TABLE classroom_chat_server_state_updates(
+                                room_id TEXT NOT NULL,
+                                revision INTEGER NOT NULL CHECK(revision >= 0),
+                                message_id TEXT NOT NULL,
+                                hidden INTEGER NOT NULL CHECK(hidden IN (0,1)),
+                                redacted INTEGER NOT NULL DEFAULT 0
+                                    CHECK(redacted IN (0,1)),
+                                CHECK(hidden = 1 OR redacted = 1),
+                                PRIMARY KEY(room_id, revision)
+                            )
+                            """
+                        )
+                        db.execute(
+                            """
+                            INSERT INTO classroom_chat_server_state_updates(
+                                room_id, revision, message_id, hidden, redacted
+                            )
+                            SELECT room_id, revision, message_id, hidden, 0
+                            FROM classroom_chat_server_state_updates_v3
+                            """
+                        )
+                        db.execute(
+                            "DROP TABLE classroom_chat_server_state_updates_v3"
+                        )
+                        db.execute(
+                            """
+                            CREATE INDEX
+                            idx_classroom_chat_server_state_updates_message
+                            ON classroom_chat_server_state_updates(
+                                room_id, message_id
+                            )
+                            """
                         )
                     db.execute(
                         """
