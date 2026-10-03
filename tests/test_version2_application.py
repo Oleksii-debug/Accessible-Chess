@@ -697,6 +697,117 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(store.path.exists())
         self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
 
+    def test_native_training_route_validates_post_bind_snapshot_before_publication(self):
+        document = BookDocument(
+            title="Native Training snapshot",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Знайдіть хід.",
+                    answer_text="e4",
+                    block_id="native-training",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:native-training-snapshot"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        self.app._repair_book_block_focus_after_rebind()
+        self.app.drain_events()
+
+        routed = self.app.adapter.activate_action(
+            "screen.training",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual("route", routed.kind)
+        self.assertNotIn("training", routed.payload["snapshot"])
+
+        self.assertTrue(self.app.native_command(routed))
+
+        self.assertEqual("training", self.app.shell.current_route.route_id)
+        self.assertIsNotNone(self.app.training_workspace)
+        self.assertEqual("training-answer", self.app._focus)
+        current = self.app.snapshot()
+        self.assertIsNotNone(current["training"])
+        self.assertEqual("training-answer", current["training"]["focus_target"])
+        route_events = [
+            event for event in self.app.drain_events()
+            if event.get("kind") == "route"
+        ]
+        self.assertEqual(1, len(route_events))
+        self.assertNotIn("training", route_events[0]["payload"]["snapshot"])
+        self.assertEqual(
+            "training-answer",
+            route_events[0]["payload"]["focus_target"],
+        )
+
+    def test_native_training_snapshot_failure_clears_transient_workspace_and_recovers_books(self):
+        document = BookDocument(
+            title="Native Training failure",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Знайдіть хід.",
+                    answer_text="e4",
+                    block_id="native-training-failure",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:native-training-failure"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        self.app._repair_book_block_focus_after_rebind()
+        before = self.app.reader.snapshot()
+        self.app.drain_events()
+
+        routed = self.app.adapter.activate_action(
+            "screen.training",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual("route", routed.kind)
+
+        with patch(
+            "acs.version2_application.Version2BookTrainingWorkspace.snapshot",
+            side_effect=RuntimeError("Training projection failed"),
+        ):
+            accepted = self.app.native_command(routed)
+
+        self.assertFalse(accepted)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(before, self.app.reader.snapshot())
+        persisted = self.app.progress_store.restore_primary(
+            self.app.book_key,
+            document,
+        )
+        self.assertEqual(before, persisted.snapshot())
+        events = self.app.drain_events()
+        self.assertEqual(
+            [{"kind": "route", "payload": {"route_id": "books"}}],
+            [event for event in events if event.get("kind") == "route"],
+        )
+        self.assertEqual(
+            1,
+            sum(1 for event in events if event.get("kind") == "error"),
+        )
+
     def test_training_continue_durability_unknown_rebinds_to_canonical_successor(self):
         board = Board()
         board.push_text("e4")
@@ -880,6 +991,20 @@ class Version2ApplicationTests(unittest.TestCase):
             self.app.shell.restore_focus_target(),
         )
         self.assertEqual("training-solution", self.app._focus)
+
+        language = self.app.browser_command(
+            "training",
+            "training.language",
+            {"language": "en"},
+        )
+        self.assertEqual("render", language["kind"])
+        self.assertEqual("training-answer", language["payload"]["focus_target"])
+        self.assertEqual(
+            "training-answer",
+            language["payload"]["snapshot"]["focus_target"],
+        )
+        self.assertEqual("training-answer", self.app.shell.restore_focus_target())
+        self.assertEqual("training-answer", self.app._focus)
 
     def test_book_render_failure_rolls_back_reader_and_durable_progress(self):
         book = self.root / "render-failure.md"
