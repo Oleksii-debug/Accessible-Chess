@@ -1,0 +1,1789 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import replace
+import hashlib
+import unittest
+from unittest import mock
+
+from acs.sound_events import SoundEvent
+from acs.sound_pack_catalog import (
+    MAX_SOUND_PACK_CATALOG_ENTRIES,
+    DownloadedSoundPack,
+    SoundAssetDigest,
+    SoundPackCatalogEntry,
+    SoundPackInstalledAudit,
+    SoundPackManager,
+    SoundPackRightsEvidence,
+)
+from acs.sound_pack_profile import SoundPackProfileCoordinator
+from acs.sound_profile_store import SoundProfileManager, SoundProfileWriteBlockedError
+from acs.sound_profiles import (
+    CORE_SOUND_EVENTS,
+    OPTIONAL_CLASSROOM_SOUND_EVENTS,
+    OPTIONAL_OWNER_SOUND_EVENTS,
+    SoundPackManifest,
+)
+from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
+from acs.sound_settings_application import SoundSettingsApplication
+
+
+class _LyingCatalog(Mapping):
+    def __init__(self, entry: SoundPackCatalogEntry) -> None:
+        self._entry = entry
+
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(("pack.0",))
+
+    def __len__(self):
+        return 1
+
+    def items(self):
+        for index in range(MAX_SOUND_PACK_CATALOG_ENTRIES + 1):
+            pack_id = f"pack.{index}"
+            manifest = replace(
+                self._entry.manifest,
+                pack_id=pack_id,
+                title=pack_id,
+            )
+            yield pack_id, replace(self._entry, manifest=manifest)
+
+
+class _DuplicateCatalog(Mapping):
+    def __init__(self, entry: SoundPackCatalogEntry) -> None:
+        self._entry = entry
+
+    def __getitem__(self, key):
+        if key == self._entry.manifest.pack_id:
+            return self._entry
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter((self._entry.manifest.pack_id,))
+
+    def __len__(self):
+        return 1
+
+    def items(self):
+        yield self._entry.manifest.pack_id, self._entry
+        yield self._entry.manifest.pack_id, self._entry
+
+
+class _OversizedCatalog(Mapping):
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        raise AssertionError("oversized catalog must be rejected before iteration")
+
+    def __len__(self):
+        return MAX_SOUND_PACK_CATALOG_ENTRIES + 1
+
+
+class _ProfileStorage:
+    def __init__(self, initial=None):
+        self.payload = initial
+        self.writes = []
+
+    def read_profile(self):
+        return self.payload
+
+    def write_profile_atomically(self, payload):
+        self.payload = dict(payload)
+        self.writes.append(dict(payload))
+
+
+class _AssetPlayback:
+    def __init__(self):
+        self.requests: list[SoundAssetRequest] = []
+
+    def play_sound(self, request: SoundAssetRequest) -> None:
+        self.requests.append(request)
+
+
+class _PackStorage:
+    def __init__(self, manifests):
+        self.manifests = {manifest.pack_id: manifest for manifest in manifests}
+        self.installed_payloads = []
+        self.uninstalled = []
+        self.fail_uninstall = False
+        self.fail_inventory = False
+
+    def installed(self):
+        if self.fail_inventory:
+            raise OSError("inventory unavailable")
+        return dict(self.manifests)
+
+    def install_atomically(self, downloaded: DownloadedSoundPack) -> None:
+        self.manifests[downloaded.manifest.pack_id] = downloaded.manifest
+        self.installed_payloads.append(downloaded.payload_ref)
+
+    def uninstall(self, pack_id: str, *, expected_manifest=None) -> None:
+        self.uninstalled.append(pack_id)
+        if self.fail_uninstall:
+            raise OSError("uninstall failed")
+        current = self.manifests.get(pack_id)
+        if (
+            expected_manifest is not None
+            and current is not None
+            and current != expected_manifest
+        ):
+            raise OSError("sound pack changed before conditional uninstall")
+        self.manifests.pop(pack_id, None)
+
+
+class _Downloader:
+    def __init__(self):
+        self.entries = []
+
+    def download(self, entry: SoundPackCatalogEntry, *, max_bytes: int):
+        self.entries.append((entry.manifest.pack_id, max_bytes))
+        return DownloadedSoundPack(
+            manifest=entry.manifest,
+            assets=entry.assets,
+            total_bytes=entry.total_bytes,
+            payload_ref={"private": "opaque-staged-payload"},
+        )
+
+
+def _manifest(pack_id: str, version: str = "1.0.0") -> SoundPackManifest:
+    return SoundPackManifest(
+        pack_id=pack_id,
+        version=version,
+        title=f"{pack_id} title",
+        license_id="CC0-1.0",
+        author="Accessible Chess test author",
+        provenance="tests-only generated wave identities",
+        files={event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS},
+    )
+
+
+def _entry(manifest: SoundPackManifest, *, compatible: bool = True) -> SoundPackCatalogEntry:
+    assets = {}
+    for path in manifest.files.values():
+        payload = path.encode("utf-8")
+        assets[path] = SoundAssetDigest(
+            path=path,
+            size_bytes=len(payload),
+            sha256=hashlib.sha256(payload).hexdigest(),
+        )
+    return SoundPackCatalogEntry(
+        manifest=manifest,
+        assets=assets,
+        total_bytes=sum(asset.size_bytes for asset in assets.values()),
+        compatible=compatible,
+        rights_evidence=SoundPackRightsEvidence(
+            license_id=manifest.license_id,
+            source_uri=f"https://example.invalid/source/{manifest.pack_id}/{manifest.version}",
+            license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        ),
+    )
+
+
+class SoundSettingsApplicationTests(unittest.TestCase):
+    def _profile_runtime(self, *, initial=None, resolver=None):
+        storage = _ProfileStorage(initial)
+        manager = SoundProfileManager(storage, resolver or (lambda _pack: "classic"))
+        manager.load()
+        playback = _AssetPlayback()
+        runtime = ProfiledSoundRuntime(playback, manager.profile_provider)
+        return storage, manager, playback, runtime
+
+    def test_oversized_catalog_is_rejected_before_application_projection_iteration(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+
+        with self.assertRaisesRegex(ValueError, "catalog exceeds"):
+            SoundSettingsApplication(
+                manager,
+                runtime,
+                catalog=_OversizedCatalog(),
+            )
+
+    def test_catalog_streaming_cap_rejects_mapping_that_underreports_length(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        entry = _entry(_manifest("soft"))
+
+        with self.assertRaisesRegex(ValueError, "catalog exceeds"):
+            SoundSettingsApplication(
+                manager,
+                runtime,
+                catalog=_LyingCatalog(entry),
+            )
+
+    def test_catalog_rejects_duplicate_identity_from_malformed_mapping(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        entry = _entry(_manifest("soft"))
+
+        with self.assertRaisesRegex(ValueError, "duplicate pack identity"):
+            SoundSettingsApplication(
+                manager,
+                runtime,
+                catalog=_DuplicateCatalog(entry),
+            )
+
+    def test_snapshot_exposes_all_events_without_paths_or_payload_refs(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+
+        snapshot = app.snapshot(language="en")
+
+        semantic_owner_events = {event.value for event in SoundEvent}
+        expected = (
+            *CORE_SOUND_EVENTS,
+            *(
+                event_id
+                for event_id in OPTIONAL_OWNER_SOUND_EVENTS
+                if event_id in semantic_owner_events
+            ),
+        )
+        self.assertEqual(expected, tuple(item["event_id"] for item in snapshot["events"]))
+        self.assertEqual("classic", snapshot["active_pack_id"])
+        rendered = repr(snapshot)
+        self.assertNotIn("payload_ref", rendered)
+        self.assertNotIn("local_path", rendered)
+        self.assertNotIn("audio/", rendered)
+
+    def test_optional_owner_events_follow_semantic_owner_and_custom_manifest(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        classic = SoundSettingsApplication(manager, runtime)
+
+        owner_events = tuple(
+            type("OwnerEvent", (), {"value": event_id})()
+            for event_id in (*CORE_SOUND_EVENTS, "mate", "draw")
+        )
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ):
+            classic_ids = tuple(
+                item["event_id"]
+                for item in classic.snapshot(language="en")["events"]
+            )
+
+        self.assertIn("mate", classic_ids)
+        self.assertIn("draw", classic_ids)
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ):
+            changed = classic.set_event(
+                "mate",
+                enabled=False,
+                volume_percent=41,
+                language="en",
+            )
+        mate = next(
+            item
+            for item in changed.snapshot["events"]
+            if item["event_id"] == "mate"
+        )
+        self.assertFalse(mate["enabled"])
+        self.assertEqual(41, mate["volume_percent"])
+        self.assertEqual("mate", mate["sound_id"])
+        self.assertFalse(manager.current.preference_for("mate").enabled)
+
+        base = _manifest("local.owner")
+        files = dict(base.files)
+        files["mate"] = "audio/mate.wav"
+        local = SoundPackManifest(
+            pack_id=base.pack_id,
+            version=base.version,
+            title=base.title,
+            license_id=base.license_id,
+            files=files,
+            author=base.author,
+            provenance=base.provenance,
+        )
+        custom_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "local.owner",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        custom_manager = SoundProfileManager(
+            custom_storage,
+            lambda requested: requested,
+        )
+        custom_manager.load()
+        custom_runtime = ProfiledSoundRuntime(
+            _AssetPlayback(),
+            custom_manager.profile_provider,
+        )
+        custom = SoundSettingsApplication(
+            custom_manager,
+            custom_runtime,
+            installed_pack_provider=lambda: {"local.owner": local},
+        )
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ):
+            custom_ids = tuple(
+                item["event_id"]
+                for item in custom.snapshot(language="en")["events"]
+            )
+
+        self.assertIn("mate", custom_ids)
+        self.assertIn(
+            "draw",
+            custom_ids,
+            "new canonical owner event must stay configurable through exact classic fallback",
+        )
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ):
+            draw_result = custom.set_event(
+                "draw",
+                enabled=False,
+                volume_percent=37,
+                language="en",
+            )
+        draw = next(
+            item
+            for item in draw_result.snapshot["events"]
+            if item["event_id"] == "draw"
+        )
+        self.assertFalse(draw["enabled"])
+        self.assertEqual(37, draw["volume_percent"])
+        self.assertEqual("draw", draw["sound_id"])
+        self.assertIn("draw", draw["sound_choices"])
+        self.assertTrue(draw["uses_classic_fallback"])
+        mate_item = next(
+            item
+            for item in draw_result.snapshot["events"]
+            if item["event_id"] == "mate"
+        )
+        self.assertFalse(
+            mate_item["uses_classic_fallback"],
+            "manifest-declared owner sound must remain custom-pack playback",
+        )
+
+    def test_future_canonical_owner_event_without_localized_label_stays_reachable(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+        future_event = "future.alert"
+        owner_events = tuple(
+            type("OwnerEvent", (), {"value": event_id})()
+            for event_id in (*CORE_SOUND_EVENTS, future_event)
+        )
+        optional_owner_events = (*OPTIONAL_OWNER_SOUND_EVENTS, future_event)
+
+        with (
+            mock.patch(
+                "acs.sound_settings_application.SoundEvent",
+                owner_events,
+            ),
+            mock.patch(
+                "acs.sound_settings_application.OPTIONAL_OWNER_SOUND_EVENTS",
+                optional_owner_events,
+            ),
+        ):
+            snapshot = app.snapshot(language="en")
+            item = next(
+                item
+                for item in snapshot["events"]
+                if item["event_id"] == future_event
+            )
+            changed = app.set_event(
+                future_event,
+                enabled=False,
+                volume_percent=42,
+                language="en",
+            )
+
+        self.assertEqual(future_event, item["label"])
+        changed_item = next(
+            item
+            for item in changed.snapshot["events"]
+            if item["event_id"] == future_event
+        )
+        self.assertFalse(changed_item["enabled"])
+        self.assertEqual(42, changed_item["volume_percent"])
+        self.assertEqual(future_event, changed_item["label"])
+        self.assertFalse(manager.current.preference_for(future_event).enabled)
+
+    def test_master_and_per_event_edits_persist_through_single_profile_manager(self) -> None:
+        storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+
+        app.set_master(enabled=False, volume_percent=55, language="en")
+        app.set_event("capture", enabled=True, volume_percent=35, sound_id="capture", language="en")
+
+        self.assertFalse(manager.current.master_enabled)
+        self.assertEqual(55, manager.current.master_volume_percent)
+        capture = manager.current.preference_for("capture")
+        self.assertTrue(capture.enabled)
+        self.assertEqual(35, capture.volume_percent)
+        self.assertEqual("capture", capture.sound_id)
+        self.assertGreaterEqual(len(storage.writes), 3)  # initial canonical + two edits
+
+    def test_preview_uses_profiled_runtime_and_respects_effective_volume(self) -> None:
+        _storage, manager, playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+        app.set_master(volume_percent=50)
+        app.set_event("check", volume_percent=40, sound_id="check")
+
+        result = app.preview("check", language="en")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(1, len(playback.requests))
+        request = playback.requests[0]
+        self.assertTrue(request.preview)
+        self.assertEqual("check", request.event_id)
+        self.assertEqual("check", request.sound_id)
+        self.assertEqual(20, request.volume)
+
+    def test_muted_preview_never_touches_playback(self) -> None:
+        _storage, manager, playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+        app.set_event("move", enabled=False)
+
+        result = app.preview("move", language="en")
+
+        self.assertIn("muted", result.announcement.lower())
+        self.assertEqual([], playback.requests)
+
+    def test_unknown_browser_event_fails_closed(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+        with self.assertRaisesRegex(ValueError, "unknown sound event"):
+            app.set_event("browser.supplied.event", enabled=True)
+        with self.assertRaisesRegex(ValueError, "unknown sound event"):
+            app.preview("browser.supplied.event")
+
+    def test_future_schema_blocks_ordinary_ui_mutation(self) -> None:
+        initial = {"schema_version": 999, "pack_id": "classic"}
+        storage = _ProfileStorage(initial)
+        manager = SoundProfileManager(storage, lambda _pack: "classic")
+        result = manager.load()
+        self.assertTrue(result.writes_blocked)
+        self.assertFalse(result.profile.master_enabled)
+        playback = _AssetPlayback()
+        runtime = ProfiledSoundRuntime(playback, manager.profile_provider)
+        app = SoundSettingsApplication(manager, runtime)
+
+        snapshot = app.snapshot()
+        self.assertTrue(snapshot["writes_blocked"])
+        with self.assertRaises(SoundProfileWriteBlockedError):
+            app.set_master(enabled=False)
+        self.assertEqual(initial, storage.payload)
+
+    def test_future_schema_blocks_all_pack_side_effects_but_allows_preview(self) -> None:
+        initial = {"schema_version": 999, "pack_id": "classic"}
+        classic = _manifest("classic")
+        installed = _manifest("soft")
+        candidate = _manifest("new.pack")
+        pack_storage = _PackStorage([classic, installed])
+        downloader = _Downloader()
+        pack_manager = SoundPackManager(downloader, pack_storage)
+        profile_storage = _ProfileStorage(initial)
+        profiles = SoundProfileManager(profile_storage, pack_manager)
+        result = profiles.load()
+        self.assertTrue(result.writes_blocked)
+        playback = _AssetPlayback()
+        runtime = ProfiledSoundRuntime(playback, profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(pack_manager, profiles),
+            catalog={
+                "soft": _entry(installed),
+                "new.pack": _entry(candidate),
+            },
+            installed_pack_provider=lambda: dict(pack_storage.manifests),
+        )
+        before_inventory = dict(pack_storage.manifests)
+
+        mutations = (
+            lambda: app.set_event("move", enabled=False, language="en"),
+            lambda: app.select_pack("soft", language="en"),
+            lambda: app.install_pack("new.pack", activate=False, language="en"),
+            lambda: app.uninstall_pack("soft", language="en"),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=repr(mutation)), self.assertRaises(
+                SoundProfileWriteBlockedError
+            ):
+                mutation()
+
+        self.assertEqual([], downloader.entries)
+        self.assertEqual([], pack_storage.installed_payloads)
+        self.assertEqual([], pack_storage.uninstalled)
+        self.assertEqual(before_inventory, pack_storage.manifests)
+        self.assertEqual(initial, profile_storage.payload)
+
+        preview = app.preview("move", language="en")
+        self.assertTrue(preview.ok)
+        self.assertTrue(preview.snapshot["writes_blocked"])
+        self.assertIn("muted", preview.announcement.lower())
+        self.assertEqual(
+            [],
+            playback.requests,
+            "future-schema preview must not emit audio under unknown semantics",
+        )
+
+    def test_verified_local_installed_pack_is_discoverable_and_selectable_without_remote_catalog(self) -> None:
+        base = _manifest("local.wood")
+        files = dict(base.files)
+        files["quiet.move"] = "audio/quiet-move.wav"
+        files["classroom.join"] = "audio/classroom-join.wav"
+        local = SoundPackManifest(
+            pack_id=base.pack_id,
+            version=base.version,
+            title=base.title,
+            license_id=base.license_id,
+            files=files,
+            author=base.author,
+            provenance=base.provenance,
+        )
+        _storage, manager, _playback, runtime = self._profile_runtime(
+            resolver=lambda requested: requested if requested in {"classic", "local.wood"} else "classic"
+        )
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {"local.wood": local},
+        )
+
+        snapshot = app.snapshot(language="en")
+        self.assertFalse(snapshot["can_select_classic"])
+        self.assertEqual(1, len(snapshot["packs"]))
+        item = snapshot["packs"][0]
+        self.assertEqual("local.wood", item["pack_id"])
+        self.assertEqual("local_installed", item["state"])
+        self.assertEqual("1.0.0", item["installed_version"])
+        self.assertEqual(local.provenance, item["provenance"])
+        self.assertFalse(item["can_install"])
+        self.assertFalse(item["can_uninstall"])
+
+        result = app.select_pack("local.wood", language="en")
+        self.assertTrue(result.ok)
+        self.assertEqual("local.wood", manager.current.pack_id)
+        self.assertTrue(result.snapshot["can_select_classic"])
+        event_ids = {item["event_id"] for item in result.snapshot["events"]}
+        self.assertIn("classroom.join", event_ids)
+        move = next(item for item in result.snapshot["events"] if item["event_id"] == "move")
+        self.assertIn("quiet.move", move["sound_choices"])
+
+        changed = app.set_event("move", sound_id="quiet.move", language="en")
+        self.assertEqual("quiet.move", manager.current.preference_for("move").sound_id)
+        changed_move = next(
+            item for item in changed.snapshot["events"] if item["event_id"] == "move"
+        )
+        self.assertEqual("quiet.move", changed_move["sound_id"])
+
+        classroom = app.set_event(
+            "classroom.join",
+            enabled=False,
+            volume_percent=35,
+            language="en",
+        )
+        classroom_item = next(
+            item for item in classroom.snapshot["events"]
+            if item["event_id"] == "classroom.join"
+        )
+        self.assertFalse(classroom_item["enabled"])
+        self.assertEqual(35, classroom_item["volume_percent"])
+
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="missing.sound")
+        with self.assertRaisesRegex(ValueError, "unknown sound event"):
+            app.set_event("classroom.leave", enabled=False)
+
+        before_classic_writes = len(_storage.writes)
+        classic = app.select_pack("classic", language="en")
+        self.assertTrue(classic.ok)
+        self.assertEqual("classic", manager.current.pack_id)
+        self.assertFalse(classic.snapshot["can_select_classic"])
+        self.assertIsNone(manager.current.preference_for("move").sound_id)
+        self.assertEqual(35, manager.current.preference_for("classroom.join").volume_percent)
+        self.assertFalse(manager.current.preference_for("classroom.join").enabled)
+        self.assertEqual(before_classic_writes + 1, len(_storage.writes))
+
+        with self.assertRaisesRegex(ValueError, "unknown sound pack"):
+            app.select_pack("missing.pack")
+
+    def test_verified_manifest_exposes_every_declared_optional_classroom_ui_event(self) -> None:
+        base = _manifest("classroom.pack")
+        files = dict(base.files)
+        for event_id in OPTIONAL_CLASSROOM_SOUND_EVENTS:
+            files[event_id] = "audio/" + event_id.replace(".", "-") + ".wav"
+        manifest = SoundPackManifest(
+            pack_id=base.pack_id,
+            version=base.version,
+            title=base.title,
+            license_id=base.license_id,
+            files=files,
+            author=base.author,
+            provenance=base.provenance,
+        )
+        _storage, manager, _playback, runtime = self._profile_runtime(
+            resolver=lambda requested: requested
+            if requested in {"classic", manifest.pack_id}
+            else "classic"
+        )
+        manager.set_pack(manifest.pack_id)
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {manifest.pack_id: manifest},
+        )
+
+        snapshot = app.snapshot(language="en")
+        event_ids = tuple(item["event_id"] for item in snapshot["events"])
+
+        for event_id in OPTIONAL_CLASSROOM_SOUND_EVENTS:
+            with self.subTest(event_id=event_id):
+                self.assertIn(event_id, event_ids)
+                item = next(
+                    item
+                    for item in snapshot["events"]
+                    if item["event_id"] == event_id
+                )
+                self.assertTrue(item["label"])
+                self.assertIn(event_id, item["sound_choices"])
+
+    def test_snapshot_labels_every_core_sound_event(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
+
+        snapshot = app.snapshot(language="en")
+        labels = {
+            item["event_id"]: item["label"]
+            for item in snapshot["events"]
+        }
+
+        self.assertEqual(set(CORE_SOUND_EVENTS), set(labels))
+        for event_id in CORE_SOUND_EVENTS:
+            with self.subTest(event_id=event_id):
+                self.assertTrue(labels[event_id])
+
+    def test_classic_provider_rejects_arbitrary_sound_remap(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {},
+        )
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="quiet.move")
+
+    def test_installed_pack_provider_rejects_unverified_shapes(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {"bad": object()},
+        )
+        with self.assertRaisesRegex(TypeError, "invalid mapping"):
+            app.snapshot()
+
+    def test_split_installed_rights_are_validated_but_not_audited(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("local.wood")
+        entry = _entry(local)
+        self.assertIsNotNone(entry.rights_evidence)
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={},
+            installed_pack_provider=lambda: {"local.wood": local},
+            installed_rights_provider=lambda _pack_id: entry.rights_evidence,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("local.wood", item["pack_id"])
+        self.assertFalse(item["rights_auditable"])
+        self.assertIsNone(item["rights_source_uri"])
+        self.assertIsNone(item["license_uri"])
+
+    def test_installed_rights_provider_must_match_installed_manifest_license(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("local.wood")
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        mismatched = SoundPackRightsEvidence(
+            license_id="MIT",
+            source_uri="https://example.invalid/source/local.wood",
+            license_uri="https://opensource.org/license/mit",
+        )
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={},
+            installed_pack_provider=lambda: {"local.wood": local},
+            installed_rights_provider=lambda _pack_id: mismatched,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "license must match installed manifest",
+        ):
+            app.snapshot(language="en")
+
+    def test_coherent_installed_audit_never_mixes_manifest_rights_and_newer_storage_status(self) -> None:
+        classic = _manifest("classic")
+        v1 = _manifest("soft", "1.0.0")
+        v2 = _manifest("soft", "2.0.0")
+        entry = _entry(v1)
+        self.assertIsNotNone(entry.rights_evidence)
+        pack_storage = _PackStorage([classic, v2])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        record = SoundPackInstalledAudit(v1, entry.rights_evidence)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_audit_provider=lambda: {"soft": record},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        # The live storage authority has already advanced, simulating an update
+        # between an old manifest read and a later status/rights read.
+        self.assertEqual("2.0.0", manager.status(entry).installed_version)
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("1.0.0", item["installed_version"])
+        self.assertEqual("1.0.0", item["version"])
+        self.assertEqual("current", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(
+            entry.rights_evidence.source_uri,
+            item["rights_source_uri"],
+        )
+
+    def test_same_version_catalog_asset_digest_drift_projects_version_conflict(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        installed_entry = _entry(installed)
+        self.assertIsNotNone(installed_entry.rights_evidence)
+        installed_assets = dict(installed_entry.assets)
+        changed_assets = dict(installed_entry.assets)
+        path = next(iter(changed_assets))
+        original = changed_assets[path]
+        changed_assets[path] = SoundAssetDigest(
+            path=path,
+            size_bytes=original.size_bytes,
+            sha256="0" * 64,
+        )
+        catalog_entry = SoundPackCatalogEntry(
+            manifest=installed_entry.manifest,
+            assets=changed_assets,
+            total_bytes=installed_entry.total_bytes,
+            compatible=True,
+            rights_evidence=installed_entry.rights_evidence,
+        )
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        record = SoundPackInstalledAudit(
+            installed,
+            installed_entry.rights_evidence,
+            installed_assets,
+        )
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": catalog_entry},
+            installed_audit_provider=lambda: {"soft": record},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("version_conflict", item["state"])
+        self.assertEqual("2.0.0", item["installed_version"])
+        self.assertFalse(
+            item["can_install"],
+            "same-version immutable content conflict must require explicit uninstall",
+        )
+        self.assertTrue(item["can_uninstall"])
+        self.assertTrue(item["rights_auditable"])
+
+    def test_missing_pack_in_coherent_audit_does_not_reread_storage_for_active_manifest(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={"soft": entry},
+            installed_audit_provider=lambda: {},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        with (
+            mock.patch.object(
+                coordinator,
+                "status",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as status,
+            mock.patch.object(
+                coordinator,
+                "resolve_usable_pack",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as resolve,
+        ):
+            snapshot = app.snapshot(language="en")
+
+        status.assert_not_called()
+        resolve.assert_not_called()
+        item = snapshot["packs"][0]
+        self.assertEqual("not_installed", item["state"])
+        self.assertIsNone(item["installed_version"])
+
+    def test_coherent_audit_provider_cannot_be_combined_with_split_installed_providers(self) -> None:
+        classic = _manifest("classic")
+        manager = SoundPackManager(_Downloader(), _PackStorage([classic]))
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+
+        with self.assertRaisesRegex(ValueError, "cannot be combined"):
+            SoundSettingsApplication(
+                profiles,
+                runtime,
+                pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+                installed_pack_provider=lambda: {},
+                installed_audit_provider=lambda: {},
+            )
+
+    def test_catalog_projection_and_install_use_closed_world_entry(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic])
+        downloader = _Downloader()
+        pack_manager = SoundPackManager(downloader, pack_storage)
+        profile_storage = _ProfileStorage()
+        profile_manager = SoundProfileManager(profile_storage, pack_manager)
+        profile_manager.load()
+        playback = _AssetPlayback()
+        runtime = ProfiledSoundRuntime(playback, profile_manager.profile_provider)
+        coordinator = SoundPackProfileCoordinator(pack_manager, profile_manager)
+        app = SoundSettingsApplication(
+            profile_manager,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={"soft": entry},
+        )
+
+        before = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("not_installed", before["state"])
+        self.assertTrue(before["can_install"])
+        self.assertNotIn("files", before)
+        self.assertEqual(soft.provenance, before["provenance"])
+
+        app.install_pack("soft", activate=True, language="en")
+        after = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("current", after["state"])
+        self.assertTrue(after["active"])
+        self.assertEqual("soft", profile_manager.current.pack_id)
+        self.assertEqual(["soft"], [pack for pack, _limit in downloader.entries])
+
+        active = app.snapshot(language="en")
+        move = next(item for item in active["events"] if item["event_id"] == "move")
+        self.assertEqual(tuple(sorted(soft.files)), move["sound_choices"])
+        changed = app.set_event("move", sound_id="capture", language="en")
+        changed_move = next(
+            item for item in changed.snapshot["events"] if item["event_id"] == "move"
+        )
+        self.assertEqual("capture", changed_move["sound_id"])
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="missing.sound", language="en")
+
+    def test_crafted_install_command_cannot_bypass_noninstallable_catalog_state(self) -> None:
+        classic = _manifest("classic")
+        current = _manifest("soft", "2.0.0")
+        conflict = SoundPackManifest(
+            pack_id=current.pack_id,
+            version=current.version,
+            title="conflicting title",
+            license_id=current.license_id,
+            author=current.author,
+            provenance="conflicting catalog provenance",
+            files=dict(current.files),
+        )
+        cases = (
+            ("current", current, _entry(current)),
+            ("catalog_older", current, _entry(_manifest("soft", "1.5.0"))),
+            ("version_conflict", current, _entry(conflict)),
+            ("incompatible", current, _entry(_manifest("soft", "3.0.0"), compatible=False)),
+        )
+
+        for label, installed, entry in cases:
+            with self.subTest(state=label):
+                pack_storage = _PackStorage([classic, installed])
+                downloader = _Downloader()
+                manager = SoundPackManager(downloader, pack_storage)
+                profile_storage = _ProfileStorage()
+                profiles = SoundProfileManager(profile_storage, manager)
+                profiles.load()
+                runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+                app = SoundSettingsApplication(
+                    profiles,
+                    runtime,
+                    pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+                    catalog={"soft": entry},
+                    installed_pack_provider=lambda installed=installed: {"soft": installed},
+                )
+
+                with self.assertRaisesRegex(ValueError, "not installable"):
+                    app.install_pack("soft", activate=True, language="en")
+
+                self.assertEqual([], downloader.entries)
+                self.assertEqual([], pack_storage.installed_payloads)
+
+    def test_catalog_without_rights_evidence_is_visible_but_not_installable(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        audited = _entry(soft)
+        entry = SoundPackCatalogEntry(
+            manifest=audited.manifest,
+            assets=audited.assets,
+            total_bytes=audited.total_bytes,
+        )
+        pack_storage = _PackStorage([classic])
+        downloader = _Downloader()
+        pack_manager = SoundPackManager(downloader, pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, pack_manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(pack_manager, profiles),
+            catalog={"soft": entry},
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertFalse(item["rights_auditable"])
+        self.assertEqual("", item["rights_source_uri"])
+        self.assertEqual("", item["license_uri"])
+        self.assertFalse(item["can_install"])
+        with self.assertRaisesRegex(
+            ValueError,
+            "auditable license/provenance evidence",
+        ):
+            app.install_pack("soft", activate=True, language="en")
+        self.assertEqual([], downloader.entries)
+        self.assertEqual([], pack_storage.installed_payloads)
+
+    def test_update_without_candidate_rights_stays_blocked_even_when_installed_version_has_rights(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        candidate = _manifest("soft", "2.0.0")
+        audited_candidate = _entry(candidate)
+        unaudited_candidate = SoundPackCatalogEntry(
+            manifest=audited_candidate.manifest,
+            assets=audited_candidate.assets,
+            total_bytes=audited_candidate.total_bytes,
+        )
+        installed_rights = SoundPackRightsEvidence(
+            license_id=installed.license_id,
+            source_uri="https://example.invalid/source/soft/1.0.0",
+            license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        )
+        pack_storage = _PackStorage([classic, installed])
+        downloader = _Downloader()
+        manager = SoundPackManager(downloader, pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": unaudited_candidate},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                installed_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("different_version", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(installed_rights.source_uri, item["rights_source_uri"])
+        self.assertFalse(item["catalog_rights_auditable"])
+        self.assertEqual("", item["catalog_rights_source_uri"])
+        self.assertFalse(item["can_install"])
+        with self.assertRaisesRegex(
+            ValueError,
+            "auditable license/provenance evidence",
+        ):
+            app.install_pack("soft", activate=True, language="en")
+        self.assertEqual([], downloader.entries)
+        self.assertEqual([], pack_storage.installed_payloads)
+
+    def test_audited_update_keeps_installed_and_candidate_rights_version_scoped(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        candidate = _manifest("soft", "2.0.0")
+        entry = _entry(candidate)
+        installed_rights = SoundPackRightsEvidence(
+            license_id=installed.license_id,
+            source_uri="https://example.invalid/source/soft/1.0.0",
+            license_uri="https://example.invalid/license/soft/1.0.0",
+        )
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                installed_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("different_version", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(
+            "https://example.invalid/source/soft/1.0.0",
+            item["rights_source_uri"],
+        )
+        self.assertTrue(item["catalog_rights_auditable"])
+        self.assertEqual(
+            "https://example.invalid/source/soft/2.0.0",
+            item["catalog_rights_source_uri"],
+        )
+        self.assertTrue(item["can_install"])
+
+    def test_catalog_version_drift_never_projects_uninstalled_future_sound_ids(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        future_base = _manifest("soft", "2.0.0")
+        future_files = dict(future_base.files)
+        future_files["future.alt"] = "audio/future-alt.wav"
+        future = SoundPackManifest(
+            pack_id=future_base.pack_id,
+            version=future_base.version,
+            title=future_base.title,
+            license_id=future_base.license_id,
+            files=future_files,
+            author=future_base.author,
+            provenance=future_base.provenance,
+        )
+        pack_storage = _PackStorage([classic, installed])
+        pack_manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, pack_manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(pack_manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={"soft": _entry(future)},
+        )
+
+        snapshot = app.snapshot(language="en")
+        pack = snapshot["packs"][0]
+        self.assertEqual("different_version", pack["state"])
+        move = next(item for item in snapshot["events"] if item["event_id"] == "move")
+        self.assertEqual(("move",), move["sound_choices"])
+        self.assertNotIn("future.alt", repr(snapshot))
+        with self.assertRaisesRegex(ValueError, "not available"):
+            app.set_event("move", sound_id="future.alt", language="en")
+        with self.assertRaisesRegex(ValueError, "not the installed version"):
+            app.select_pack("soft", language="en")
+
+    def test_switch_between_local_packs_clears_all_pack_relative_sound_ids(self) -> None:
+        pack_a_base = _manifest("pack.a")
+        pack_a_files = dict(pack_a_base.files)
+        pack_a_files["a.soft"] = "audio/a-soft.wav"
+        pack_a_files["shared.soft"] = "audio/shared-a.wav"
+        pack_a = SoundPackManifest(
+            pack_id=pack_a_base.pack_id,
+            version=pack_a_base.version,
+            title=pack_a_base.title,
+            license_id=pack_a_base.license_id,
+            files=pack_a_files,
+            author=pack_a_base.author,
+            provenance=pack_a_base.provenance,
+        )
+        pack_b_base = _manifest("pack.b")
+        pack_b_files = dict(pack_b_base.files)
+        pack_b_files["b.soft"] = "audio/b-soft.wav"
+        pack_b_files["shared.soft"] = "audio/shared-b.wav"
+        pack_b = SoundPackManifest(
+            pack_id=pack_b_base.pack_id,
+            version=pack_b_base.version,
+            title=pack_b_base.title,
+            license_id=pack_b_base.license_id,
+            files=pack_b_files,
+            author=pack_b_base.author,
+            provenance=pack_b_base.provenance,
+        )
+        storage, manager, _playback, runtime = self._profile_runtime(
+            resolver=lambda requested: requested
+            if requested in {"classic", "pack.a", "pack.b"}
+            else "classic"
+        )
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {"pack.a": pack_a, "pack.b": pack_b},
+        )
+        app.select_pack("pack.a", language="en")
+        app.set_event("move", enabled=False, volume_percent=37, sound_id="shared.soft")
+        before = len(storage.writes)
+
+        result = app.select_pack("pack.b", language="en")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(before + 1, len(storage.writes))
+        pref = manager.current.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(37, pref.volume_percent)
+        self.assertIsNone(pref.sound_id)
+        self.assertEqual("move", manager.current.selected_sound_id("move"))
+
+    def test_verified_local_pack_can_be_uninstalled_without_remote_catalog_entry(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("local.wood")
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "local.wood",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={},
+            installed_pack_provider=lambda: {"local.wood": local},
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("local_installed", item["state"])
+        self.assertTrue(item["can_uninstall"])
+
+        result = app.uninstall_pack("local.wood", language="en")
+
+        self.assertTrue(result.ok)
+        self.assertEqual("classic", profiles.current.pack_id)
+        self.assertEqual(["local.wood"], pack_storage.uninstalled)
+
+    def test_incompatible_verified_local_pack_is_visible_removable_and_not_selectable(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("legacy.ogg")
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={},
+            installed_pack_provider=lambda: {"legacy.ogg": local},
+            pack_compatibility_provider=lambda _manifest: False,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("incompatible", item["state"])
+        self.assertFalse(item["compatible"])
+        self.assertTrue(item["can_uninstall"])
+
+        with self.assertRaisesRegex(ValueError, "incompatible"):
+            app.select_pack("legacy.ogg", language="en")
+
+        removed = app.uninstall_pack("legacy.ogg", language="en")
+        self.assertTrue(removed.ok)
+        self.assertEqual(["legacy.ogg"], pack_storage.uninstalled)
+
+    def test_exact_catalog_incompatibility_reconciles_active_installed_pack_to_classic(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        entry = _entry(installed, compatible=False)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        reconciled = app.reconcile_active_profile()
+
+        self.assertEqual("classic", reconciled.pack_id)
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertFalse(item["compatible"])
+        self.assertFalse(item["installed_compatible"])
+
+    def test_authoritative_missing_active_pack_reconciles_to_classic_without_second_pack_read(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft", "1.0.0")
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {
+                    "move": {
+                        "enabled": False,
+                        "volume_percent": 41,
+                        "sound_id": "capture",
+                    }
+                },
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            installed_audit_provider=lambda: {},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        with (
+            mock.patch.object(
+                coordinator,
+                "status",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as status,
+            mock.patch.object(
+                coordinator,
+                "resolve_usable_pack",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as resolve,
+        ):
+            reconciled = app.reconcile_active_profile()
+
+        status.assert_not_called()
+        resolve.assert_not_called()
+        self.assertEqual("classic", reconciled.pack_id)
+        self.assertEqual("classic", profile_storage.payload["pack_id"])
+        pref = reconciled.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(41, pref.volume_percent)
+        self.assertIsNone(
+            pref.sound_id,
+            "falling back from a missing pack must not retain its explicit asset id",
+        )
+
+    def test_same_version_legacy_installed_pack_does_not_borrow_catalog_rights_audit(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        entry = _entry(installed)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda _pack_id: None,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("rights_unverified", item["state"])
+        self.assertFalse(item["rights_auditable"])
+        self.assertEqual("", item["rights_source_uri"])
+        self.assertEqual("", item["license_uri"])
+        self.assertTrue(item["catalog_rights_auditable"])
+        self.assertEqual(
+            entry.rights_evidence.source_uri,
+            item["catalog_rights_source_uri"],
+        )
+        self.assertFalse(item["can_install"])
+
+        selected = app.select_pack("soft", language="en")
+        self.assertTrue(selected.ok)
+        self.assertEqual("soft", profiles.current.pack_id)
+
+    def test_same_version_rights_equivocation_is_visible_without_disabling_installed_pack(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        entry = _entry(installed)
+        stored_rights = SoundPackRightsEvidence(
+            license_id=installed.license_id,
+            source_uri="https://example.invalid/source/soft/verified-install",
+            license_uri="https://example.invalid/license/soft/verified-install",
+        )
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                stored_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("rights_conflict", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(stored_rights.source_uri, item["rights_source_uri"])
+        self.assertTrue(item["catalog_rights_auditable"])
+        self.assertEqual(
+            entry.rights_evidence.source_uri,
+            item["catalog_rights_source_uri"],
+        )
+        self.assertFalse(item["can_install"])
+        selected = app.select_pack("soft", language="en")
+        self.assertTrue(selected.ok)
+        self.assertEqual("soft", profiles.current.pack_id)
+
+    def test_same_version_missing_catalog_rights_does_not_erase_durable_installed_rights(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        audited = _entry(installed)
+        unaudited = SoundPackCatalogEntry(
+            manifest=audited.manifest,
+            assets=audited.assets,
+            total_bytes=audited.total_bytes,
+        )
+        stored_rights = audited.rights_evidence
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": unaudited},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                stored_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("rights_conflict", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(stored_rights.source_uri, item["rights_source_uri"])
+        self.assertFalse(item["catalog_rights_auditable"])
+        self.assertFalse(item["can_install"])
+
+    def test_same_version_catalog_conflict_warns_without_replacing_verified_local_pack(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        conflict_manifest = SoundPackManifest(
+            pack_id=installed.pack_id,
+            version=installed.version,
+            title="Conflicting catalog metadata",
+            license_id=installed.license_id,
+            files=dict(installed.files),
+            author=installed.author,
+            provenance="conflicting provider metadata",
+        )
+        entry = _entry(conflict_manifest)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("version_conflict", item["state"])
+        self.assertFalse(item["can_install"])
+        self.assertEqual("2.0.0", item["installed_version"])
+
+        selected = app.select_pack("soft", language="en")
+        self.assertTrue(selected.ok)
+        self.assertEqual("soft", profiles.current.pack_id)
+
+    def test_stale_catalog_does_not_offer_downgrade_for_newer_installed_pack(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        stale = _manifest("soft", "1.5.0")
+        entry = _entry(stale)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "classic",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("catalog_older", item["state"])
+        self.assertEqual("2.0.0", item["installed_version"])
+        self.assertEqual("2.0.0", item["version"])
+        self.assertEqual("1.5.0", item["catalog_version"])
+        self.assertEqual(installed.provenance, item["provenance"])
+        self.assertEqual(stale.provenance, item["catalog_provenance"])
+        self.assertFalse(item["can_install"])
+        selected = app.select_pack("soft", language="en")
+        self.assertTrue(selected.ok)
+        self.assertEqual("soft", profiles.current.pack_id)
+
+    def test_incompatible_newer_catalog_version_does_not_disable_playable_installed_version(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "1.0.0")
+        available = _manifest("soft", "2.0.0")
+        entry = _entry(available, compatible=False)
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        reconciled = app.reconcile_active_profile()
+        selected = app.select_pack("soft", language="en")
+
+        self.assertEqual("soft", reconciled.pack_id)
+        self.assertTrue(selected.ok)
+        item = selected.snapshot["packs"][0]
+        self.assertFalse(item["compatible"])
+        self.assertTrue(item["installed_compatible"])
+        self.assertEqual("1.0.0", item["installed_version"])
+        self.assertEqual("1.0.0", item["version"])
+        self.assertEqual("2.0.0", item["catalog_version"])
+        self.assertFalse(item["can_install"])
+
+    def test_select_pack_uses_storage_authority_not_fail_soft_presentation_inventory(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            installed_pack_provider=lambda: {"soft": soft},
+        )
+        pack_storage.fail_inventory = True
+
+        with self.assertRaisesRegex(OSError, "inventory unavailable"):
+            app.select_pack("soft", language="en")
+
+        self.assertEqual("classic", profiles.current.pack_id)
+        self.assertEqual("classic", profile_storage.payload["pack_id"])
+
+    def test_absent_pack_uninstall_is_idempotent_without_fabricated_delete(self) -> None:
+        classic = _manifest("classic")
+        pack_storage = _PackStorage([classic])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+        )
+
+        result = app.uninstall_pack("absent.pack", language="en")
+
+        self.assertTrue(result.ok)
+        self.assertIn("already absent", result.announcement.lower())
+        self.assertEqual([], pack_storage.uninstalled)
+        self.assertEqual("classic", profiles.current.pack_id)
+
+    def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
+        classic = _manifest("classic")
+        storage = _PackStorage([classic])
+        manager = SoundPackManager(_Downloader(), storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(profiles, runtime, pack_coordinator=coordinator, catalog={})
+
+        with self.assertRaisesRegex(ValueError, "unknown sound pack"):
+            app.install_pack("../../evil")
+        with self.assertRaisesRegex(ValueError, "unknown sound pack"):
+            app.select_pack("file.c:/secret")
+
+    def test_uninstall_active_pack_persists_fallback_before_storage_delete(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles, runtime, pack_coordinator=coordinator, catalog={"soft": entry}
+        )
+
+        profiles.set_event(
+            "move",
+            profiles.current.preference_for("move").__class__(
+                enabled=False,
+                volume_percent=41,
+                sound_id="capture",
+            ),
+        )
+        app.uninstall_pack("soft", language="en")
+
+        self.assertEqual("classic", profiles.current.pack_id)
+        self.assertEqual("classic", profile_storage.payload["pack_id"])
+        pref = profiles.current.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(41, pref.volume_percent)
+        self.assertIsNone(pref.sound_id)
+        self.assertEqual(["soft"], pack_storage.uninstalled)
+
+
+    def test_active_uninstall_plan_failure_preserves_current_pack_selection(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {
+                    "move": {
+                        "enabled": False,
+                        "volume_percent": 41,
+                        "sound_id": "capture",
+                    }
+                },
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": soft},
+        )
+        pack_storage.fail_inventory = True
+
+        with self.assertRaisesRegex(OSError, "inventory unavailable"):
+            app.uninstall_pack("soft", language="en")
+
+        self.assertEqual("soft", profiles.current.pack_id)
+        self.assertEqual("soft", profile_storage.payload["pack_id"])
+        pref = profiles.current.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(41, pref.volume_percent)
+        self.assertEqual("capture", pref.sound_id)
+        self.assertEqual([], pack_storage.uninstalled)
+
+    def test_active_uninstall_delete_failure_leaves_safe_normalized_classic_profile(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic, soft])
+        pack_storage.fail_uninstall = True
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {
+                    "move": {
+                        "enabled": True,
+                        "volume_percent": 55,
+                        "sound_id": "capture",
+                    }
+                },
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+        )
+
+        with self.assertRaisesRegex(OSError, "uninstall failed"):
+            app.uninstall_pack("soft", language="en")
+
+        self.assertEqual("classic", profiles.current.pack_id)
+        pref = profiles.current.preference_for("move")
+        self.assertEqual(55, pref.volume_percent)
+        self.assertIsNone(pref.sound_id)
+        self.assertIn("soft", pack_storage.manifests)
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,276 @@
+name: Current Sound Profiles Contract
+
+on:
+  push:
+    branches:
+      - work/current-sound-profiles-20260926
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - '.github/workflows/current-sound-profiles-contract.yml'
+      - '.github/workflows/profiled-windows-sound-playback.yml'
+      - '.github/workflows/sound-settings-application.yml'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+      - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+      - 'acs/classroom_sound.py'
+      - 'acs/sound_pack_catalog.py'
+      - 'acs/sound_pack_profile.py'
+      - 'acs/sound_pack_store.py'
+      - 'acs/sound_profile_composition.py'
+      - 'acs/sound_profile_file_store.py'
+      - 'acs/sound_profile_store.py'
+      - 'acs/sound_profile_windows.py'
+      - 'acs/sound_profiles.py'
+      - 'acs/sound_runtime.py'
+      - 'acs/sound_settings_application.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_release_ui.py'
+      - 'tests/js/sound_settings_surface_test.js'
+      - 'tests/test_classroom_sound.py'
+      - 'tests/test_dev3_sound_failure_isolation.py'
+      - 'tests/test_sound_pack_catalog.py'
+      - 'tests/test_sound_pack_profile.py'
+      - 'tests/test_sound_pack_store.py'
+      - 'tests/test_sound_profile_composition.py'
+      - 'tests/test_sound_profile_file_store.py'
+      - 'tests/test_sound_profile_manager_hardening.py'
+      - 'tests/test_sound_profile_runtime.py'
+      - 'tests/test_sound_profile_store.py'
+      - 'tests/test_sound_profile_windows.py'
+      - 'tests/test_sound_profile_windows_compatibility.py'
+      - 'tests/test_sound_profile_workflow_contract.py'
+      - 'tests/test_sound_profiles.py'
+      - 'tests/test_sound_settings_application.py'
+      - 'tests/test_sound_settings_webview.py'
+      - 'tests/test_v2_native_dialog_language.py'
+      - 'tests/test_v2_package_required_resources.py'
+      - 'tests/test_version2_composition_startup_cleanup_current.py'
+      - 'tests/test_version2_package_assembler.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_sound_profile_bridge.py'
+      - 'tests/test_w6_v2_language_owner_current.py'
+      - 'web/full_product_sound_settings.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-sound-profiles-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  OWNER_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
+  CURRENT_PRODUCT_BASE: 3a00ff766ccec869a2cb761f26739fe1c85dc9ef
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact owner or current-Product successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          head_ref='${{ github.event.pull_request.head.ref || github.ref_name }}'
+          if [ "$head_ref" = 'work/current-sound-profiles-20260926' ]; then
+            base="$OWNER_PRODUCT_BASE"
+            expected="$(printf '%s\n' \
+              '.github/workflows/current-sound-profiles-contract.yml' \
+              'acs/classroom_sound.py' \
+              'acs/sound_pack_catalog.py' \
+              'acs/sound_pack_profile.py' \
+              'acs/sound_pack_store.py' \
+              'acs/sound_profile_file_store.py' \
+              'acs/sound_profile_store.py' \
+              'acs/sound_profiles.py' \
+              'acs/sound_runtime.py' \
+              'tests/test_classroom_sound.py' \
+              'tests/test_sound_pack_catalog.py' \
+              'tests/test_sound_pack_profile.py' \
+              'tests/test_sound_pack_store.py' \
+              'tests/test_sound_profile_file_store.py' \
+              'tests/test_sound_profile_manager_hardening.py' \
+              'tests/test_sound_profile_runtime.py' \
+              'tests/test_sound_profile_store.py' \
+              'tests/test_sound_profiles.py' \
+              | sort)"
+            echo 'SOUND_SCOPE_MODE=OWNER_EXACT'
+          else
+            test "$head_ref" = 'reconverge/sound-profiles-current-product-20260926'
+            if [ '${{ github.event_name }}' = 'pull_request' ]; then
+              test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
+            fi
+            base="$CURRENT_PRODUCT_BASE"
+            product_ref='work/full-product-teacher-education-reachability-20260911'
+            git fetch --no-tags origin "refs/heads/$product_ref"
+            live_product="$(git rev-parse FETCH_HEAD)"
+            test "$live_product" = "$CURRENT_PRODUCT_BASE" || {
+              printf 'Pinned Product is stale: pinned=%s live=%s\n' "$CURRENT_PRODUCT_BASE" "$live_product" >&2
+              exit 1
+            }
+            expected="$(printf '%s\n' \
+              '.github/workflows/current-sound-profiles-contract.yml' \
+              '.github/workflows/profiled-windows-sound-playback.yml' \
+              '.github/workflows/sound-settings-application.yml' \
+              '.github/workflows/w6-v2-package-assembler.yml' \
+              '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
+              '.github/workflows/w6-v2-release-payload-current-assembler.yml' \
+              'acs/classroom_sound.py' \
+              'acs/sound_pack_catalog.py' \
+              'acs/sound_pack_profile.py' \
+              'acs/sound_pack_store.py' \
+              'acs/sound_profile_composition.py' \
+              'acs/sound_profile_file_store.py' \
+              'acs/sound_profile_store.py' \
+              'acs/sound_profile_windows.py' \
+              'acs/sound_profiles.py' \
+              'acs/sound_runtime.py' \
+              'acs/sound_settings_application.py' \
+              'acs/version2_education_mutation_release.py' \
+              'acs/version2_package_preflight.py' \
+              'acs/version2_release_app.py' \
+              'acs/version2_release_payload.py' \
+              'acs/version2_release_ui.py' \
+              'tests/js/sound_settings_surface_test.js' \
+              'tests/test_classroom_sound.py' \
+              'tests/test_dev3_sound_failure_isolation.py' \
+              'tests/test_sound_pack_catalog.py' \
+              'tests/test_sound_pack_profile.py' \
+              'tests/test_sound_pack_store.py' \
+              'tests/test_sound_profile_composition.py' \
+              'tests/test_sound_profile_file_store.py' \
+              'tests/test_sound_profile_manager_hardening.py' \
+              'tests/test_sound_profile_runtime.py' \
+              'tests/test_sound_profile_store.py' \
+              'tests/test_sound_profile_windows.py' \
+              'tests/test_sound_profile_windows_compatibility.py' \
+              'tests/test_sound_profile_workflow_contract.py' \
+              'tests/test_sound_profiles.py' \
+              'tests/test_sound_settings_application.py' \
+              'tests/test_sound_settings_webview.py' \
+              'tests/test_v2_native_dialog_language.py' \
+              'tests/test_v2_package_required_resources.py' \
+              'tests/test_version2_composition_startup_cleanup_current.py' \
+              'tests/test_version2_package_assembler.py' \
+              'tests/test_version2_release_payload.py' \
+              'tests/test_version2_sound_profile_bridge.py' \
+              'tests/test_w6_v2_language_owner_current.py' \
+              'web/full_product_sound_settings.js' \
+              | sort)"
+            echo 'SOUND_SCOPE_MODE=CURRENT_PRODUCT_SUCCESSOR'
+          fi
+          git cat-file -e "${base}^{commit}"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected sound-profile scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile current sound profile cluster
+        run: >-
+          python -m py_compile
+          acs/sound_profiles.py
+          acs/sound_profile_store.py
+          acs/sound_profile_file_store.py
+          acs/sound_profile_composition.py
+          acs/sound_pack_catalog.py
+          acs/sound_pack_profile.py
+          acs/sound_pack_store.py
+          acs/classroom_sound.py
+          acs/sound_runtime.py
+          acs/sound_settings_application.py
+          acs/sound_profile_windows.py
+          acs/version2_release_app.py
+          acs/version2_package_preflight.py
+          acs/version2_release_payload.py
+          acs/version2_release_ui.py
+          acs/version2_education_mutation_release.py
+          run_accessible_chess_v2.py
+          tests/test_sound_profiles.py
+          tests/test_sound_profile_store.py
+          tests/test_sound_profile_file_store.py
+          tests/test_sound_profile_composition.py
+          tests/test_sound_profile_manager_hardening.py
+          tests/test_sound_pack_catalog.py
+          tests/test_sound_pack_profile.py
+          tests/test_sound_pack_store.py
+          tests/test_sound_profile_runtime.py
+          tests/test_classroom_sound.py
+          tests/test_sound_settings_application.py
+          tests/test_sound_profile_windows.py
+          tests/test_sound_profile_windows_compatibility.py
+          tests/test_sound_profile_workflow_contract.py
+          tests/test_version2_sound_profile_bridge.py
+          tests/test_sound_settings_webview.py
+          tests/test_version2_package_preflight.py
+          tests/test_v2_package_required_resources.py
+          tests/test_v2_native_dialog_language.py
+          tests/test_version2_composition_startup_cleanup_current.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_release_payload.py
+          tests/test_w6_v2_language_owner_current.py
+
+      - name: Run sound settings DOM regression
+        run: |
+          node --check web/full_product_sound_settings.js
+          node --check tests/js/sound_settings_surface_test.js
+          node tests/js/sound_settings_surface_test.js
+
+      - name: Run focused current sound profile regressions
+        run: >-
+          python -m unittest -v
+          tests.test_sound_profiles
+          tests.test_sound_profile_store
+          tests.test_sound_profile_file_store
+          tests.test_sound_profile_composition
+          tests.test_sound_profile_manager_hardening
+          tests.test_sound_pack_catalog
+          tests.test_sound_pack_profile
+          tests.test_sound_pack_store
+          tests.test_sound_profile_runtime
+          tests.test_classroom_sound
+          tests.test_sound_settings_application
+          tests.test_sound_profile_windows
+          tests.test_sound_profile_windows_compatibility
+          tests.test_sound_profile_workflow_contract
+          tests.test_version2_sound_profile_bridge
+          tests.test_sound_settings_webview
+          tests.test_version2_package_preflight
+          tests.test_v2_package_required_resources
+          tests.test_v2_native_dialog_language
+          tests.test_version2_composition_startup_cleanup_current
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_w6_v2_language_owner_current
+          tests.test_sound_events
+          tests.test_sound_runtime
+          tests.test_dev3_sound_failure_isolation
+
+      - name: Run production V2 sound diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
+
+      - name: Run full repository unittest
+        run: python -m unittest discover -s tests -v
