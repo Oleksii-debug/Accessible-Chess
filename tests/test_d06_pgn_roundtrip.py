@@ -1,4 +1,5 @@
 import codecs
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -604,6 +605,24 @@ class D06PgnRoundTripTests(unittest.TestCase):
             serialize_pgn_bytes,
             (),
         )
+
+    def test_w1_gate_pins_d06_regression_authority_and_live_product_base(self):
+        source = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "w1-d06-bounded-model-materialization-convergence.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("- 'tests/test_d06_pgn_roundtrip.py'", source)
+        self.assertIn("EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}", source)
+        self.assertIn('git fetch --no-tags origin "$EVENT_BASE_REF"', source)
+        self.assertIn(
+            'live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"',
+            source,
+        )
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', source)
+        self.assertIn("tests/test_d06_pgn_roundtrip.py", source.split("for path in", 1)[1])
+        self.assertNotIn('base="${EVENT_BASE_SHA:-}"', source)
 
     def test_programmatic_model_must_store_symbolic_nag_separately_from_san(self):
         game = PgnGame(
