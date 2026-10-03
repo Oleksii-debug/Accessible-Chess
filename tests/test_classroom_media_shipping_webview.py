@@ -426,6 +426,24 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
             )
         self.assertIsNotNone(controller_a)
 
+    def test_release_application_configure_runs_before_browser_publication(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "acs"
+            / "version2_release_app.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "application_configure: Callable[[Any], None] | None = None",
+            source,
+        )
+        self.assertIn(
+            'raise TypeError("application_configure must be callable")',
+            source,
+        )
+        configure = source.index("application_configure(candidate)")
+        publish = source.index("api.bind_version2_application(candidate)")
+        self.assertLess(configure, publish)
+
     def test_shipping_files_are_required_and_loaded_in_provider_order(self):
         root = Path(__file__).resolve().parents[1]
         payload = (root / "acs" / "version2_release_payload.py").read_text(encoding="utf-8")
