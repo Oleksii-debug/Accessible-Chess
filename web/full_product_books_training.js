@@ -28,8 +28,15 @@
   function safeInvoke(root, invoke, command, payload, onResult, announce, fallbackMessage) {
     if (inFlightRoots.has(root)) return;
     inFlightRoots.add(root);
-    Promise.resolve()
-      .then(function () { return invoke(command, payload || {}); })
+    let result;
+    try {
+      result = invoke(command, payload || {});
+    } catch (_) {
+      inFlightRoots.delete(root);
+      if (fallbackMessage) announce(String(fallbackMessage));
+      return;
+    }
+    Promise.resolve(result)
       .then(onResult)
       .catch(function () {
         if (fallbackMessage) announce(String(fallbackMessage));
