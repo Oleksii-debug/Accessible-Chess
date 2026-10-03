@@ -92,6 +92,43 @@ jobs:
           grep -Fq 'ClassroomFileHttpRpcCall' acs/classroom_collaboration_runtime.py
           echo "CLASSROOM_COLLABORATION_RUNTIME_CREDENTIAL_BOUNDARY=PASS"
 
+      - name: Prove collaboration content has no analytics authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          paths = (
+              'acs/classroom_collaboration_runtime.py',
+              'acs/classroom_collaboration.py',
+              'acs/classroom_collaboration_storage.py',
+              'acs/classroom_chat_http_endpoint.py',
+              'acs/classroom_chat_rpc.py',
+              'acs/classroom_collaboration_chat_server.py',
+              'acs/classroom_file_http_transport.py',
+              'acs/classroom_file_rpc.py',
+              'acs/classroom_file_server.py',
+          )
+          forbidden = ('usage_statistics', 'analytics', 'telemetry')
+          for raw in paths:
+              tree = ast.parse(Path(raw).read_text(encoding='utf-8'), filename=raw)
+              imported = []
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      imported.extend(alias.name for alias in node.names)
+                  elif isinstance(node, ast.ImportFrom) and node.module:
+                      imported.append(node.module)
+              offenders = [
+                  name for name in imported
+                  if any(part in name.lower() for part in forbidden)
+              ]
+              if offenders:
+                  raise SystemExit(f'{raw} imports analytics authority: {offenders}')
+          print('CLASSROOM_COLLABORATION_CONTENT_TELEMETRY_BOUNDARY=PASS')
+          PY
+
       - name: Run whole collaboration stack
         run: >-
           python -m unittest -v
