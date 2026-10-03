@@ -243,6 +243,71 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         ]
         self.assertEqual(copied_labels, ["copied source", "copied source"])
 
+    def test_pinned_livekit_archive_verifies_copied_tree_twice(self) -> None:
+        output = self.root / "payload-livekit-archive-bound"
+        livekit_archive = self.root / "livekit-client.tgz"
+        livekit_archive.write_bytes(b"fixture archive boundary")
+        with (
+            patch.object(
+                payload,
+                "OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256",
+                self._digest(self.stockfish),
+            ),
+            patch.object(
+                payload,
+                "_verify_livekit_tree_against_pinned_archive",
+            ) as verify,
+        ):
+            prepared = payload.prepare_version2_release_payload(
+                self.standalone,
+                self.stockfish,
+                self.sounds,
+                output,
+                livekit_client_archive=livekit_archive,
+            )
+
+        self.assertEqual(prepared.root, output)
+        self.assertEqual(verify.call_count, 2)
+        for call in verify.call_args_list:
+            self.assertEqual(call.args[0], livekit_archive)
+            self.assertEqual(call.args[1].name, "prepared-product")
+            self.assertTrue(str(call.args[1]).startswith(str(output.parent)))
+
+    def test_pinned_livekit_archive_verification_failure_is_atomic(self) -> None:
+        output = self.root / "payload-livekit-archive-rejected"
+        livekit_archive = self.root / "livekit-client.tgz"
+        livekit_archive.write_bytes(b"fixture archive boundary")
+        with (
+            patch.object(
+                payload,
+                "OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256",
+                self._digest(self.stockfish),
+            ),
+            patch.object(
+                payload,
+                "_verify_livekit_tree_against_pinned_archive",
+                side_effect=payload.Version2ReleasePayloadError(
+                    "LiveKit packaged resources do not match the pinned npm archive"
+                ),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "do not match the pinned npm archive",
+            ):
+                payload.prepare_version2_release_payload(
+                    self.standalone,
+                    self.stockfish,
+                    self.sounds,
+                    output,
+                    livekit_client_archive=livekit_archive,
+                )
+        self._assert_no_publication(output)
+        self.assertEqual(
+            list(output.parent.glob(f".{output.name}.payload-*")),
+            [],
+        )
+
     def test_missing_winforms_accessibility_app_config_fails_without_output(self) -> None:
         (self.standalone / "AccessibleChess.exe.config").unlink()
         output = self.root / "payload"
