@@ -393,6 +393,91 @@ async function run() {
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
 
+  const controlsReplaceCount = bookRoot.replaceChildrenCalls;
+  const controlsFocus = document.activeElement;
+
+  const unknownBookAction = bookSnapshot(3, "Malformed action");
+  unknownBookAction.actions[0].command = "book.raw_fen";
+  let unknownBookActionRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, unknownBookAction, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    unknownBookActionRejected = true;
+  }
+  check(unknownBookActionRejected, "unknown Book toolbar command must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "unknown Book command must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "unknown Book command must preserve reading focus");
+
+  const duplicateBookAction = bookSnapshot(3, "Duplicate action");
+  duplicateBookAction.actions.push({
+    command: "book.next", label: "Next duplicate", enabled: true
+  });
+  let duplicateBookActionRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, duplicateBookAction, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    duplicateBookActionRejected = true;
+  }
+  check(duplicateBookActionRejected, "duplicate Book toolbar command must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "duplicate Book command must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "duplicate Book command must preserve reading focus");
+
+  const nonBooleanBookAction = bookSnapshot(3, "Malformed enabled");
+  nonBooleanBookAction.actions[0].enabled = 1;
+  let nonBooleanBookActionRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, nonBooleanBookAction, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    nonBooleanBookActionRejected = true;
+  }
+  check(nonBooleanBookActionRejected, "non-boolean Book enabled state must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "malformed Book enabled state must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "malformed Book enabled state must preserve reading focus");
+
+  const malformedBookmark = bookSnapshot(3, "Malformed bookmark");
+  malformedBookmark.bookmark.max_length = "80";
+  let malformedBookmarkRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, malformedBookmark, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    malformedBookmarkRejected = true;
+  }
+  check(malformedBookmarkRejected, "coerced bookmark length must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "malformed bookmark must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "malformed bookmark must preserve reading focus");
+
+  const blankBookmarkValue = bookSnapshot(3, "Blank bookmark");
+  blankBookmarkValue.bookmark.value = "   ";
+  let blankBookmarkValueRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, blankBookmarkValue, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    blankBookmarkValueRejected = true;
+  }
+  check(blankBookmarkValueRejected, "blank bookmark value must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "blank bookmark value must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "blank bookmark value must preserve reading focus");
+
   const listSnapshot = bookSnapshot(4, "List");
   listSnapshot.block.role = "group";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
@@ -1068,6 +1153,65 @@ async function run() {
     "excessive semantic items must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "excessive semantic items must not steal reading focus");
+
+  const starterReplaceCount = bookRoot.replaceChildrenCalls;
+  const starterFocus = document.activeElement;
+
+  const duplicateStarter = withStarterMaterials(
+    bookSnapshot(0, "Starter duplicate"),
+    "starter-course"
+  );
+  duplicateStarter.starter_materials.items[2].material_id = "starter-booklet-01";
+  let duplicateStarterRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, duplicateStarter, bookInvoke, announce, "book-block-0", "Action failed"
+    );
+  } catch (error) {
+    duplicateStarterRejected = true;
+  }
+  check(duplicateStarterRejected, "duplicate starter material id must fail closed");
+  check(bookRoot.replaceChildrenCalls === starterReplaceCount,
+    "duplicate starter material must preserve prior readable DOM");
+  check(document.activeElement === starterFocus,
+    "duplicate starter material must preserve reading focus");
+
+  const unknownStarterCurrent = withStarterMaterials(
+    bookSnapshot(0, "Starter current"),
+    "missing-material"
+  );
+  let unknownStarterCurrentRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, unknownStarterCurrent, bookInvoke, announce, "book-block-0", "Action failed"
+    );
+  } catch (error) {
+    unknownStarterCurrentRejected = true;
+  }
+  check(unknownStarterCurrentRejected, "unknown starter current id must fail closed");
+  check(bookRoot.replaceChildrenCalls === starterReplaceCount,
+    "unknown starter current id must preserve prior readable DOM");
+  check(document.activeElement === starterFocus,
+    "unknown starter current id must preserve reading focus");
+
+  const sparseStarter = withStarterMaterials(
+    bookSnapshot(0, "Starter sparse"),
+    "starter-course"
+  );
+  delete sparseStarter.starter_materials.items[1];
+  let sparseStarterRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, sparseStarter, bookInvoke, announce, "book-block-0", "Action failed"
+    );
+  } catch (error) {
+    sparseStarterRejected = true;
+  }
+  check(sparseStarterRejected, "sparse starter material inventory must fail closed");
+  check(bookRoot.replaceChildrenCalls === starterReplaceCount,
+    "sparse starter inventory must preserve prior readable DOM");
+  check(document.activeElement === starterFocus,
+    "sparse starter inventory must preserve reading focus");
 
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {
