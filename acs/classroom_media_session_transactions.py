@@ -26,8 +26,8 @@ from typing import Any
 
 from .classroom_media_host_transactions import (
     ClassroomMediaHostTransactionPort,
+    ClassroomMediaHostTransactions,
     MediaHostRecoveryRequired,
-    MediaHostSingleFlightGate,
     MediaHostTransactionError,
 )
 from .classroom_realtime_media import (
@@ -295,8 +295,8 @@ class ClassroomMediaSessionHostTransactions:
         controller: ClassroomMediaController,
         outer_port: ClassroomMediaHostTransactionPort,
         session_port: ClassroomMediaSessionTransactionPort,
+        host_transactions: ClassroomMediaHostTransactions,
         *,
-        activity_gate: MediaHostSingleFlightGate,
         transaction_id_factory: SessionTransactionIdFactory | None = None,
     ) -> None:
         if not isinstance(controller, ClassroomMediaController):
@@ -305,12 +305,19 @@ class ClassroomMediaSessionHostTransactions:
             raise TypeError("outer port must be ClassroomMediaHostTransactionPort")
         if not isinstance(session_port, ClassroomMediaSessionTransactionPort):
             raise TypeError("session port must be ClassroomMediaSessionTransactionPort")
-        if not isinstance(activity_gate, MediaHostSingleFlightGate):
-            raise TypeError("activity gate must be MediaHostSingleFlightGate")
+        if not isinstance(host_transactions, ClassroomMediaHostTransactions):
+            raise TypeError("host transactions must be ClassroomMediaHostTransactions")
         if getattr(controller, "_media", None) is not outer_port:
             raise ValueError("controller must use the supplied outer media port")
         if getattr(outer_port, "_session_port", None) is not session_port:
             raise ValueError("outer media port must delegate to the supplied session port")
+        if (
+            getattr(host_transactions, "_controller", None) is not controller
+            or getattr(host_transactions, "_port", None) is not outer_port
+        ):
+            raise ValueError(
+                "session transactions must share the exact non-secret host owner"
+            )
         if transaction_id_factory is not None and not callable(transaction_id_factory):
             raise TypeError("session transaction id factory must be callable")
 
@@ -318,7 +325,8 @@ class ClassroomMediaSessionHostTransactions:
         self._controller = controller
         self._outer_port = outer_port
         self._session_port = session_port
-        self._activity_gate = activity_gate
+        self._host_transactions = host_transactions
+        self._activity_gate = host_transactions.activity_gate
         self._transaction_id_factory = transaction_id_factory
         self._transaction_nonce = nonce
         self._transaction_counter = 0
