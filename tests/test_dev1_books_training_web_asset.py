@@ -63,10 +63,17 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertNotIn("accepted_moves", text)
         self.assertNotIn("start_fen", text)
 
-    def test_transport_rejection_is_caught_without_error_object_projection(self) -> None:
+    def test_transport_throw_and_rejection_are_caught_with_one_flight_actions(self) -> None:
         text = self.text
-        self.assertIn('.catch(function ()', text)
-        self.assertIn('announce(String(fallbackMessage))', text)
+        self.assertIn("const inFlightRoots = new WeakSet()", text)
+        self.assertIn("if (inFlightRoots.has(root)) return", text)
+        self.assertIn("inFlightRoots.add(root)", text)
+        self.assertIn("Promise.resolve()", text)
+        self.assertIn(".then(function () { return invoke(command, payload || {}); })", text)
+        self.assertIn(".catch(function ()", text)
+        self.assertIn("announce(String(fallbackMessage))", text)
+        self.assertEqual(text.count("inFlightRoots.delete(root)"), 2)
+        self.assertNotIn("Promise.resolve(invoke(", text)
         self.assertNotIn("error.message", text)
         self.assertNotIn("String(error)", text)
 
