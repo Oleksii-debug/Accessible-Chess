@@ -13,6 +13,7 @@ import wave
 import zipfile
 
 from acs import version2_release_payload as payload
+from acs import version2_package_preflight as package_preflight
 from acs.sound_events import SoundEvent
 from acs.sound_windows import PackagedSoundAssetResolver
 from acs.stockfish_runtime import StockfishRuntimeConfig, resolve_stockfish_path
@@ -419,6 +420,48 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         )
         self.assertTrue((package / "RELEASE_MANIFEST.json").is_file())
         self.assertTrue((package / "SHA256SUMS.txt").is_file())
+
+    def test_inventory_bound_payload_flows_through_package_assembler_preflight(self) -> None:
+        count, inventory_sha, _alt = self._enable_inventory_sound_pack()
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+        ):
+            prepared = self._prepare(self.root / "payload-inventory-assembled")
+
+        package = self.root / "candidate-inventory-bound"
+        with (
+            patch.object(package_preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(
+                package_preflight,
+                "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                inventory_sha,
+            ),
+        ):
+            assembled = assemble_version2_package_tree(
+                prepared.product_dir,
+                prepared.notices_dir,
+                package,
+                integration_sha="b" * 40,
+            )
+
+        self.assertEqual(assembled.tree_report.integration_sha, "b" * 40)
+        self.assertTrue(
+            (
+                package
+                / "AccessibleChess"
+                / "assets"
+                / "sounds"
+                / "inventory.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                package
+                / "THIRD_PARTY_NOTICES"
+                / "SOUND_INVENTORY.json"
+            ).is_file()
+        )
 
     def test_wrong_stockfish_digest_fails_without_output(self) -> None:
         output = self.root / "payload"
