@@ -136,6 +136,38 @@
     if (typeof block.dom_id !== "string" || !block.dom_id) {
       throw new TypeError("Book snapshot block requires a DOM id");
     }
+    const roles = ["heading", "paragraph", "img", "group", "tree", "note", "list"];
+    if (typeof block.role !== "string" || roles.indexOf(block.role) < 0) {
+      throw new TypeError("Book snapshot block role is invalid");
+    }
+    const hasList = block.list !== undefined && block.list !== null;
+    if (block.role === "list") {
+      if (!hasList || typeof block.list !== "object" || Array.isArray(block.list)) {
+        throw new TypeError("Book list block requires list metadata");
+      }
+      if (
+        !Array.isArray(block.list.items) ||
+        block.list.items.length < 1 ||
+        block.list.items.some(function (item) { return typeof item !== "string" || !item; })
+      ) {
+        throw new TypeError("Book list items are invalid");
+      }
+      if (typeof block.list.ordered !== "boolean") {
+        throw new TypeError("Book list ordered flag is invalid");
+      }
+      if (
+        block.list.start !== null &&
+        block.list.start !== undefined &&
+        (!Number.isSafeInteger(block.list.start) || block.list.start < 1)
+      ) {
+        throw new TypeError("Book list start is invalid");
+      }
+      if (!block.list.ordered && block.list.start !== null && block.list.start !== undefined) {
+        throw new TypeError("Unordered Book list cannot define a start");
+      }
+    } else if (hasList) {
+      throw new TypeError("Non-list Book block contains list metadata");
+    }
   }
 
   function requireTrainingSnapshot(snapshot) {
