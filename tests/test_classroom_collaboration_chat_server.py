@@ -29,6 +29,12 @@ from acs.classroom_realtime_media import ClassroomRole
 ROOM = "room-1"
 TEACHER = "teacher-1"
 STUDENT = "student-1"
+CHAT_SERVER_WORKFLOW = (
+    Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "classroom-collaboration-chat-server.yml"
+)
 
 
 class FakeAuthorization:
@@ -1608,6 +1614,22 @@ class ClassroomChatServerTests(unittest.TestCase):
                 commands=(self.moderation("op-denied"),),
             )
         self.assertIsNone(raised.exception.__cause__)
+
+    def test_workflow_scope_uses_immutable_pull_request_base(self) -> None:
+        workflow = CHAT_SERVER_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$PR_BASE_REF", workflow)
 
     def test_server_history_bound_matches_canonical_client_sync_page(self) -> None:
         self.assertEqual(MAX_SYNC_MESSAGES, MAX_SERVER_HISTORY_MESSAGES)
