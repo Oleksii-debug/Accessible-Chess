@@ -628,6 +628,29 @@ class ExerciseSessionTests(unittest.TestCase):
                 metadata=InfiniteMetadata(),
             )
 
+    def test_definition_metadata_rejects_duplicate_mapping_keys(self):
+        step = ExerciseStep(frozenset({"e4"}))
+
+        class DuplicateMetadata(Mapping):
+            def __len__(self):
+                return 2
+
+            def __iter__(self):
+                return iter(("difficulty", "difficulty"))
+
+            def __getitem__(self, key):
+                if key != "difficulty":
+                    raise KeyError(key)
+                return "starter"
+
+        with self.assertRaisesRegex(ValueError, "duplicate keys"):
+            ExerciseDefinition(
+                "duplicate-metadata",
+                Board.START,
+                (step,),
+                metadata=DuplicateMetadata(),
+            )
+
     def test_full_definition_identity_ingress_is_bounded(self):
         oversized = "x" * 4097
         step = ExerciseStep(frozenset({"e4"}))
