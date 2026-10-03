@@ -18,16 +18,48 @@
     return providerRuntime;
   }
 
+  function providerTransactionId(result) {
+    const payload = result && typeof result === "object" &&
+      result.payload && typeof result.payload === "object"
+      ? result.payload
+      : {};
+    const value = payload.transaction_id;
+    return typeof value === "string" &&
+      /^(?:host|session)-[0-9a-f]{32}$/.test(value)
+      ? value
+      : "";
+  }
+
+  function retireUnstartedProvider(result, invoke) {
+    const transactionId = providerTransactionId(result);
+    if (!transactionId) {
+      return Promise.reject(new TypeError("classroom media transaction is invalid"));
+    }
+    return Promise.resolve().then(function () {
+      return invoke(
+        "media.provider_not_started",
+        { transaction_id: transactionId }
+      );
+    });
+  }
+
   function settleProviderEvent(result, invoke) {
     if (!result || typeof result !== "object") {
       return Promise.reject(new TypeError("classroom media result must be an object"));
     }
     if (result.kind !== "provider-dispatch") return Promise.resolve(result);
+    let settlement;
     try {
-      return mediaProviderRuntime(invoke).settle(result);
-    } catch (error) {
-      return Promise.reject(error);
+      settlement = mediaProviderRuntime(invoke).settle(result);
+    } catch (_error) {
+      return retireUnstartedProvider(result, invoke);
     }
+    return Promise.resolve(settlement).catch(function () {
+      // A rejected runtime before it can establish/retire the provider boundary
+      // must not strand the canonical Python lease. Runtime-internal
+      // post-boundary failures return a recovery terminal instead of rejecting.
+      return retireUnstartedProvider(result, invoke);
+    });
   }
 
   function node(tag, text) {
