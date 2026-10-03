@@ -144,6 +144,29 @@ async function testLocalSourceReceipt() {
   assert.strictEqual(result.transaction_id, HOST_ID);
 }
 
+async function testLocalSourceSemanticSnapshotMismatchFailsClosed() {
+  const adapter = new FakeAdapter();
+  adapter.setLocalSource = async function (source, enabled) {
+    this.calls.push(["setLocalSource", source, enabled]);
+    this.current = snapshot({
+      connected: true,
+      room_id: "room-1",
+      participant_id: "student-1",
+      microphone_enabled: false
+    });
+    return this.current;
+  };
+  const executor = create(adapter);
+  const result = await executor.execute({
+    transaction_id: HOST_ID,
+    operation: "set_local_source",
+    source: "microphone",
+    enabled: true
+  });
+  assert.strictEqual(result.status, "failed");
+  assert.strictEqual(result.provider_snapshot.microphone_enabled, false);
+}
+
 async function testModerationChunkReceipt() {
   const adapter = new FakeAdapter();
   const executor = create(adapter);
@@ -536,6 +559,7 @@ async function testCredentialShapeIsStrict() {
 async function main() {
   const tests = [
     testLocalSourceReceipt,
+    testLocalSourceSemanticSnapshotMismatchFailsClosed,
     testModerationChunkReceipt,
     testDeviceRecoveryReceipt,
     testConnectUsesCredentialOnceAndNeverReturnsSecret,
