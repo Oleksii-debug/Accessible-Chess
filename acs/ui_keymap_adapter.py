@@ -24,6 +24,9 @@ _UI_CONTEXT = {
     BindingContext.ENGINE_GAME: "engine-game",
     BindingContext.DATABASE: "database",
     BindingContext.BOOK_READER: "book-reader",
+    BindingContext.PGN_TREE: "pgn_tree",
+    BindingContext.LIBRARY_RESULTS: "library_results",
+    BindingContext.EDUCATION_LIST: "education_list",
 }
 
 _UK_LABELS = {
