@@ -1,0 +1,68 @@
+name: Training Exact Ingress Snapshot
+
+on:
+  pull_request:
+    paths:
+      - 'acs/training.py'
+      - 'tests/test_d08_training_canonical_resume.py'
+      - '.github/workflows/training-exact-ingress-snapshot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-exact-ingress-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      EXACT_PARENT: 5252e582358deb25fe5d01fbf547d4e21a8fbcb1
+      TRAINING_BLOB: bf55c46218ae9d6662352e50f8676cd7b295b33a
+      RESUME_TEST_BLOB: 53c04ca58ba750ddbb272fd471b11ad9b686544e
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact stacked scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:acs/training.py")" = "$TRAINING_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_d08_training_canonical_resume.py")" = "$RESUME_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/training-exact-ingress-snapshot.yml' \
+            'acs/training.py' \
+            'tests/test_d08_training_canonical_resume.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+
+      - name: Compile Training boundary
+        run: python -m compileall -q acs/training.py tests/test_d08_training_canonical_resume.py
+
+      - name: Execute Training regression matrix
+        run: >-
+          python -m unittest -v
+          tests.test_training
+          tests.test_d08_training_canonical_resume
+          tests.test_d08_book_training_contract
+          tests.test_w2_book_training_canonical_ingress
+
+      - name: Core selftest
+        run: python -m acs.selftest
