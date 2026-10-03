@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import tempfile
+import secrets
 from typing import Any, Mapping
 
 
@@ -174,6 +176,57 @@ class _SettingsSaveLock:
             raise continuity_error
 
 
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    try:
+        return os.path.samestat(first, second)
+    except (AttributeError, OSError):
+        return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
+def _require_private_regular(info: os.stat_result, label: str) -> None:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or bool(getattr(info, "st_file_attributes", 0) & flag)
+        or not stat.S_ISREG(info.st_mode)
+        or int(getattr(info, "st_nlink", 1)) != 1
+    ):
+        raise SettingsError(f"{label} must be one private regular file")
+
+
+def _cleanup_owned_temp(path: Path, expected: os.stat_result) -> None:
+    """Delete only the exact private temp inode created by this Settings save."""
+    try:
+        current = os.lstat(path)
+    except OSError:
+        return
+    try:
+        _require_private_regular(current, "settings temporary file")
+    except SettingsError:
+        return
+    if not _same_file_identity(expected, current):
+        return
+
+    quarantine = path.parent / (
+        f".{path.name}.remove-quarantine-{secrets.token_hex(8)}"
+    )
+    try:
+        os.replace(path, quarantine)
+        moved = os.lstat(quarantine)
+    except OSError:
+        return
+    try:
+        _require_private_regular(moved, "settings temporary quarantine")
+    except SettingsError:
+        return
+    if not _same_file_identity(expected, moved):
+        return
+    try:
+        quarantine.unlink()
+    except OSError:
+        return
+
+
 def _validated_value(key: str, value: Any) -> Any:
     if key not in DEFAULTS:
         raise KeyError(f"unknown setting: {key}")
@@ -328,8 +381,90 @@ class Settings:
         with _SettingsSaveLock(self.path) as upgrade_lock:
             upgrade_lock.assert_current()
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp.write_text(self.export_json() + "\n", encoding="utf-8")
-            upgrade_lock.assert_current()
-            tmp.replace(self.path)
-            upgrade_lock.assert_current()
+            payload = (self.export_json() + "\n").encode("utf-8")
+            fd, raw = tempfile.mkstemp(
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                dir=str(self.path.parent),
+            )
+            tmp: Path | None = Path(raw)
+            prepared: os.stat_result | None = None
+            try:
+                created = os.fstat(fd)
+                _require_private_regular(created, "settings temporary file")
+                stream = os.fdopen(fd, "wb")
+                fd = -1
+                with stream as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                    prepared = os.fstat(handle.fileno())
+                    _require_private_regular(
+                        prepared,
+                        "settings temporary file",
+                    )
+                    if not _same_file_identity(created, prepared):
+                        raise SettingsError(
+                            "settings temporary file changed while being prepared"
+                        )
+
+                upgrade_lock.assert_current()
+                assert tmp is not None
+                current = os.lstat(tmp)
+                _require_private_regular(current, "settings temporary file")
+                if prepared is None or not _same_file_identity(prepared, current):
+                    raise SettingsError(
+                        "settings temporary file changed before publication"
+                    )
+
+                os.replace(tmp, self.path)
+                tmp = None
+                published = os.lstat(self.path)
+                _require_private_regular(
+                    published,
+                    "settings publication",
+                )
+                if not _same_file_identity(prepared, published):
+                    raise SettingsError(
+                        "settings publication changed before confirmation"
+                    )
+                upgrade_lock.assert_current()
+
+                # Persist the directory entry where supported. Windows may not
+                # allow opening a directory descriptor through the CRT.
+                directory_fd = -1
+                try:
+                    directory_fd = os.open(
+                        self.path.parent,
+                        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                    )
+                    try:
+                        os.fsync(directory_fd)
+                    except OSError:
+                        if os.name != "nt":
+                            raise
+                except OSError:
+                    if os.name != "nt":
+                        raise
+                finally:
+                    if directory_fd >= 0:
+                        os.close(directory_fd)
+
+                confirmed = os.lstat(self.path)
+                _require_private_regular(
+                    confirmed,
+                    "settings publication",
+                )
+                if not _same_file_identity(prepared, confirmed):
+                    raise SettingsError(
+                        "settings publication changed before durability confirmation"
+                    )
+                upgrade_lock.assert_current()
+            finally:
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                if tmp is not None and prepared is not None:
+                    _cleanup_owned_temp(tmp, prepared)
