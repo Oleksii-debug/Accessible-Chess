@@ -7,7 +7,7 @@ from unittest import mock
 from acs import pgn_service as pgn_service_module
 from acs.gametree import parse_games, serialize_games
 from acs.import_contract import ImportQuality
-from acs.pgn_service import PgnConcurrentWriteError, PgnFileImporter, export_game_atomic, open_pgn, save_pgn_atomic
+from acs.pgn_service import PgnConcurrentWriteError, PgnFileError, PgnFileImporter, export_game_atomic, open_pgn, save_pgn_atomic
 
 
 RICH_PGN = '''[Event "Main"]
@@ -121,6 +121,137 @@ class PgnFileServiceTests(unittest.TestCase):
                         expected_sha256=opened.source.sha256,
                     )
             self.assertIn("Concurrent writer", path.read_text(encoding="utf-8"))
+
+    def test_expected_hash_verification_failure_rolls_back_before_error(self):
+        games = parse_games('[Event "Requested"]\n[Result "*"]\n\n1. Nf3 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "verify-failure.pgn"
+            path.write_text(
+                '[Event "Original"]\n[Result "*"]\n\n1. e4 *\n',
+                encoding="utf-8",
+            )
+            opened = open_pgn(path)
+            real_current_sha256 = pgn_service_module._current_sha256
+            snapshot_reads = 0
+
+            def fail_second_snapshot_read(candidate):
+                nonlocal snapshot_reads
+                candidate_path = Path(candidate)
+                if ".cas-" in candidate_path.name:
+                    snapshot_reads += 1
+                    if snapshot_reads == 2:
+                        raise PgnFileError("simulated post-publication verification failure")
+                return real_current_sha256(candidate_path)
+
+            with mock.patch(
+                "acs.pgn_service._current_sha256",
+                side_effect=fail_second_snapshot_read,
+            ):
+                with self.assertRaisesRegex(
+                    PgnFileError,
+                    "original destination was restored",
+                ):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        overwrite=True,
+                        expected_sha256=opened.source.sha256,
+                    )
+
+            self.assertIn("Original", path.read_text(encoding="utf-8"))
+            self.assertNotIn("Requested", path.read_text(encoding="utf-8"))
+            self.assertEqual(snapshot_reads, 2)
+            self.assertEqual(list(path.parent.glob(path.name + ".cas-*.bak")), [])
+            self.assertEqual(list(path.parent.glob(path.name + ".*.tmp")), [])
+
+    def test_expected_hash_rollback_failure_preserves_recovery_snapshot(self):
+        games = parse_games('[Event "Requested"]\n[Result "*"]\n\n1. Nf3 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rollback-failure.pgn"
+            path.write_text(
+                '[Event "Original"]\n[Result "*"]\n\n1. e4 *\n',
+                encoding="utf-8",
+            )
+            opened = open_pgn(path)
+            real_current_sha256 = pgn_service_module._current_sha256
+            real_replace = os.replace
+            snapshot_reads = 0
+
+            def fail_second_snapshot_read(candidate):
+                nonlocal snapshot_reads
+                candidate_path = Path(candidate)
+                if ".cas-" in candidate_path.name:
+                    snapshot_reads += 1
+                    if snapshot_reads == 2:
+                        raise PgnFileError("simulated post-publication verification failure")
+                return real_current_sha256(candidate_path)
+
+            def fail_snapshot_rollback(src, dst):
+                if ".cas-" in Path(src).name:
+                    raise OSError("simulated rollback failure")
+                return real_replace(src, dst)
+
+            with mock.patch(
+                "acs.pgn_service._current_sha256",
+                side_effect=fail_second_snapshot_read,
+            ), mock.patch(
+                "acs.pgn_service.os.replace",
+                side_effect=fail_snapshot_rollback,
+            ):
+                with self.assertRaisesRegex(
+                    PgnFileError,
+                    "recovery snapshot was preserved",
+                ):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        overwrite=True,
+                        expected_sha256=opened.source.sha256,
+                    )
+
+            self.assertIn("Requested", path.read_text(encoding="utf-8"))
+            backups = list(path.parent.glob(path.name + ".cas-*.bak"))
+            self.assertEqual(len(backups), 1)
+            self.assertIn("Original", backups[0].read_text(encoding="utf-8"))
+            self.assertEqual(snapshot_reads, 2)
+            self.assertEqual(list(path.parent.glob(path.name + ".*.tmp")), [])
+
+    def test_precommit_fingerprint_failure_does_not_publish_requested_bytes(self):
+        games = parse_games('[Event "Requested"]\n[Result "*"]\n\n1. Nf3 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fingerprint-failure.pgn"
+            path.write_text(
+                '[Event "Original"]\n[Result "*"]\n\n1. e4 *\n',
+                encoding="utf-8",
+            )
+            opened = open_pgn(path)
+            real_fingerprint = pgn_service_module.fingerprint
+
+            def fail_temporary_fingerprint(candidate, *args, **kwargs):
+                candidate_path = Path(candidate)
+                if candidate_path.suffix == ".tmp":
+                    raise PgnFileError("simulated unpublished fingerprint failure")
+                return real_fingerprint(candidate, *args, **kwargs)
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=fail_temporary_fingerprint,
+            ):
+                with self.assertRaisesRegex(
+                    PgnFileError,
+                    "simulated unpublished fingerprint failure",
+                ):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        overwrite=True,
+                        expected_sha256=opened.source.sha256,
+                    )
+
+            self.assertIn("Original", path.read_text(encoding="utf-8"))
+            self.assertNotIn("Requested", path.read_text(encoding="utf-8"))
+            self.assertEqual(list(path.parent.glob(path.name + ".cas-*.bak")), [])
+            self.assertEqual(list(path.parent.glob(path.name + ".*.tmp")), [])
 
     def test_no_overwrite_publication_is_atomic_no_clobber(self):
         games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
