@@ -919,6 +919,42 @@ async function run() {
     "unknown Book action schema did not fail closed accessibly"
   );
 
+  const variationRoot = new FakeElement("div");
+  const variationSnapshot = bookSnapshot(20, "1. e4 (1. d4) *");
+  variationSnapshot.block.kind = "VariationTree";
+  variationSnapshot.block.role = "group";
+  variationSnapshot.block.title = "Candidate line";
+  variationSnapshot.block.has_position = true;
+  variationSnapshot.actions[8].enabled = true;
+  window.AccessibleChessBookSurface.render(
+    variationRoot,
+    variationSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    announce,
+    "book-block-20",
+    "Variation render failed"
+  );
+  const variationBlock = variationRoot.querySelector("#book-block-20");
+  check(variationBlock !== null, "VariationTree readable block missing");
+  check(
+    variationBlock.getAttribute("role") === "group",
+    "flat VariationTree must use a noninteractive group role"
+  );
+  check(
+    findRole(variationRoot, "tree") === null,
+    "flat VariationTree exposed a false ARIA tree"
+  );
+  check(
+    variationBlock.textContent === "",
+    "VariationTree group container must retain child semantic text, not flatten it"
+  );
+  check(
+    variationBlock.children.some(function (item) {
+      return item.tagName === "P" && item.textContent === "1. e4 (1. d4) *";
+    }),
+    "VariationTree readable text was not preserved"
+  );
+
   const inconsistentListRoot = new FakeElement("div");
   const inconsistentListAnnouncements = [];
   const inconsistentSnapshot = bookSnapshot(18, "Inconsistent list");
