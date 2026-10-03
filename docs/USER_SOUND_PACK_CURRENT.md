@@ -63,3 +63,20 @@ The full 330-file source library is retained in the built sound pack so future v
 ## Distribution boundary
 
 The files are recorded as user-provided. This repository does not infer or assert redistribution rights from possession of the archive; release provenance keeps that distinction explicit.
+
+## Owner final-candidate hold — 2026-10-03
+
+Do not create, publish, upload, or present a final Windows ZIP/EXE candidate merely
+because source/CI gates become green. The repository owner explicitly requires a
+separate confirmation first and will provide additional final-build conditions at
+that time.
+
+Until that confirmation:
+- continue source implementation, integration, qualification and CI repair;
+- do not claim FINAL_WINDOWS_ZIP=YES;
+- do not dispatch the final user-facing Windows candidate workflow with a sound-pack URL;
+- do not create a replacement final archive for delivery.
+
+This hold does not block machine qualification of source contracts. It only gates
+the final user-facing archive/build requested for hands-on testing and use.
+
