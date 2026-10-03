@@ -782,6 +782,10 @@ class ClassroomCollaborationSQLiteStore:
     def set_message_hidden(self, message_id: str, hidden: bool) -> ChatMessageMetadata:
         if type(hidden) is not bool:
             raise ValueError("hidden flag must be boolean")
+        if hidden is not True:
+            raise CollaborationStorageError(
+                "message visibility cannot be restored through monotonic hide state"
+            )
         with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM collaboration_messages WHERE message_id=?", (message_id,)).fetchone()
