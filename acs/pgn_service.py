@@ -316,6 +316,7 @@ def _publish_expected_hash(
     tmp_path: Path,
     destination: Path,
     expected_sha256: str,
+    published_sha256: str,
 ) -> None:
     """Publish with recoverable optimistic-CAS semantics for an existing file."""
 
@@ -324,6 +325,21 @@ def _publish_expected_hash(
 
     snapshot = _create_hardlink_snapshot(destination)
     preserve_snapshot = False
+
+    def require_our_publication_before_rollback() -> None:
+        nonlocal preserve_snapshot
+        try:
+            current_sha256 = _current_sha256(destination)
+        except (OSError, ValueError, PgnFileError) as exc:
+            preserve_snapshot = True
+            raise PgnFileError(
+                "PGN rollback could not prove destination ownership; recovery snapshot was preserved"
+            ) from exc
+        if current_sha256 != published_sha256:
+            preserve_snapshot = True
+            raise PgnConcurrentWriteError(
+                "PGN destination changed after publication; recovery snapshot was preserved"
+            )
     try:
         if _current_sha256(destination) != expected_sha256:
             raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
@@ -342,6 +358,7 @@ def _publish_expected_hash(
             # verification did not complete. Restore the known pre-publication
             # inode before reporting failure so callers are never told to retry
             # while the requested commit remains silently published.
+            require_our_publication_before_rollback()
             try:
                 os.replace(snapshot, destination)
             except OSError as rollback_exc:
@@ -355,6 +372,7 @@ def _publish_expected_hash(
             ) from exc
 
         if snapshot_sha256 != expected_sha256:
+            require_our_publication_before_rollback()
             try:
                 os.replace(snapshot, destination)
             except OSError as exc:
@@ -463,7 +481,12 @@ def save_pgn_atomic(
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None
         elif expected_sha256 is not None:
-            _publish_expected_hash(tmp_path, destination, expected_sha256)
+            _publish_expected_hash(
+                tmp_path,
+                destination,
+                expected_sha256,
+                commit_fingerprint.sha256,
+            )
             tmp_path = None
         else:
             os.replace(tmp_path, destination)
