@@ -14,7 +14,11 @@ from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.version2_book_workspace import build_version2_book_webview
 from acs.version2_profile import build_version2_router, build_version2_shell
-from acs.version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate
+from acs.version2_windows_book_board_adapter import (
+    BookBoardUiEvent,
+    BookBoardUiEventKind,
+    Version2WindowsBookBoardActionDelegate,
+)
 
 
 class Version2BookWorkspaceTests(unittest.TestCase):
@@ -85,6 +89,57 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(returned.payload["announcement"], returned_text)
                 self.assertFalse(workflow.active)
                 self.assertEqual(reader.index, 0)
+
+    def test_board_success_event_must_match_action_and_live_workflow_state(self):
+        _, active_workflow, active_bridge, _ = self.compose(
+            BookDocument(title="Study", blocks=[Position(fen=Board.START)])
+        )
+        active_workflow.open_current()
+        active_bridge.projection._dispatch = lambda *_: BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.return",
+            focus_target="board",
+        )
+
+        wrong_action = active_bridge.dispatch("book.open_position")
+
+        self.assertEqual(wrong_action.kind, "error")
+        self.assertNotIn("announcement", wrong_action.payload)
+        self.assertTrue(active_workflow.active)
+
+        _, inactive_workflow, inactive_bridge, _ = self.compose(
+            BookDocument(title="Study", blocks=[Position(fen=Board.START)])
+        )
+        inactive_bridge.projection._dispatch = lambda *_: BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+        )
+
+        impossible_open = inactive_bridge.dispatch("book.open_position")
+
+        self.assertEqual(impossible_open.kind, "error")
+        self.assertNotIn("announcement", impossible_open.payload)
+        self.assertFalse(inactive_workflow.active)
+
+    def test_return_success_event_requires_workflow_to_be_closed(self):
+        _, workflow, bridge, _ = self.compose(
+            BookDocument(title="Study", blocks=[Position(fen=Board.START)])
+        )
+        workflow.open_current()
+        bridge.projection._dispatch = lambda *_: BookBoardUiEvent(
+            BookBoardUiEventKind.RETURNED_TO_BOOK,
+            "book.return",
+            focus_target="book-block-0",
+            book_index=0,
+            revision=workflow.revision,
+        )
+
+        result = bridge.dispatch("book.return_from_board")
+
+        self.assertEqual(result.kind, "error")
+        self.assertNotIn("announcement", result.payload)
+        self.assertTrue(workflow.active)
 
     def test_failed_content_open_never_announces_success_or_changes_reader(self):
         reader, workflow, bridge, _ = self.compose(BookDocument(title="Broken", blocks=[
