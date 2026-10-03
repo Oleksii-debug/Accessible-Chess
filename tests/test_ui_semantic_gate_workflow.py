@@ -41,6 +41,7 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
     def test_trigger_covers_current_semantic_composition_surfaces(self) -> None:
         required = (
             "web/**",
+            "run_accessible_chess_v2.py",
             "acs/full_product_actions.py",
             "acs/full_product_native_menu.py",
             "acs/full_product_presenters.py",
@@ -59,6 +60,10 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
             "acs/version2_application.py",
             "acs/version2_education_mutation_release.py",
             "acs/version2_release_ui.py",
+            "acs/version2_release_app.py",
+            "acs/version2_upgrade_status_release.py",
+            "acs/version2_final_product_profile.py",
+            "acs/version2_release_diagnostics.py",
             "acs/webview2_accessibility.py",
             "acs/version2_windows_*.py",
             "tests/test_dev1_full_product_accessible_shell.py",
@@ -77,6 +82,8 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
             "tests/test_windows_native_menu_smoke_contract.py",
             "tests/test_p0_dynamic_selection_action_delivery.py",
             "tests/test_p0_semantic_document_copy.py",
+            "tests/test_version2_release_accessibility_contract.py",
+            "tests/js/version2_release_bootstrap_dom_test.js",
             "tests/test_ui_semantic_gate_workflow.py",
         )
         for block in self._trigger_blocks():
@@ -125,6 +132,7 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
             "tests.test_stage1_webview2_accessibility_boundary",
             "tests.test_p0_dynamic_selection_action_delivery",
             "tests.test_p0_semantic_document_copy",
+            "tests.test_version2_release_accessibility_contract",
         ):
             with self.subTest(suite=suite):
                 self.assertIn(suite, self.workflow)
@@ -142,6 +150,7 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
         self.assertIn("tests/test_p0_semantic_document_copy.py", self.workflow)
         self.assertIn("tests/test_v2_windows_*.py", self.workflow)
         self.assertIn("tests/test_ui_semantic_gate_workflow.py", self.workflow)
+        self.assertIn("node tests/js/version2_release_bootstrap_dom_test.js", self.workflow)
         self.assertIn("python run_accessible_chess.py --diagnostic", self.workflow)
         self.assertIn("python run_accessible_chess_v2.py --diagnostic", self.workflow)
         self.assertIn(
