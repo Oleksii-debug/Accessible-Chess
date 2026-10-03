@@ -1239,8 +1239,37 @@ class FilesystemSoundPackStore:
                     "sound pack version could not be published atomically"
                 ) from exc
 
-            # The active pointer may only reference a version after the version
-            # directory entry itself has crossed the crash-durability boundary.
+            # Re-verify through the final pathname after the atomic rename.
+            # A staging entry can otherwise be replaced after its pre-publish
+            # verification but before rename, leaving active.json pointing at
+            # bytes that were never proven under their final identity.
+            try:
+                published_manifest, published_digests = self._verify_version(
+                    destination,
+                    expected_pack_id=manifest.pack_id,
+                    expected_version=manifest.version,
+                )
+                published_rights = self._read_rights(destination)
+                if (
+                    published_manifest != manifest
+                    or published_digests != digests
+                    or published_rights != downloaded.rights_evidence
+                ):
+                    raise SoundPackStoreError(
+                        "published sound pack identity changed before activation"
+                    )
+            except (TypeError, ValueError, SoundPackStoreError):
+                if os.path.lexists(destination):
+                    try:
+                        self._remove_without_following(destination)
+                        _fsync_directory(versions_dir)
+                    except SoundPackStoreError:
+                        # Preserve the integrity failure as the primary error.
+                        pass
+                raise
+
+            # The active pointer may only reference a version after its final,
+            # revalidated directory entry crossed the crash-durability boundary.
             _fsync_directory(versions_dir)
             self._publish_active(
                 pack_dir, manifest.pack_id, manifest.version
