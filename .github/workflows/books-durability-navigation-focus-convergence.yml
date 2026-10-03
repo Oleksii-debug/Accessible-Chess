@@ -13,6 +13,7 @@ on:
       - 'acs/version2_application.py'
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_dev1_books_training_webview_projection.py'
       - 'tests/test_v2_book_training_route_rollback.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_version2_release_accessibility_contract.py'
@@ -50,7 +51,7 @@ jobs:
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           latest_parent='eb23bdc5ea0e2914a7f742697b20d32edd78a950'
           durability_parent='f31e1f29e9a8a02ed12b85d7516f42f18fd780c2'
-          ingress_focus_parent='5c673511721185d7b6e32e7c42e2709eee90ddf0'
+          ingress_focus_parent='948c781d50a84efb62780db2180f64893bbbdf55'
           latest_branch='fix/v2-release-navigation-schema-focus-20261003'
 
           test "$(git rev-parse HEAD)" = "$expected_head"
@@ -77,6 +78,7 @@ jobs:
             'acs/version2_application.py' \
             'tests/js/books_training_surface_dom_test.js' \
             'tests/js/version2_release_bootstrap_dom_test.js' \
+            'tests/test_dev1_books_training_webview_projection.py' \
             'tests/test_v2_book_training_route_rollback.py' \
             'tests/test_version2_application.py' \
             'tests/test_version2_release_accessibility_contract.py' \
@@ -85,20 +87,20 @@ jobs:
           test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "e739071cf5d8a40f7622559c0fcd598cf4c7c945"
-          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "8c4e32190fca0e2baa9660532698fa0fe1fe03bd"
+          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "d6e61a22929d5bd5501011438f8482a0bbf7e357"
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "7bb116ea0587de51a191560cd39070aac9ead014"
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = "9f6fedc62dab8b3154f6e1bec6ad26338e310729"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "cd6fd9ac50cf9603b6018a917dd76f2872f1cdc9"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "66bcf463dea9eb70803462f78dbc5f7a3ef37a22"
           test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "1e9b0e03c5c81ef187234a748bbd23c2759ad4cb"
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "78c0f464c463cad57c11726db07d8357b0537037"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "5fb66f636000f397d8ee3f91c658d02c9eee73da"
           test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "e82efbfd6c31c0afa78d54e1ce98e42c79c02fd7"
           # Preserve the exact ingress authorities inherited through #1457/#1460.
           test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "2e9263f2b21f53e28d483ed38fa961956c0d2622"
           test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = "247b7d4bbd2d9e0e7d7fc6a89c5cef45e63e65e7"
           test "$(git rev-parse HEAD:acs/training_webview_bridge.py)" = "c3e6e52873f2ec1e2d5bdbc70d227a402963405b"
-          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "93387132c55130f2be9d050000e1923ec88414f4"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "f64d3bc4c53c7b126977fa7932c19de10e0206b2"
           test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = "485147fbcfd3a52705b611df4ad315c46d4e54bf"
-          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "b91ec11dd370f7c1e30d3670f003ac2970c3f540"
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "1bb879711d72ec7b91a1da2a6139dba20f787a36"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "66ee8f2f4f560070fc320079ab7dfdf93a938693"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "2385b9748995f7dfdc97b10bf42ea916bb8ba46e"
           test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "1b21657a191fa0a76cd5fa5306f75600fed34b58"
