@@ -56,6 +56,77 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 ).fetchone()
             )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertIsNotNone(
+                db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='table' AND name='collaboration_attachment_deletions'"
+                ).fetchone()
+            )
+
+    def test_v6_upgrade_backfills_deleted_attachment_cleanup(self) -> None:
+        tombstone = AttachmentMetadata(
+            "legacy-deleted",
+            "room",
+            "teacher",
+            0,
+            "legacy.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/legacy-deleted",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute("DROP TABLE collaboration_attachment_deletions")
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=6 "
+                "WHERE key='schema_version'"
+            )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(
+            reopened.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+        reopened.integrity_check()
+
+    def test_deleted_attachment_cleanup_intent_is_durable_and_acknowledged(self) -> None:
+        tombstone = AttachmentMetadata(
+            "cleanup-a0",
+            "room",
+            "teacher",
+            0,
+            "cleanup.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/cleanup-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(
+            reopened.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+        reopened.acknowledge_attachment_deletion(
+            room_id="room",
+            object_key=tombstone.object_key,
+        )
+        self.assertEqual(reopened.pending_attachment_deletions("room"), ())
+        self.assertEqual(reopened.register_attachment(tombstone), tombstone)
+        self.assertEqual(reopened.pending_attachment_deletions("room"), ())
 
     def test_v5_sequence_index_upgrades_without_leaving_legacy_index(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db, db:

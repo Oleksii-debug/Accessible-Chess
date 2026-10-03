@@ -864,6 +864,8 @@ class ClassroomCollaborationController:
                 "attachment history and state could not be reconciled atomically"
             ) from error
 
+        self._drain_file_deletions()
+
         if not persisted:
             return ()
         current_by_id = {
@@ -875,6 +877,33 @@ class ClassroomCollaborationController:
             for item in persisted
             if current_by_id[item.attachment_id].transfer_state == "stored"
         )
+
+    def _drain_file_deletions(self) -> None:
+        if self._file_store is None:
+            return
+        try:
+            pending = self._store.pending_attachment_deletions(self.room_id)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "durable file deletion state is invalid"
+            ) from error
+        for object_key in pending:
+            try:
+                self._file_store.delete(object_key=object_key)
+            except Exception:
+                # Deletion intent remains durable. FileStorePort.delete is
+                # idempotent so a crash after remote deletion but before local
+                # acknowledgement is safe to retry.
+                raise CollaborationError("durable file deletion failed") from None
+            try:
+                self._store.acknowledge_attachment_deletion(
+                    room_id=self.room_id,
+                    object_key=object_key,
+                )
+            except CollaborationStorageError as error:
+                raise CollaborationError(
+                    "durable file deletion acknowledgement failed"
+                ) from error
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)

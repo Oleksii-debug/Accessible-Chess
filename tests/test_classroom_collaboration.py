@@ -269,6 +269,8 @@ class FakeFiles:
 class FakeFileStore:
     def __init__(self):
         self.read_calls = []
+        self.delete_calls = []
+        self.delete_failures = 0
         self.token = "short-lived-read-token"
 
     def put(self, *, object_key, content, expected_sha256):
@@ -279,7 +281,10 @@ class FakeFileStore:
         return self.token
 
     def delete(self, *, object_key):
-        pass
+        self.delete_calls.append(object_key)
+        if self.delete_failures:
+            self.delete_failures -= 1
+            raise RuntimeError("simulated durable delete failure")
 
 
 class ClassroomCollaborationContractTests(unittest.TestCase):
@@ -1898,6 +1903,91 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(
             tuple((item.sequence_no, item.transfer_state) for item in persisted),
             ((0, "deleted"), (1, "stored")),
+        )
+
+    def test_file_tombstone_deletes_durable_bytes_once(self):
+        controller = self.controller("teacher-1")
+        tombstone = AttachmentMetadata(
+            "cleanup-remote-a0",
+            "room-1",
+            "student-1",
+            0,
+            "cleanup.bin",
+            None,
+            1,
+            "c" * 64,
+            "rooms/room-1/cleanup-remote-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (tombstone,)
+
+        self.assertEqual(controller.sync_files(), ())
+        self.assertEqual(self.file_store.delete_calls, [tombstone.object_key])
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room-1"),
+            (),
+        )
+
+        self.files.history_override = ()
+        self.assertEqual(controller.sync_files(), ())
+        self.assertEqual(self.file_store.delete_calls, [tombstone.object_key])
+
+    def test_file_delete_failure_survives_reopen_and_retries_without_new_history(self):
+        controller = self.controller("teacher-1")
+        tombstone = AttachmentMetadata(
+            "cleanup-retry-a0",
+            "room-1",
+            "student-1",
+            0,
+            "cleanup-retry.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room-1/cleanup-retry-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (tombstone,)
+        self.file_store.delete_failures = 1
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "durable file deletion failed",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), (tombstone,))
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room-1"),
+            (tombstone.object_key,),
+        )
+        self.assertEqual(self.file_store.delete_calls, [tombstone.object_key])
+
+        reopened_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "collaboration.sqlite3")
+        )
+        reopened = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=reopened_store,
+            file_store=self.file_store,
+        )
+        self.files.history_override = ()
+
+        self.assertEqual(reopened.sync_files(), ())
+        self.assertEqual(
+            self.file_store.delete_calls,
+            [tombstone.object_key, tombstone.object_key],
+        )
+        self.assertEqual(
+            reopened_store.pending_attachment_deletions("room-1"),
+            (),
         )
 
     def test_file_state_for_next_history_page_is_deferred(self):
