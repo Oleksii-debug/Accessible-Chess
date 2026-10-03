@@ -184,7 +184,10 @@ class Version2GameTreeResumeCoordinator:
                 code=GameTreeResumeCode.IO_FAILURE,
             )
         if entries:
-            return
+            raise GameTreeResumeError(
+                "resume discard guard state appeared during cleanup",
+                code=GameTreeResumeCode.STALE_WRITER,
+            )
         try:
             directory.rmdir()
             _fsync_directory(directory.parent)
