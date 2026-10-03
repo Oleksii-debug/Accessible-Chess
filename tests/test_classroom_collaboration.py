@@ -211,10 +211,10 @@ class FakeFiles:
         self.last_progress_callback = on_progress
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
-        for sample in self.progress_samples:
-            on_progress(sample)
         self._enforce_server_identity(prepared)
         self._enforce_server_room_quota(prepared)
+        for sample in self.progress_samples:
+            on_progress(sample)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -235,10 +235,10 @@ class FakeFiles:
         self.last_progress_callback = on_progress
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
-        for sample in self.progress_samples:
-            on_progress(sample)
         self._enforce_server_identity(prepared)
         self._enforce_server_room_quota(prepared)
+        for sample in self.progress_samples:
+            on_progress(sample)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -3686,6 +3686,77 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             )
         )
         self.assertEqual(controller.sync_files(), ())
+
+    def test_progress_observer_closes_after_server_quota_rejection(self):
+        controller = self.controller()
+        payload = b"server-quota-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-server-quota",
+            local_path=self.make_file("progress-server-quota.bin", payload),
+            sequence_no=0,
+        )
+        self.files.server_max_room_bytes = 0
+        observed = []
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "server room file quota would be exceeded",
+        ):
+            controller.upload_file(prepared, on_progress=observed.append)
+
+        self.assertIsNotNone(self.files.last_progress_callback)
+        before = tuple(observed)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-server-quota",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(tuple(observed), before)
+        self.assertEqual(
+            self.store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+
+    def test_retry_progress_observer_closes_after_server_quota_rejection(self):
+        controller = self.controller()
+        payload = b"retry-server-quota-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-retry-server-quota",
+            local_path=self.make_file("progress-retry-server-quota.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+        self.files.server_max_room_bytes = 0
+        observed = []
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "server room file quota would be exceeded",
+        ):
+            controller.retry_file(prepared, on_progress=observed.append)
+
+        self.assertIsNotNone(self.files.last_progress_callback)
+        before = tuple(observed)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-retry-server-quota",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(tuple(observed), before)
+        self.assertEqual(
+            self.store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+
 
     def test_retry_reports_fresh_progress_sequence(self):
         controller = self.controller()

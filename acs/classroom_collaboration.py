@@ -128,6 +128,29 @@ class PreparedFile:
 
 
 @dataclass(frozen=True, slots=True)
+class AttachmentHistoryPage:
+    """Current attachment snapshots bound to an authoritative state watermark."""
+
+    attachments: tuple[AttachmentMetadata, ...]
+    snapshot_state_revision: int | None
+
+    def __post_init__(self) -> None:
+        if type(self.attachments) is not tuple or any(
+            type(item) is not AttachmentMetadata for item in self.attachments
+        ):
+            raise CollaborationError(
+                "attachment history page must contain attachment metadata"
+            )
+        if self.snapshot_state_revision is not None and (
+            type(self.snapshot_state_revision) is not int
+            or not 0 <= self.snapshot_state_revision <= MAX_WIRE_INTEGER
+        ):
+            raise CollaborationError(
+                "attachment history state watermark must be a bounded JSON-safe integer"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class FileTransferProgress:
     """Bounded byte progress for one opaque attachment transfer.
 
@@ -163,29 +186,6 @@ class FileTransferProgress:
             )
         object.__setattr__(self, "transferred_bytes", transferred)
         object.__setattr__(self, "total_bytes", total)
-
-
-@dataclass(frozen=True, slots=True)
-class AttachmentHistoryPage:
-    """Current attachment snapshots bound to an authoritative state watermark."""
-
-    attachments: tuple[AttachmentMetadata, ...]
-    snapshot_state_revision: int | None
-
-    def __post_init__(self) -> None:
-        if type(self.attachments) is not tuple or any(
-            type(item) is not AttachmentMetadata for item in self.attachments
-        ):
-            raise CollaborationError(
-                "attachment history page must contain attachment metadata"
-            )
-        if self.snapshot_state_revision is not None and (
-            type(self.snapshot_state_revision) is not int
-            or not 0 <= self.snapshot_state_revision <= MAX_WIRE_INTEGER
-        ):
-            raise CollaborationError(
-                "attachment history state watermark must be a bounded JSON-safe integer"
-            )
 
 
 class ChatTransportPort(Protocol):
@@ -244,7 +244,7 @@ class FileTransferPort(Protocol):
         *,
         on_progress: Callable[[FileTransferProgress], None],
     ) -> AttachmentMetadata:
-        """Upload bytes, enforce server policy, and report bounded byte progress."""
+        """Upload bytes, enforce server policy, and synchronously report bounded byte progress."""
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
@@ -806,7 +806,13 @@ class ClassroomCollaborationController:
             close_progress()
         return adopted
 
-    def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
+    def retry_file(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None = None,
+    ) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         current = self._attachment(prepared.metadata.attachment_id)
@@ -824,11 +830,6 @@ class ClassroomCollaborationController:
             "pending"
             if current.scan_state == "failed"
             else current.scan_state
-        )
-        uploading = self._store.update_attachment_state(
-            current.attachment_id,
-            transfer_state="uploading",
-            scan_state=retry_scan_state,
         )
         progress, complete_progress, close_progress = self._progress_observers(
             current,
@@ -881,6 +882,7 @@ class ClassroomCollaborationController:
         return adopted
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_remote_attachment(
             attachment,
