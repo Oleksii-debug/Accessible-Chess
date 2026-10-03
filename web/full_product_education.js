@@ -197,6 +197,12 @@
     }
   }
 
+  function setCollaborationStatus(wrapper, message) {
+    if (!wrapper || typeof wrapper.querySelector !== "function") return;
+    const status = wrapper.querySelector("#classroom-collaboration-status");
+    if (status) status.textContent = String(message || "");
+  }
+
   function applyEducationEvent(
     root,
     result,
@@ -211,6 +217,10 @@
     const collaborationWasFocused = collaborationOwnsFocus(root);
     const previousPending = collaborationPendingState(root);
     const previousDraft = collaborationDraftInside(root);
+    const previousStatus = root.querySelector("#classroom-collaboration-status");
+    const previousStatusText = previousStatus
+      ? String(previousStatus.textContent || "")
+      : "";
     if ((result.kind === "selection" || result.kind === "page") && payload.snapshot) {
       const previous = root.querySelector("#" + String(payload.snapshot.dom_id || ""));
       if (previous && typeof previous.replaceWith === "function") {
@@ -242,6 +252,21 @@
           );
         }
       }
+    }
+    const visibleStatus = (
+      result.kind === "error" && payload.message
+        ? String(payload.message)
+        : payload.announcement
+          ? String(payload.announcement)
+          : settledCollaborationCommand
+            ? ""
+            : previousStatusText
+    );
+    if (payload.collaboration && typeof payload.collaboration === "object") {
+      setCollaborationStatus(
+        root.querySelector("#classroom-collaboration"),
+        visibleStatus
+      );
     }
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
@@ -410,7 +435,10 @@
         ? options.pendingAnnouncement
         : ""
     );
-    if (pendingAnnouncement) announce(pendingAnnouncement);
+    if (pendingAnnouncement) {
+      setCollaborationStatus(wrapper, pendingAnnouncement);
+      announce(pendingAnnouncement);
+    }
 
     function releasePendingState() {
       const current = (
@@ -472,7 +500,23 @@
         pending.command
       );
       if (wrapper.parentNode) releasePendingState();
-    }, announce, fallbackMessage, releasePendingState);
+    }, announce, fallbackMessage, function () {
+      releasePendingState();
+      const current = (
+        root && typeof root.querySelector === "function"
+          ? root.querySelector("#classroom-collaboration")
+          : null
+      );
+      if (
+        current &&
+        (
+          !sessionKey ||
+          current.getAttribute("data-collaboration-session") === sessionKey
+        )
+      ) {
+        setCollaborationStatus(current, fallbackMessage || "");
+      }
+    });
     return true;
   }
 
@@ -490,12 +534,14 @@
     heading.id = "classroom-collaboration-heading";
     heading.tabIndex = -1;
     wrapper.appendChild(heading);
+    const status = node(
+      "p",
+      snapshot.available === false ? (snapshot.status_message || "") : ""
+    );
+    status.id = "classroom-collaboration-status";
+    status.setAttribute("aria-live", "off");
+    wrapper.appendChild(status);
     if (snapshot.available === false) {
-      const status = node("p", snapshot.status_message || "");
-      status.id = "classroom-collaboration-status";
-      status.setAttribute("role", "status");
-      status.setAttribute("aria-live", "off");
-      wrapper.appendChild(status);
       return wrapper;
     }
 
