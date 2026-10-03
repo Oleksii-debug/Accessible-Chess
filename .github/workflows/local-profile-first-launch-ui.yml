@@ -101,6 +101,9 @@ jobs:
       - name: Focused persistence and UI bridge regressions
         run: python -m unittest -v tests.test_local_profile tests.test_version2_local_profile_api tests.test_version2_local_profile_ui_contract tests.test_version2_release_ui tests.test_version2_release_app
 
+      - name: Run executable profile and V2 DOM focus contract
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
       - name: Full unittest suite
         run: python -m unittest discover -s tests -p "test_*.py"
 
