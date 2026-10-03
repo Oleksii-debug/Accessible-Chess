@@ -716,6 +716,18 @@
       ],
       "Training"
     );
+    const actionFocusTargets = [
+      "training-action-hint",
+      "training-action-reveal",
+      "training-action-retry",
+      "training-action-continue",
+      "training-action-reset"
+    ];
+    snapshot.actions.forEach(function (action, index) {
+      if (action.focus_target !== actionFocusTargets[index]) {
+        throw new TypeError("Training action focus target is invalid");
+      }
+    });
     const expectedInteractive = !progress.completed;
     if (snapshot.actions[0].enabled !== expectedInteractive ||
         snapshot.actions[1].enabled !== expectedInteractive ||
@@ -727,6 +739,14 @@
     }
     if (snapshot.actions[4].enabled !== true) {
       throw new TypeError("Training reset action must remain enabled");
+    }
+    const expectedFocus = !progress.completed
+      ? "training-answer"
+      : snapshot.actions[3].enabled
+        ? "training-action-continue"
+        : "training-action-reset";
+    if (snapshot.focus_target !== expectedFocus) {
+      throw new TypeError("Training canonical focus target is inconsistent");
     }
   }
 
@@ -1220,6 +1240,7 @@
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
       button.type = "button";
+      button.id = String(action.focus_target || "");
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
         const command = String(action.command || "");
@@ -1242,7 +1263,10 @@
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     markRendered(root);
-    focusTarget(root, requestedFocus || "");
+    const effectiveFocus = (
+      requestedFocus === "training-answer" && answerSpec.disabled
+    ) ? snapshot.focus_target : (requestedFocus || snapshot.focus_target || "");
+    focusTarget(root, effectiveFocus);
   }
 
   global.AccessibleChessBookSurface = Object.freeze({ render: renderBookSurface });
