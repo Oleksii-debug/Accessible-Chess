@@ -632,7 +632,7 @@ class ClassroomCollaborationController:
     ) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
-        progress, complete_progress = self._progress_observers(
+        progress, complete_progress, close_progress = self._progress_observers(
             prepared.metadata,
             on_progress,
         )
@@ -678,14 +678,21 @@ class ClassroomCollaborationController:
             )
             self._validate_uploaded_result(uploading, result)
         except Exception:
+            close_progress()
             self._store.update_attachment_state(
                 uploading.attachment_id,
                 transfer_state="failed",
             )
             raise
-        adopted = self._adopt_authoritative_upload(result)
+        try:
+            adopted = self._adopt_authoritative_upload(result)
+        except Exception:
+            close_progress()
+            raise
         if adopted.transfer_state == "stored":
             complete_progress()
+        else:
+            close_progress()
         return adopted
 
     def retry_file(
@@ -714,7 +721,7 @@ class ClassroomCollaborationController:
         )
         # Validate the host/presentation seam before changing durable transfer
         # state. A bad consumer must not strand a failed transfer as uploading.
-        progress, complete_progress = self._progress_observers(
+        progress, complete_progress, close_progress = self._progress_observers(
             current,
             on_progress,
         )
@@ -738,14 +745,21 @@ class ClassroomCollaborationController:
             )
             self._validate_uploaded_result(uploading, result)
         except Exception:
+            close_progress()
             self._store.update_attachment_state(
                 current.attachment_id,
                 transfer_state="failed",
             )
             raise
-        adopted = self._adopt_authoritative_upload(result)
+        try:
+            adopted = self._adopt_authoritative_upload(result)
+        except Exception:
+            close_progress()
+            raise
         if adopted.transfer_state == "stored":
             complete_progress()
+        else:
+            close_progress()
         return adopted
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
@@ -1074,6 +1088,7 @@ class ClassroomCollaborationController:
     ) -> tuple[
         Callable[[FileTransferProgress], None],
         Callable[[], None],
+        Callable[[], None],
     ]:
         if consumer is not None and not callable(consumer):
             raise CollaborationError("file progress consumer must be callable")
@@ -1122,6 +1137,10 @@ class ClassroomCollaborationController:
             last_transferred = sample.transferred_bytes
             deliver(sample)
 
+        def close() -> None:
+            nonlocal terminal_emitted
+            terminal_emitted = True
+
         def complete() -> None:
             nonlocal terminal_emitted
             if terminal_emitted:
@@ -1136,7 +1155,7 @@ class ClassroomCollaborationController:
                 )
             )
 
-        return observe_provider, complete
+        return observe_provider, complete, close
 
     def _adopt_authoritative_upload(
         self,
