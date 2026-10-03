@@ -93,20 +93,24 @@
     if (!selectedText) return -1;
     let match = fullText.indexOf(selectedText);
     if (match < 0) return -1;
-    let best = match;
-    let bestScore = contextMatchScore(fullText, selectedText, match, before, after);
-    let bestDistance = Math.abs(match - preferredStart);
+    let best = -1;
+    let bestScore = -1;
+    let bestScoreCount = 0;
     while (match >= 0) {
       const score = contextMatchScore(fullText, selectedText, match, before, after);
-      const distance = Math.abs(match - preferredStart);
-      if (score > bestScore || (score === bestScore && distance < bestDistance)) {
+      if (score > bestScore) {
         best = match;
         bestScore = score;
-        bestDistance = distance;
+        bestScoreCount = 1;
+      } else if (score === bestScore) {
+        bestScoreCount += 1;
       }
       match = fullText.indexOf(selectedText, match + 1);
     }
-    return best;
+    // An old absolute offset is not semantic identity. If two occurrences are
+    // equally supported by retained context, guessing can silently move a
+    // blind user's copied selection to a different passage after rerender.
+    return bestScoreCount === 1 ? best : -1;
   }
 
   function captureSemanticSelection() {
@@ -170,17 +174,19 @@
         snapshot.before,
         snapshot.after
       );
-      if (candidateStart < 0) return false;
-      const candidateScore = contextMatchScore(
-        fullText,
-        snapshot.text,
-        candidateStart,
-        snapshot.before,
-        snapshot.after
-      );
-      if (!directMatch || candidateScore > directScore) {
-        start = candidateStart;
-        end = Math.min(fullText.length, start + snapshot.text.length);
+      if (candidateStart < 0 && !directMatch) return false;
+      if (candidateStart >= 0) {
+        const candidateScore = contextMatchScore(
+          fullText,
+          snapshot.text,
+          candidateStart,
+          snapshot.before,
+          snapshot.after
+        );
+        if (!directMatch || candidateScore > directScore) {
+          start = candidateStart;
+          end = Math.min(fullText.length, start + snapshot.text.length);
+        }
       }
       const startPoint = textPoint(root, start);
       const endPoint = textPoint(root, end);
