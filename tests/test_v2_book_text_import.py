@@ -485,6 +485,40 @@ Starting board
                     any("list indentation" in warning for warning in result.warnings)
                 )
 
+    def test_markdown_shallow_indent_preserves_nested_item_as_readable_text(self) -> None:
+        result = import_text_book(
+            "- Parent\n  - Child 1. e4 e5\n  - Child two\n- Sibling\n",
+            source_name="nested-shallow-list.md",
+            source_format="markdown",
+        )
+        lists = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        paragraphs = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.items, block.ordered, block.start) for block in lists],
+            [(["Parent"], False, None), (["Sibling"], False, None)],
+        )
+        self.assertEqual(
+            [block.text for block in paragraphs],
+            ["- Child 1. e4 e5", "- Child two"],
+        )
+        self.assertTrue(
+            any(
+                "indentation or nesting" in warning
+                and "readable text" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.positions, 0)
+
     def test_markdown_tab_or_four_space_list_indent_stays_readable_fallback(self) -> None:
         for prefix in ("    ", "\t"):
             with self.subTest(prefix=repr(prefix)):
