@@ -11,6 +11,7 @@ on:
       - 'acs/webapp_keymap_core.py'
       - 'acs/release_app.py'
       - 'acs/stage1_release_ui_core.py'
+      - 'acs/stage1_release_ui.py'
       - 'acs/ui_native_menu.py'
       - 'acs/version2_release_payload.py'
       - 'web/stage1_release_bootstrap.js'
@@ -79,7 +80,7 @@ jobs:
             git merge-base --is-ancestor "$BASE_SHA" HEAD
             test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
             git diff --check "$BASE_SHA" HEAD
-            unexpected="$(git diff --name-only "$BASE_SHA" HEAD | grep -Ev '^(acs/(sound\.py|sound_windows\.py|settings\.py|keybindings\.py|ui_keymap_adapter\.py|webapp_keymap_core\.py|release_app\.py|stage1_release_ui_core\.py|ui_native_menu\.py|version2_release_payload\.py)|web/(stage1_release_bootstrap\.js|keybindings\.json)|scripts/build_user_sound_pack\.py|docs/USER_SOUND_PACK_CURRENT\.md|tests/(test_settings\.py|test_keybindings\.py|test_ui_keymap_adapter\.py|test_webapp_keymap_api\.py|test_stage1_release_composition_ui\.py|test_user_sound_pack_builder\.py|test_sound_runtime\.py|test_sound_scaled_cache_integrity_workflow\.py)|\.github/workflows/(sound-scaled-cache-integrity|w6-v2-release-payload-current-assembler)\.yml)$' || true)"
+            unexpected="$(git diff --name-only "$BASE_SHA" HEAD | grep -Ev '^(acs/(sound\.py|sound_windows\.py|settings\.py|keybindings\.py|ui_keymap_adapter\.py|webapp_keymap_core\.py|release_app\.py|stage1_release_ui_core\.py|stage1_release_ui\.py|ui_native_menu\.py|version2_release_payload\.py)|web/(stage1_release_bootstrap\.js|keybindings\.json)|scripts/build_user_sound_pack\.py|docs/USER_SOUND_PACK_CURRENT\.md|tests/(test_settings\.py|test_keybindings\.py|test_ui_keymap_adapter\.py|test_webapp_keymap_api\.py|test_stage1_release_composition_ui\.py|test_user_sound_pack_builder\.py|test_sound_runtime\.py|test_sound_scaled_cache_integrity_workflow\.py)|\.github/workflows/(sound-scaled-cache-integrity|w6-v2-release-payload-current-assembler)\.yml)$' || true)"
             if [ -n "$unexpected" ]; then
               printf 'Unexpected sound-cache scope:\n%s\n' "$unexpected" >&2
               exit 1
@@ -99,6 +100,7 @@ jobs:
           acs/webapp_keymap_core.py
           acs/release_app.py
           acs/stage1_release_ui_core.py
+          acs/stage1_release_ui.py
           acs/ui_native_menu.py
           acs/version2_release_payload.py
           scripts/build_user_sound_pack.py
