@@ -47,15 +47,21 @@ def workspace_with(
         "Bishop-9",
         consent=cd.ConsentState.GRANTED,
     )
-    note = cd.TeacherNote(
-        "note-1",
-        first.student_id,
-        "Private coaching note",
-        STAMP,
+    notes = (
+        (
+            cd.TeacherNote(
+                "note-1",
+                first.student_id,
+                "Private coaching note",
+                STAMP,
+            ),
+        )
+        if not first.deleted and first.consent is cd.ConsentState.GRANTED
+        else ()
     )
     classroom = cd.ClassroomSnapshot(
         students=(first, second),
-        teacher_notes=(note,),
+        teacher_notes=notes,
     )
     return EducationWorkspace.empty(classroom)
 
