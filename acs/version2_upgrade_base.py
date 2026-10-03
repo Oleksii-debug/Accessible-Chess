@@ -281,6 +281,10 @@ class Version2UpgradeRecoveryError(Version2UpgradeError):
     pass
 
 
+class _UpgradeLockLost(Version2UpgradeError):
+    """The coordinator no longer owns the canonical upgrade-lock pathname."""
+
+
 class _DuplicateJsonKeyError(ValueError):
     pass
 
@@ -1421,24 +1425,32 @@ class _UpgradeLock:
     def _require_current_handle(self) -> os.stat_result:
         assert self.handle is not None
         opened = os.fstat(self.handle.fileno())
-        self._require_private_regular(opened)
+        try:
+            self._require_private_regular(opened)
+        except Version2UpgradeError as exc:
+            raise _UpgradeLockLost(
+                "upgrade lock ownership was lost"
+            ) from exc
         try:
             current = os.lstat(self.path)
         except OSError as exc:
-            raise Version2UpgradeError(
-                "upgrade lock changed while opening"
+            raise _UpgradeLockLost(
+                "upgrade lock ownership was lost"
             ) from exc
         try:
             self._require_private_regular(current)
         except Version2UpgradeError as exc:
-            raise Version2UpgradeError(
-                "upgrade lock changed while opening"
+            raise _UpgradeLockLost(
+                "upgrade lock ownership was lost"
             ) from exc
         if self._identity(opened) != self._identity(current):
-            raise Version2UpgradeError(
-                "upgrade lock changed while opening"
+            raise _UpgradeLockLost(
+                "upgrade lock ownership was lost"
             )
         return opened
+
+    def assert_current(self) -> None:
+        self._require_current_handle()
 
     def _open_handle(self):
         try:
@@ -1474,7 +1486,12 @@ class _UpgradeLock:
         try:
             handle = os.fdopen(descriptor, "r+b")
             self.handle = handle
-            opened = self._require_current_handle()
+            try:
+                opened = self._require_current_handle()
+            except _UpgradeLockLost as exc:
+                raise Version2UpgradeError(
+                    "upgrade lock changed while opening"
+                ) from exc
             if before is not None and self._identity(before) != self._identity(opened):
                 raise Version2UpgradeError(
                     "upgrade lock changed while opening"
@@ -1565,14 +1582,21 @@ class Version2UpgradeCoordinator:
         self._owned_states: dict[str, str] = {}
         self._last_backup: Path | None = None
         self._last_manifest: dict[str, object] | None = None
+        self._active_upgrade_lock: _UpgradeLock | None = None
+
+    def _assert_upgrade_lock(self) -> None:
+        if self._active_upgrade_lock is not None:
+            self._active_upgrade_lock.assert_current()
 
     def _validate_library_schema(self, connection: sqlite3.Connection) -> int:
         """Validate one Library connection for this coordinator instance."""
         return _canonical_library_schema(connection)
 
     def _notify(self, phase: str) -> None:
+        self._assert_upgrade_lock()
         if self.phase_hook is not None:
             self.phase_hook(phase)
+        self._assert_upgrade_lock()
 
     def _ensure_roots(self) -> None:
         for path, label in (
@@ -1748,6 +1772,7 @@ class Version2UpgradeCoordinator:
         return tuple(files)
 
     def _create_backup(self, upgrade_id: str) -> tuple[Path, dict[str, object]]:
+        self._assert_upgrade_lock()
         final = self.layout.backup_root / upgrade_id
         temp = self.layout.backup_root / f".{upgrade_id}.tmp-{secrets.token_hex(4)}"
         if final.exists() or final.is_symlink():
@@ -1768,6 +1793,7 @@ class Version2UpgradeCoordinator:
         published = False
 
         def require_staging() -> None:
+            self._assert_upgrade_lock()
             _require_directory_identity(
                 temp,
                 temp_identity,
@@ -1843,6 +1869,7 @@ class Version2UpgradeCoordinator:
                 temp_identity,
                 label="upgrade backup publication",
             )
+            self._assert_upgrade_lock()
             self._last_backup = final
             self._last_manifest = manifest
             return final, manifest
@@ -1888,7 +1915,9 @@ class Version2UpgradeCoordinator:
         }
         if error_code is not None:
             payload["error_code"] = error_code
+        self._assert_upgrade_lock()
         _atomic_json(self.layout.journal_path, payload)
+        self._assert_upgrade_lock()
         if notify:
             self._notify(phase)
 
@@ -2363,7 +2392,9 @@ class Version2UpgradeCoordinator:
         require_target_identity()
 
     def _restore(self, upgrade_id: str) -> int:
+        self._assert_upgrade_lock()
         backup, manifest = self._manifest(upgrade_id)
+        self._assert_upgrade_lock()
         journal = self._journal()
         if journal.get("upgrade_id") != upgrade_id:
             raise Version2UpgradeRecoveryError(
@@ -2421,6 +2452,7 @@ class Version2UpgradeCoordinator:
 
         restored = 0
         for name in (self.layout.settings_name, self.layout.library_name):
+            self._assert_upgrade_lock()
             action = actions[name]
             entry = self._manifest_tracked_entry(manifest, name)
             destination = self.layout.root / name
@@ -2580,7 +2612,9 @@ class Version2UpgradeCoordinator:
                             "tracked recovery guard cleanup failed"
                         ) from exc
 
+        self._assert_upgrade_lock()
         _fsync_dir(self.layout.root)
+        self._assert_upgrade_lock()
         try:
             settings_entry = self._manifest_tracked_entry(
                 manifest, self.layout.settings_name
@@ -2716,8 +2750,10 @@ class Version2UpgradeCoordinator:
                 connection.close()
 
     def _needs_upgrade(self) -> bool:
+        self._assert_upgrade_lock()
         settings_need = self._settings_need()
         schema = self._library_schema()
+        self._assert_upgrade_lock()
         if schema is not None and schema > ACSDB_SCHEMA_VERSION:
             raise Version2UpgradeError(
                 "library schema is newer than this Version 2 build"
@@ -2733,6 +2769,7 @@ class Version2UpgradeCoordinator:
         *,
         recovered: bool = False,
     ) -> bool:
+        self._assert_upgrade_lock()
         if not self._settings_need():
             return False
         path = self.layout.settings_path
@@ -2786,6 +2823,7 @@ class Version2UpgradeCoordinator:
                 manifest, self.layout.settings_name
             )
 
+        self._assert_upgrade_lock()
         guard: _PublicationGuard | None = None
         preserve_guard = False
         try:
@@ -2816,6 +2854,7 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeError(
                     "settings migration publication verification failed"
                 )
+            self._assert_upgrade_lock()
             return True
         except BaseException:
             if guard is not None:
@@ -2846,6 +2885,7 @@ class Version2UpgradeCoordinator:
         *,
         recovered: bool = False,
     ) -> bool:
+        self._assert_upgrade_lock()
         before = self._library_schema()
         if before is None or before == ACSDB_SCHEMA_VERSION:
             return False
@@ -2970,6 +3010,7 @@ class Version2UpgradeCoordinator:
                 label="library migration publication candidate",
             )
 
+            self._assert_upgrade_lock()
             guard: _PublicationGuard | None = _publication_guard(
                 self.layout.library_path
             )
@@ -3044,6 +3085,7 @@ class Version2UpgradeCoordinator:
                         raise Version2UpgradeError(
                             "library migration publication verification failed"
                         )
+                    self._assert_upgrade_lock()
                     return True
                 except BaseException:
                     if candidate_published and guard is not None:
@@ -3098,6 +3140,7 @@ class Version2UpgradeCoordinator:
                             pass
 
     def _verify(self, backup: Path, manifest: Mapping[str, object]) -> int:
+        self._assert_upgrade_lock()
         if self.layout.settings_path.exists():
             try:
                 settings_payload = _read_exact_regular_bytes(
@@ -3147,6 +3190,7 @@ class Version2UpgradeCoordinator:
                     "preserved user-data file changed during upgrade"
                 )
             preserved += 1
+        self._assert_upgrade_lock()
         return preserved
 
     def _already_current(
@@ -3181,62 +3225,79 @@ class Version2UpgradeCoordinator:
 
     def run(self) -> Version2UpgradeReport:
         self._ensure_roots()
-        with _UpgradeLock(self.layout.lock_path):
-            recovered = self._recover_locked()
-            if not self._needs_upgrade():
-                return self._already_current(recovered)
-            upgrade_id = (
-                datetime.now(timezone.utc).strftime("v2-%Y%m%dT%H%M%SZ-")
-                + secrets.token_hex(4)
-            )
-            backup, manifest = self._create_backup(upgrade_id)
-            self._owned_states = {}
-            self._write_phase(
-                upgrade_id, "prepared", recovered=recovered
-            )
+        with _UpgradeLock(self.layout.lock_path) as upgrade_lock:
+            self._active_upgrade_lock = upgrade_lock
             try:
+                self._assert_upgrade_lock()
+                recovered = self._recover_locked()
+                self._assert_upgrade_lock()
+                if not self._needs_upgrade():
+                    return self._already_current(recovered)
+                upgrade_id = (
+                    datetime.now(timezone.utc).strftime("v2-%Y%m%dT%H%M%SZ-")
+                    + secrets.token_hex(4)
+                )
+                backup, manifest = self._create_backup(upgrade_id)
+                self._owned_states = {}
                 self._write_phase(
-                    upgrade_id, "migrating", recovered=recovered
+                    upgrade_id, "prepared", recovered=recovered
                 )
-                settings_migrated = self._migrate_settings(
-                    manifest, upgrade_id, recovered=recovered
-                )
-                self._notify("settings-migrated")
-                library_migrated = self._migrate_library(
-                    backup, manifest, upgrade_id, recovered=recovered
-                )
-                self._notify("library-migrated")
-                self._write_phase(
-                    upgrade_id, "verifying", recovered=recovered
-                )
-                preserved = self._verify(backup, manifest)
-                self._write_phase(
-                    upgrade_id, "committed", recovered=recovered
-                )
-            except Exception as exc:
                 try:
-                    self._restore(upgrade_id)
                     self._write_phase(
-                        upgrade_id,
-                        "rolled_back",
-                        recovered=recovered,
-                        error_code=type(exc).__name__,
+                        upgrade_id, "migrating", recovered=recovered
                     )
-                except Exception as recovery_exc:
+                    settings_migrated = self._migrate_settings(
+                        manifest, upgrade_id, recovered=recovered
+                    )
+                    self._notify("settings-migrated")
+                    library_migrated = self._migrate_library(
+                        backup, manifest, upgrade_id, recovered=recovered
+                    )
+                    self._notify("library-migrated")
+                    self._write_phase(
+                        upgrade_id, "verifying", recovered=recovered
+                    )
+                    preserved = self._verify(backup, manifest)
+                    self._write_phase(
+                        upgrade_id, "committed", recovered=recovered
+                    )
+                    self._assert_upgrade_lock()
+                except _UpgradeLockLost as exc:
+                    # Never mutate tracked data or journal under an inode we no
+                    # longer own. Leave the nonterminal journal/backups intact;
+                    # a later process can acquire the then-canonical lock and
+                    # run normal authenticated recovery.
                     raise Version2UpgradeRecoveryError(
-                        "Version 2 upgrade failed and automatic recovery also failed"
-                    ) from recovery_exc
-                raise Version2UpgradeError(
-                    "Version 2 upgrade failed; original user data was restored"
-                ) from exc
-            return Version2UpgradeReport(
-                upgrade_id,
-                "upgraded",
-                upgrade_id,
-                settings_migrated,
-                library_migrated,
-                preserved,
-                SETTINGS_SCHEMA_VERSION,
-                ACSDB_SCHEMA_VERSION,
-                recovered,
-            )
+                        "Version 2 upgrade lock identity was lost; "
+                        "automatic recovery was not attempted"
+                    ) from exc
+                except Exception as exc:
+                    try:
+                        self._assert_upgrade_lock()
+                        self._restore(upgrade_id)
+                        self._write_phase(
+                            upgrade_id,
+                            "rolled_back",
+                            recovered=recovered,
+                            error_code=type(exc).__name__,
+                        )
+                    except Exception as recovery_exc:
+                        raise Version2UpgradeRecoveryError(
+                            "Version 2 upgrade failed and automatic recovery also failed"
+                        ) from recovery_exc
+                    raise Version2UpgradeError(
+                        "Version 2 upgrade failed; original user data was restored"
+                    ) from exc
+                return Version2UpgradeReport(
+                    upgrade_id,
+                    "upgraded",
+                    upgrade_id,
+                    settings_migrated,
+                    library_migrated,
+                    preserved,
+                    SETTINGS_SCHEMA_VERSION,
+                    ACSDB_SCHEMA_VERSION,
+                    recovered,
+                )
+            finally:
+                self._active_upgrade_lock = None
