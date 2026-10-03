@@ -610,6 +610,7 @@ class FilesystemSoundPackStore:
         flags |= getattr(os, "O_NOINHERIT", 0)
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
         try:
             descriptor = os.open(self._mutation_lock_path, flags, 0o600)
         except OSError as exc:
@@ -625,6 +626,13 @@ class FilesystemSoundPackStore:
             ):
                 raise SoundPackStoreError(
                     "sound pack storage mutation lock is not a regular file"
+                )
+            if (
+                existing is not None
+                and _regular_identity(metadata) != _regular_identity(existing)
+            ):
+                raise SoundPackStoreError(
+                    "sound pack storage mutation lock changed before secure open"
                 )
             if metadata.st_size == 0:
                 os.write(descriptor, b"\0")
