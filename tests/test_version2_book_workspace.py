@@ -85,6 +85,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual((), tree["items"][0]["comments"])
                 self.assertEqual(tree["items"][1]["kind"], "variation")
                 self.assertEqual(tree["items"][1]["depth"], 1)
+                self.assertEqual("*", tree["items"][1]["result"])
                 self.assertEqual(len(tree["items"][1]["trailing_comments"]), 1)
                 self.assertIn("Nested", tree["items"][1]["trailing_comments"][0])
                 self.assertEqual(tree["items"][2]["depth"], 2)
