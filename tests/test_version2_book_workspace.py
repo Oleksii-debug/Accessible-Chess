@@ -43,7 +43,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
     def test_game_and_variation_blocks_project_readable_semantic_move_trees(self):
         cases = (
             Game(
-                pgn='[Event "Accessible Cup"]\n[Site "/home/private/venue.txt"]\n[Date "2026.10.03"]\n[Round "3"]\n[ECO "C20"]\n[Annotator ""]\n[CustomTag "analysis"]\n[Source "/home/private/custom-source.pgn"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
+                pgn='[Event "Accessible Cup"]\n[Site "/home/private/venue.txt"]\n[Date "2026.10.03"]\n[Round "3"]\n[ECO "C20"]\n[Annotator ""]\n[CustomTag "analysis"]\n[Source "/home/private/custom-source.pgn"]\n[fen "SECRET_LOWER_FEN"]\n[white "SECRET_LOWER_WHITE"]\n[black "SECRET_LOWER_BLACK"]\n[result "SECRET_LOWER_RESULT"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n{Intro C:\\private\\root.txt} 1. {Before main} e4 {After C:\\private\\secret.txt} (1. d4 $1 d5 * {Nested C:\\private\\branch.txt}) e5 * {Outro C:\\private\\tail.txt}',
                 title="Annotated game",
                 block_id="game",
             ),
@@ -94,6 +94,15 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                     self.assertNotIn("White", details)
                     self.assertNotIn("Black", details)
                     self.assertNotIn("Result", details)
+                    self.assertNotIn("fen", {item["label"] for item in tree["details"]})
+                    self.assertNotIn("white", {item["label"] for item in tree["details"]})
+                    self.assertNotIn("black", {item["label"] for item in tree["details"]})
+                    self.assertNotIn("result", {item["label"] for item in tree["details"]})
+                    serialized = json.dumps(tree, ensure_ascii=False)
+                    self.assertNotIn("SECRET_LOWER_FEN", serialized)
+                    self.assertNotIn("SECRET_LOWER_WHITE", serialized)
+                    self.assertNotIn("SECRET_LOWER_BLACK", serialized)
+                    self.assertNotIn("SECRET_LOWER_RESULT", serialized)
                     self.assertNotIn("private", json.dumps(tree["details"]).casefold())
                 else:
                     self.assertEqual(tree["details"], ())
