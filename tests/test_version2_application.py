@@ -199,6 +199,42 @@ class Version2ApplicationTests(unittest.TestCase):
         restored = self.app.progress_store.restore(key_before, reader_before.document)
         self.assertEqual(restored.snapshot(), snapshot_before)
 
+    def test_external_book_open_announces_only_bounded_import_warning_count(self):
+        book = self.root / "warning-book.md"
+        book.write_text(
+            "# Warning book\n\n> Quoted advice\n\nReadable text.\n",
+            encoding="utf-8",
+        )
+        imported = import_text_book(
+            book.read_bytes(),
+            source_name=report_safe_name(book),
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        self.assertGreater(len(imported.warnings), 0)
+        self.app.open_book_dialog = lambda: book
+
+        result = self.app.browser_command("shell", "book.open")
+        events = self.app.drain_events()
+
+        self.assertEqual(result["kind"], "delegated")
+        status = [
+            event
+            for event in events
+            if event.get("kind") == "status"
+            and isinstance(event.get("payload"), dict)
+            and event["payload"].get("announcement")
+        ]
+        self.assertEqual(len(status), 1)
+        announcement = status[0]["payload"]["announcement"]
+        self.assertEqual(
+            announcement,
+            f"Книгу відкрито з попередженнями імпорту: {len(imported.warnings)}.",
+        )
+        serialized = json.dumps(status, ensure_ascii=False)
+        self.assertNotIn(str(self.root), serialized)
+        for warning in imported.warnings:
+            self.assertNotIn(warning, serialized)
+
     def test_book_webview_game_handoff_uses_canonical_board_and_exact_return(self):
         book, origin = self._open_book_game()
         self.projected_positions.clear()
