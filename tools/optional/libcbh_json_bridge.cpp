@@ -13,6 +13,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -22,6 +23,9 @@
 #endif
 
 namespace {
+
+constexpr std::string_view PINNED_LIBCBH_NAG_COMMIT =
+    "9641c5c3949d8fb210b17dd9aa54455645843696";
 
 std::string json_string(const std::string& value) {
     std::ostringstream out;
@@ -52,6 +56,50 @@ std::string json_string(const std::string& value) {
     return out.str();
 }
 
+constexpr unsigned int canonicalize_pinned_evaluation_nag(nagT value) {
+    // The pinned libcbh commit has already interpreted the raw ChessBase
+    // evaluation byte before exposing SymbolComment. The independent pinned
+    // ChessBase-export fixture establishes the canonical PGN value for these
+    // exact raw codes. Reverse only transformations belonging to those
+    // qualified codes; every other value remains untouched.
+    switch (static_cast<unsigned int>(value)) {
+    case 10:
+        return 11;   // raw 0x0b
+    case 33:
+        return 32;   // raw 0x20, black-side libcbh transform
+    case 37:
+        return 36;   // raw 0x24, black-side libcbh transform
+    case 41:
+        return 40;   // raw 0x28, black-side libcbh transform
+    case 45:
+        return 44;   // raw 0x2c, black-side libcbh transform
+    case 133:
+        return 132;  // raw 0x84, black-side libcbh transform
+    case 136:
+    case 137:
+        return 138;  // raw 0x8a, libcbh changes both sides and severity
+    default:
+        return static_cast<unsigned int>(value);
+    }
+}
+
+constexpr unsigned int canonical_evaluation_nag(nagT value) {
+    if (std::string_view(LIBCBH_SOURCE_COMMIT) != PINNED_LIBCBH_NAG_COMMIT) {
+        return static_cast<unsigned int>(value);
+    }
+    return canonicalize_pinned_evaluation_nag(value);
+}
+
+static_assert(canonicalize_pinned_evaluation_nag(10) == 11);
+static_assert(canonicalize_pinned_evaluation_nag(33) == 32);
+static_assert(canonicalize_pinned_evaluation_nag(37) == 36);
+static_assert(canonicalize_pinned_evaluation_nag(41) == 40);
+static_assert(canonicalize_pinned_evaluation_nag(45) == 44);
+static_assert(canonicalize_pinned_evaluation_nag(133) == 132);
+static_assert(canonicalize_pinned_evaluation_nag(136) == 138);
+static_assert(canonicalize_pinned_evaluation_nag(137) == 138);
+static_assert(canonicalize_pinned_evaluation_nag(14) == 14);
+
 void write_comment(std::ostream& out, const Comment& comment) {
     std::visit(
         [&out](const auto& value) {
@@ -77,7 +125,7 @@ void write_comment(std::ostream& out, const Comment& comment) {
                 out << "{\"kind\":\"symbol\",\"symbol\":"
                     << static_cast<unsigned int>(value.symbol)
                     << ",\"evaluation\":"
-                    << static_cast<unsigned int>(value.evaluation)
+                    << canonical_evaluation_nag(value.evaluation)
                     << ",\"prefix\":" << static_cast<unsigned int>(value.prefix)
                     << '}';
             }
