@@ -463,6 +463,34 @@ check(
     "Transferred 0 B of 2.0 KB: second.pgn.",
   "a new opaque transfer identity must reset monotonic progress within the same browser session"
 );
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        transfer_key: transferKeyA,
+        name: "lesson.pgn",
+        transferred_bytes: 1024,
+        total_bytes: 1024,
+        complete: true,
+        label: "File transfer progress",
+        text: "Delayed terminal sample from the previous transfer"
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "0" &&
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("max") === "2048" &&
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 0 B of 2.0 KB: second.pgn.",
+  "delayed progress from an older opaque transfer identity must not replace the active transfer"
+);
 
 const zeroProgressRoot = new FakeElement("div");
 window.AccessibleChessEducationSurface.render(
