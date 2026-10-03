@@ -292,6 +292,31 @@ class SoundPackCatalogTests(unittest.TestCase):
         self.assertEqual(storage.items[old.pack_id].version, "2.0.0")
         self.assertEqual(manager.status(entry).state, SoundPackState.CURRENT)
 
+    def test_stale_catalog_cannot_downgrade_newer_installed_pack(self):
+        installed = make_manifest(version="2.0.0")
+        stale = make_manifest(version="1.5.0")
+        entry = make_entry(stale)
+        storage = FakeStorage({"classic": make_manifest("classic"), installed.pack_id: installed})
+        downloader = FakeDownloader(make_download(entry))
+        manager = SoundPackManager(downloader, storage)
+
+        self.assertEqual(manager.status(entry).state, SoundPackState.CATALOG_OLDER)
+        with self.assertRaisesRegex(SoundPackInstallError, "older than the installed"):
+            manager.install(entry)
+
+        self.assertEqual(downloader.calls, [])
+        self.assertEqual(storage.install_calls, [])
+        self.assertEqual(installed, storage.items[installed.pack_id])
+
+    def test_prerelease_semver_rollback_is_rejected_by_precedence(self):
+        installed = make_manifest(version="2.0.0")
+        stale = make_manifest(version="2.0.0-rc.9")
+        entry = make_entry(stale)
+        storage = FakeStorage({"classic": make_manifest("classic"), installed.pack_id: installed})
+        manager = SoundPackManager(FakeDownloader(make_download(entry)), storage)
+
+        self.assertEqual(manager.status(entry).state, SoundPackState.CATALOG_OLDER)
+
     def test_uninstall_active_pack_returns_profile_on_installed_fallback(self):
         classic = make_manifest("classic")
         active = make_manifest("soft.wood")
