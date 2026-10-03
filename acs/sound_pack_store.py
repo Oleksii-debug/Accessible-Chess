@@ -280,6 +280,68 @@ def _regular_identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
     )
 
 
+def _read_regular_file_bytes(
+    path: Path,
+    label: str,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Read bounded metadata from the same regular file proven by lstat."""
+
+    before = _require_regular_file(path, label)
+    if before.st_size > max_bytes:
+        raise SoundPackStoreError(f"{label} exceeds the resource limit")
+
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOINHERIT", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise SoundPackStoreError(f"{label} could not be opened safely") from exc
+
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            stat.S_ISLNK(opened.st_mode)
+            or _is_reparse_point(opened)
+            or not stat.S_ISREG(opened.st_mode)
+        ):
+            raise SoundPackStoreError(f"{label} is not a regular file")
+        if _regular_identity(opened) != _regular_identity(before):
+            raise SoundPackStoreError(f"{label} changed before secure read")
+        if opened.st_size > max_bytes:
+            raise SoundPackStoreError(f"{label} exceeds the resource limit")
+
+        chunks: list[bytes] = []
+        remaining = opened.st_size
+        while remaining:
+            try:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+            except OSError as exc:
+                raise SoundPackStoreError(f"{label} could not be read") from exc
+            if not chunk:
+                raise SoundPackStoreError(f"{label} was truncated during secure read")
+            remaining -= len(chunk)
+            chunks.append(chunk)
+
+        try:
+            extra = os.read(descriptor, 1)
+        except OSError as exc:
+            raise SoundPackStoreError(f"{label} could not be read") from exc
+        if extra:
+            raise SoundPackStoreError(f"{label} exceeds the resource limit")
+        after = os.fstat(descriptor)
+        if _regular_identity(after) != _regular_identity(opened):
+            raise SoundPackStoreError(f"{label} changed during secure read")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
 def _read_verified_asset_bytes(
     path: Path,
     digest: SoundAssetDigest,
@@ -810,18 +872,11 @@ class FilesystemSoundPackStore:
 
     @staticmethod
     def _read_manifest(version_dir: Path) -> SoundPackManifest:
-        path = version_dir / _MANIFEST_NAME
-        metadata = _require_regular_file(path, "sound pack manifest")
-        if metadata.st_size > _MAX_METADATA_BYTES:
-            raise SoundPackStoreError(
-                "sound pack manifest exceeds the resource limit"
-            )
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack manifest could not be read"
-            ) from exc
+        raw = _read_regular_file_bytes(
+            version_dir / _MANIFEST_NAME,
+            "sound pack manifest",
+            max_bytes=_MAX_METADATA_BYTES,
+        )
         try:
             return SoundPackManifest.from_mapping(
                 _decode_json(raw, "sound pack manifest")
@@ -833,20 +888,11 @@ class FilesystemSoundPackStore:
     def _read_integrity(
         version_dir: Path,
     ) -> tuple[dict[str, SoundAssetDigest], str | None, bool]:
-        path = version_dir / _INTEGRITY_NAME
-        metadata = _require_regular_file(
-            path, "sound pack integrity metadata"
+        raw = _read_regular_file_bytes(
+            version_dir / _INTEGRITY_NAME,
+            "sound pack integrity metadata",
+            max_bytes=_MAX_METADATA_BYTES,
         )
-        if metadata.st_size > _MAX_METADATA_BYTES:
-            raise SoundPackStoreError(
-                "sound pack integrity metadata exceeds the resource limit"
-            )
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack integrity metadata could not be read"
-            ) from exc
         return _integrity_from_mapping(
             _decode_json(raw, "sound pack integrity metadata")
         )
@@ -858,19 +904,11 @@ class FilesystemSoundPackStore:
         path = version_dir / _RIGHTS_NAME
         if not os.path.lexists(path):
             return None
-        metadata = _require_regular_file(
-            path, "sound pack rights evidence"
+        raw = _read_regular_file_bytes(
+            path,
+            "sound pack rights evidence",
+            max_bytes=_MAX_METADATA_BYTES,
         )
-        if metadata.st_size > _MAX_METADATA_BYTES:
-            raise SoundPackStoreError(
-                "sound pack rights evidence exceeds the resource limit"
-            )
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack rights evidence could not be read"
-            ) from exc
         try:
             return SoundPackRightsEvidence.from_mapping(
                 _decode_json(raw, "sound pack rights evidence")
@@ -996,20 +1034,14 @@ class FilesystemSoundPackStore:
 
     @staticmethod
     def _read_active(pack_dir: Path) -> tuple[str, str]:
-        path = pack_dir / _ACTIVE_NAME
-        metadata = _require_regular_file(path, "sound pack active pointer")
-        if metadata.st_size > _MAX_METADATA_BYTES:
-            raise SoundPackStoreError(
-                "sound pack active pointer exceeds the resource limit"
-            )
-        try:
-            raw = _decode_json(
-                path.read_bytes(), "sound pack active pointer"
-            )
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack active pointer could not be read"
-            ) from exc
+        raw = _decode_json(
+            _read_regular_file_bytes(
+                pack_dir / _ACTIVE_NAME,
+                "sound pack active pointer",
+                max_bytes=_MAX_METADATA_BYTES,
+            ),
+            "sound pack active pointer",
+        )
         if set(raw) != {"schema_version", "pack_id", "version"}:
             raise SoundPackStoreError(
                 "sound pack active pointer fields are invalid"
