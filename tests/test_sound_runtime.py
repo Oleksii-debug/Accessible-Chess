@@ -667,6 +667,24 @@ class PackagedSoundResolverTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "publish failed"):
                     adapter._scaled_copy(source, SoundEvent.MOVE, 50)
 
+    def test_windows_stop_uses_play_sound_null_without_fallback(self):
+        calls = []
+        fake_winsound = types.SimpleNamespace(
+            PlaySound=lambda sound, flags: calls.append((sound, flags)),
+        )
+        adapter = WindowsSoundPlaybackAdapter(
+            PackagedSoundAssetResolver("."),
+            cache_dir=Path("."),
+        )
+
+        with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+            sys.modules,
+            {"winsound": fake_winsound},
+        ):
+            adapter.stop()
+
+        self.assertEqual(calls, [(None, 0)])
+
     def test_windows_playback_resolves_persisted_variant_before_playing(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move2.wav"
