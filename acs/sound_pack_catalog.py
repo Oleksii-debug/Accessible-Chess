@@ -261,7 +261,10 @@ class SoundPackCatalogEntry:
         if signature is not None and len(signature) > _MAX_SOUND_PACK_SIGNATURE_CHARS:
             raise ValueError("signature exceeds the resource limit")
         if signature is not None and any(
-            ord(ch) < 32 or ord(ch) == 127 or ch in {"\u2028", "\u2029"}
+            ord(ch) < 32
+            or ord(ch) == 127
+            or ch in {"\u2028", "\u2029"}
+            or unicodedata.category(ch) == "Cf"
             for ch in signature
         ):
             raise ValueError("signature contains control characters")
