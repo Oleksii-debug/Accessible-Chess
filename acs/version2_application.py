@@ -497,7 +497,7 @@ class Version2Application:
             if self._board_position_provider is None:
                 raise ValueError("current board position is unavailable")
             position = self._board_position_provider()
-            if not isinstance(position, PositionState):
+            if type(position) is not PositionState:
                 raise TypeError("current board position provider returned invalid state")
             candidate = PgnDocumentSession.new_game_from_position(position)
             self.set_document(candidate)
