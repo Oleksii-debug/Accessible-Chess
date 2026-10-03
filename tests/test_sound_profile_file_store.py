@@ -278,6 +278,42 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             payload = JsonSoundProfileStorage(path).read_profile()
             self.assertIsInstance(payload.get("schema_version"), str)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "ordinary Windows runners cannot reliably create symlinks",
+    )
+    def test_profile_ancestor_redirect_after_lock_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            container = root / "container"
+            path = container / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+            outside = root / "outside"
+            outside.mkdir()
+            locked_container = root / "locked-container"
+            real_lock = storage._lock_descriptor
+            redirected = False
+
+            def redirect_after_lock(descriptor):
+                nonlocal redirected
+                real_lock(descriptor)
+                container.rename(locked_container)
+                container.symlink_to(outside, target_is_directory=True)
+                redirected = True
+
+            with mock.patch.object(
+                storage,
+                "_lock_descriptor",
+                side_effect=redirect_after_lock,
+            ), self.assertRaisesRegex(
+                SoundProfileFileError,
+                "redirected or invalid",
+            ):
+                storage.write_profile_atomically(SoundProfile().to_mapping())
+
+            self.assertTrue(redirected)
+            self.assertEqual([], list(outside.iterdir()))
+
     def test_profile_lock_swap_after_lstat_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
