@@ -983,6 +983,18 @@ class BookProgressStore:
         validated = _validate_payload(payload)
         encoded = _canonical_json_bytes(validated)
 
+        # Bind rolling-backup publication to the exact backup pathname bytes
+        # observed at the start of this write phase. Without this transaction-
+        # scoped CAS, a non-cooperating writer can advance both primary and
+        # backup after our primary snapshot; blindly rebasing the backup CAS at
+        # publication time could then overwrite that newer recovery snapshot
+        # before the later primary stale-write check aborts this save.
+        backup_base_raw = (
+            self._read_raw_file_unlocked(self.backup_path, missing_ok=True)
+            if previous_raw is not None
+            else None
+        )
+
         current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
         if _revision(current_raw) != expected_revision or current_raw != previous_raw:
             raise BookProgressStoreError(
@@ -996,7 +1008,11 @@ class BookProgressStore:
             # snapshot as a side effect of an unrelated save.
             self._require_no_orphan_backup_unlocked()
         else:
-            self._atomic_publish_bytes_unlocked(self.backup_path, previous_raw)
+            self._atomic_publish_bytes_unlocked(
+                self.backup_path,
+                previous_raw,
+                expected_target_raw=backup_base_raw,
+            )
 
         current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
         if _revision(current_raw) != expected_revision or current_raw != previous_raw:
