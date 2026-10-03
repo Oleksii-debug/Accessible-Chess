@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import tempfile
 import unittest
 
@@ -175,6 +176,30 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
                         **overrides,
                     )
                 self.assert_no_persistence_or_credentials(path)
+
+    def test_relative_store_path_is_stable_after_working_directory_change(self) -> None:
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(self.root)
+            runtime = self.build(
+                roster=FakeRoster(),
+                path=Path("relative-collaboration.sqlite3"),
+            )
+            bound_path = Path(runtime.store.path)
+            self.assertTrue(bound_path.is_absolute())
+            self.assertEqual(
+                bound_path,
+                self.root / "relative-collaboration.sqlite3",
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        snapshot = runtime.webview.safe_snapshot()
+        self.assertTrue(snapshot["available"])
+        self.assertEqual(snapshot["chat"]["messages"], ())
+        self.assertEqual(snapshot["files"]["items"], ())
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
 
     def test_sqlite_memory_store_is_rejected_as_non_durable(self) -> None:
         with self.assertRaisesRegex(
