@@ -228,6 +228,54 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         )
         self.assertIsNone(binder.active_lease)
 
+    def test_device_recovery_is_transactional_and_republish_is_derived_from_canonical_state(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+
+        # Camera is currently off, so browser input cannot request publication.
+        before = controller.state
+        event = bridge.dispatch(
+            "media.recover_device",
+            {"kind": "camera", "device_id": "camera-device-2"},
+        )
+        self.assertEqual(event.kind, "provider-dispatch")
+        transaction_id = event.payload["transaction_id"]
+        self.assertEqual(
+            event.payload["provider"],
+            {
+                "transaction_id": transaction_id,
+                "operation": "recover_device",
+                "kind": "camera",
+                "device_id": "camera-device-2",
+                "republish_enabled": False,
+            },
+        )
+        self.assertNotIn("camera-device-2", repr(event))
+        self.assertIn("<redacted>", repr(event))
+        self.assertEqual(
+            dict(event.payload["provider"])["device_id"],
+            "camera-device-2",
+        )
+        self.assertEqual(controller.state, before)
+
+        ready = transactions.dispatch_provider(
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+        self.assertEqual(ready.kind, "provider-ready")
+        completed = transactions.dispatch_provider(
+            "media.provider_effect_success",
+            {"transaction_id": transaction_id, "chunk_index": 0},
+        )
+        self.assertEqual(completed.kind, "media-updated")
+        self.assertEqual(
+            completed.payload["focus_target"],
+            "classroom-media-device-camera",
+        )
+        self.assertEqual(controller.state.revision, before.revision + 1)
+        self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
+        self.assertIsNone(binder.active_lease)
+
     def test_join_dispatch_is_secret_free_and_credential_is_one_shot(self):
         _controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
         event = transactions.prepare_join(

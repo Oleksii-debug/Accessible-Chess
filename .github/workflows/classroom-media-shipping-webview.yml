@@ -106,10 +106,29 @@ jobs:
             'web/livekit_classroom_media_runtime.js'
             'web/version2_final_product_bootstrap.js'
           )
+          device_recovery_expected=(
+            '.github/workflows/classroom-media-device-recovery-webview.yml'
+            '.github/workflows/classroom-media-shipping-webview.yml'
+            'acs/classroom_media_webview_bridge.py'
+            'acs/classroom_media_webview_projection.py'
+            'acs/classroom_media_webview_transactions.py'
+            'tests/js/full_product_classroom_media_test.js'
+            'tests/test_classroom_media_shipping_webview.py'
+            'tests/test_classroom_media_webview.py'
+            'web/full_product_classroom_media.js'
+          )
           if [[ "$PR_BASE_REF" = "integrate/classroom-livekit-presentation-20261003" ]]; then
             if [[ "${actual[*]}" != "${expected[*]}" ]]; then
               printf 'Unexpected classroom media shipping WebView composition scope.\nExpected:\n'
               printf '  %s\n' "${expected[@]}"
+              printf 'Actual:\n'
+              printf '  %s\n' "${actual[@]}"
+              exit 1
+            fi
+          elif [[ " ${actual[*]} " == *" .github/workflows/classroom-media-device-recovery-webview.yml "* ]]; then
+            if [[ "${actual[*]}" != "${device_recovery_expected[*]}" ]]; then
+              printf 'Unexpected classroom media device-recovery successor scope.\nExpected:\n'
+              printf '  %s\n' "${device_recovery_expected[@]}"
               printf 'Actual:\n'
               printf '  %s\n' "${actual[@]}"
               exit 1
@@ -134,7 +153,12 @@ jobs:
             done
           fi
           git diff --check "$base...HEAD"
-          git diff --quiet "$base...HEAD" --             acs/chesscore.py             acs/classroom_domain.py             acs/classroom_realtime_media.py             acs/remote_session.py             acs/teaching_classroom_adapter.py
+          git diff --quiet "$base...HEAD" -- \
+            acs/chesscore.py \
+            acs/classroom_domain.py \
+            acs/classroom_realtime_media.py \
+            acs/remote_session.py \
+            acs/teaching_classroom_adapter.py
           echo "CLASSROOM_MEDIA_SHIPPING_WEBVIEW_LIVE_BASE=$base"
           echo 'CLASSROOM_MEDIA_SHIPPING_WEBVIEW_BOUNDED_SCOPE=PASS'
 
@@ -171,21 +195,54 @@ jobs:
           tests/test_classroom_media_provider_binder.py
           tests/test_classroom_media_shipping_webview.py
 
-      - name: Run transactional media, release and package qualification
-        run: >-
-          python -m unittest -v
-          tests.test_classroom_media_shipping_webview
-          tests.test_classroom_media_provider_binder
-          tests.test_classroom_media_provider_execution
-          tests.test_classroom_media_session_transactions
-          tests.test_classroom_media_host_transactions
-          tests.test_classroom_media_webview
-          tests.test_classroom_realtime_media
-          tests.test_version2_final_product_composition
-          tests.test_version2_final_release_binding
-          tests.test_version2_release_payload
-          tests.test_version2_package_preflight
-          tests.test_p0g_final_product_runtime_reachability
+      - name: Test media shipping WebView
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_shipping_webview
+
+      - name: Test media provider binder
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_provider_binder
+
+      - name: Test media provider execution
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_provider_execution
+
+      - name: Test media session transactions
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_session_transactions
+
+      - name: Test media host transactions
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_host_transactions
+
+      - name: Test media WebView
+        if: always()
+        run: python -m unittest -v tests.test_classroom_media_webview
+
+      - name: Test realtime media
+        if: always()
+        run: python -m unittest -v tests.test_classroom_realtime_media
+
+      - name: Test final-product composition
+        if: always()
+        run: python -m unittest -v tests.test_version2_final_product_composition
+
+      - name: Test final-release binding
+        if: always()
+        run: python -m unittest -v tests.test_version2_final_release_binding
+
+      - name: Test release payload
+        if: always()
+        run: python -m unittest -v tests.test_version2_release_payload
+
+      - name: Test package preflight
+        if: always()
+        run: python -m unittest -v tests.test_version2_package_preflight
+
+      - name: Test final-product runtime reachability
+        if: always()
+        run: python -m unittest -v tests.test_p0g_final_product_runtime_reachability
 
       - name: Core selftest
+        if: always()
         run: python -m acs.selftest

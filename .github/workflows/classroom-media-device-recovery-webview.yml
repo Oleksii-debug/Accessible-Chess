@@ -1,0 +1,102 @@
+name: Classroom Media Device Recovery WebView
+
+on:
+  pull_request:
+    branches:
+      - integrate/classroom-media-shipping-webview-20261003
+    paths:
+      - '.github/workflows/classroom-media-device-recovery-webview.yml'
+      - 'acs/classroom_media_webview_bridge.py'
+      - 'acs/classroom_media_webview_projection.py'
+      - 'acs/classroom_media_webview_transactions.py'
+      - 'tests/js/full_product_classroom_media_test.js'
+      - 'tests/test_classroom_media_shipping_webview.py'
+      - 'tests/test_classroom_media_webview.py'
+      - 'web/full_product_classroom_media.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-media-device-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact device-recovery scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$BASE_REF" = "integrate/classroom-media-shipping-webview-20261003"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA" HEAD
+          mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-media-device-recovery-webview.yml'
+            '.github/workflows/classroom-media-shipping-webview.yml'
+            'acs/classroom_media_webview_bridge.py'
+            'acs/classroom_media_webview_projection.py'
+            'acs/classroom_media_webview_transactions.py'
+            'tests/js/full_product_classroom_media_test.js'
+            'tests/test_classroom_media_shipping_webview.py'
+            'tests/test_classroom_media_webview.py'
+            'web/full_product_classroom_media.js'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected device-recovery scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'CLASSROOM_MEDIA_DEVICE_RECOVERY_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+
+      - name: Compile media device bridge
+        run: >-
+          python -m py_compile
+          acs/classroom_media_webview_bridge.py
+          acs/classroom_media_webview_projection.py
+          acs/classroom_media_webview_transactions.py
+          tests/test_classroom_media_webview.py
+          tests/test_classroom_media_shipping_webview.py
+
+      - name: Run Python media contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_media_webview
+          tests.test_classroom_media_shipping_webview
+
+      - name: Run accessible device-picker DOM contract
+        run: node tests/js/full_product_classroom_media_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest

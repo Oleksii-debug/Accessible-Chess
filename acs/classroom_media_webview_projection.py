@@ -19,6 +19,7 @@ import secrets
 from .classroom_realtime_media import (
     ClassroomMediaController,
     ClassroomRole,
+    MediaDeviceKind,
     MediaSource,
     ParticipantMediaPolicy,
 )
@@ -592,6 +593,13 @@ class ClassroomMediaWebViewProjection:
             raise ValueError("screen sharing has no browser control in this slice")
         return source
 
+    @staticmethod
+    def _device_kind(value: MediaDeviceKind | str) -> MediaDeviceKind:
+        try:
+            return MediaDeviceKind(value)
+        except (TypeError, ValueError):
+            raise ValueError("unsupported browser media device kind") from None
+
     def set_local_source(
         self,
         source: MediaSource | str,
@@ -603,6 +611,22 @@ class ClassroomMediaWebViewProjection:
             if type(enabled) is not bool:
                 raise TypeError("media enabled must be boolean")
             self._controller.set_local_source(self._source(source), enabled)
+            return self._success(focus_target=focus_target)
+        except Exception:
+            return self._error(focus_target=focus_target)
+
+    def recover_device(
+        self,
+        kind: MediaDeviceKind | str,
+        device_id: str,
+        *,
+        focus_target: str = "",
+    ) -> ClassroomMediaWebViewEvent:
+        try:
+            self._controller.recover_device(
+                self._device_kind(kind),
+                device_id,
+            )
             return self._success(focus_target=focus_target)
         except Exception:
             return self._error(focus_target=focus_target)
