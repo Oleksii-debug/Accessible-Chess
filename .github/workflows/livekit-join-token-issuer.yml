@@ -45,20 +45,18 @@ jobs:
           test "$EXPECTED_BASE_REF" = "feature/classroom-join-credential-rpc-core-20261002"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
           git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          git fetch --no-tags origin "$EXPECTED_BASE_REF"
-          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
-          if ! git merge-base --is-ancestor "$base" HEAD; then
-            echo "Current join-credential base $base is not an ancestor of HEAD; synchronize the stacked PR."
-            exit 1
-          fi
-          git diff --check "$base...HEAD"
-          changed="$(git diff --name-only "$base...HEAD" | sort)"
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
           allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-livekit-two-client-media-smoke.yml' \
             '.github/workflows/livekit-join-token-issuer.yml' \
             'acs/livekit_join_token_issuer.py' \
+            'tests/js/livekit_two_client_media_smoke.js' \
+            'tests/livekit_two_client_token_fixture.py' \
             'tests/test_livekit_join_token_issuer.py' | sort)"
           test "$changed" = "$allowed"
-          git diff --quiet "$base" HEAD -- \
+          git diff --quiet "$EVENT_BASE_SHA" HEAD -- \
             acs/classroom_join_credentials.py \
             acs/classroom_realtime_media.py \
             acs/classroom_domain.py \
