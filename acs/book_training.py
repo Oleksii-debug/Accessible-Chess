@@ -217,6 +217,11 @@ class BookTrainingOrigin:
                 "book training heading_path must be a tuple of bounded non-empty text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
+        if len(self.heading_path) > _MAX_HEADING_PATH_PARTS:
+            raise BookTrainingError(
+                "book training heading_path exceeds the semantic depth limit",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
         object.__setattr__(self, "target_key", target_key)
         object.__setattr__(self, "block_id", block_id)
         object.__setattr__(self, "source_anchor", source_anchor)
