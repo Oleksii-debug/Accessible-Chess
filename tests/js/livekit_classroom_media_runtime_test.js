@@ -1507,6 +1507,93 @@ async function testCleanDisconnectCommitRecoveryRetainsTransportFact() {
   assert.equal(duplicate, null);
 }
 
+async function testMalformedCleanDisconnectAckFailsClosedAndRetainsSnapshot() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const connectTransaction = "session-" + "6".repeat(32);
+  const disconnectTransaction = "session-" + "7".repeat(32);
+  let activeTransaction = connectTransaction;
+  let transportCalls = 0;
+
+  const invoke = async (command, payload) => {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: activeTransaction,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "short-lived-token"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: activeTransaction } };
+    }
+    if (command === "media.provider_session_success") {
+      if (activeTransaction === connectTransaction) {
+        return { kind: "media-updated", payload: {} };
+      }
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return null;
+    }
+    if (command === "media.provider_outcome_unknown") {
+      assert.equal(payload.transaction_id, disconnectTransaction);
+      return {
+        kind: "error",
+        payload: { message: "sanitized", recovery_required: true }
+      };
+    }
+    if (command === "media.provider_transport_lost") {
+      transportCalls += 1;
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return transportCalls === 1
+        ? {
+            kind: "error",
+            payload: { message: "sanitized", recovery_required: true }
+          }
+        : { kind: "media-updated", payload: {} };
+    }
+    throw new Error("unexpected command " + command);
+  };
+
+  await runtime.execute(dispatch(connectTransaction, {
+    transaction_id: connectTransaction,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false), invoke);
+
+  const adapter = RecordingAdapter.instances[0];
+  adapter.failDisconnectOnce = true;
+  activeTransaction = disconnectTransaction;
+  const failed = await runtime.execute(dispatch(disconnectTransaction, {
+    transaction_id: disconnectTransaction,
+    operation: "disconnect",
+    credential_required: false,
+    enabled_sources: []
+  }, false), invoke);
+
+  assert.equal(failed.kind, "error");
+  assert.equal(failed.payload.recovery_required, true);
+  assert.equal(isCleanSnapshot(adapter.snapshot()), true);
+  assert.equal(isCleanSnapshot(runtime._transportLossSnapshot), true);
+
+  const pending = await runtime.reconcileTransport(invoke);
+  assert.equal(pending.kind, "error");
+  assert.equal(pending.payload.recovery_required, true);
+  assert.equal(transportCalls, 1);
+
+  runtime._transportRetryAt = 0;
+  const converged = await runtime.reconcileTransport(invoke);
+  assert.equal(converged.kind, "media-updated");
+  assert.equal(transportCalls, 2);
+  assert.equal(runtime._transportLossSnapshot, null);
+}
+
 async function testTransportLossReconcilesExactlyOnce() {
   RecordingAdapter.instances.length = 0;
   const runtime = loadRuntime(RecordingAdapter);
@@ -1907,6 +1994,7 @@ async function run() {
   await testCleanupRetrySurvivesTemporarySnapshotFailure();
   await testFailedDisconnectImmediateRetryCommitsOriginalLeave();
   await testCleanDisconnectCommitRecoveryRetainsTransportFact();
+  await testMalformedCleanDisconnectAckFailsClosedAndRetainsSnapshot();
   await testTransportLossReconcilesExactlyOnce();
   await testPendingTransportLossRetiresNewMutationBeforeProviderCall();
   await testTransportLossBridgeReplyLossRetriesSameSnapshot();
