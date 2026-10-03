@@ -478,8 +478,56 @@ async function run() {
   check(document.activeElement === controlsFocus,
     "blank bookmark value must preserve reading focus");
 
+  const malformedLanguage = bookSnapshot(3, "Malformed language");
+  malformedLanguage.document.lang = "ua";
+  let malformedLanguageRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, malformedLanguage, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    malformedLanguageRejected = true;
+  }
+  check(malformedLanguageRejected, "unsupported Book document language must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "unsupported Book language must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "unsupported Book language must preserve reading focus");
+
+  const malformedRole = bookSnapshot(3, "Malformed role");
+  malformedRole.block.role = "dialog";
+  let malformedRoleRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, malformedRole, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    malformedRoleRejected = true;
+  }
+  check(malformedRoleRejected, "unknown Book block role must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "unknown Book block role must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "unknown Book block role must preserve reading focus");
+
+  const malformedHeadingPath = bookSnapshot(3, "Malformed heading path");
+  malformedHeadingPath.block.heading_path = ["Chapter", { text: "bad" }];
+  let malformedHeadingPathRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, malformedHeadingPath, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    malformedHeadingPathRejected = true;
+  }
+  check(malformedHeadingPathRejected, "malformed Book heading path must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "malformed Book heading path must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "malformed Book heading path must preserve reading focus");
+
   const listSnapshot = bookSnapshot(4, "List");
-  listSnapshot.block.role = "group";
+  listSnapshot.block.role = "list";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
   window.AccessibleChessBookSurface.render(bookRoot, listSnapshot, bookInvoke, announce, "book-block-4", "Action failed");
   const list = bookRoot.querySelector("#book-block-4");
@@ -487,6 +535,25 @@ async function run() {
   check(list.children.length === 2 && list.children.every((item) => item.tagName === "LI"), "list item semantics lost");
   check(list.children[1].textContent === "<img onerror=bad()>", "list content must remain literal text");
   check(document.activeElement === list, "list reading focus lost");
+
+  const untitledSemanticSnapshot = semanticGameSnapshot();
+  untitledSemanticSnapshot.block.title = "";
+  window.AccessibleChessBookSurface.render(
+    bookRoot,
+    untitledSemanticSnapshot,
+    bookInvoke,
+    announce,
+    "book-block-5",
+    "Action failed"
+  );
+  const untitledSemanticBlock = bookRoot.querySelector("#book-block-5");
+  check(
+    untitledSemanticBlock.attributes["aria-labelledby"] ===
+      "book-block-5-semantic-heading",
+    "untitled semantic Game focus target must use the move heading as its accessible name"
+  );
+  check(document.activeElement === untitledSemanticBlock,
+    "untitled semantic Game reading focus was not restored");
 
   const semanticSnapshot = semanticGameSnapshot();
   window.AccessibleChessBookSurface.render(
