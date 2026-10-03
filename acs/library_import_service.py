@@ -482,6 +482,8 @@ class LibraryImportService:
         stable caller snapshot that the first atomic publication inserted. The
         existing canonical GameTree serializer remains the sole content oracle.
         Observer mutation after validation fails closed before reuse can publish.
+        Persisted comparison scalars are also exact-typed here: malformed SQLite
+        storage must not be coerced back into an apparently canonical game.
         """
 
         cursor = self._db.conn.execute(
@@ -502,16 +504,27 @@ class LibraryImportService:
                 fingerprint,
             )
             expected_status = "warning" if game.warnings else "full"
+            game_id = row["id"]
+            stored_source_index = row["source_index"]
+            stored_status = row["import_status"]
+            stored_warnings = row["warnings_json"]
+            stored_pgn = row["pgn_text"]
             if (
-                int(row["source_index"]) != game.source_index
-                or str(row["import_status"]) != expected_status
-                or str(row["warnings_json"]) != expected_warnings
-                or str(row["pgn_text"]) != expected_pgn
+                type(game_id) is not int
+                or not 1 <= game_id <= _SQLITE_INTEGER_MAX
+                or type(stored_source_index) is not int
+                or not 0 <= stored_source_index <= _SQLITE_INTEGER_MAX
+                or type(stored_status) is not str
+                or type(stored_warnings) is not str
+                or type(stored_pgn) is not str
+                or stored_source_index != game.source_index
+                or stored_status != expected_status
+                or stored_warnings != expected_warnings
+                or stored_pgn != expected_pgn
             ):
                 raise LibraryImportConflictError(
                     "Library source canonical content differs from existing import"
                 )
-            game_id = int(row["id"])
             if first_game_id is None:
                 first_game_id = game_id
             last_game_id = game_id
