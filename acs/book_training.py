@@ -740,14 +740,22 @@ def _definition_from_book_exercise(
     if exercise.difficulty is not None:
         metadata["difficulty"] = exercise.difficulty
 
-    return ExerciseDefinition(
-        exercise_id=exercise_id,
-        start_fen=start_board.fen(),
-        steps=steps,
-        title=exercise.prompt,
-        source_id=source_id,
-        metadata=metadata,
-    )
+    try:
+        return ExerciseDefinition(
+            exercise_id=exercise_id,
+            start_fen=start_board.fen(),
+            steps=steps,
+            title=exercise.prompt,
+            source_id=source_id,
+            metadata=metadata,
+        )
+    except (TypeError, ValueError) as exc:
+        # BookDocument remains mutable for authoring. Normalize post-construction
+        # scalar/resource corruption at the Book->Training boundary.
+        raise BookTrainingError(
+            "book exercise training definition is invalid",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        ) from exc
 
 
 def build_book_training_material(
