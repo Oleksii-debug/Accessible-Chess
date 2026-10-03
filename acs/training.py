@@ -235,9 +235,9 @@ class ExerciseSession:
     """
 
     def __init__(self, definition: ExerciseDefinition) -> None:
-        if not isinstance(definition, ExerciseDefinition):
-            raise TypeError("definition must be an ExerciseDefinition")
+        definition = _canonical_definition(definition)
         self.definition = definition
+        self._definition_authority_digest = _definition_authority_digest(definition)
         self._board = Board(definition.start_fen)
         self._accepted_path: list[str] = []
         self._step_index = 0
@@ -245,6 +245,11 @@ class ExerciseSession:
         self._mistakes = 0
         self._hints_used = 0
         self._status = ExerciseStatus.READY
+
+    @property
+    def canonical_definition(self) -> ExerciseDefinition:
+        """Return the exact canonical definition authority bound to this live session."""
+        return self._bound_definition()
 
     @property
     def status(self) -> ExerciseStatus:
@@ -281,15 +286,17 @@ class ExerciseSession:
         return tuple(self._accepted_path)
 
     def current_step(self) -> ExerciseStep | None:
+        definition = self._bound_definition()
         if self.completed:
             return None
-        return self.definition.steps[self._step_index]
+        return definition.steps[self._step_index]
 
     def submit(self, move: str) -> ExerciseResult:
+        definition = self._bound_definition()
         if self.completed:
             raise ValueError("exercise is already completed")
         submitted = _normalize_move(move)
-        step = self.definition.steps[self._step_index]
+        step = definition.steps[self._step_index]
 
         # Validate authored accepted answers before touching counters or state.
         accepted = _resolved_accepted_moves(step, self._board)
@@ -313,15 +320,15 @@ class ExerciseSession:
 
         # Fail atomically if the newly reached step contains chess content that
         # cannot be interpreted by the canonical core in this exact position.
-        if next_index < len(self.definition.steps):
-            _resolved_accepted_moves(self.definition.steps[next_index], candidate)
+        if next_index < len(definition.steps):
+            _resolved_accepted_moves(definition.steps[next_index], candidate)
 
         explanation = step.explanation
         self._board = candidate
         self._accepted_path.append(canonical_san)
         self._attempts += 1
         self._step_index = next_index
-        if self._step_index == len(self.definition.steps):
+        if self._step_index == len(definition.steps):
             self._status = ExerciseStatus.COMPLETED
         else:
             self._status = ExerciseStatus.IN_PROGRESS
@@ -353,18 +360,20 @@ class ExerciseSession:
         )
 
     def request_hint(self) -> HintResult:
+        definition = self._bound_definition()
         if self.completed:
             return HintResult(False, self._step_index, None, self._hints_used)
-        step = self.definition.steps[self._step_index]
+        step = definition.steps[self._step_index]
         if step.hint is None:
             return HintResult(False, self._step_index, None, self._hints_used)
         self._hints_used += 1
         return HintResult(True, self._step_index, step.hint, self._hints_used)
 
     def reset(self) -> None:
+        definition = self._bound_definition()
         # Reconstruct from the authored start position through canonical core;
         # reset never reuses a potentially mutated hidden board object.
-        board = Board(self.definition.start_fen)
+        board = Board(definition.start_fen)
         self._board = board
         self._accepted_path = []
         self._step_index = 0
@@ -375,10 +384,11 @@ class ExerciseSession:
 
     def snapshot(self) -> dict[str, object]:
         """Return strict schema-v3 progress with deterministic chess identity."""
+        definition = self._bound_definition()
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
-            "exercise_id": self.definition.exercise_id,
-            "definition_digest": _definition_digest(self.definition),
+            "exercise_id": definition.exercise_id,
+            "definition_digest": _definition_digest(definition),
             "accepted_path": list(self._accepted_path),
             "position_fen": self._board.fen(),
             "step_index": self._step_index,
@@ -387,6 +397,28 @@ class ExerciseSession:
             "hints_used": self._hints_used,
             "status": self._status.value,
         }
+
+    def restore_state(self, snapshot: Mapping[str, object]) -> None:
+        """Atomically restore validated progress while preserving session identity."""
+        definition = self._bound_definition()
+        restored = ExerciseSession.restore(definition, snapshot)
+        self._board = restored._board
+        self._accepted_path = list(restored._accepted_path)
+        self._step_index = restored._step_index
+        self._attempts = restored._attempts
+        self._mistakes = restored._mistakes
+        self._hints_used = restored._hints_used
+        self._status = restored._status
+
+    def _bound_definition(self) -> ExerciseDefinition:
+        definition = self.definition
+        _require_bound_definition_shape(definition)
+        canonical = _canonical_definition(definition)
+        if canonical != definition:
+            raise ValueError("exercise definition is not canonical")
+        if _definition_authority_digest(canonical) != self._definition_authority_digest:
+            raise ValueError("exercise definition changed during session")
+        return definition
 
     @classmethod
     def restore(
@@ -401,6 +433,7 @@ class ExerciseSession:
         the reconstructed position. Distinct alternatives fail closed instead
         of guessing which position the learner actually reached.
         """
+        definition = _canonical_definition(definition)
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
         try:
@@ -511,6 +544,72 @@ class ExerciseSession:
         return session
 
 
+def _canonical_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
+    if not isinstance(definition, ExerciseDefinition):
+        raise TypeError("definition must be an ExerciseDefinition")
+
+    steps = tuple(
+        ExerciseStep(
+            step.accepted_moves,
+            hint=step.hint,
+            explanation=step.explanation,
+        )
+        for step in definition.steps
+    )
+    return ExerciseDefinition(
+        definition.exercise_id,
+        definition.start_fen,
+        steps,
+        title=definition.title,
+        tags=definition.tags,
+        source_id=definition.source_id,
+        metadata=definition.metadata,
+    )
+
+
+def _require_bound_definition_shape(definition: object) -> None:
+    if type(definition) is not ExerciseDefinition:
+        raise TypeError("exercise session definition authority must be exact ExerciseDefinition")
+    if type(definition.steps) is not tuple:
+        raise TypeError("exercise session steps authority must be an exact tuple")
+    if type(definition.tags) is not tuple:
+        raise TypeError("exercise session tags authority must be an exact tuple")
+    if type(definition.metadata) is not dict:
+        raise TypeError("exercise session metadata authority must be an exact dict")
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise TypeError("exercise session steps must contain exact ExerciseStep values")
+        if type(step.accepted_moves) is not frozenset:
+            raise TypeError("exercise session accepted moves authority must be an exact frozenset")
+
+
+def _definition_authority_digest(definition: ExerciseDefinition) -> str:
+    _require_bound_definition_shape(definition)
+    payload = {
+        "exercise_id": definition.exercise_id,
+        "start_fen": definition.start_fen,
+        "title": definition.title,
+        "tags": list(definition.tags),
+        "source_id": definition.source_id,
+        "metadata": definition.metadata,
+        "steps": [
+            {
+                "accepted_moves": sorted(step.accepted_moves),
+                "hint": step.hint,
+                "explanation": step.explanation,
+            }
+            for step in definition.steps
+        ],
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _restore_common(
     definition: ExerciseDefinition,
     snapshot: Mapping[str, object],
@@ -587,6 +686,9 @@ def _require_snapshot_fields(
         raise TypeError("exercise snapshot must be a finite mapping") from exc
     if field_count != len(expected):
         raise ValueError("invalid exercise snapshot field count")
+    for field_name in snapshot:
+        if type(field_name) is not str:
+            raise TypeError("exercise snapshot field names must be strings")
     fields = set(snapshot)
     if fields == expected:
         return
@@ -624,6 +726,7 @@ def _move_key(move: Move) -> tuple[int, int, str | None, bool, bool]:
 
 
 def _definition_digest(definition: ExerciseDefinition) -> str:
+    definition = _canonical_definition(definition)
     semantic_payload = {
         "start_fen": definition.start_fen,
         "steps": [sorted(step.accepted_moves) for step in definition.steps],
