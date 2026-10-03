@@ -1,9 +1,65 @@
 (function (global) {
   "use strict";
 
+  let providerRuntime = null;
+
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
     return value;
+  }
+
+  function mediaProviderRuntime(invoke) {
+    if (providerRuntime) return providerRuntime;
+    const module = global.AccessibleChessClassroomMediaProviderRuntime;
+    if (!module || typeof module.ClassroomMediaProviderRuntime !== "function") {
+      throw new TypeError("classroom media provider runtime is unavailable");
+    }
+    providerRuntime = new module.ClassroomMediaProviderRuntime({ invoke: invoke });
+    return providerRuntime;
+  }
+
+  function providerTransactionId(result) {
+    const payload = result && typeof result === "object" &&
+      result.payload && typeof result.payload === "object"
+      ? result.payload
+      : {};
+    const value = payload.transaction_id;
+    return typeof value === "string" &&
+      /^(?:host|session)-[0-9a-f]{32}$/.test(value)
+      ? value
+      : "";
+  }
+
+  function retireUnstartedProvider(result, invoke) {
+    const transactionId = providerTransactionId(result);
+    if (!transactionId) {
+      return Promise.reject(new TypeError("classroom media transaction is invalid"));
+    }
+    return Promise.resolve().then(function () {
+      return invoke(
+        "media.provider_not_started",
+        { transaction_id: transactionId }
+      );
+    });
+  }
+
+  function settleProviderEvent(result, invoke) {
+    if (!result || typeof result !== "object") {
+      return Promise.reject(new TypeError("classroom media result must be an object"));
+    }
+    if (result.kind !== "provider-dispatch") return Promise.resolve(result);
+    let settlement;
+    try {
+      settlement = mediaProviderRuntime(invoke).settle(result);
+    } catch (_error) {
+      return retireUnstartedProvider(result, invoke);
+    }
+    return Promise.resolve(settlement).catch(function () {
+      // A rejected runtime before it can establish/retire the provider boundary
+      // must not strand the canonical Python lease. Runtime-internal
+      // post-boundary failures return a recovery terminal instead of rejecting.
+      return retireUnstartedProvider(result, invoke);
+    });
   }
 
   function node(tag, text) {
@@ -34,6 +90,16 @@
     }
   }
 
+  function setMediaActionButtonsDisabled(root, disabled) {
+    if (!root || typeof root.querySelector !== "function") return;
+    const section = root.querySelector("#classroom-media-section");
+    if (!section || typeof section.querySelectorAll !== "function") return;
+    const buttons = section.querySelectorAll("button");
+    for (let index = 0; index < buttons.length; index += 1) {
+      buttons[index].disabled = disabled === true;
+    }
+  }
+
   function actionButton(action, invoke, announce, root, language) {
     if (!action || typeof action !== "object") return null;
     const command = String(action.command || "");
@@ -43,21 +109,26 @@
     const id = safeId(action.id);
     if (id) button.id = id;
     button.addEventListener("click", function () {
-      button.disabled = true;
+      // The Python provider arbiter owns one global mutation lease. Mirror that
+      // contract in the accessible DOM so keyboard/screen-reader users cannot
+      // activate a second media action that is guaranteed to be rejected while
+      // the first provider transaction is still settling.
+      setMediaActionButtonsDisabled(root, true);
       Promise.resolve().then(function () {
         return invoke(command, action.payload || {});
       }).then(function (result) {
-        if (!result || typeof result !== "object") {
-          throw new TypeError("classroom media result must be an object");
-        }
-        // Structured error events keep the current DOM. Re-enable before
-        // applyEvent() so focus recovery can target the same native button.
-        // Successful events may replace the button during applyEvent().
-        if (button.isConnected) button.disabled = false;
-        applyEvent(root, result, invoke, announce, language);
+        // Keep the initiating native button disabled across the complete
+        // provider transaction, including moderation chunk chains. Re-enable
+        // only after a terminal event exists so duplicate click/retry cannot
+        // race the sole global provider lease.
+        return settleProviderEvent(result, invoke).then(function (terminal) {
+          setMediaActionButtonsDisabled(root, false);
+          applyTerminalEvent(root, terminal, invoke, announce, language);
+          return terminal;
+        });
       }).catch(function () {
+        setMediaActionButtonsDisabled(root, false);
         if (button.isConnected) {
-          button.disabled = false;
           if (typeof button.focus === "function") {
             button.focus({ preventScroll: true });
           }
@@ -68,7 +139,7 @@
           "Could not change media state."
         ));
       }).finally(function () {
-        if (button.isConnected) button.disabled = false;
+        setMediaActionButtonsDisabled(root, false);
       });
     });
     return button;
@@ -116,18 +187,30 @@
     heading.tabIndex = -1;
     section.appendChild(heading);
 
-    if (!snapshot || typeof snapshot !== "object") {
-      const recoveryRequired = availability &&
-        typeof availability === "object" &&
-        availability.recovery_required === true;
+    const recoveryRequired = availability &&
+      typeof availability === "object" &&
+      availability.recovery_required === true;
+    const transactionActive = availability &&
+      typeof availability === "object" &&
+      availability.transaction_active === true;
+    if (
+      !snapshot ||
+      typeof snapshot !== "object" ||
+      recoveryRequired ||
+      transactionActive
+    ) {
       section.appendChild(node("p", uiText(
         language,
-        recoveryRequired
-          ? "Керування медіа тимчасово недоступне. Шахова дошка й дані заняття залишаються доступними без відео."
-          : "Медіазв’язок ще не налаштовано для цієї збірки. Шахова дошка й дані заняття залишаються доступними без відео.",
-        recoveryRequired
-          ? "Media controls are temporarily unavailable. The chess board and lesson data remain available without video."
-          : "Realtime media is not configured for this build yet. The chess board and lesson data remain available without video."
+        transactionActive
+          ? "Оновлення медіа виконується. Керування тимчасово недоступне до завершення операції."
+          : recoveryRequired
+            ? "Керування медіа тимчасово недоступне. Шахова дошка й дані заняття залишаються доступними без відео."
+            : "Медіазв’язок ще не налаштовано для цієї збірки. Шахова дошка й дані заняття залишаються доступними без відео.",
+        transactionActive
+          ? "A media update is in progress. Controls are temporarily unavailable until it completes."
+          : recoveryRequired
+            ? "Media controls are temporarily unavailable. The chess board and lesson data remain available without video."
+            : "Realtime media is not configured for this build yet. The chess board and lesson data remain available without video."
       )));
       return section;
     }
@@ -177,7 +260,7 @@
     return section;
   }
 
-  function applyEvent(root, result, invoke, announce, language) {
+  function applyTerminalEvent(root, result, invoke, announce, language) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
     if (Object.prototype.hasOwnProperty.call(payload, "snapshot")) {
@@ -196,6 +279,18 @@
     if (payload.announcement) announce(String(payload.announcement));
     if (result.kind === "error" && payload.message) announce(String(payload.message));
     focusById(root, payload.focus_target || "");
+  }
+
+  function applyEvent(root, result, invoke, announce, language) {
+    return settleProviderEvent(result, invoke).then(function (terminal) {
+      applyTerminalEvent(root, terminal, invoke, announce, language);
+      return terminal;
+    });
+  }
+
+  function executeProvider(result, invoke) {
+    requireFunction(invoke, "classroom media invoke");
+    return settleProviderEvent(result, invoke);
   }
 
   function mount(root, snapshot, invoke, announce, language, availability) {
@@ -223,6 +318,7 @@
 
   global.AccessibleChessClassroomMediaSurface = Object.freeze({
     mount: mount,
-    apply: applyEvent
+    apply: applyEvent,
+    executeProvider: executeProvider
   });
 })(window);
