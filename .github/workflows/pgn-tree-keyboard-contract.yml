@@ -26,6 +26,7 @@ concurrency:
 
 env:
   EXACT_PARENT: aa1d6771fbf510a20525a1964b189907140ce4b3
+  PARENT_BRANCH: fix/pgn-toolbar-keyboard-20261003
   EXPECTED_WEB_BLOB: fb67da0858d249de92075c346f6b010adc9321e7
   EXPECTED_TREE_TEST_BLOB: 974382bf465867c645863c5457af301613876637
   EXPECTED_PARENT_DOM_TEST_BLOB: 7b701dd0a28ade8093dc8c99d91ba7cedee8d109
@@ -45,19 +46,27 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Prove exact stacked scope
+      - name: Prove exact stacked scope and live parent
         shell: bash
         run: |
           set -euo pipefail
           test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+
+          parent_ref="refs/remotes/origin/$PARENT_BRANCH"
+          git fetch --no-tags origin "+refs/heads/$PARENT_BRANCH:$parent_ref"
+          live_parent="$(git rev-parse "$parent_ref")"
+          test "$live_parent" = "$EXACT_PARENT" || {
+            printf 'Stacked parent moved: expected=%s live=%s\n' "$EXACT_PARENT" "$live_parent" >&2
+            exit 1
+          }
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             event_base='${{ github.event.pull_request.base.sha }}'
             base_ref='${{ github.event.pull_request.base.ref }}'
             test "$event_base" = "$EXACT_PARENT"
-            test "$base_ref" = 'fix/pgn-toolbar-keyboard-20261003'
-            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
-            test "$(git rev-parse "refs/remotes/origin/$base_ref")" = "$EXACT_PARENT"
+            test "$base_ref" = "$PARENT_BRANCH"
           fi
+
           git diff --check "$EXACT_PARENT" HEAD
           changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
           expected="$(printf '%s\n' \
