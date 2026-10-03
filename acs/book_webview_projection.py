@@ -292,13 +292,15 @@ class BookWebViewProjection:
             # Raw FEN never crosses the WebView boundary, but it still reaches
             # this presentation preflight. Bound it before strip/dispatch so a
             # malformed trusted-side DTO cannot trigger an unbounded scan.
+            if type(block.position_fen) is not str:
+                raise TypeError("book block position must be text")
             if (
-                type(block.position_fen) is not str
-                or len(block.position_fen) > _MAX_BOOK_POSITION_TOKEN_CHARS
+                len(block.position_fen) > _MAX_BOOK_POSITION_TOKEN_CHARS
                 or "\x00" in block.position_fen
-                or not block.position_fen.strip()
             ):
                 raise ValueError("book board-position token is invalid")
+            if not block.position_fen.strip():
+                raise ValueError("book block position must not be empty")
         if type(block.heading_path) is not tuple or len(block.heading_path) > _MAX_BOOK_HEADING_PATH_PARTS:
             raise ValueError("book heading path is invalid")
         if any(type(part) is not str or not part.strip() for part in block.heading_path):
