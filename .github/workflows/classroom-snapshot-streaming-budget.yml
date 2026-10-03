@@ -80,6 +80,7 @@ jobs:
           acs/classroom_domain.py
           tests/test_classroom_snapshot_streaming_budget.py
 
+      # EducationWorkspaceStore tests are defined in tests.test_education_workspace.
       - name: Run focused and adjacent persistence contracts
         run: >-
           python -m unittest -v
