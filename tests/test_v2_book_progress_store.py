@@ -833,6 +833,42 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertNotEqual(self.path.read_bytes(), primary_before)
         self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
 
+    def test_legacy_generation_zero_primary_can_repair_divergent_legacy_backup(self) -> None:
+        primary_reader = BookReader(self.original_document())
+        primary_reader.go_to(1)
+        backup_reader = BookReader(self.original_document())
+        backup_reader.go_to(0)
+        legacy_primary = json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {"book:legacy-migrate": primary_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        legacy_backup = json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {"book:legacy-migrate": backup_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(legacy_primary)
+        self.store.backup_path.write_bytes(legacy_backup)
+
+        primary_reader.go_to(2)
+        saved = self.store.save("book:legacy-migrate", primary_reader)
+
+        self.assertEqual(saved["current_target"], "block:diagram")
+        self.assertEqual(self.store.backup_path.read_bytes(), legacy_primary)
+        migrated = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(migrated["generation"], 1)
+
     def test_corrupt_orphan_backup_is_preserved_instead_of_erased_by_save(self) -> None:
         self.path.parent.mkdir(parents=True)
         corrupt_backup = b'{"schema_version":2,"generation":'
@@ -1032,6 +1068,81 @@ class BookProgressStoreTests(unittest.TestCase):
         with mock.patch(
             "acs.book_progress_store.os.open",
             side_effect=foreign_lock_appears_before_exclusive_create,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
+        self.assertFalse(self.path.exists())
+
+    def test_new_lock_fsync_failure_is_stable_and_retryable(self) -> None:
+        with mock.patch(
+            "acs.book_progress_store.os.fsync",
+            side_effect=OSError("simulated lock fsync failure"),
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertFalse(self.store._lock_path.exists())
+        self.assertFalse(self.path.exists())
+
+        # A transient initialization failure must not poison the canonical lock
+        # pathname for every subsequent application start.
+        self.assertFalse(self.store.has("book:one"))
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+
+    def test_new_lock_short_marker_write_is_stable_and_retryable(self) -> None:
+        with mock.patch(
+            "acs.book_progress_store.os.write",
+            return_value=0,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertFalse(self.store._lock_path.exists())
+        self.assertFalse(self.path.exists())
+
+        self.assertFalse(self.store.has("book:one"))
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open lock pathname is a POSIX-specific cleanup race probe",
+    )
+    def test_failed_lock_initialization_never_unlinks_substituted_foreign_path(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        foreign = self.path.parent / "foreign-after-lock-create.bin"
+        foreign_bytes = b"user-owned-lock-replacement"
+        foreign.write_bytes(foreign_bytes)
+        real_fsync = os.fsync
+        injected = False
+
+        def replace_lock_then_fail(descriptor: int) -> None:
+            nonlocal injected
+            if not injected:
+                os.replace(foreign, self.store._lock_path)
+                injected = True
+                raise OSError("simulated lock durability failure")
+            real_fsync(descriptor)
+
+        with mock.patch(
+            "acs.book_progress_store.os.fsync",
+            side_effect=replace_lock_then_fail,
         ):
             with self.assertRaises(BookProgressStoreError) as caught:
                 self.store.has("book:one")
