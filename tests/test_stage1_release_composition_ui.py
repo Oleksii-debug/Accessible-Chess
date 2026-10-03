@@ -4,6 +4,7 @@ import json
 import re
 import tempfile
 import unittest
+from unittest.mock import patch
 import wave
 from pathlib import Path
 
@@ -177,6 +178,66 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             json.dumps({"schema_version": 1, "events": variants}),
             encoding="utf-8",
         )
+
+    def test_v2_production_sound_variants_drive_the_real_playback_boundary(self) -> None:
+        from acs.version2_release_app import create_version2_release_application
+
+        adapters = []
+
+        class _VariantPlayback:
+            def __init__(self, resolver, *, cache_dir, variant_provider) -> None:
+                self.resolver = resolver
+                self.cache_dir = Path(cache_dir)
+                self.variant_provider = variant_provider
+                self.calls = []
+                adapters.append(self)
+
+            def play(self, event: SoundEvent, *, volume: int) -> None:
+                self.calls.append((event, volume, self.variant_provider(event)))
+
+            def stop(self) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_variant_sound_pack(td)
+            data_root = root / "v2-user-data"
+            with patch(
+                "acs.version2_release_app.WindowsSoundPlaybackAdapter",
+                _VariantPlayback,
+            ):
+                api, _application_factory, runtime, _native_runtime_factory = (
+                    create_version2_release_application(
+                        application_dir=root,
+                        runtime_factory=_FakeRuntime,
+                        data_root=data_root,
+                        copy_text=lambda _value: None,
+                        defer_ui=True,
+                    )
+                )
+            try:
+                state = api.get_sound_settings()
+                move_variants = {
+                    item["id"] for item in state["variants"][SoundEvent.MOVE.value]
+                }
+                self.assertEqual(move_variants, {"1", "2"})
+                self.assertTrue(api.set_sound_variant("move", "2")["ok"])
+
+                preview = api.preview_sound("move")
+
+                self.assertTrue(preview["ok"], preview)
+                self.assertEqual(len(adapters), 1)
+                self.assertEqual(
+                    adapters[0].calls[-1],
+                    (SoundEvent.MOVE, 80, "2"),
+                )
+                self.assertEqual(
+                    api.get_sound_settings()["selectedVariants"][SoundEvent.MOVE.value],
+                    "2",
+                )
+            finally:
+                api.close_analysis()
+                runtime.close()
 
     def test_packaged_composition_uses_one_stage1_api_for_engine_sound_and_user_flow(self) -> None:
         playback = _Playback()
