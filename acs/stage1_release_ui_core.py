@@ -694,12 +694,21 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                     # clock-pump interval. Do not let the next Tick restart the
                     # shared Windows playback channel before it completes.
                     self._clock_sound_not_before = time.monotonic() + 4.0
-                return {
-                    "ok": not failed,
-                    "played": delivered,
-                    "disabled": disabled,
-                    "event": "low_time",
-                }
+                    return {
+                        "ok": True,
+                        "played": True,
+                        "disabled": False,
+                        "event": "low_time",
+                    }
+                if failed:
+                    return {
+                        "ok": False,
+                        "played": False,
+                        "disabled": False,
+                        "event": "low_time",
+                    }
+                # A deliberately muted/disabled low-time event must not swallow
+                # the ordinary clock ambience. Fall through to the Tick policy.
 
             if tick_policy == "off":
                 return {**base, "disabled": True}
