@@ -25,6 +25,7 @@ on:
       - acs/version2_education_mutation_release.py
       - web/full_product_books_training.js
       - tests/test_w3_p0f_starter_books_training_content.py
+      - tests/test_p0f_starter_training_canonical_legality.py
       - tests/test_p0f_starter_structured_examples.py
       - tests/js/books_training_surface_dom_test.js
       - docs/V2_STARTER_CONTENT_PROVENANCE.md
@@ -65,11 +66,13 @@ jobs:
           acs/version2_starter_content_application.py
           acs/version2_education_mutation_release.py
           tests/test_w3_p0f_starter_books_training_content.py
+          tests/test_p0f_starter_training_canonical_legality.py
           tests/test_p0f_starter_structured_examples.py
       - name: Prove release starter corpus structured semantics and current Training compatibility
         run: >-
           python -m pytest -q
           tests/test_w3_p0f_starter_books_training_content.py
+          tests/test_p0f_starter_training_canonical_legality.py
           tests/test_p0f_starter_structured_examples.py
           tests/test_version2_training_current_runtime.py
       - name: Prove keyboard and screen-reader starter material discovery DOM
