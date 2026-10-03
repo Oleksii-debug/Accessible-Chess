@@ -54,12 +54,16 @@ class _FakeRuntime:
 class _Playback:
     def __init__(self, fail: bool = False) -> None:
         self.calls: list[tuple[SoundEvent, int]] = []
+        self.stop_calls = 0
         self.fail = fail
 
     def play(self, event: SoundEvent, *, volume: int) -> None:
         self.calls.append((event, volume))
         if self.fail:
             raise RuntimeError(r"C:\private\audio-device\driver failed")
+
+    def stop(self) -> None:
+        self.stop_calls += 1
 
 
 class Stage1ReleaseCompositionUiTests(unittest.TestCase):
@@ -283,6 +287,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 self.assertEqual(playback.calls[-1], (SoundEvent.CAPTURE, 35))
                 before = len(playback.calls)
                 self.assertTrue(api.set_sound_enabled(False)["ok"])
+                self.assertEqual(playback.stop_calls, 1)
+                self.assertEqual(api._clock_sound_not_before, 0.0)
                 disabled = api.preview_sound("move")
                 self.assertFalse(disabled["ok"])
                 self.assertEqual(len(playback.calls), before)
@@ -313,6 +319,27 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             finally:
                 api2.close_analysis()
                 runtime2.close()
+
+    def test_zero_volume_stops_current_audio_without_touching_game_state(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                self.assertTrue(api.make_move("e4")["ok"])
+                fen_before = api.board.fen()
+                history_before = tuple(api.sans)
+                api._clock_sound_not_before = 999999999.0
+
+                muted = api.set_sound_volume(0)
+
+                self.assertTrue(muted["ok"], muted)
+                self.assertEqual(playback.stop_calls, 1)
+                self.assertEqual(api._clock_sound_not_before, 0.0)
+                self.assertEqual(api.board.fen(), fen_before)
+                self.assertEqual(tuple(api.sans), history_before)
+            finally:
+                api.close_analysis()
+                runtime.close()
 
     def test_sound_failure_is_concise_and_never_leaks_exception_or_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
