@@ -114,14 +114,34 @@
     }
   }
 
+  function commandFlightIsCurrent(root, token, epoch) {
+    return root._pgnCommandFlight === token && root._pgnRenderEpoch === epoch;
+  }
+
   function invokeCommand(root, invoke, announce, command, payload) {
+    if (root._pgnCommandFlight) return false;
     const focusBefore = document.activeElement;
+    const epoch = root._pgnRenderEpoch;
+    const token = {};
+    root._pgnCommandFlight = token;
     Promise.resolve()
-      .then(function () { return invoke(command, payload || {}); })
+      .then(function () {
+        if (!commandFlightIsCurrent(root, token, epoch)) return null;
+        return invoke(command, payload || {});
+      })
       .then(
-        function (result) { applyEvent(root, result, invoke, announce); },
-        function () { announceRejected(root, announce, focusBefore); }
+        function (result) {
+          if (!commandFlightIsCurrent(root, token, epoch)) return;
+          root._pgnCommandFlight = null;
+          applyEvent(root, result, invoke, announce);
+        },
+        function () {
+          if (!commandFlightIsCurrent(root, token, epoch)) return;
+          root._pgnCommandFlight = null;
+          announceRejected(root, announce, focusBefore);
+        }
       );
+    return true;
   }
 
   function renderTree(root, host, snapshot, invoke, announce) {
@@ -309,6 +329,8 @@
     requireFunction(invoke, "PGN invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "PGN announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("PGN snapshot is required");
+    root._pgnRenderEpoch = Number(root._pgnRenderEpoch || 0) + 1;
+    root._pgnCommandFlight = null;
     root._pgnErrorMessage = typeof snapshot.error_message === "string" && snapshot.error_message
       ? snapshot.error_message.slice(0, 240)
       : "The action could not be completed.";

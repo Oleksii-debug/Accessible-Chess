@@ -145,6 +145,76 @@ async function expectQuiet(items, index, key, calls, announcements, message) {
   check(announcements.length === beforeAnnouncements, message + " announced an error");
 }
 
+function selectIndex(view, index) {
+  view.tree.forEach(function (item, itemIndex) {
+    item.selected = itemIndex === index;
+  });
+  return view;
+}
+
+async function runFlightRaceRegression() {
+  const calls = [];
+  const announcements = [];
+  const root = new FakeElement("div");
+  let resolveFirst = null;
+  let firstPending = true;
+  const firstPromise = new Promise((resolve) => { resolveFirst = resolve; });
+  const invoke = (command, payload) => {
+    calls.push([command, payload || {}]);
+    if (firstPending) {
+      firstPending = false;
+      return firstPromise;
+    }
+    return { kind: "delegated", payload: {} };
+  };
+
+  window.AccessibleChessPgnSurface.render(
+    root,
+    snapshot(),
+    invoke,
+    (message) => announcements.push(String(message)),
+    "pgn-root"
+  );
+  const staleItems = root.querySelectorAll('[role="treeitem"]');
+  check(press(staleItems[0], "ArrowDown"), "first in-flight ArrowDown was not consumed");
+  await flush();
+  check(calls.length === 1, "first in-flight ArrowDown did not reach the backend exactly once");
+  check(press(staleItems[0], "ArrowDown"), "repeated in-flight ArrowDown was not consumed");
+  await flush();
+  check(calls.length === 1, "repeated keypress escaped the PGN one-flight gate");
+
+  const newer = selectIndex(snapshot(), 3);
+  window.AccessibleChessPgnSurface.render(
+    root,
+    newer,
+    invoke,
+    (message) => announcements.push(String(message)),
+    "pgn-last"
+  );
+  const newerItems = root.querySelectorAll('[role="treeitem"]');
+  check(newerItems[3].getAttribute("aria-selected") === "true", "newer external render did not become authoritative");
+  check(press(newerItems[3], "ArrowUp"), "newer render did not accept navigation after superseding old flight");
+  await flush();
+  check(calls.length === 2, "newer render remained blocked by the superseded flight");
+  check(calls[1][0] === "pgn.move" && calls[1][1].delta === -1, "newer render changed canonical move semantics");
+
+  resolveFirst({
+    kind: "selection",
+    payload: {
+      snapshot: selectIndex(snapshot(), 0),
+      focus_target: "pgn-root",
+      announcement: "stale result"
+    }
+  });
+  await flush();
+  await flush();
+
+  const finalItems = root.querySelectorAll('[role="treeitem"]');
+  check(finalItems[3].getAttribute("aria-selected") === "true", "stale async result overwrote the newer PGN render");
+  check(finalItems[0].getAttribute("aria-selected") === "false", "stale async result restored obsolete PGN selection");
+  check(announcements.length === 0, "stale async result announced into the newer NVDA context");
+}
+
 async function run() {
   const calls = [];
   const announcements = [];
@@ -235,6 +305,7 @@ async function run() {
   check(calls.length === beforeCopyCalls, "Ctrl+C unexpectedly dispatched a PGN command");
   check(announcements.length === 0, "tree keyboard contract produced live-region noise");
 
+  await runFlightRaceRegression();
   console.log("PGN tree keyboard contract PASS");
 }
 
