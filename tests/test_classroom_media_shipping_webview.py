@@ -260,59 +260,6 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertNotIn(transaction_id, transactions._focus_by_transaction)
         self.assertNotIn(TOKEN, repr(second))
 
-    def test_clean_session_recovery_callback_requires_exact_disconnected_snapshot(self):
-        controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
-        event = transactions.prepare_join(
-            credential(roster.local_id),
-            now=NOW + timedelta(seconds=1),
-        )
-        transaction_id = event.payload["transaction_id"]
-        transactions.dispatch_provider(
-            "media.provider_take_credential",
-            {"transaction_id": transaction_id},
-        )
-        transactions.dispatch_provider(
-            "media.provider_dispatched",
-            {"transaction_id": transaction_id},
-        )
-        failed = transactions.dispatch_provider(
-            "media.provider_failed",
-            {"transaction_id": transaction_id},
-        )
-        self.assertEqual(failed.kind, "error")
-        self.assertTrue(failed.payload["recovery_required"])
-        self.assertIsNotNone(binder.recovery_status)
-
-        rejected = transactions.dispatch_provider(
-            "media.provider_session_recovery_clean",
-            {
-                "transaction_id": transaction_id,
-                "snapshot": snapshot(
-                    roster.local_id,
-                    connected=True,
-                ),
-            },
-        )
-        self.assertEqual(rejected.kind, "error")
-        self.assertTrue(rejected.payload["recovery_required"])
-        self.assertIsNotNone(binder.recovery_status)
-        self.assertIsNone(controller.state.room_id)
-
-        completed = transactions.dispatch_provider(
-            "media.provider_session_recovery_clean",
-            {
-                "transaction_id": transaction_id,
-                "snapshot": snapshot(
-                    None,
-                    connected=False,
-                ),
-            },
-        )
-        self.assertEqual(completed.kind, "media-updated")
-        self.assertIsNone(binder.recovery_status)
-        self.assertIsNone(controller.state.room_id)
-        self.assertFalse(controller.state.connected)
-
     def test_multi_chunk_moderation_marks_boundary_only_on_first_dispatch(self):
         controller, roster, host, _sessions, binder, _projection, transactions, bridge = composition(
             teacher=True,
@@ -447,6 +394,55 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
             transaction_id,
         )
         self.assertNotIn(MediaSource.MICROPHONE, controller.state.desired_sources)
+
+    def test_recovery_resolution_requires_trusted_host_reconciliation(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+
+        pending = bridge.dispatch(
+            "media.local_source",
+            {"source": "microphone", "enabled": True},
+        )
+        transaction_id = pending.payload["transaction_id"]
+        transactions.dispatch_provider(
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+        latched = transactions.dispatch_provider(
+            "media.provider_outcome_unknown",
+            {"transaction_id": transaction_id},
+        )
+        self.assertEqual(latched.kind, "error")
+        self.assertTrue(latched.payload["recovery_required"])
+        self.assertIsNotNone(binder.recovery_status)
+
+        browser_attempt = transactions.dispatch_provider(
+            "media.provider_resolve_recovery",
+            {"transaction_id": transaction_id},
+        )
+        self.assertEqual(browser_attempt.kind, "error")
+        self.assertTrue(browser_attempt.payload["recovery_required"])
+        self.assertIsNotNone(binder.recovery_status)
+
+        resolved = transactions.resolve_recovery_after_authoritative_reconciliation(
+            transaction_id
+        )
+        self.assertEqual(resolved.kind, "media-updated")
+        self.assertIsNone(binder.recovery_status)
+        self.assertIsNone(binder.active_lease)
+
+        next_event = bridge.dispatch(
+            "media.local_source",
+            {"source": "camera", "enabled": True},
+        )
+        self.assertEqual(next_event.kind, "provider-dispatch")
+        next_transaction = next_event.payload["transaction_id"]
+        retired = transactions.dispatch_provider(
+            "media.provider_not_started",
+            {"transaction_id": next_transaction},
+        )
+        self.assertEqual(retired.kind, "error")
+        self.assertIsNone(binder.active_lease)
 
     def test_new_mutation_preserves_existing_provider_recovery_state(self):
         controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
@@ -597,6 +593,25 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertTrue(controller.state.connected)
         self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
 
+        # Provider recovery resolution is not the same thing as canonical
+        # transport-loss acknowledgement.  After the trusted host reconciles
+        # the ambiguous provider effect, the retained clean provider snapshot
+        # must still be accepted so stale connected=True cannot survive.
+        transactions.resolve_recovery_after_authoritative_reconciliation(
+            transaction_id
+        )
+        self.assertIsNone(binder.recovery_status)
+        self.assertTrue(controller.state.connected)
+
+        accepted_loss = transactions.dispatch_provider(
+            "media.provider_transport_lost",
+            {"snapshot": snapshot(None, connected=False)},
+        )
+        self.assertEqual(accepted_loss.kind, "media-updated")
+        self.assertFalse(controller.state.connected)
+        self.assertEqual(controller.state.room_id, "room-1")
+        self.assertIsNone(binder.recovery_status)
+
     def test_provider_transport_loss_rejects_nonclean_snapshot(self):
         controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
         connect(controller, roster, transactions)
@@ -680,6 +695,57 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
                         bad,
                         "moderation-service",
                     )
+
+    def test_application_queues_trusted_recovery_resolution_refresh(self):
+        controller, roster, _host, _sessions, binder, _projection, _transactions, _bridge = composition()
+        application = object.__new__(Version2FinalProductApplication)
+        application.shell = SimpleNamespace(language=UILanguage.EN)
+        application.media = None
+        application.media_transactions = None
+        application._assert_thread = lambda: None
+        application._events = deque()
+        labels = {
+            participant_id: participant_id.replace("-", " ").title()
+            for participant_id in roster.participant_ids()
+        }
+        application.bind_classroom_media(
+            controller,
+            lambda: dict(labels),
+            provider_binder=binder,
+            provider_config=ClassroomMediaBrowserProviderConfig(
+                "wss://media.example.test",
+                "moderation-service",
+            ),
+        )
+        connect(controller, roster, application.media_transactions)
+
+        pending = application.browser_command(
+            "media",
+            "media.local_source",
+            {"source": "microphone", "enabled": True},
+        )
+        transaction_id = pending["payload"]["transaction_id"]
+        application.browser_command(
+            "media",
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+        latched = application.browser_command(
+            "media",
+            "media.provider_outcome_unknown",
+            {"transaction_id": transaction_id},
+        )
+        self.assertTrue(latched["payload"]["recovery_required"])
+        self.assertIsNotNone(binder.recovery_status)
+
+        resolved = (
+            application.resolve_classroom_media_recovery_after_authoritative_reconciliation(
+                transaction_id
+            )
+        )
+        self.assertEqual(resolved["kind"], "media-updated")
+        self.assertIsNone(binder.recovery_status)
+        self.assertEqual(application.drain_events(), [resolved])
 
     def test_application_transactional_binding_queues_trusted_join(self):
         controller, roster, _host, _sessions, binder, _projection, _transactions, _bridge = composition()
