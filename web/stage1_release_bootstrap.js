@@ -613,18 +613,22 @@ const soundLabels = {
         previewEvent: 'Звук для прослуховування', variant: 'Варіант звуку', preview: 'Прослухати',
         tickPolicy: 'Коли звучить годинник',
         tickLastSeconds: 'Останні секунд (0 — увесь час)',
+        lowTimePolicy: 'Кому попереджати про малий час',
+        lowTimeSeconds: 'Мало часу — секунд (0 — вимкнено)',
         tickModes: {off:'Вимкнено', my_turn:'Лише мій хід', both:'Обидві сторони'},
         unavailable: 'Налаштування звуку недоступні.',
-        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Інше завершення партії', mate:'Мат', draw:'Нічия', tick:'Тік годинника'}
+        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Інше завершення партії', mate:'Мат', draw:'Нічия', tick:'Тік годинника', low_time:'Мало часу'}
     },
     en: {
         legend: 'Sounds', enabled: 'Enable sounds', newGameAnimation: 'New-game animation', volume: 'Volume',
         previewEvent: 'Sound to preview', variant: 'Sound variant', preview: 'Preview',
         tickPolicy: 'When the clock sounds',
         tickLastSeconds: 'Last seconds (0 — whole game)',
+        lowTimePolicy: 'Whose low time triggers a warning',
+        lowTimeSeconds: 'Low time — seconds (0 — off)',
         tickModes: {off:'Off', my_turn:'My turn only', both:'Both sides'},
         unavailable: 'Sound settings are unavailable.',
-        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Other game end', mate:'Checkmate', draw:'Draw', tick:'Clock tick'}
+        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Other game end', mate:'Checkmate', draw:'Draw', tick:'Clock tick', low_time:'Low time'}
     }
 };
 
@@ -669,6 +673,8 @@ async function loadSoundState() {
     const variant = byId('sound-variant');
     const tickPolicy = byId('sound-tick-policy');
     const tickLastSeconds = byId('sound-tick-last-seconds');
+    const lowTimePolicy = byId('sound-low-time-policy');
+    const lowTimeSeconds = byId('sound-low-time-seconds');
     const status = byId('sound-settings-status');
     if (!a || typeof a.get_sound_settings !== 'function') {
         if (status) status.textContent = text().unavailable;
@@ -678,6 +684,8 @@ async function loadSoundState() {
         if (variant) variant.disabled = true;
         if (tickPolicy) tickPolicy.disabled = true;
         if (tickLastSeconds) tickLastSeconds.disabled = true;
+        if (lowTimePolicy) lowTimePolicy.disabled = true;
+        if (lowTimeSeconds) lowTimeSeconds.disabled = true;
         return;
     }
     try {
@@ -688,6 +696,8 @@ async function loadSoundState() {
         if (volume) volume.value = String(state.volume ?? 80);
         if (tickPolicy) tickPolicy.value = String(state.tickPolicy ?? 'my_turn');
         if (tickLastSeconds) tickLastSeconds.value = String(state.tickLastSeconds ?? 0);
+        if (lowTimePolicy) lowTimePolicy.value = String(state.lowTimePolicy ?? 'my_turn');
+        if (lowTimeSeconds) lowTimeSeconds.value = String(state.lowTimeSeconds ?? 30);
         renderSoundVariants();
         if (status) status.textContent = '';
     } catch (_) {
@@ -705,6 +715,8 @@ function applySoundLanguage() {
     const variantLabel = byId('sound-variant-label');
     const tickPolicyLabel = byId('sound-tick-policy-label');
     const tickLastSecondsLabel = byId('sound-tick-last-seconds-label');
+    const lowTimePolicyLabel = byId('sound-low-time-policy-label');
+    const lowTimeSecondsLabel = byId('sound-low-time-seconds-label');
     const preview = byId('sound-preview');
     if (legend) legend.textContent = t.legend;
     if (enabledLabel) enabledLabel.textContent = t.enabled;
@@ -714,6 +726,8 @@ function applySoundLanguage() {
     if (variantLabel) variantLabel.textContent = t.variant;
     if (tickPolicyLabel) tickPolicyLabel.textContent = t.tickPolicy;
     if (tickLastSecondsLabel) tickLastSecondsLabel.textContent = t.tickLastSeconds;
+    if (lowTimePolicyLabel) lowTimePolicyLabel.textContent = t.lowTimePolicy;
+    if (lowTimeSecondsLabel) lowTimeSecondsLabel.textContent = t.lowTimeSeconds;
     if (preview) preview.textContent = t.preview;
     const select = byId('sound-preview-event');
     if (select) {
@@ -722,10 +736,13 @@ function applySoundLanguage() {
         });
     }
     const tickPolicy = byId('sound-tick-policy');
-    if (tickPolicy) {
-        [...tickPolicy.options].forEach(option => {
-            option.textContent = t.tickModes[option.value] || option.value;
-        });
+    const lowTimePolicy = byId('sound-low-time-policy');
+    for (const policySelect of [tickPolicy, lowTimePolicy]) {
+        if (policySelect) {
+            [...policySelect.options].forEach(option => {
+                option.textContent = t.tickModes[option.value] || option.value;
+            });
+        }
     }
     renderSoundVariants();
 }
@@ -809,6 +826,36 @@ function installSoundSettings() {
     tickLastSecondsRow.append(tickLastSecondsLabel, tickLastSeconds);
     fieldset.appendChild(tickLastSecondsRow);
 
+    const lowTimePolicyRow = document.createElement('div');
+    lowTimePolicyRow.className = 'row';
+    const lowTimePolicyLabel = document.createElement('label');
+    lowTimePolicyLabel.id = 'sound-low-time-policy-label';
+    lowTimePolicyLabel.htmlFor = 'sound-low-time-policy';
+    const lowTimePolicy = document.createElement('select');
+    lowTimePolicy.id = 'sound-low-time-policy';
+    ['off', 'my_turn', 'both'].forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        lowTimePolicy.appendChild(option);
+    });
+    lowTimePolicyRow.append(lowTimePolicyLabel, lowTimePolicy);
+    fieldset.appendChild(lowTimePolicyRow);
+
+    const lowTimeSecondsRow = document.createElement('div');
+    lowTimeSecondsRow.className = 'row';
+    const lowTimeSecondsLabel = document.createElement('label');
+    lowTimeSecondsLabel.id = 'sound-low-time-seconds-label';
+    lowTimeSecondsLabel.htmlFor = 'sound-low-time-seconds';
+    const lowTimeSeconds = document.createElement('input');
+    lowTimeSeconds.id = 'sound-low-time-seconds';
+    lowTimeSeconds.type = 'number';
+    lowTimeSeconds.min = '0';
+    lowTimeSeconds.max = '3600';
+    lowTimeSeconds.step = '1';
+    lowTimeSeconds.inputMode = 'numeric';
+    lowTimeSecondsRow.append(lowTimeSecondsLabel, lowTimeSeconds);
+    fieldset.appendChild(lowTimeSecondsRow);
+
     const previewRow = document.createElement('div');
     previewRow.className = 'row';
     const eventLabel = document.createElement('label');
@@ -816,7 +863,7 @@ function installSoundSettings() {
     eventLabel.htmlFor = 'sound-preview-event';
     const eventSelect = document.createElement('select');
     eventSelect.id = 'sound-preview-event';
-    ['move','capture','check','castle','promotion','illegal','start','end','mate','draw','tick'].forEach(value => {
+    ['move','capture','check','castle','promotion','illegal','start','end','mate','draw','tick','low_time'].forEach(value => {
         const option = document.createElement('option');
         option.value = value;
         eventSelect.appendChild(option);
@@ -916,6 +963,41 @@ function installSoundSettings() {
             currentSoundState = result;
             tickPolicy.value = String(result.tickPolicy ?? 'my_turn');
             tickLastSeconds.value = String(result.tickLastSeconds ?? 0);
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    lowTimePolicy.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_low_time_policy !== 'function') return;
+        try {
+            const result = await a.set_low_time_policy(lowTimePolicy.value);
+            currentSoundState = result;
+            lowTimePolicy.value = String(result.lowTimePolicy ?? 'my_turn');
+            lowTimeSeconds.value = String(result.lowTimeSeconds ?? 30);
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    lowTimeSeconds.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_low_time_seconds !== 'function') return;
+        const value = Number(lowTimeSeconds.value);
+        try {
+            const result = await a.set_low_time_seconds(
+                Number.isInteger(value) ? value : -1
+            );
+            currentSoundState = result;
+            lowTimePolicy.value = String(result.lowTimePolicy ?? 'my_turn');
+            lowTimeSeconds.value = String(result.lowTimeSeconds ?? 30);
             status.textContent = result.ok ? '' : (result.message || '');
             speak(result.message);
         } catch (_) {
