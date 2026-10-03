@@ -23,6 +23,9 @@ from .classroom_chat_rpc import (
 CHAT_RPC_PATH = "/v1/classroom/chat"
 MAX_AUTHORIZATION_BYTES = 8192
 MAX_REQUEST_HEADER_BYTES = 16 * 1024
+# Bound ASGI fragmentation independently of byte size so a peer cannot consume
+# unbounded event-loop turns with tiny request-body frames.
+MAX_REQUEST_BODY_EVENTS = 16 * 1024
 # A full 5,000-command moderation batch with canonical 128-character opaque IDs
 # fits comfortably while attacker-controlled bodies remain explicitly bounded.
 MAX_CHAT_HTTP_REQUEST_BYTES = 4 * 1024 * 1024
@@ -38,6 +41,7 @@ _BEARER_CHALLENGE = (
     ),
 )
 _HEADER_NAME_RE = re.compile(rb"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+_CANONICAL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 Receive = Callable[[], Awaitable[dict[str, object]]]
 Send = Callable[[dict[str, object]], Awaitable[None]]
@@ -164,14 +168,9 @@ class ClassroomChatHttpEndpoint:
             authenticated = await self._authenticator.authenticate_bearer(bearer)
         except Exception:
             raise _unauthorized() from None
-        if (
-            type(authenticated) is not tuple
-            or len(authenticated) != 2
-            or type(authenticated[0]) is not str
-            or type(authenticated[1]) is not str
-        ):
-            raise _unauthorized()
-        authenticated_room_id, authenticated_participant_id = authenticated
+        authenticated_room_id, authenticated_participant_id = (
+            _validated_authenticated_identity(authenticated)
+        )
 
         body = await _read_body(receive, declared_length=declared_length)
         payload = _decode_request_json(body)
@@ -217,6 +216,19 @@ class ClassroomChatHttpEndpoint:
                 return
             else:
                 raise RuntimeError("unsupported ASGI lifespan event")
+
+
+def _validated_authenticated_identity(value: object) -> tuple[str, str]:
+    if (
+        type(value) is not tuple
+        or len(value) != 2
+        or type(value[0]) is not str
+        or type(value[1]) is not str
+        or _CANONICAL_ID_RE.fullmatch(value[0]) is None
+        or _CANONICAL_ID_RE.fullmatch(value[1]) is None
+    ):
+        raise _unauthorized()
+    return value[0], value[1]
 
 
 def _require_secure_transport(
@@ -406,7 +418,11 @@ async def _read_body(
     declared_length: int | None,
 ) -> bytes:
     body = bytearray()
+    event_count = 0
     while True:
+        event_count += 1
+        if event_count > MAX_REQUEST_BODY_EVENTS:
+            raise _HttpReject(413, "request_too_fragmented")
         event = await receive()
         if type(event) is not dict:
             raise _HttpReject(400, "invalid_request")
@@ -538,5 +554,6 @@ __all__ = [
     "MAX_AUTHORIZATION_BYTES",
     "MAX_CHAT_HTTP_REQUEST_BYTES",
     "MAX_CHAT_HTTP_RESPONSE_BYTES",
+    "MAX_REQUEST_BODY_EVENTS",
     "MAX_REQUEST_HEADER_BYTES",
 ]
