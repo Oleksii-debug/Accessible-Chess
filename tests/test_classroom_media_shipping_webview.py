@@ -593,6 +593,25 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertTrue(controller.state.connected)
         self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
 
+        # Provider recovery resolution is not the same thing as canonical
+        # transport-loss acknowledgement.  After the trusted host reconciles
+        # the ambiguous provider effect, the retained clean provider snapshot
+        # must still be accepted so stale connected=True cannot survive.
+        transactions.resolve_recovery_after_authoritative_reconciliation(
+            transaction_id
+        )
+        self.assertIsNone(binder.recovery_status)
+        self.assertTrue(controller.state.connected)
+
+        accepted_loss = transactions.dispatch_provider(
+            "media.provider_transport_lost",
+            {"snapshot": snapshot(None, connected=False)},
+        )
+        self.assertEqual(accepted_loss.kind, "media-updated")
+        self.assertFalse(controller.state.connected)
+        self.assertEqual(controller.state.room_id, "room-1")
+        self.assertIsNone(binder.recovery_status)
+
     def test_provider_transport_loss_rejects_nonclean_snapshot(self):
         controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
         connect(controller, roster, transactions)
