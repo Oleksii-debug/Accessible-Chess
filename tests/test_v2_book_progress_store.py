@@ -609,6 +609,26 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_hardlinked_lock_is_rejected_without_mutating_peer(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        peer = self.store._lock_path.with_name("user-owned-peer.bin")
+        peer.write_bytes(b"")
+        try:
+            os.link(peer, self.store._lock_path)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard-link creation is unavailable on this runner")
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertEqual(peer.read_bytes(), b"")
+        self.assertEqual(os.lstat(peer).st_nlink, 2)
+        self.assertFalse(self.path.exists())
+
     def test_lock_file_replacement_between_lstat_and_open_fails_closed(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"\0")
