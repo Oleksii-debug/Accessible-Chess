@@ -266,6 +266,44 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual("board", self.app.shell.current_route.route_id)
         self.assertEqual("library-open-modal", self.app.shell.active_dialog_id)
 
+    def test_modal_library_file_workflows_fail_before_host_or_export_dispatch(self):
+        self.app.shell.open_route("library")
+        self.app.shell.open_dialog(
+            "library-file-modal",
+            opener_focus_id="library-search-player",
+            initial_focus_id="library-file-modal-confirm",
+        )
+
+        with patch.object(
+            self.app,
+            "_files",
+            side_effect=AssertionError(
+                "modal Library file workflow must fail before host dispatch"
+            ),
+        ) as files:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.import",
+                    current_focus_id="library-file-modal-confirm",
+                )
+        files.assert_not_called()
+
+        with patch.object(
+            self.app.library.projection,
+            "request_export_selected",
+            side_effect=AssertionError(
+                "modal Library export must fail before export projection dispatch"
+            ),
+        ) as export:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.export",
+                    current_focus_id="library-file-modal-confirm",
+                )
+        export.assert_not_called()
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertEqual("library-file-modal", self.app.shell.active_dialog_id)
+
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
