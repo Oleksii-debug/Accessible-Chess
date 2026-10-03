@@ -94,7 +94,7 @@ class Stage1SaturationRefactorContractTests(unittest.TestCase):
             {
                 "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6",  # frozen Product
                 "b579ca0f59ba20f6b69b3a4b7d89589256d54852",  # #1063 recovery
-                "0ee5a42a2d684e90892787cde7744c4371dc8427",  # #1135 sound/clock/settings
+                "40a77a689fd72076687f7e66f3f6b3c545283ec3",  # #1135 sound/clock/animation settings
             },
         )
         self.assertIn(
