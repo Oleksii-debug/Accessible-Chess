@@ -17,6 +17,10 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
 
     def test_workflow_is_manual_single_candidate_wip(self) -> None:
         self.assertIn("workflow_dispatch:", self.text)
+        self.assertIn("owner_final_candidate_approved:", self.text)
+        self.assertIn("default: false", self.text)
+        self.assertIn("type: boolean", self.text)
+        self.assertIn("OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED", self.text)
         self.assertIn("product_sha:", self.text)
         self.assertIn("sound_pack_url:", self.text)
         self.assertIn("sound_pack_sha256:", self.text)
