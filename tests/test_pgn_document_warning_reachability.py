@@ -67,6 +67,57 @@ class PgnDocumentWarningReachabilityTests(unittest.TestCase):
         self.assertNotIn("/home/", warnings[0])
         self.assertNotIn("Oleksii", warnings[0])
 
+    def test_document_warning_redacts_unc_and_file_uri_paths(self) -> None:
+        session = PgnDocumentSession(
+            PgnWorkspace.from_text(PGN),
+            global_warnings=(
+                "Recovered source \\\\private-server\\private-share\\PrivateUser\\game.pgn\n"
+                "Mirror file://private-server/Public Share/PrivateUser/secret.pgn\n"
+                "Local file:///C:/Users/Public/My Private Folder/PrivateUser/secret.pgn\n"
+                "Next semantic line",
+            ),
+            source_overwrite_safe=False,
+            saved_digest=None,
+        )
+        projection = PgnDocumentWebViewProjection(
+            session,
+            self._router(),
+            language=UILanguage.EN,
+        )
+
+        warning = projection.snapshot()["game"]["warnings"][0]
+
+        self.assertIn("[local path hidden]", warning)
+        for private_text in (
+            "private-server",
+            "private-share",
+            "PrivateUser",
+            "Public Share",
+            "My Private Folder",
+        ):
+            with self.subTest(private_text=private_text):
+                self.assertNotIn(private_text, warning)
+        self.assertIn("Next semantic line", warning)
+
+    def test_document_warning_preserves_safe_web_and_file_label_prose(self) -> None:
+        text = (
+            "Reference https://example.com/home/private/game.pgn\n"
+            "A file: appendix note is ordinary prose."
+        )
+        session = PgnDocumentSession(
+            PgnWorkspace.from_text(PGN),
+            global_warnings=(text,),
+            source_overwrite_safe=False,
+            saved_digest=None,
+        )
+        projection = PgnDocumentWebViewProjection(
+            session,
+            self._router(),
+            language=UILanguage.EN,
+        )
+
+        self.assertEqual(text, projection.snapshot()["game"]["warnings"][0])
+
     def test_document_warning_is_rescrubbed_after_live_language_change(self) -> None:
         projection = PgnDocumentWebViewProjection(
             self._warning_session(),
