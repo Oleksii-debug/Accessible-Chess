@@ -250,6 +250,7 @@ def _extract_sound_zip(source: Path, destination: Path) -> None:
             )
             if any(ancestor in files for ancestor in ancestors):
                 raise SoundPackBuildError("sound-pack ZIP has file/directory topology collision")
+            directories.update(ancestors)
 
             unix_mode = (info.external_attr >> 16) & 0o170000
             if unix_mode == 0o120000:
