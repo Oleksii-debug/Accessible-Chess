@@ -266,10 +266,7 @@ class SoundSettingsApplication:
             event_ids.extend(
                 event_id
                 for event_id in OPTIONAL_OWNER_SOUND_EVENTS
-                if (
-                    event_id in semantic_owner_events
-                    and event_id in active_manifest.files
-                )
+                if event_id in semantic_owner_events
             )
             event_ids.extend(
                 event_id
