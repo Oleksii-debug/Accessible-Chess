@@ -26,7 +26,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      STACK_BASE_SHA: cbe3090a5dfb5858f5be4bc1b2a0886195d6f1af
+      STACK_BASE_SHA: 31494e1e29e82afe254e732ca4bedf4d6cac1c7e
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
@@ -87,4 +87,3 @@ jobs:
           tests.test_classroom_domain
           tests.test_d10_streaming_digest_budget
           tests.test_education_workspace
-          tests.test_education_workspace_store

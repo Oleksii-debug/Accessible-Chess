@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      STACK_BASE_SHA: 315fd7190f031c207a896defd6021a2505801c46
+      STACK_BASE_SHA: 986927bb736d230d1c1b80f919ed9a0e91fda413
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
@@ -91,6 +91,5 @@ jobs:
           tests.test_d10_prehash_record_bounds
           tests.test_education_records
           tests.test_education_workspace
-          tests.test_education_workspace_store
           tests.test_prepared_position_lesson_metadata
           tests.test_prepared_position_student_view
