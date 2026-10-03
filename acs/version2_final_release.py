@@ -69,6 +69,7 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
             ("LiveKit browser SDK provenance", livekit_root / "provenance.json"),
             ("Classroom LiveKit media adapter", root / "livekit_classroom_media.js"),
             ("Classroom media host executor", root / "classroom_media_host_executor.js"),
+            ("Classroom media provider runtime", root / "classroom_media_provider_runtime.js"),
         )
         for label, path in livekit_evidence:
             if not os.path.lexists(path):
@@ -77,6 +78,7 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
                 raise RuntimeError(f"{label} resource is invalid.")
         livekit_resources = (
             livekit_evidence[0],
+            livekit_evidence[-3],
             livekit_evidence[-2],
             livekit_evidence[-1],
         )
