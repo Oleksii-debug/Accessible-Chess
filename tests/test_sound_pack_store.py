@@ -172,6 +172,73 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             )
             self.assertEqual(store.installed()[second.pack_id], second)
 
+    def test_active_pointer_directory_is_flushed_and_read_back(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            synced = []
+
+            original_sync = __import__(
+                "acs.sound_pack_store",
+                fromlist=["_fsync_directory"],
+            )._fsync_directory
+
+            def record_sync(path):
+                synced.append(Path(path))
+                return original_sync(path)
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=record_sync,
+            ):
+                store.install_atomically(downloaded)
+
+            versions_dir = root / "packs" / manifest.pack_id / "versions"
+            pack_dir = versions_dir.parent
+            self.assertIn(versions_dir, synced)
+            self.assertIn(pack_dir, synced)
+            self.assertLess(synced.index(versions_dir), synced.index(pack_dir))
+            self.assertEqual("1.0.0", store.active_version(manifest.pack_id))
+
+    def test_post_active_directory_sync_failure_is_an_uncertain_visible_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            first = _manifest(version="1.0.0")
+            first_download, _ = _staged_download(root, first, seed=b"a")
+            store.install_atomically(first_download)
+            second = _manifest(version="1.1.0")
+            second_download, _ = _staged_download(root, second, seed=b"b")
+            pack_dir = root / "packs" / second.pack_id
+            real_sync = __import__(
+                "acs.sound_pack_store",
+                fromlist=["_fsync_directory"],
+            )._fsync_directory
+
+            def fail_only_active_parent(path):
+                candidate = Path(path)
+                if candidate == pack_dir:
+                    raise SoundPackStoreError("active pointer directory sync failed")
+                return real_sync(candidate)
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=fail_only_active_parent,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "active pointer directory sync failed",
+            ):
+                store.install_atomically(second_download)
+
+            self.assertEqual(
+                "1.1.0",
+                store.active_version(second.pack_id),
+                "post-replace failure is an uncertain commit and must be re-read",
+            )
+            self.assertEqual(second, store.installed()[second.pack_id])
+
     def test_failed_update_cannot_replace_previous_active_pack(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
