@@ -1120,6 +1120,31 @@ class BookProgressStore:
                 self._require_private_temp_metadata(created_identity)
                 if active_directory is not None:
                     self._require_storage_directory_unlocked(active_directory)
+                # Bind the writable descriptor to the canonical temp pathname
+                # before any progress bytes are written. A storage-directory
+                # swap can otherwise make mkstemp create the inode in a foreign
+                # directory and restore the canonical directory before the
+                # directory identity recheck, leaking the payload through the
+                # still-open foreign descriptor.
+                try:
+                    created_path_identity = os.lstat(temp_path)
+                except OSError:
+                    raise BookProgressStoreError(
+                        "book progress temporary file changed before preparation",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    ) from None
+                self._require_private_temp_metadata(created_path_identity)
+                if not self._same_file_identity(
+                    created_identity,
+                    created_path_identity,
+                ):
+                    raise BookProgressStoreError(
+                        "book progress temporary file changed before preparation",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
+                if active_directory is not None:
+                    self._require_storage_directory_unlocked(active_directory)
+                self._require_active_lock_unlocked()
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
