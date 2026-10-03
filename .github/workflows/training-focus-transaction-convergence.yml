@@ -1,0 +1,81 @@
+name: Training Focus Transaction Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'web/full_product_books_training.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/test_dev1_books_training_web_asset.py'
+      - '.github/workflows/training-focus-transaction-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-focus-transaction-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      TRANSACTION_PARENT: 099a2acb483583a02eecf74df5b5bf9e7bc90315
+      FOCUS_PARENT: ac508c6f1c0036e24f6b5f4f8b2dddac63048c6d
+      WEB_BLOB: e4d2a88925f43163adafe06374263e85e639d880
+      DOM_TEST_BLOB: fec0bcf6eb7a35a04060a4f0967a469db6bfbe4e
+      ASSET_TEST_BLOB: 38fa6d9393a34ed50fc39b9a31f1baac9a2fc1c6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prove both exact authorities and reconciled scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$TRANSACTION_PARENT" HEAD
+          git merge-base --is-ancestor "$FOCUS_PARENT" HEAD
+          test "$(git rev-parse "HEAD:web/full_product_books_training.js")" = "$WEB_BLOB"
+          test "$(git rev-parse "HEAD:tests/js/books_training_surface_dom_test.js")" = "$DOM_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_dev1_books_training_web_asset.py")" = "$ASSET_TEST_BLOB"
+          changed="$(git diff --name-only "$TRANSACTION_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/training-focus-transaction-convergence.yml' \
+            'tests/js/books_training_surface_dom_test.js' \
+            'tests/test_dev1_books_training_web_asset.py' \
+            'web/full_product_books_training.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+
+      - name: Validate browser asset syntax and DOM behavior
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - name: Validate Python package contracts
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_web_asset
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_webview_atomicity
+          tests.test_books_training_ui_integration
+
+      - name: Core selftest
+        run: python -m acs.selftest
