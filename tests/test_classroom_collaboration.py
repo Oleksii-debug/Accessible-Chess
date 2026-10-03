@@ -470,8 +470,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
     def test_chat_body_is_bounded_and_nul_rejected(self):
         controller = self.controller()
-        for body in ("", "   ", "bad\x00text", "x" * 4001):
-            with self.subTest(body=body[:20]):
+        for body in ("", "   ", "bad\x00text", "x" * 4001, "bad" + chr(0xD800)):
+            with self.subTest(body=repr(body[:20])):
                 with self.assertRaises(CollaborationError):
                     controller.send_chat(message_id="m1", body=body)
 
@@ -1315,6 +1315,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), (stored,))
         self.assertEqual(self.files.upload_calls[0].metadata.sequence_no, 73)
 
+    def test_upload_failed_result_keeps_provisional_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="provider-failed",
+            local_path=self.make_file("provider-failed.bin", b"opaque"),
+            sequence_no=93,
+            retention="persistent",
+        )
+        failed_result = replace(
+            prepared.metadata,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        with patch.object(self.files, "upload", return_value=failed_result):
+            failed = controller.upload_file(prepared)
+
+        self.assertEqual(failed.sequence_no, 93)
+        self.assertEqual(failed.transfer_state, "failed")
+        self.assertEqual(failed.scan_state, "failed")
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (failed,),
+        )
+
     def test_upload_recovers_concurrent_remote_prefix_before_own_sequence(self):
         remote = tuple(
             AttachmentMetadata(
@@ -1932,6 +1957,32 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room-1"), ())
         self.assertIsNone(self.store.attachment_state_revision("room-1"))
+
+    def test_live_receive_rejects_local_pending_identity_collision(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="pending-live-collision",
+            local_path=self.make_file("pending-live-collision.bin", b"same"),
+            sequence_no=0,
+            retention="persistent",
+        )
+        pending = self.store.register_attachment(prepared.metadata)
+        incoming = replace(
+            pending,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "live file conflicts with local pending attachment identity",
+        ):
+            controller.receive_file(incoming)
+
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (pending,),
+        )
 
     def test_live_receive_cannot_restore_blocked_failed_upload(self):
         controller = self.controller("student-1")
