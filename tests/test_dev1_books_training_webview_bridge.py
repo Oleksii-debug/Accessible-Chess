@@ -107,6 +107,44 @@ class BooksTrainingWebViewBridgeTests(unittest.TestCase):
             self.assertNotIn(FEN, repr(result))
             self.assertNotIn("student.move", repr(result))
 
+    def test_training_bridge_preflights_command_payload_keys_and_language(self) -> None:
+        class HostileText(str):
+            stripped = 0
+
+            def strip(self, *_args, **_kwargs):
+                type(self).stripped += 1
+                raise AssertionError("hostile text must not reach strip")
+
+        before_language = self.training.projection.language
+
+        result = self.training.dispatch(HostileText("training.hint"), {})
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, HostileText.stripped)
+
+        result = self.training.dispatch(
+            "training.hint",
+            {HostileText("answer"): "e4"},
+        )
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, HostileText.stripped)
+
+        result = self.training.dispatch(
+            "training.language",
+            {"language": HostileText("en")},
+        )
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, HostileText.stripped)
+        self.assertIs(before_language, self.training.projection.language)
+
+        result = self.training.dispatch("x" * 65, {})
+        self.assertEqual("error", result.kind)
+        result = self.training.dispatch(
+            "training.language",
+            {"language": "e" * 9},
+        )
+        self.assertEqual("error", result.kind)
+        self.assertIs(before_language, self.training.projection.language)
+
     def test_training_reset_requires_exact_boolean_true(self) -> None:
         for value in (False, 1, "true", None):
             result = self.training.dispatch("training.reset", {"confirmed": value})
