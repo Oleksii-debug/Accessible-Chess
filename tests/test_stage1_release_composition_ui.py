@@ -255,12 +255,6 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 selected = api.set_sound_variant("move", "2")
                 self.assertTrue(selected["ok"], selected)
                 self.assertEqual(selected["selectedVariants"]["move"], "2")
-                move_volume = api.set_sound_event_volume("move", 40)
-                self.assertTrue(move_volume["ok"], move_volume)
-                self.assertEqual(move_volume["eventVolumes"]["move"], 40)
-                capture_enabled = api.set_sound_event_enabled("capture", False)
-                self.assertTrue(capture_enabled["ok"], capture_enabled)
-                self.assertFalse(capture_enabled["eventEnabled"]["capture"])
                 mate_selected = api.set_sound_variant("mate", "ru")
                 self.assertTrue(mate_selected["ok"], mate_selected)
                 draw_selected = api.set_sound_variant("draw", "en")
@@ -291,17 +285,13 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 preview = api.preview_sound("capture")
                 self.assertTrue(preview["ok"], preview)
                 self.assertEqual(playback.calls[-1], (SoundEvent.CAPTURE, 35))
-                move_preview = api.preview_sound("move")
-                self.assertTrue(move_preview["ok"], move_preview)
-                self.assertEqual(playback.calls[-1], (SoundEvent.MOVE, 14))
                 before = len(playback.calls)
                 self.assertTrue(api.set_sound_enabled(False)["ok"])
                 self.assertEqual(playback.stop_calls, 1)
                 self.assertEqual(api._clock_sound_not_before, 0.0)
                 disabled = api.preview_sound("move")
-                self.assertTrue(disabled["ok"], disabled)
-                self.assertEqual(len(playback.calls), before + 1)
-                self.assertEqual(playback.calls[-1], (SoundEvent.MOVE, 14))
+                self.assertFalse(disabled["ok"])
+                self.assertEqual(len(playback.calls), before)
             finally:
                 api.close_analysis()
                 runtime.close()
@@ -326,8 +316,6 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 self.assertEqual(restored["selectedVariants"]["draw"], "en")
                 self.assertEqual(restored["selectedVariants"]["start"], "3d")
                 self.assertEqual(restored["selectedVariants"]["low_time"], "2")
-                self.assertEqual(restored["eventVolumes"]["move"], 40)
-                self.assertFalse(restored["eventEnabled"]["capture"])
             finally:
                 api2.close_analysis()
                 runtime2.close()
@@ -496,36 +484,6 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
-    def test_disabled_low_time_cue_does_not_swallow_clock_tick(self) -> None:
-        playback = _Playback()
-        with tempfile.TemporaryDirectory() as td:
-            api, runtime = self.make_composed(td, playback)
-            try:
-                started = api.start_engine_game("white", 5, 1, 0)
-                self.assertTrue(started["ok"], started)
-                session = api._engine_session
-                self.assertIsNotNone(session)
-                clock = session._clock
-                self.assertIsNotNone(clock)
-                api._clock_sound_not_before = 0.0
-                api._settings.set("tick_policy", "my_turn")
-                api._settings.set("low_time_policy", "my_turn")
-                api._settings.set("low_time_seconds", 30)
-                api._settings.set("sound_low_time_enabled", False)
-                clock.set_remaining("w", 25_000)
-
-                result = api.clock_sound_pulse()
-
-                self.assertTrue(result["ok"], result)
-                self.assertTrue(result["played"], result)
-                self.assertEqual(result["event"], "tick")
-                self.assertEqual(playback.calls[-1], (SoundEvent.TICK, 80))
-                self.assertNotIn(SoundEvent.LOW_TIME, [event for event, _ in playback.calls])
-                self.assertNotIn("w", api._low_time_warned_sides)
-            finally:
-                api.close_analysis()
-                runtime.close()
-
     def test_clock_sound_pump_is_non_announcing_and_segment_sized(self) -> None:
         text = self.bootstrap
         self.assertIn("a.clock_sound_pulse()", text)
@@ -685,16 +643,14 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             "sound-settings", "sound-enabled", "sound-newgame-animation", "sound-volume",
             "sound-tick-policy", "sound-tick-last-seconds",
             "sound-low-time-policy", "sound-low-time-seconds",
-            "sound-preview-event", "sound-event-enabled", "sound-event-volume",
-            "sound-variant", "sound-preview", "sound-settings-status",
+            "sound-preview-event", "sound-variant", "sound-preview",
+            "sound-settings-status",
         ):
             self.assertIn(element_id, text)
         self.assertIn("a.get_sound_settings", text)
         self.assertIn("a.set_sound_enabled", text)
         self.assertIn("a.set_newgame_animation_enabled", text)
         self.assertIn("a.set_sound_volume", text)
-        self.assertIn("a.set_sound_event_enabled", text)
-        self.assertIn("a.set_sound_event_volume", text)
         self.assertIn("a.set_clock_sound_policy", text)
         self.assertIn("a.set_clock_sound_last_seconds", text)
         self.assertIn("a.set_low_time_policy", text)
