@@ -608,6 +608,23 @@ check(
   "an unrelated stale redraw must not move the same transfer backwards"
 );
 
+const authoritativeProgressClear = collaboration([], 0, false, "session-a");
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.files.synced",
+    payload: { collaboration: authoritativeProgressClear }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter") === null &&
+  root.querySelector("#collaboration-file-transfer-text") === null,
+  "trusted file sync without transfer progress must authoritatively clear the presentation meter"
+);
+
 const zeroProgressRoot = new FakeElement("div");
 window.AccessibleChessEducationSurface.render(
   zeroProgressRoot,
