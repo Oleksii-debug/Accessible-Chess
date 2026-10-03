@@ -203,7 +203,7 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
     except OSError as exc:
         raise UserLibrarySeedError("user Library seed inventory cannot be read") from exc
     actual = {child.name.casefold() for child in children}
-    if actual != expected_inventory:
+    if len(actual) != len(children) or actual != expected_inventory:
         raise UserLibrarySeedError("user Library seed inventory does not match manifest")
     return UserLibrarySeedManifest(root=root, entries=tuple(entries))
 
@@ -229,10 +229,17 @@ def _verified_source_bytes(manifest: UserLibrarySeedManifest, entry: UserLibrary
     return payload
 
 
-def import_user_library_seed(database, manifest: UserLibrarySeedManifest) -> UserLibrarySeedSummary:
-    importer = LibraryImportService(database)
-    game_count = 0
-    reused = 0
+def _prepare_user_library_seed_sources(
+    manifest: UserLibrarySeedManifest,
+) -> list[tuple[UserLibrarySeedEntry, object]]:
+    """Validate every packaged source before any canonical Library publication.
+
+    The package is a single startup input. If a later source is malformed or
+    tampered, no earlier source from that package may already have become durable.
+    The existing strict PGN parser remains the sole PGN semantic authority.
+    """
+
+    prepared: list[tuple[UserLibrarySeedEntry, object]] = []
     for entry in manifest.entries:
         payload = _verified_source_bytes(manifest, entry)
         try:
@@ -245,6 +252,16 @@ def import_user_library_seed(database, manifest: UserLibrarySeedManifest) -> Use
             raise UserLibrarySeedError("user Library seed PGN is not canonical") from exc
         if not games:
             raise UserLibrarySeedError("user Library seed PGN contains no games")
+        prepared.append((entry, games))
+    return prepared
+
+
+def import_user_library_seed(database, manifest: UserLibrarySeedManifest) -> UserLibrarySeedSummary:
+    prepared = _prepare_user_library_seed_sources(manifest)
+    importer = LibraryImportService(database)
+    game_count = 0
+    reused = 0
+    for entry, games in prepared:
         result = importer.import_games(
             games,
             source_name=entry.display_name,
