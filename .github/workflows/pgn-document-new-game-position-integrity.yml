@@ -87,8 +87,11 @@ jobs:
             git fetch --no-tags origin \
               "+refs/heads/${authority_branch}:refs/remotes/origin/${authority_branch}"
             authority="$(git rev-parse "refs/remotes/origin/${authority_branch}")"
-            git merge-base --is-ancestor "$authority" HEAD
-            git diff --check "$authority"...HEAD
+            authority_document_blob="$(git rev-parse "$authority:acs/pgn_document.py")"
+            authority_test_blob="$(git rev-parse "$authority:tests/test_pgn_document_new_game_position_integrity.py")"
+            test "$(git rev-parse HEAD:acs/pgn_document.py)" = "$authority_document_blob"
+            test "$(git rev-parse HEAD:tests/test_pgn_document_new_game_position_integrity.py)" = "$authority_test_blob"
+            git diff --check HEAD^ HEAD
           fi
 
       - name: Compile changed Python
