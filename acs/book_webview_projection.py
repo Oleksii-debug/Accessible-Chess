@@ -239,7 +239,9 @@ class BookWebViewProjection:
         self._last_bookmark = _bookmark_name(name)
 
     def set_language(self, language: UILanguage | str) -> BookWebViewEvent:
-        if isinstance(language, str):
+        if type(language) is str:
+            if len(language) > 8:
+                raise ValueError("unsupported UI language")
             try:
                 language = UILanguage(language.strip().lower())
             except ValueError:
