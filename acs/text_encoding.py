@@ -19,6 +19,7 @@ _CP1251_CYRILLIC_LETTER_BYTES = frozenset((
     0xB2, 0xB3, 0xB4, 0xB8, 0xBA, 0xBC, 0xBD, 0xBE, 0xBF,
 ))
 _CP1251_ALLOWED_ASCII_CONTROLS = frozenset({0x09, 0x0A, 0x0D})
+_ALLOWED_TEXT_CONTROLS = frozenset({"\t", "\n", "\r"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +31,18 @@ class DecodedLocalText:
 
 class LocalTextDecodeError(ValueError):
     pass
+
+
+def _validated_text(text: str) -> str:
+    """Reject non-text C0/C1 controls after decoding, regardless of encoding."""
+
+    for character in text:
+        codepoint = ord(character)
+        if character in _ALLOWED_TEXT_CONTROLS:
+            continue
+        if codepoint < 0x20 or 0x7F <= codepoint <= 0x9F:
+            raise LocalTextDecodeError("text source contains unsupported control characters")
+    return text
 
 
 def _cp1251_text_evidence(payload: bytes) -> bool:
@@ -68,23 +81,25 @@ def decode_local_text(payload: bytes) -> DecodedLocalText:
         return DecodedLocalText("", "utf-8", False)
 
     try:
-        return DecodedLocalText(payload.decode("utf-8-sig", errors="strict"), "utf-8", False)
+        text = payload.decode("utf-8-sig", errors="strict")
     except UnicodeDecodeError:
         pass
+    else:
+        return DecodedLocalText(_validated_text(text), "utf-8", False)
 
     if payload.startswith((b"\xff\xfe", b"\xfe\xff")):
         try:
             text = payload.decode("utf-16", errors="strict")
         except UnicodeDecodeError as exc:
             raise LocalTextDecodeError("UTF-16 text source is malformed") from exc
-        return DecodedLocalText(text, "utf-16", True)
+        return DecodedLocalText(_validated_text(text), "utf-16", True)
 
     if _cp1251_text_evidence(payload):
         try:
             text = payload.decode("cp1251", errors="strict")
         except UnicodeDecodeError as exc:
             raise LocalTextDecodeError("Windows-1251 text source is malformed") from exc
-        return DecodedLocalText(text, "windows-1251", True)
+        return DecodedLocalText(_validated_text(text), "windows-1251", True)
 
     raise LocalTextDecodeError("unsupported or ambiguous text encoding")
 

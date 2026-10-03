@@ -16,13 +16,17 @@ on:
       - 'acs/pgn_service.py'
       - 'acs/pgn_streaming_import.py'
       - 'acs/user_library_payload.py'
+      - 'acs/version2_application.py'
       - 'acs/version2_packaged_starter_application.py'
       - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'scripts/build_user_library_manifest.py'
       - 'web/index.html'
       - 'web/full_product_pgn.js'
       - 'web/full_product_library.js'
       - 'web/full_product_books_training.js'
       - 'web/vendor/**'
+      - 'tests/test_text_encoding_safety.py'
       - 'tests/test_test_ready_ux_contract.py'
       - 'tests/test_user_library_payload.py'
       - 'tests/test_v2_book_text_import.py'
@@ -72,14 +76,19 @@ jobs:
           acs/pgn_service.py
           acs/pgn_streaming_import.py
           acs/user_library_payload.py
+          acs/version2_application.py
           acs/version2_packaged_starter_application.py
           acs/version2_windows_file_workflows.py
+          acs/version2_windows_native_dialog_ownership.py
+          scripts/build_user_library_manifest.py
+          tests/test_text_encoding_safety.py
           tests/test_test_ready_ux_contract.py
           tests/test_user_library_payload.py
 
       - name: Test keyboard NVDA ingest and private Library contracts
         run: >-
           python -m unittest -v
+          tests.test_text_encoding_safety
           tests.test_test_ready_ux_contract
           tests.test_user_library_payload
           tests.test_v2_book_text_import
