@@ -950,12 +950,60 @@
   }
 
   function applyTrainingEvent(root, result, invoke, announce, fallbackMessage) {
-    if (!result || typeof result !== "object") return;
-    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
-    let priorAnswer = "";
-    const prior = root.querySelector("#training-answer");
-    if (prior && typeof prior.value === "string") priorAnswer = prior.value;
-    if (result.kind === "render" && payload.snapshot) {
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new TypeError("Training event must be an object");
+    }
+    if (result.kind !== "render" && result.kind !== "error") {
+      throw new TypeError("Training event kind is invalid");
+    }
+    const payload = result.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new TypeError("Training event payload must be an object");
+    }
+    if (
+      payload.announcement !== undefined &&
+      typeof payload.announcement !== "string"
+    ) {
+      throw new TypeError("Training event announcement must be text");
+    }
+
+    if (result.kind === "render") {
+      if (!payload.snapshot || typeof payload.snapshot !== "object" || Array.isArray(payload.snapshot)) {
+        throw new TypeError("Training render snapshot is invalid");
+      }
+      if (
+        payload.focus_target !== undefined &&
+        typeof payload.focus_target !== "string"
+      ) {
+        throw new TypeError("Training focus target must be text");
+      }
+      if (
+        payload.clear_answer !== undefined &&
+        typeof payload.clear_answer !== "boolean"
+      ) {
+        throw new TypeError("Training clear-answer flag is invalid");
+      }
+      if (payload.solution !== undefined && !Array.isArray(payload.solution)) {
+        throw new TypeError("Training solution must be an array");
+      }
+      const solution = payload.solution || [];
+      if (solution.length > 256) {
+        throw new TypeError("Training solution is too large");
+      }
+      for (let index = 0; index < solution.length; index += 1) {
+        if (
+          !Object.prototype.hasOwnProperty.call(solution, index) ||
+          typeof solution[index] !== "string" ||
+          !solution[index].trim() ||
+          solution[index].length > 128
+        ) {
+          throw new TypeError("Training solution item is invalid");
+        }
+      }
+
+      let priorAnswer = "";
+      const prior = root.querySelector("#training-answer");
+      if (prior && typeof prior.value === "string") priorAnswer = prior.value;
       renderTrainingSurface(
         root,
         payload.snapshot,
@@ -963,15 +1011,20 @@
         announce,
         payload.focus_target || "",
         fallbackMessage,
-        Array.isArray(payload.solution) ? payload.solution : []
+        solution
       );
-      if (!payload.clear_answer && priorAnswer) {
+      if (payload.clear_answer !== true && priorAnswer) {
         const next = root.querySelector("#training-answer");
         if (next) next.value = priorAnswer;
       }
+    } else {
+      if (typeof payload.message !== "string" || !payload.message.trim()) {
+        throw new TypeError("Training error event message is invalid");
+      }
     }
-    if (payload.announcement) announce(String(payload.announcement));
-    if (result.kind === "error" && payload.message) announce(String(payload.message));
+
+    if (payload.announcement) announce(payload.announcement);
+    if (result.kind === "error") announce(payload.message);
   }
 
   function renderTrainingSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage, solution) {
