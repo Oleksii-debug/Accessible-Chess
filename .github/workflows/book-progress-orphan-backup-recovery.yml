@@ -19,6 +19,7 @@ on:
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
       - '.github/workflows/p0-release-critical-triad-convergence.yml'
+      - 'tests/test_p0_release_critical_triad_convergence.py'
       - 'tests/test_version2_application.py'
   workflow_dispatch:
 
