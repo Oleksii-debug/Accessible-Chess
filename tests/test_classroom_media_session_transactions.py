@@ -412,27 +412,14 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
     def test_stale_canonical_revision_after_provider_success_requires_recovery(self):
         controller, _roster, gate, _nonsecret, sessions = self.make_composition()
         self.join(controller, sessions)
-        controller.mark_transport_lost()
-        fresh = credential(
-            token="fresh-reconnect-token",
-            issued_at=NOW + timedelta(seconds=2),
-            expires_at=NOW + timedelta(minutes=1),
-        )
-        effect = sessions.prepare_reconnect(fresh, now=NOW + timedelta(seconds=3))
-        sessions.take_credential(effect.transaction_id)
+        effect = sessions.prepare_disconnect()
+        prepared_revision = controller.state.revision
 
+        # A real transport-loss callback can arrive while browser disconnect is
+        # in flight. It changes canonical revision without running another
+        # provider effect, so the eventual provider success must not overwrite it.
         controller.mark_transport_lost()
-        # mark_transport_lost is idempotent while already disconnected, so force
-        # an independent canonical revision through a failed-free reconnect cycle
-        # is not possible without provider effect. Use the state revision seam
-        # directly only to model another canonical owner action in this unit test.
-        controller._state = type(controller.state)(
-            room_id=controller.state.room_id,
-            participant_id=controller.state.participant_id,
-            connected=controller.state.connected,
-            desired_sources=controller.state.desired_sources,
-            revision=controller.state.revision + 1,
-        )
+        self.assertGreater(controller.state.revision, prepared_revision)
 
         with self.assertRaisesRegex(
             MediaHostRecoveryRequired,
@@ -441,9 +428,9 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
             sessions.acknowledge_provider_success(
                 effect.transaction_id,
                 provider_snapshot(
-                    connected=True,
-                    room_id="room-1",
-                    participant_id="student-1",
+                    connected=False,
+                    room_id=None,
+                    participant_id=None,
                 ),
             )
         self.assertTrue(gate.occupied)
