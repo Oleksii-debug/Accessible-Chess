@@ -122,7 +122,7 @@ def _windows_pack_is_playable(manifest: object) -> bool:
     )
 
 
-def _playable_installed_packs(
+def _installed_pack_inventory(
     store: FilesystemSoundPackStore,
 ) -> dict[str, SoundPackManifest]:
     try:
@@ -132,9 +132,15 @@ def _playable_installed_packs(
         # unreadable selected pack to classic, so inventory failure must not
         # make the whole shipping application unavailable.
         return {}
+    return dict(installed)
+
+
+def _playable_installed_packs(
+    store: FilesystemSoundPackStore,
+) -> dict[str, SoundPackManifest]:
     return {
         pack_id: manifest
-        for pack_id, manifest in installed.items()
+        for pack_id, manifest in _installed_pack_inventory(store).items()
         if _windows_pack_is_playable(manifest)
     }
 
@@ -267,7 +273,8 @@ def create_local_sound_composition(
         profiled,
         pack_coordinator=pack_coordinator,
         catalog=normalized_catalog,
-        installed_pack_provider=lambda: _playable_installed_packs(pack_store),
+        installed_pack_provider=lambda: _installed_pack_inventory(pack_store),
+        pack_compatibility_provider=_windows_pack_is_playable,
     )
     settings.reconcile_active_profile()
     return LocalSoundComposition(
