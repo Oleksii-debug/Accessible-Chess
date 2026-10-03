@@ -412,6 +412,48 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     validate_winforms_accessibility_app_config(config)
             self.assertTrue(swapped)
 
+    def test_semantic_text_authorities_reject_pathname_replacement(self):
+        cases = (
+            (
+                Path("AccessibleChess/assets/sounds/manifest.json"),
+                "packaged sound manifest changed while being opened",
+            ),
+            (
+                Path("THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"),
+                "sound provenance notice changed while being opened",
+            ),
+            (
+                Path("THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"),
+                "Stockfish GPL notice changed while being opened",
+            ),
+        )
+        for relative, expected in cases:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                root = base / "package"
+                root.mkdir()
+                _make_tree(root)
+                target = root / relative
+                replacement = base / "replacement.tmp"
+                replacement.write_bytes(target.read_bytes())
+                original_open = Path.open
+                swapped = False
+
+                def replacing_open(path_self, *args, **kwargs):
+                    nonlocal swapped
+                    if path_self == target and not swapped:
+                        swapped = True
+                        os.replace(replacement, target)
+                    return original_open(path_self, *args, **kwargs)
+
+                with patch.object(Path, "open", new=replacing_open):
+                    with self.assertRaisesRegex(
+                        Version2PackagePreflightError,
+                        expected,
+                    ):
+                        _validate_tree(root)
+                self.assertTrue(swapped)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
