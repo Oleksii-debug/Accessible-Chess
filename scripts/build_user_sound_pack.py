@@ -28,6 +28,8 @@ DEFAULT_EVENT_FILES = {
     "illegal": "library/Board/illegal.wav",
     "start": "library/Board/NEWGAME.WAV",
     "end": "library/Server/Gong.WAV",
+    "mate": "library/Server/Gong.WAV",
+    "draw": "library/Server/Gong.WAV",
     "tick": "library/Board/Tick.wav",
 }
 
@@ -75,6 +77,15 @@ EVENT_VARIANTS = {
     ),
     "end": (
         ("1", "library/Server/Gong.WAV", "Кінець партії — гонг", "Game end — gong"),
+    ),
+    "mate": (
+        ("1", "library/Server/Gong.WAV", "Мат — гонг", "Checkmate — gong"),
+        ("ru", "library/Russian/Notation/Mate.wav", "Мат — голос (рос.)", "Checkmate — Russian voice"),
+    ),
+    "draw": (
+        ("1", "library/Server/Gong.WAV", "Нічия — гонг", "Draw — gong"),
+        ("en", "library/English/Draw.wav", "Нічия — голос (англ.)", "Draw — English voice"),
+        ("ru", "library/Russian/Draw.wav", "Нічия — голос (рос.)", "Draw — Russian voice"),
     ),
     "tick": (
         ("1", "library/Board/Tick.wav", "Годинник", "Clock"),
