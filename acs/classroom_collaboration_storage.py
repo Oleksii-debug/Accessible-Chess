@@ -1646,6 +1646,58 @@ class ClassroomCollaborationSQLiteStore:
             if result != "ok":
                 raise CollaborationStorageError(f"sqlite integrity check failed: {result}")
 
+            for table, label in (
+                ("collaboration_chat_state_cursors", "chat state revision"),
+                (
+                    "collaboration_attachment_state_cursors",
+                    "attachment state revision",
+                ),
+            ):
+                for cursor in db.execute(
+                    f"SELECT room_id, revision FROM {table}"
+                ):
+                    try:
+                        _canonical_id(cursor["room_id"], "state cursor room id")
+                    except ValueError as error:
+                        raise CollaborationStorageError(
+                            "stored state cursor room id is invalid"
+                        ) from error
+                    _stored_integer(cursor["revision"], label)
+
+            for watermark in db.execute(
+                """
+                SELECT
+                    watermark.attachment_id,
+                    watermark.room_id,
+                    watermark.revision,
+                    attachment.room_id AS attachment_room_id
+                FROM collaboration_attachment_snapshot_watermarks AS watermark
+                LEFT JOIN collaboration_attachments AS attachment
+                    ON attachment.attachment_id=watermark.attachment_id
+                """
+            ):
+                try:
+                    _canonical_id(
+                        watermark["attachment_id"],
+                        "snapshot watermark attachment id",
+                    )
+                    _canonical_id(
+                        watermark["room_id"],
+                        "snapshot watermark room id",
+                    )
+                except ValueError as error:
+                    raise CollaborationStorageError(
+                        "stored attachment snapshot watermark identity is invalid"
+                    ) from error
+                _stored_snapshot_revision(watermark["revision"])
+                if (
+                    watermark["attachment_room_id"] is None
+                    or watermark["room_id"] != watermark["attachment_room_id"]
+                ):
+                    raise CollaborationStorageError(
+                        "stored attachment snapshot watermark crossed room boundary"
+                    )
+
     @staticmethod
     def _message_from_row(row: sqlite3.Row) -> ChatMessageMetadata:
         return ChatMessageMetadata(
