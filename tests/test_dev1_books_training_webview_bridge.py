@@ -16,6 +16,22 @@ from acs.training_webview_projection import TrainingWebViewProjection
 FEN = "8/8/8/8/8/8/4P3/4K2k w - - 0 1"
 
 
+class _BombPayload(dict):
+    hooks = 0
+
+    def __len__(self):
+        type(self).hooks += 1
+        raise AssertionError("payload subclass len hook must not execute")
+
+    def __iter__(self):
+        type(self).hooks += 1
+        raise AssertionError("payload subclass iteration hook must not execute")
+
+    def items(self):
+        type(self).hooks += 1
+        raise AssertionError("payload subclass items hook must not execute")
+
+
 class BooksTrainingWebViewBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.book_calls = []
@@ -64,6 +80,18 @@ class BooksTrainingWebViewBridgeTests(unittest.TestCase):
             self.assertNotIn(command, repr(result))
             self.assertNotIn(FEN, repr(result))
         self.assertEqual([], self.book_calls)
+
+    def test_book_payload_subclass_is_rejected_before_container_hooks(self) -> None:
+        _BombPayload.hooks = 0
+        result = self.book.dispatch("book.next", _BombPayload())
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, _BombPayload.hooks)
+
+    def test_training_payload_subclass_is_rejected_before_container_hooks(self) -> None:
+        _BombPayload.hooks = 0
+        result = self.training.dispatch("training.hint", _BombPayload())
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, _BombPayload.hooks)
 
     def test_book_open_position_keeps_backend_return_private(self) -> None:
         self.book.dispatch("book.next_position", {})
