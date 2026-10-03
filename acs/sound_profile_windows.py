@@ -235,10 +235,13 @@ class ProfiledWindowsSoundPlaybackAdapter:
             # Keep the shipped packaged manifest as the sole classic authority.
             event = self._classic_event(request)
             return self._packaged.resolve(event), f"classic-{event.value}"
-        manifest = self._installed.installed_manifest(request.pack_id)
-        if manifest is None:
+        lookup = self._installed.read_asset_lookup(
+            request.pack_id,
+            request.sound_id,
+        )
+        if not lookup.pack_available:
             raise FileNotFoundError("selected sound pack is unavailable")
-        if request.sound_id not in manifest.files:
+        if not lookup.sound_declared:
             if request.sound_id != request.event_id:
                 raise FileNotFoundError("selected sound-pack asset is unavailable")
             try:
@@ -251,10 +254,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 self._packaged.resolve(fallback_event),
                 f"classic-fallback-{fallback_event.value}",
             )
-        snapshot = self._installed.read_asset_snapshot(
-            request.pack_id,
-            request.sound_id,
-        )
+        snapshot = lookup.snapshot
         if snapshot is None:
             # The manifest declared this asset. Missing/unreadable bytes are an
             # integrity failure and must never be masked by classic fallback.
