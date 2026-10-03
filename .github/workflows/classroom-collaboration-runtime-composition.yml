@@ -8,6 +8,7 @@ on:
       - 'acs/classroom_collaboration_runtime.py'
       - 'acs/version2_final_product_application.py'
       - 'tests/test_classroom_collaboration_runtime.py'
+      - 'tests/test_classroom_collaboration_runtime_preflight.py'
       - '.github/workflows/classroom-collaboration-runtime-composition.yml'
   workflow_dispatch:
 
@@ -66,7 +67,7 @@ jobs:
           fi
           git diff --check "$base...HEAD"
           changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
-          allowed="$(printf '%s\n'             '.github/workflows/classroom-collaboration-runtime-composition.yml'             'acs/classroom_collaboration_runtime.py'             'acs/version2_final_product_application.py'             'tests/test_classroom_collaboration_runtime.py' | LC_ALL=C sort)"
+          allowed="$(printf '%s\n'             '.github/workflows/classroom-collaboration-runtime-composition.yml'             'acs/classroom_collaboration_runtime.py'             'acs/version2_final_product_application.py'             'tests/test_classroom_collaboration_runtime.py'             'tests/test_classroom_collaboration_runtime_preflight.py' | LC_ALL=C sort)"
           test "$changed" = "$allowed"
           echo "CLASSROOM_COLLABORATION_RUNTIME_EXACT_SCOPE=PASS"
 
@@ -80,6 +81,7 @@ jobs:
           acs/classroom_collaboration_runtime.py
           acs/version2_final_product_application.py
           tests/test_classroom_collaboration_runtime.py
+          tests/test_classroom_collaboration_runtime_preflight.py
 
       - name: Prove no ambient credential ownership
         shell: bash
@@ -133,6 +135,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_classroom_collaboration_runtime
+          tests.test_classroom_collaboration_runtime_preflight
           tests.test_classroom_collaboration_final_product
           tests.test_classroom_collaboration_webview
           tests.test_classroom_chat_http_endpoint
