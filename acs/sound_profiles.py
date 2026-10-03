@@ -14,27 +14,6 @@ SOUND_PROFILE_SCHEMA_VERSION = 1
 SOUND_PACK_MANIFEST_SCHEMA_VERSION = 1
 
 _PACKAGED_SEMANTIC_EVENT_IDS = tuple(event.value for event in SoundEvent)
-_PROFILE_COMPATIBILITY_EVENT_IDS = ("low_time",)
-
-CORE_SOUND_EVENTS = (
-    ("start",)
-    + tuple(
-        event_id
-        for event_id in _PACKAGED_SEMANTIC_EVENT_IDS
-        if event_id not in {"start", "end", "tick", "low_time"}
-    )
-    + ("end", "tick")
-    + tuple(
-        event_id
-        for event_id in _PROFILE_COMPATIBILITY_EVENT_IDS
-        if event_id not in _PACKAGED_SEMANTIC_EVENT_IDS
-    )
-    + tuple(
-        event_id
-        for event_id in _PACKAGED_SEMANTIC_EVENT_IDS
-        if event_id == "low_time"
-    )
-)
 
 # Schema 1 is already a durable provider/storage contract. New application sound
 # semantics must not retroactively invalidate previously valid installed packs.
@@ -50,6 +29,11 @@ SOUND_PACK_SCHEMA1_REQUIRED_EVENTS = (
     "tick",
     "low_time",
 )
+
+# Keep the durable schema-1 core stable. Newly introduced packaged semantics are
+# additive owner events so an application upgrade cannot retroactively invalidate
+# installed schema-1 custom packs.
+CORE_SOUND_EVENTS = SOUND_PACK_SCHEMA1_REQUIRED_EVENTS
 
 OPTIONAL_OWNER_SOUND_EVENTS = (
     "mate",
