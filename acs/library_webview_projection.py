@@ -569,8 +569,12 @@ class LibraryWebViewProjection:
         normalized = query.normalized()
         if normalized.after_game_id is not None:
             raise ValueError("browser search cannot supply a keyset cursor")
-        self._query = normalized
+        previous_query = self._query
         view = self._presenter.search(normalized)
+        if view.status is SurfaceStatus.ERROR:
+            self._query = previous_query
+        else:
+            self._query = normalized
         return self._render_event(view, announce=True)
 
     def reset_filters(self) -> LibraryWebViewEvent:
