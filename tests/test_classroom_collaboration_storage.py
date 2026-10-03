@@ -72,6 +72,56 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             }
             self.assertIn("completed", deletion_columns)
 
+    def test_partial_v9_redaction_column_must_have_safe_shape(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "ALTER TABLE collaboration_messages RENAME TO old_messages"
+            )
+            db.execute(
+                """
+                CREATE TABLE collaboration_messages(
+                    message_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    body TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    sent_at_unix_ms INTEGER
+                        CHECK(sent_at_unix_ms IS NULL OR sent_at_unix_ms >= 0),
+                    redacted TEXT NOT NULL DEFAULT '0',
+                    UNIQUE(room_id, sequence_no)
+                )
+                """
+            )
+            db.execute("DROP TABLE old_messages")
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=8 "
+                "WHERE key='schema_version'"
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "partial redaction schema is incompatible",
+        ):
+            ClassroomCollaborationSQLiteStore(str(self.db_path))
+
+    def test_partial_v9_redaction_column_resumes_from_old_version_marker(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=8 "
+                "WHERE key='schema_version'"
+            )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        reopened.integrity_check()
+        with closing(sqlite3.connect(self.db_path)) as db:
+            version = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()[0]
+        self.assertEqual(SCHEMA_VERSION, version)
+
     def test_v7_upgrade_requeues_tombstones_without_cleanup_receipt(self) -> None:
         tombstone = AttachmentMetadata(
             "v7-missing-receipt",
