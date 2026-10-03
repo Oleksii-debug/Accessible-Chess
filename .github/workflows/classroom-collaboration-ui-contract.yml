@@ -40,17 +40,22 @@ jobs:
         shell: bash
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           test "$BASE_REF" = "feature/classroom-collaboration-contract-20260926"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
-          git cat-file -e "$BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$BASE_SHA" HEAD
-          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          git diff --check "$BASE_SHA" HEAD
-          mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git fetch --no-tags origin "$BASE_REF"
+          BASE_TIP="$(git rev-parse "origin/$BASE_REF")"
+          STACK_BASE="$(git merge-base "$BASE_TIP" HEAD)"
+          git cat-file -e "$STACK_BASE^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$STACK_BASE"
+          git merge-base --is-ancestor "$STACK_BASE" HEAD
+          git merge-base --is-ancestor "$STACK_BASE" "$BASE_TIP"
+          git diff --check "$STACK_BASE" HEAD
+          mapfile -t actual < <(git diff --name-only "$STACK_BASE" HEAD | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-collaboration-ui-contract.yml'
             'acs/classroom_collaboration_webview.py'
