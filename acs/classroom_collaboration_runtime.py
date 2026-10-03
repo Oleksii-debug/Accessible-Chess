@@ -171,7 +171,7 @@ def build_classroom_collaboration_http_runtime(
             raise ValueError("store_path must reference a file, not a directory")
         if not path.parent.is_dir():
             raise ValueError("store_path parent directory must already exist")
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         raise ValueError("store_path could not be validated") from exc
 
     # Validate network inputs before any local persistence is created.
