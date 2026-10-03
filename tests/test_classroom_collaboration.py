@@ -1364,6 +1364,70 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ),
         )
 
+    def test_failed_upload_result_cannot_reassign_provisional_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="provider-failed-resequenced",
+            local_path=self.make_file("provider-failed-resequenced.bin", b"opaque"),
+            sequence_no=93,
+            retention="persistent",
+        )
+        failed_result = replace(
+            prepared.metadata,
+            sequence_no=7,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        with patch.object(self.files, "upload", return_value=failed_result):
+            with self.assertRaises(CollaborationError):
+                controller.upload_file(prepared)
+
+        failed = self.store.room_attachments("room-1")
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(
+            (failed[0].sequence_no, failed[0].transfer_state),
+            (93, "failed"),
+        )
+
+    def test_failed_retry_result_cannot_reassign_provisional_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="provider-retry-failed-resequenced",
+            local_path=self.make_file(
+                "provider-retry-failed-resequenced.bin",
+                b"opaque",
+            ),
+            sequence_no=41,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+        )
+        failed_result = replace(
+            prepared.metadata,
+            sequence_no=2,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        with patch.object(self.files, "retry", return_value=failed_result):
+            with self.assertRaises(CollaborationError):
+                controller.retry_file(prepared)
+
+        failed = self.store.room_attachments("room-1")
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(
+            (failed[0].sequence_no, failed[0].transfer_state),
+            (41, "failed"),
+        )
+
     def test_failed_provisional_sequence_does_not_block_remote_authoritative_sequence(self):
         controller = self.controller("teacher-1")
         prepared = controller.prepare_file(
