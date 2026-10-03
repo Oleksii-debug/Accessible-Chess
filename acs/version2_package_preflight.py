@@ -1164,9 +1164,16 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
     info = _safe_lstat(path, label="release manifest")
     if not stat.S_ISREG(info.st_mode):
         _fail("release manifest must be a file")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="release manifest",
+        max_bytes=max(1, int(info.st_size)),
+    )
     try:
-        text = path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
+        with snapshot:
+            payload = snapshot.read(int(info.st_size) + 1)
+        text = payload.decode("utf-8-sig")
+    except UnicodeError as exc:
         _fail(f"release manifest is unreadable: {type(exc).__name__}")
     data = _json_no_duplicates(text, label="release manifest")
 
@@ -1202,9 +1209,16 @@ def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
     info = _safe_lstat(path, label="checksum inventory")
     if not stat.S_ISREG(info.st_mode):
         _fail("checksum inventory must be a file")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="checksum inventory",
+        max_bytes=max(1, int(info.st_size)),
+    )
     try:
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
-    except (OSError, UnicodeError) as exc:
+        with snapshot:
+            payload = snapshot.read(int(info.st_size) + 1)
+        lines = payload.decode("utf-8-sig").splitlines()
+    except UnicodeError as exc:
         _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
 
     result: dict[str, str] = {}
