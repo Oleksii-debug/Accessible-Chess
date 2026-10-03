@@ -801,6 +801,12 @@ async function run() {
     "future-schema profile must block event volume writes");
   assert.strictEqual(readOnlyPreview.disabled, false,
     "future-schema profile must keep non-mutating preview available");
+  assert.ok(
+    elements.get("sound-profile-settings-status").textContent.includes(
+      "sound is muted for safety"
+    ),
+    "future-schema status must explain why playback is intentionally muted"
+  );
 
   assert.ok(window.AccessibleChessSoundSettingsSurface);
   console.log("SOUND_SETTINGS_WEBVIEW=PASS");
