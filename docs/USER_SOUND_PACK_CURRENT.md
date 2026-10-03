@@ -8,8 +8,10 @@ This file records the exact sound source requested by the repository owner for t
 - Supplied archive SHA-256: bbe91f4adedd3f14f7128bdee4373f743aa0fdd14fba670df35e3ff6173bf8ab
 - Extracted WAV count: 330
 - Deterministic extracted WAV inventory SHA-256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920
-- Current prepared v3 ZIP snapshot SHA-256: b09c1d66b472165c4a880bd86f19b180e1023cf9e3913b7fc53ca34f560b9bff
-- Current prepared v3 ZIP size: 20,856,200 bytes
+- Last pre-readiness v3 ZIP snapshot SHA-256: b09c1d66b472165c4a880bd86f19b180e1023cf9e3913b7fc53ca34f560b9bff
+- Last pre-readiness v3 ZIP size: 20,856,200 bytes
+- The v3 ZIP is retained only as an input/source snapshot; it is not a current test/release candidate after subsequent sound-runtime changes.
+- Owner instruction: do not build another ZIP or EXE until development is declared ready for testing/use and the owner then confirms the final build conditions.
 - Inventory fingerprint algorithm: sort WAV files by case-folded relative POSIX path, then hash the concatenation of relative path, NUL, file SHA-256, and LF.
 
 The builder scripts/build_user_sound_pack.py is bound to this exact extracted inventory and fails closed if a different 330-file tree is supplied.
@@ -25,7 +27,9 @@ Variant 1 is the default for every semantic sound event.
 - promotion: Board/MOVEHIT1.WAV
 - illegal move: Board/illegal.wav
 - game start: Board/NEWGAME.WAV
-- game end: Server/Gong.WAV
+- other game end (resignation/timeout/etc.): Server/Gong.WAV
+- checkmate default: Server/Gong.WAV; optional Russian/Notation/Mate.wav
+- draw default: Server/Gong.WAV; optional English/Draw.wav and Russian/Draw.wav
 - clock: Board/Tick.wav
 
 Distinct Board/Board3d alternatives and numbered move/capture alternatives are exposed through the persisted per-event sound variant settings. Byte-identical duplicates are not presented twice.
@@ -37,7 +41,7 @@ The full 330-file source library is retained in the built sound pack so future v
 - The legacy procedural WAV generator is no longer an audio fallback.
 - Missing/broken assets never fall back to a Windows system beep.
 - Multi-second NEWGAME and clock WAVs use non-blocking Windows playback so the keyboard and UI remain responsive.
-- Variant selection is persisted per event.
+- Variant selection is persisted per event, including separate checkmate and draw choices.
 - MOVE/MOVE2/MOVE3 and their Board3d counterparts play the matching MOVEHIT1/2/3 WAV immediately afterward as an ordered landing layer.
 - CAPTURE/CAPTURE2/CAPTURE3 and their Board3d counterparts play the matching CAPHIT1/2/3 WAV immediately afterward as an ordered landing layer.
 - Move/capture variants without a matching HIT asset stay single-file sounds; the runtime does not invent replacement effects.
