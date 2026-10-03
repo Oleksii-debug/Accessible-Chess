@@ -992,6 +992,8 @@ def _validate_livekit_client_package(
     for name, value in expected.items():
         if provenance.get(name) != value:
             _fail(f"LiveKit client provenance {name} does not match pinned release")
+    if provenance.get("bundle_sha256") != _LIVEKIT_CLIENT_BUNDLE_SHA256:
+        _fail("LiveKit client provenance bundle_sha256 does not match pinned release")
 
     for name, actual_digest in (
         ("bundle_sha256", bundle_digest),
