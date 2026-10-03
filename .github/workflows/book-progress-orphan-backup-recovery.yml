@@ -109,7 +109,8 @@ jobs:
             'tests/test_v2_book_progress_store_production.py' \
             'tests/test_v2_book_training_route_rollback.py' \
             'tests/test_v2_book_transaction_current_runtime.py' \
-            'tests/test_version2_application.py' | sort)"
+            'tests/test_version2_application.py' \
+            'tests/test_p0_release_critical_triad_convergence.py' | sort)"
           test "$changed" = "$expected"
           echo "BOOK_PROGRESS_ORPHAN_BACKUP_TOPOLOGY=$topology"
           echo 'BOOK_PROGRESS_ORPHAN_BACKUP_SCOPE=PASS'
