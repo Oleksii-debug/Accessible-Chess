@@ -482,6 +482,74 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, tampered_origin)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
 
+    def test_mutated_definition_collections_fail_before_export_materialization(self):
+        definition = self.material.definition
+        original_steps = definition.steps
+        original_tags = definition.tags
+        original_metadata = definition.metadata
+        step = original_steps[0]
+        original_hint = step.hint
+
+        try:
+            object.__setattr__(definition, "steps", (step,) * 2_049)
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+            object.__setattr__(definition, "steps", original_steps)
+            object.__setattr__(definition, "tags", ("tag",) * 257)
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+            object.__setattr__(definition, "tags", original_tags)
+            oversized_metadata = {
+                f"k{index}": "v" for index in range(257)
+            }
+            object.__setattr__(definition, "metadata", oversized_metadata)
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+            object.__setattr__(definition, "metadata", original_metadata)
+            object.__setattr__(step, "hint", "x" * 4_097)
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+        finally:
+            object.__setattr__(step, "hint", original_hint)
+            object.__setattr__(definition, "steps", original_steps)
+            object.__setattr__(definition, "tags", original_tags)
+            object.__setattr__(definition, "metadata", original_metadata)
+
+    def test_mutated_metadata_hostile_key_fails_before_sort(self):
+        class HostileKey(str):
+            armed = False
+
+            def __lt__(self, other):
+                if type(self).armed:
+                    raise AssertionError("hostile metadata key must not be sorted")
+                return str.__lt__(self, other)
+
+        metadata = dict(self.material.definition.metadata)
+        hostile = HostileKey("hostile")
+        metadata[hostile] = "value"
+        HostileKey.armed = True
+        original_metadata = self.material.definition.metadata
+        try:
+            object.__setattr__(self.material.definition, "metadata", metadata)
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+        finally:
+            HostileKey.armed = False
+            object.__setattr__(
+                self.material.definition,
+                "metadata",
+                original_metadata,
+            )
+
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
     def test_mutated_definition_metadata_cannot_be_exported_as_false_valid(self):
         # ExerciseDefinition is frozen, but its copied Mapping is intentionally a
         # normal dict.  The D08 wire boundary must still reject post-build scalar
