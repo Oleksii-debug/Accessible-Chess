@@ -1,0 +1,94 @@
+name: PGN Complete CP1251 Cyrillic Evidence
+
+on:
+  pull_request:
+    branches:
+      - 'work/user-corpus-pgn-cp1251-20261003'
+    paths:
+      - '.github/workflows/pgn-cp1251-complete-cyrillic.yml'
+      - 'acs/pgn_service.py'
+      - 'acs/pgn_streaming_import.py'
+      - 'tests/test_pgn_service.py'
+      - 'tests/test_pgn_streaming_import.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-cp1251-complete-cyrillic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cp1251-complete-cyrillic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove live CP1251 parent and exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          parent_branch='work/user-corpus-pgn-cp1251-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin             "+refs/heads/$parent_branch:refs/remotes/origin/$parent_branch"
+          live_parent="$(git rev-parse "refs/remotes/origin/$parent_branch")"
+          git merge-base --is-ancestor "$live_parent" HEAD
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_parent"
+            test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+            changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+            expected="$(printf '%s\n'               '.github/workflows/pgn-cp1251-complete-cyrillic.yml'               'acs/pgn_service.py'               'acs/pgn_streaming_import.py'               'tests/test_pgn_service.py'               'tests/test_pgn_streaming_import.py' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_parent" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "8c7b095e4c005e3681af627ba77549fff706cb6e"
+          test "$(git rev-parse HEAD:acs/pgn_streaming_import.py)" = "f544385ac359ebd01b77369b816cd3021f2d7aa2"
+          test "$(git rev-parse HEAD:tests/test_pgn_service.py)" = "9997cc39084c9c5b65efc71be11ba65eaf7fb3ac"
+          test "$(git rev-parse HEAD:tests/test_pgn_streaming_import.py)" = "43aa95f94ea7de5d19ef4552333b1210d4e41220"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile encoding boundaries
+        run: >-
+          python -m py_compile
+          acs/pgn_service.py
+          acs/pgn_streaming_import.py
+          tests/test_pgn_service.py
+          tests/test_pgn_streaming_import.py
+
+      - name: Prove complete Cyrillic evidence and retained PGN safety
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_service
+          tests.test_pgn_streaming_import
+          tests.test_pgn_document
+          tests.test_dev4_pgn_encoding_quality
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_v2_pgn_nested_comment_recovery
+
+      - name: Verify tracked diff
+        shell: bash
+        run: git diff --check
