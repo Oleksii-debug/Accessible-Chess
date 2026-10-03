@@ -405,19 +405,27 @@ class Version2Application:
             game.source_index = 0
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
-        if action in {"library.search", "library.reset_filters"}:
+        if action in {
+            "library.search",
+            "library.reset_filters",
+            "library.next_page",
+            "library.previous_page",
+        }:
             # Native/global Library actions may be invoked from another route.
             # Validate modal ownership before touching Library state, then commit
-            # the route only after projection succeeds. A failed search/reset
-            # must not move keyboard or screen-reader context to a route whose
-            # requested operation never completed.
+            # the route only after projection succeeds. Failed search/reset/page
+            # navigation must not move keyboard or screen-reader context to a
+            # route whose requested operation never completed.
             if self.shell.active_dialog_id is not None:
                 raise ValueError("close the active dialog before changing Library state")
-            result = (
-                self.library.projection.search(self.library.projection.query)
-                if action.endswith("search")
-                else self.library.projection.reset_filters()
-            )
+            if action == "library.search":
+                result = self.library.projection.search(self.library.projection.query)
+            elif action == "library.reset_filters":
+                result = self.library.projection.reset_filters()
+            elif action == "library.next_page":
+                result = self.library.projection.next_page()
+            else:
+                result = self.library.projection.previous_page()
             # Library projection owns backend error-to-view conversion. Native
             # delegated actions must therefore inspect that typed render before
             # committing the shell route; an error view is a failed operation,
@@ -439,14 +447,6 @@ class Version2Application:
                 raise ValueError("invalid Library projection status")
             self.shell.open_route("library")
             return result
-        if action in {"library.next_page", "library.previous_page"}:
-            if self.shell.active_dialog_id is not None:
-                raise ValueError("close the active dialog before changing Library page")
-            return (
-                self.library.projection.next_page()
-                if action.endswith("next_page")
-                else self.library.projection.previous_page()
-            )
         if action in {"library.import", "library.export"} and self.shell.active_dialog_id is not None:
             raise ValueError("close the active dialog before opening a Library file workflow")
         if action == "library.export" and not payload:
