@@ -61,6 +61,8 @@ jobs:
           changed="$(git diff --name-only "$latest_parent" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/books-durability-navigation-focus-convergence.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/full_product_ui_shell.py' \
             'acs/version2_application.py' \
             'tests/js/version2_release_bootstrap_dom_test.js' \
@@ -69,6 +71,8 @@ jobs:
             'tests/test_version2_release_accessibility_contract.py' | sort)"
           test "$changed" = "$expected"
 
+          test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "e739071cf5d8a40f7622559c0fcd598cf4c7c945"
+          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "218cc0955e5a7f9e651b371dd8efb6bddade2f1b"
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "7bb116ea0587de51a191560cd39070aac9ead014"
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "f916c50d3c08a93570a1f70c158c26fab618fbdd"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "66bcf463dea9eb70803462f78dbc5f7a3ef37a22"
