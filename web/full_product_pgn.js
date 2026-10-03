@@ -134,11 +134,17 @@
 
     const items = Array.isArray(snapshot.tree) ? snapshot.tree : [];
     items.forEach(function (item, itemIndex) {
+      const level = Number(item.aria_level || 1);
+      const nextItem = itemIndex + 1 < items.length ? items[itemIndex + 1] : null;
+      const hasVisibleChild = Boolean(
+        nextItem && Number(nextItem.aria_level || 1) === level + 1
+      );
       const treeItem = node("li");
       treeItem.id = String(item.dom_id || "");
       treeItem.setAttribute("role", "treeitem");
       treeItem.setAttribute("aria-level", String(item.aria_level || 1));
       treeItem.setAttribute("aria-selected", item.selected ? "true" : "false");
+      if (hasVisibleChild) treeItem.setAttribute("aria-expanded", "true");
       treeItem.dataset.kind = String(item.kind || "move");
       treeItem.tabIndex = item.selected ? 0 : -1;
       treeItem.style.paddingInlineStart = Math.max(0, Number(item.aria_level || 1) - 1) + "rem";
@@ -158,8 +164,6 @@
       treeItem.addEventListener("keydown", function (event) {
         let command = "";
         let payload = {};
-        const level = Number(item.aria_level || 1);
-        const nextItem = itemIndex + 1 < items.length ? items[itemIndex + 1] : null;
         const navigationKey =
           event.key === "ArrowUp"
           || event.key === "ArrowDown"
@@ -187,7 +191,7 @@
         } else if (event.key === "ArrowLeft") {
           if (item.has_parent) command = "pgn.parent";
         } else if (event.key === "ArrowRight") {
-          if (nextItem && Number(nextItem.aria_level || 1) === level + 1) {
+          if (hasVisibleChild) {
             command = "pgn.select";
             payload = { node_id: nextItem.node_id };
           }
