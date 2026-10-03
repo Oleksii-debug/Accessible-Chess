@@ -17,7 +17,8 @@ from .version2_windows_pgn_export import PgnSelectionExportRequest
 
 
 _TARGET_FIELDS = {"game_index", "line_path", "move_index", "expected_record_digest", "content_revision"}
-_NAVIGATION_TARGET_FIELDS = _TARGET_FIELDS | {"expected_content_digest"}
+_CONTENT_DIGEST_FIELD = "expected_content_digest"
+_NAVIGATION_TARGET_FIELDS = _TARGET_FIELDS | {_CONTENT_DIGEST_FIELD}
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +89,7 @@ class _PgnNavigationTarget:
             line_path=line_path,  # type: ignore[arg-type]
             move_index=payload["move_index"],  # type: ignore[arg-type]
             expected_record_digest=payload["expected_record_digest"],  # type: ignore[arg-type]
-            expected_content_digest=payload["expected_content_digest"],  # type: ignore[arg-type]
+            expected_content_digest=payload[_CONTENT_DIGEST_FIELD],  # type: ignore[arg-type]
             content_revision=payload["content_revision"],  # type: ignore[arg-type]
         )
 
@@ -107,14 +108,30 @@ class Version2PgnCommands:
     def _target(self, payload, *, require_current=True, workspace=None, allow_root=False):
         target_fields = _NAVIGATION_TARGET_FIELDS if allow_root else _TARGET_FIELDS
         target_payload = {key: payload[key] for key in target_fields}
+        trusted_document_digest = None
         if allow_root:
             request = _PgnNavigationTarget.from_payload(target_payload)
+            trusted_document_digest = request.expected_content_digest
         else:
             request = PgnSelectionExportRequest.from_payload(target_payload)
+            if _CONTENT_DIGEST_FIELD in payload:
+                trusted_document_digest = payload[_CONTENT_DIGEST_FIELD]
+                if (
+                    type(trusted_document_digest) is not str
+                    or len(trusted_document_digest) != 64
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in trusted_document_digest
+                    )
+                ):
+                    raise ValueError("PGN content digest is invalid")
         if workspace is None:
             workspace = self._session().workspace
         view = workspace.view()
-        if allow_root and request.expected_content_digest != view.content_digest:
+        if (
+            trusted_document_digest is not None
+            and trusted_document_digest != view.content_digest
+        ):
             raise ValueError("PGN document is stale")
         if (request.game_index, request.content_revision, request.expected_record_digest) != (
             view.selected_game_index, view.content_revision, view.current_record_digest
@@ -190,6 +207,8 @@ class Version2PgnCommands:
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
+        if _CONTENT_DIGEST_FIELD in payload:
+            allowed.add(_CONTENT_DIGEST_FIELD)
         if action_id == "pgn.comment_edit": allowed.add("text")
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             allowed.update({"parent_path", "parent_move_index", "variation_index"})

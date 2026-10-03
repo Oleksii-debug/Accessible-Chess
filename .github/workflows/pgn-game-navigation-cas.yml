@@ -68,10 +68,10 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
-          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "21127c7337dc6bbba640b2b9044d2d847f6d0787"
-          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "dd6d861576adf6d571d4bdda9d63339850603b89"
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "6100c761953e101c60220bfe3af6d2751be2d403"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "000238346742a277c77c6213dc97e9bd1b39cff4"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "494fa57c5bb41b533e237547c1f6dbad60aac08d"
-          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "f5e3dca6e96c043b7c6bbbbc886cd17549b7470f"
+          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "074a2f2fa2693d07b131291d37038cd52421cf6b"
 
           # Retain the #1443 rendered-state lease and whole-application proof.
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "c7ade6cc8fefdac160235b67291438fa15c689b8"
