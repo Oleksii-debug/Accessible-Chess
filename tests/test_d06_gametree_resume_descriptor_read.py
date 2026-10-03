@@ -212,6 +212,7 @@ class ResumeDescriptorReadTests(unittest.TestCase):
             path.write_bytes(b"old")
             target.write_bytes(b"foreign")
             original_open = gametree_resume.os.open
+            original_read = gametree_resume.os.read
             read_called = False
 
             def swap_then_open(candidate: os.PathLike[str] | str, flags: int) -> int:
@@ -223,7 +224,7 @@ class ResumeDescriptorReadTests(unittest.TestCase):
             def observe_read(fd: int, amount: int) -> bytes:
                 nonlocal read_called
                 read_called = True
-                return os.read(fd, amount)
+                return original_read(fd, amount)
 
             with mock.patch.object(
                 gametree_resume.os,
@@ -237,10 +238,7 @@ class ResumeDescriptorReadTests(unittest.TestCase):
                 with self.assertRaises(GameTreeResumeError) as caught:
                     gametree_resume._read_store_bytes(path)
 
-            self.assertIn(
-                caught.exception.code,
-                {GameTreeResumeCode.IO_FAILURE, GameTreeResumeCode.STALE_WRITER},
-            )
+            self.assertEqual(caught.exception.code, GameTreeResumeCode.IO_FAILURE)
             self.assertFalse(read_called)
 
 
