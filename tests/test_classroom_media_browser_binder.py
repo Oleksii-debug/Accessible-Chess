@@ -21,9 +21,9 @@ from acs.classroom_media_provider_execution import (
     ClassroomMediaProviderExecutionArbiter,
     MediaProviderExecutionOwner,
 )
-from acs.classroom_media_session_handoff import (
-    ClassroomMediaSessionHandoffPort,
-    ClassroomMediaSessionHandoffs,
+from acs.classroom_media_session_transactions import (
+    ClassroomMediaSessionHostTransactions,
+    ClassroomMediaSessionTransactionPort,
 )
 from acs.classroom_realtime_media import (
     ClassroomMediaController,
@@ -75,15 +75,37 @@ def credential(
     )
 
 
+def provider_snapshot(
+    *,
+    connected: bool = True,
+    cleanup_required: bool = False,
+    participant_id: str | None = "student-1",
+    room_id: str | None = "room-1",
+    microphone_enabled: bool = False,
+    camera_enabled: bool = False,
+    screen_share_enabled: bool = False,
+) -> dict[str, object]:
+    return {
+        "connected": connected,
+        "cleanup_required": cleanup_required,
+        "room_id": room_id,
+        "participant_id": participant_id,
+        "microphone_enabled": microphone_enabled,
+        "camera_enabled": camera_enabled,
+        "screen_share_enabled": screen_share_enabled,
+    }
+
+
 class ClassroomMediaBrowserBinderTests(unittest.TestCase):
     def make_binder(
         self,
         *,
         local_participant_id="student-1",
         student_count=2,
+        claim_clock=None,
     ):
         roster = FakeRoster(student_count=student_count)
-        session_port = ClassroomMediaSessionHandoffPort()
+        session_port = ClassroomMediaSessionTransactionPort()
         effect_port = ClassroomMediaHostTransactionPort(
             session_port=session_port,
         )
@@ -103,15 +125,18 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             effect_counter["value"] += 1
             return f"host-{effect_counter['value']:032x}"
 
-        session = ClassroomMediaSessionHandoffs(
-            controller,
-            session_port,
-            transaction_id_factory=session_id,
-        )
         effects = ClassroomMediaHostTransactions(
             controller,
             effect_port,
             transaction_id_factory=effect_id,
+        )
+        session = ClassroomMediaSessionHostTransactions(
+            controller,
+            effect_port,
+            session_port,
+            effects,
+            transaction_id_factory=session_id,
+            clock=claim_clock or (lambda: NOW + timedelta(seconds=1)),
         )
         with mock.patch(
             "acs.classroom_media_provider_execution.secrets.token_hex",
@@ -138,12 +163,12 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             now=NOW + timedelta(seconds=1),
         )
         self.assertIsNotNone(prepared)
-        invocation = binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        invocation = binder.claim_browser_invocation(prepared.lease_id)
         binder.mark_provider_started(prepared.lease_id)
-        result = binder.acknowledge_provider_success(prepared.lease_id)
+        result = binder.acknowledge_provider_success(
+            prepared.lease_id,
+            provider_snapshot=provider_snapshot(participant_id=participant_id),
+        )
         self.assertTrue(result.completed)
         self.assertTrue(result.result.connected)
         self.assertTrue(controller.state.connected)
@@ -162,10 +187,7 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         self.assertEqual(controller.state, before)
         self.assertEqual(arbiter.active_lease.transaction_id, prepared.transaction_id)
 
-        invocation = binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        invocation = binder.claim_browser_invocation(prepared.lease_id)
         self.assertEqual(invocation.method, "connect")
         self.assertEqual(invocation.chunk_index, 0)
         self.assertEqual(
@@ -176,7 +198,10 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         self.assertEqual(controller.state, before)
 
         binder.mark_provider_started(prepared.lease_id)
-        step = binder.acknowledge_provider_success(prepared.lease_id)
+        step = binder.acknowledge_provider_success(
+            prepared.lease_id,
+            provider_snapshot=provider_snapshot(participant_id="student-1"),
+        )
 
         self.assertTrue(step.completed)
         self.assertTrue(step.result.connected)
@@ -191,10 +216,7 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             credential("student-1", "do-not-log-this-token"),
             now=NOW + timedelta(seconds=1),
         )
-        invocation = binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        invocation = binder.claim_browser_invocation(prepared.lease_id)
 
         self.assertIsInstance(invocation, BrowserMediaInvocation)
         self.assertFalse(is_dataclass(invocation))
@@ -208,10 +230,7 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             credential("student-1"),
             now=NOW + timedelta(seconds=1),
         )
-        invocation = binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        invocation = binder.claim_browser_invocation(prepared.lease_id)
         browser_credential = invocation.arguments[0]
 
         with self.assertRaisesRegex(TypeError, "payload is immutable"):
@@ -226,7 +245,9 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         self.assertEqual(invocation.arguments[1], ())
 
     def test_expired_credential_at_dispatch_releases_global_gate_without_exposure(self):
-        controller, session, _effects, arbiter, binder = self.make_binder()
+        controller, session, _effects, arbiter, binder = self.make_binder(
+            claim_clock=lambda: NOW + timedelta(minutes=3),
+        )
         before = controller.state
         prepared = binder.prepare_join(
             credential("student-1"),
@@ -237,10 +258,7 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             Exception,
             "expired before browser handoff",
         ):
-            binder.claim_browser_invocation(
-                prepared.lease_id,
-                now=NOW + timedelta(minutes=3),
-            )
+            binder.claim_browser_invocation(prepared.lease_id)
 
         self.assertEqual(controller.state, before)
         self.assertIsNone(session.pending_effect)
@@ -248,34 +266,25 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         self.assertIsNone(arbiter.active_lease)
         self.assertIsNone(arbiter.recovery_status)
 
-    def test_bad_claim_clock_keeps_same_global_lease_for_safe_retry(self):
-        _controller, session, _effects, arbiter, binder = self.make_binder()
+    def test_bad_claim_clock_retires_transaction_without_secret_exposure(self):
+        def bad_clock():
+            raise RuntimeError("clock unavailable")
+
+        _controller, session, _effects, arbiter, binder = self.make_binder(
+            claim_clock=bad_clock,
+        )
         prepared = binder.prepare_join(
             credential("student-1"),
             now=NOW + timedelta(seconds=1),
         )
 
-        with self.assertRaisesRegex(Exception, "timezone-aware current time"):
-            binder.claim_browser_invocation(
-                prepared.lease_id,
-                now=datetime(2026, 10, 3, 0, 0),
-            )
+        with self.assertRaisesRegex(Exception, "credential clock failed"):
+            binder.claim_browser_invocation(prepared.lease_id)
 
-        self.assertEqual(
-            binder.active_transaction.transaction_id,
-            prepared.transaction_id,
-        )
-        self.assertEqual(
-            session.pending_effect.transaction_id,
-            prepared.transaction_id,
-        )
-        self.assertEqual(arbiter.active_lease.lease_id, prepared.lease_id)
-
-        invocation = binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
-        self.assertEqual(invocation.method, "connect")
+        self.assertIsNone(session.pending_effect)
+        self.assertIsNone(binder.active_transaction)
+        self.assertIsNone(arbiter.active_lease)
+        self.assertIsNone(arbiter.recovery_status)
 
     def test_prepare_validation_failure_releases_global_gate(self):
         _controller, _session, _effects, arbiter, binder = self.make_binder()
@@ -441,24 +450,22 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         self.assertFalse(effects.recovery_status.provider_outcome_unknown)
         self.assertFalse(arbiter.recovery_status.provider_outcome_unknown)
 
-    def test_claimed_session_not_started_latches_known_recovery_before_provider_boundary(self):
+    def test_claimed_session_not_started_latches_unknown_recovery_after_credential_handoff(self):
         _controller, session, _effects, arbiter, binder = self.make_binder()
         prepared = binder.prepare_join(
             credential("student-1"),
             now=NOW + timedelta(seconds=1),
         )
-        binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        binder.claim_browser_invocation(prepared.lease_id)
 
+        self.assertTrue(arbiter.active_lease.provider_boundary_crossed)
         with self.assertRaises(ClassroomMediaBrowserRecoveryRequired):
             binder.provider_not_started(prepared.lease_id)
 
         self.assertIsNotNone(session.recovery_status)
-        self.assertFalse(session.recovery_status.provider_outcome_unknown)
-        self.assertFalse(arbiter.recovery_status.provider_outcome_unknown)
-        self.assertFalse(
+        self.assertTrue(session.recovery_status.provider_outcome_unknown)
+        self.assertTrue(arbiter.recovery_status.provider_outcome_unknown)
+        self.assertTrue(
             arbiter.recovery_status.lease.provider_boundary_crossed
         )
 
@@ -484,16 +491,16 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             credential("student-1"),
             now=NOW + timedelta(seconds=1),
         )
-        binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        binder.claim_browser_invocation(prepared.lease_id)
         binder.mark_provider_started(prepared.lease_id)
 
         binder.session_connection_failed_clean(
             prepared.lease_id,
-            connected=False,
-            cleanup_required=False,
+            provider_snapshot(
+                connected=False,
+                participant_id=None,
+                room_id=None,
+            ),
         )
 
         self.assertEqual(controller.state, before)
@@ -506,28 +513,27 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         )
         self.assertIsNotNone(retry)
 
-    def test_unclean_connection_failure_keeps_transaction_until_unknown_failure_latched(self):
+    def test_unclean_connection_failure_latches_unknown_recovery_globally(self):
         _controller, session, _effects, arbiter, binder = self.make_binder()
         prepared = binder.prepare_join(
             credential("student-1"),
             now=NOW + timedelta(seconds=1),
         )
-        binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        binder.claim_browser_invocation(prepared.lease_id)
         binder.mark_provider_started(prepared.lease_id)
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(ClassroomMediaBrowserRecoveryRequired):
             binder.session_connection_failed_clean(
                 prepared.lease_id,
-                connected=False,
-                cleanup_required=True,
+                provider_snapshot(
+                    connected=False,
+                    cleanup_required=True,
+                    participant_id=None,
+                    room_id=None,
+                ),
             )
 
-        self.assertEqual(binder.active_transaction, prepared)
-        status = binder.provider_failed(prepared.lease_id)
-        self.assertTrue(status.provider_outcome_unknown)
+        self.assertIsNone(binder.active_transaction)
         self.assertTrue(session.recovery_status.provider_outcome_unknown)
         self.assertTrue(arbiter.recovery_status.provider_outcome_unknown)
 
@@ -544,8 +550,11 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         ):
             binder.session_connection_failed_clean(
                 prepared.lease_id,
-                connected=False,
-                cleanup_required=False,
+                provider_snapshot(
+                    connected=False,
+                    participant_id=None,
+                    room_id=None,
+                ),
             )
 
         self.assertEqual(binder.active_transaction, prepared)
@@ -559,10 +568,7 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             credential("student-1"),
             now=NOW + timedelta(seconds=1),
         )
-        binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        binder.claim_browser_invocation(prepared.lease_id)
         binder.mark_provider_started(prepared.lease_id)
         binder.provider_failed(prepared.lease_id)
 
@@ -636,10 +642,7 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         ):
             binder.mark_provider_started(prepared.lease_id)
 
-        binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        binder.claim_browser_invocation(prepared.lease_id)
         binder.mark_provider_started(prepared.lease_id)
         with self.assertRaisesRegex(
             ClassroomMediaBrowserBinderError,
@@ -653,19 +656,13 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
             credential("student-1"),
             now=NOW + timedelta(seconds=1),
         )
-        binder.claim_browser_invocation(
-            prepared.lease_id,
-            now=NOW + timedelta(seconds=1),
-        )
+        binder.claim_browser_invocation(prepared.lease_id)
 
         with self.assertRaisesRegex(
             ClassroomMediaBrowserBinderError,
             "already claimed",
         ):
-            binder.claim_browser_invocation(
-                prepared.lease_id,
-                now=NOW + timedelta(seconds=1),
-            )
+            binder.claim_browser_invocation(prepared.lease_id)
 
     def test_wrong_lease_cannot_mutate_current_transaction(self):
         _controller, _session, _effects, arbiter, binder = self.make_binder()
@@ -675,10 +672,7 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         )
 
         for action in (
-            lambda: binder.claim_browser_invocation(
-                "execution-" + "f" * 32,
-                now=NOW + timedelta(seconds=1),
-            ),
+            lambda: binder.claim_browser_invocation("execution-" + "f" * 32),
             lambda: binder.mark_provider_started("execution-" + "f" * 32),
             lambda: binder.provider_not_started("execution-" + "f" * 32),
         ):
