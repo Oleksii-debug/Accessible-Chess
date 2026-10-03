@@ -1416,6 +1416,11 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_two_upgrade_repairs_missing_hidden_state_at_stream_tail(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-hidden-repair.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=2,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1496,6 +1501,11 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_two_upgrade_rejects_state_for_visible_message(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-visible-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=2,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1550,6 +1560,11 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_two_upgrade_rejects_inconsistent_existing_state(self) -> None:
         path = Path(self.tmp.name) / "schema-v2-inconsistent-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=2,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1587,16 +1602,12 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_one_migration_backfills_hidden_message_state_stream(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-hidden-backfill.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=False,
+        )
         with closing(sqlite3.connect(path)) as db, db:
-            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
-            db.execute("DROP TABLE classroom_chat_server_state_updates")
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
-            )
             db.execute(
                 """
                 INSERT INTO classroom_chat_server_messages(
@@ -1631,16 +1642,12 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_failed_version_one_upgrade_rolls_back_created_state_schema(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-atomic-failure.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=False,
+        )
         with closing(sqlite3.connect(path)) as db, db:
-            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
-            db.execute("DROP TABLE classroom_chat_server_state_updates")
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
-            )
             db.execute(
                 """
                 INSERT INTO classroom_chat_server_messages(
@@ -1694,6 +1701,11 @@ class ClassroomChatServerTests(unittest.TestCase):
     def test_version_one_migration_rejects_nonempty_partial_state_stream(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-partial-state.sqlite3"
         ClassroomChatServerSQLiteStore(path)
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=True,
+        )
         with closing(sqlite3.connect(path)) as db, db:
             db.execute(
                 """
@@ -1719,13 +1731,6 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ) VALUES(?,?,?,1)
                 """,
                 (ROOM, 0, "partial-hidden-message"),
-            )
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
             )
 
         with self.assertRaisesRegex(
@@ -1755,19 +1760,14 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
-    def test_version_one_migration_may_create_only_version_two_state_table(self) -> None:
+    def test_version_one_migration_creates_current_state_table(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-migration.sqlite3"
         ClassroomChatServerSQLiteStore(path)
-        with closing(sqlite3.connect(path)) as db, db:
-            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
-            db.execute("DROP TABLE classroom_chat_server_state_updates")
-            db.execute(
-                """
-                UPDATE classroom_chat_server_meta
-                SET value=1
-                WHERE key='schema_version'
-                """
-            )
+        self._downgrade_to_legacy_schema(
+            path,
+            version=1,
+            keep_state_table=False,
+        )
 
         migrated = ClassroomChatServerSQLiteStore(path)
         migrated.integrity_check()
