@@ -748,7 +748,9 @@ class AcsDatabase:
 
     @staticmethod
     def position_key(fen: str) -> str:
-        parts = (fen or "").strip().split()
+        if type(fen) is not str:
+            raise TypeError("fen must be text")
+        parts = fen.strip().split()
         if len(parts) < 4:
             raise ValueError("FEN must contain at least placement, turn, castling and en-passant fields")
         return " ".join(parts[:4])
