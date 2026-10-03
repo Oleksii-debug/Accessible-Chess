@@ -124,6 +124,42 @@ class V2LibrarySearchServiceV4Tests(unittest.TestCase):
                 FakeDatabase(canonical | {"source_name": TextSubclass("source.pgn")})
             ).search()
 
+        hooks: list[str] = []
+
+        class DictSubclass(dict):
+            def __contains__(self, key):
+                hooks.append(f"contains:{key}")
+                raise AssertionError("row containment hook must not run")
+
+            def __getitem__(self, key):
+                hooks.append(f"getitem:{key}")
+                raise AssertionError("row item hook must not run")
+
+        with self.assertRaisesRegex(TypeError, "search row must be a dictionary"):
+            GameSearchService(FakeDatabase(DictSubclass(canonical))).search()
+        self.assertEqual(hooks, [])
+
+        class LookaheadDatabase:
+            def search_games(self, **_kwargs):
+                return [canonical, canonical | {"id": "2"}]
+
+        with self.assertRaises(TypeError):
+            GameSearchService(LookaheadDatabase()).search(GameSearchQuery(limit=1))
+
+        class ListSubclass(list):
+            def __len__(self):
+                raise AssertionError("result length hook must not run")
+
+            def __iter__(self):
+                raise AssertionError("result iteration hook must not run")
+
+        class HostileResultDatabase:
+            def search_games(self, **_kwargs):
+                return ListSubclass([canonical])
+
+        with self.assertRaisesRegex(TypeError, "search result must be a list"):
+            GameSearchService(HostileResultDatabase()).search()
+
     def test_service_and_direct_api_return_identical_ids_for_unicode_literal_filters(self) -> None:
         with AcsDatabase() as database:
             source_id = database.add_source("equivalence.pgn", "pgn")
