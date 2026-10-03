@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -8,6 +10,7 @@ from unittest import mock
 from acs.classroom_collaboration import ChatDraft, ClassroomCollaborationController
 from acs.classroom_collaboration_outbox import (
     DurableChatDraftOutbox,
+    DurableChatOutboxBusyError,
     DurableChatOutboxError,
     DurableOutboxClassroomCollaborationController,
 )
@@ -130,6 +133,9 @@ class DurableChatOutboxTests(unittest.TestCase):
             room_id="room-1",
             participant_id="student-1",
             storage_scope=str(self.path.resolve()),
+            lock_path=self.path.resolve().with_name(
+                f".{self.path.name}.chat-outbox.lock"
+            ),
             message_lookup=self.lookup,
         )
 
@@ -317,6 +323,7 @@ class DurableChatOutboxTests(unittest.TestCase):
             room_id="room-1",
             participant_id="student-1",
             storage_scope="profile-a",
+            lock_path=Path(self.temp.name).resolve() / ".profile-a.chat-outbox.lock",
             message_lookup=self.lookup,
         )
         second = DurableChatDraftOutbox(
@@ -324,6 +331,7 @@ class DurableChatOutboxTests(unittest.TestCase):
             room_id="room-1",
             participant_id="student-1",
             storage_scope="profile-b",
+            lock_path=Path(self.temp.name).resolve() / ".profile-b.chat-outbox.lock",
             message_lookup=self.lookup,
         )
         self.assertNotEqual(first._slot(0), second._slot(0))
@@ -344,6 +352,100 @@ class DurableChatOutboxTests(unittest.TestCase):
         self.assertNotIn("distinct", slot_name)
         self.assertNotIn("message", slot_name)
         self.assertTrue(slot_name.endswith("-00"))
+
+    def test_peer_lock_blocks_second_process_before_slot_mutation(self) -> None:
+        outbox = self.outbox()
+        script = (
+            "import sys\n"
+            "from acs.classroom_collaboration_outbox import DurableChatDraftOutbox\n"
+            "class S:\n"
+            "    def read(self, name): return None\n"
+            "    def write(self, name, value): pass\n"
+            "    def delete(self, name): return False\n"
+            "o = DurableChatDraftOutbox(secret_store=S(), room_id='room-1', "
+            "participant_id='student-1', storage_scope=sys.argv[2], "
+            "lock_path=sys.argv[1], message_lookup=lambda message_id: None)\n"
+            "with o._peer_lock():\n"
+            "    print('locked', flush=True)\n"
+            "    sys.stdin.readline()\n"
+        )
+        holder = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(outbox._lock_path),
+                str(self.path.resolve()),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert holder.stdout is not None
+            self.assertEqual(holder.stdout.readline().strip(), "locked")
+            with self.assertRaisesRegex(
+                DurableChatOutboxBusyError,
+                "busy",
+            ):
+                outbox.prepare(
+                    ChatDraft(
+                        message_id="message-contended",
+                        room_id="room-1",
+                        sender_id="student-1",
+                        body="Must not overwrite a peer slot",
+                    )
+                )
+            self.assertEqual(self.secrets.values, {})
+        finally:
+            if holder.stdin is not None:
+                holder.stdin.write("\n")
+                holder.stdin.flush()
+            _stdout, stderr = holder.communicate(timeout=15)
+            self.assertEqual(holder.returncode, 0, stderr)
+
+    def test_peer_lock_is_released_when_owner_process_crashes(self) -> None:
+        outbox = self.outbox()
+        script = (
+            "import os, sys\n"
+            "from acs.classroom_collaboration_outbox import DurableChatDraftOutbox\n"
+            "class S:\n"
+            "    def read(self, name): return None\n"
+            "    def write(self, name, value): pass\n"
+            "    def delete(self, name): return False\n"
+            "o = DurableChatDraftOutbox(secret_store=S(), room_id='room-1', "
+            "participant_id='student-1', storage_scope=sys.argv[2], "
+            "lock_path=sys.argv[1], message_lookup=lambda message_id: None)\n"
+            "with o._peer_lock():\n"
+            "    print('locked', flush=True)\n"
+            "    os._exit(0)\n"
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(outbox._lock_path),
+                str(self.path.resolve()),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("locked", completed.stdout)
+
+        draft = ChatDraft(
+            message_id="message-after-peer-crash",
+            room_id="room-1",
+            sender_id="student-1",
+            body="Crash-released lock",
+        )
+        resolved = outbox.prepare(draft)
+        self.assertEqual(resolved.draft, draft)
+        self.assertEqual(len(self.secrets.values), 1)
+        self.assertTrue(outbox._lock_path.is_file())
 
     def test_non_windows_runtime_preserves_exact_canonical_controller(self) -> None:
         target = Path(self.temp.name) / "plain-runtime.sqlite3"
@@ -390,6 +492,11 @@ class DurableChatOutboxTests(unittest.TestCase):
         self.assertIsInstance(
             runtime.controller,
             DurableOutboxClassroomCollaborationController,
+        )
+        assert runtime.chat_outbox is not None
+        self.assertEqual(
+            runtime.chat_outbox._lock_path,
+            target.resolve().with_name(f".{target.name}.chat-outbox.lock"),
         )
         self.assertTrue(target.exists())
 
