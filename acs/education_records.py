@@ -215,15 +215,16 @@ class EducationLedger:
 
     def to_record(self) -> dict[str, Any]:
         body = self._body()
-        body["digest"] = _digest(body)
+        # A record returned by this authority must always be reopenable through
+        # from_record()/from_json() under the same aggregate wire budget.
+        body["digest"] = _digest(body, max_bytes=MAX_SNAPSHOT_BYTES)
+        _digest(body, max_bytes=MAX_SNAPSHOT_BYTES)
         return body
 
     def to_json(self) -> str:
-        record = self.to_record()
-        # Prove the complete canonical wire record is within budget before
-        # materializing the returned JSON string.
-        _digest(record, max_bytes=MAX_SNAPSHOT_BYTES)
-        return _canonical_json(record)
+        # to_record() proves the complete canonical wire record is within
+        # budget before the returned JSON string is materialized.
+        return _canonical_json(self.to_record())
 
     @classmethod
     def from_record(cls, value: Mapping[str, Any]) -> "EducationLedger":
