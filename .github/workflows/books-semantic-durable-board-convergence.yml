@@ -116,7 +116,7 @@ jobs:
               'tests/test_w3_p0f_starter_books_training_content.py' \
               'web/full_product_books_training.js' \
               'web/version2_release_bootstrap.js' \
-              '.github/workflows/books-semantic-durable-board-convergence.yml' \            | sort)"
+              '.github/workflows/books-semantic-durable-board-convergence.yml' | sort)"
             test "$changed" = "$expected"
             git diff --check "$semantic_head" HEAD
           else
