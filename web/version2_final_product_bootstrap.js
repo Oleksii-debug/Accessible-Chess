@@ -302,6 +302,12 @@
         if (items.length && items[0].dom_id) return String(items[0].dom_id);
       }
     }
+    if (routeId === "classes" && snapshot.media && typeof snapshot.media === "object") {
+      const own = snapshot.media.own && typeof snapshot.media.own === "object" ? snapshot.media.own : {};
+      const actions = Array.isArray(own.actions) ? own.actions : [];
+      if (actions.length && actions[0].id) return String(actions[0].id);
+      return "classroom-media-heading";
+    }
     return emptyStatusId(routeId);
   }
 
@@ -447,6 +453,27 @@
         );
       } else {
         renderEmptyProduct(routeId, heading);
+      }
+      // Realtime media has an independent canonical owner. Keep own mic/camera
+      // controls and moderation reachable even when the Education workspace is
+      // in recovery, while rendering an explicit unavailable media section when
+      // no media binding exists.
+      if (global.AccessibleChessClassroomMediaSurface &&
+          typeof global.AccessibleChessClassroomMediaSurface.mount === "function") {
+        const mediaStatus = snapshot.product_status && typeof snapshot.product_status === "object"
+          ? snapshot.product_status
+          : {};
+        global.AccessibleChessClassroomMediaSurface.mount(
+          workspace,
+          snapshot.media || null,
+          areaInvoke("media"),
+          announce,
+          currentLanguage,
+          {
+            binding_active: mediaStatus.media_binding_active === true,
+            recovery_required: mediaStatus.media_recovery_required === true
+          }
+        );
       }
     }
 
