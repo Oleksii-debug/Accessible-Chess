@@ -2132,21 +2132,28 @@ class ClassroomChatServerTests(unittest.TestCase):
             )
         self.assertIsNone(raised.exception.__cause__)
 
-    def test_workflow_scope_uses_immutable_pull_request_base(self) -> None:
+    def test_workflow_scope_uses_live_stacked_base_with_event_ancestry_guard(self) -> None:
         workflow = CHAT_SERVER_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(
             "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
             workflow,
         )
         self.assertIn(
-            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD',
             workflow,
         )
         self.assertIn(
-            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            'LIVE_BASE_SHA="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"',
             workflow,
         )
-        self.assertNotIn("refs/remotes/origin/$PR_BASE_REF", workflow)
+        self.assertIn(
+            'git diff --name-only "$LIVE_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$LIVE_BASE_SHA...HEAD"',
+            workflow,
+        )
 
     def test_server_history_bound_matches_canonical_client_sync_page(self) -> None:
         self.assertEqual(MAX_SYNC_MESSAGES, MAX_SERVER_HISTORY_MESSAGES)
@@ -2309,12 +2316,15 @@ class ClassroomChatServerTests(unittest.TestCase):
         ):
             self.send(self.draft("after-max"))
 
-        history = self.store.history_after(
-            room_id=ROOM,
-            after_sequence=None,
-            limit=10,
-        )
-        self.assertEqual(("max-sequence",), tuple(item.message_id for item in history))
+        with closing(sqlite3.connect(self.path)) as db:
+            rows = db.execute(
+                """
+                SELECT message_id FROM classroom_chat_server_messages
+                WHERE room_id=? ORDER BY sequence_no
+                """,
+                (ROOM,),
+            ).fetchall()
+        self.assertEqual([("max-sequence",)], rows)
 
     def test_moderation_revision_exhaustion_rolls_back_hide_and_operation(self) -> None:
         sent = self.send(self.draft("revision-target"))
