@@ -25,7 +25,11 @@ from .classroom_media_webview_transactions import (
     ClassroomMediaBrowserProviderConfig,
     ClassroomMediaTransactionalWebView,
 )
-from .classroom_realtime_media import ClassroomMediaController, JoinCredential
+from .classroom_realtime_media import (
+    ClassroomMediaController,
+    ClassroomMediaError,
+    JoinCredential,
+)
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -759,6 +763,37 @@ class Version2FinalProductApplication(Version2Application):
         rendered = asdict(event)
         self._events.append(rendered)
         return rendered
+
+    def _classroom_media_join_http_failure_event(self) -> dict[str, object]:
+        announcement = (
+            "Не вдалося отримати облікові дані для медіасеансу класу."
+            if self.shell.language is UILanguage.UA
+            else "Could not obtain classroom media credentials."
+        )
+        return {
+            "kind": "status",
+            "payload": {"announcement": announcement},
+        }
+
+    def drain_events(self):
+        """Settle ready join HTTP work on the existing native/UI event pump."""
+
+        self._assert_thread()
+        pending = getattr(self, "_media_join_http_pending", None)
+        if pending is not None and pending.future.done():
+            try:
+                self.finish_classroom_media_join_http(pending.request_id)
+            except (
+                ClassroomJoinHttpClientError,
+                ClassroomMediaError,
+                RuntimeError,
+                ValueError,
+            ):
+                # Network/auth/session drift is intentionally secret-free here.
+                # Core chess and classroom presentation remain usable; the
+                # trusted host may start a fresh credential request afterwards.
+                self._events.append(self._classroom_media_join_http_failure_event())
+        return super().drain_events()
 
     def shutdown(self, timeout: float | None = None):
         """Retire any join HTTP completion before shared application shutdown."""
