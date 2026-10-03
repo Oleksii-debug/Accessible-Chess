@@ -176,6 +176,42 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         self.assertNotIn("c:\\", text)
         self.assertNotIn("private", text)
 
+    def test_failed_replacement_search_preserves_committed_query_page_and_selection(self) -> None:
+        service, presenter, projection, _bridge, _calls = self.build()
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        before = projection.search(committed_query).payload["snapshot"]
+        self.assertEqual("ready", before["status"])
+        self.assertEqual(1, before["selected_game_id"])
+
+        def fail_search(_query):
+            raise RuntimeError(r"sqlite failure at C:\private\library.db")
+
+        service.search = fail_search
+        attempted = projection.search(GameSearchQuery(player="Changed", limit=25))
+        self.assertEqual("error", attempted.payload["snapshot"]["status"])
+        self.assertEqual(committed_query, projection.query)
+
+        after = projection.snapshot()
+        self.assertEqual("ready", after["status"])
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(before["filters"], after["filters"])
+        self.assertEqual(SurfaceStatus.READY, presenter.view().status)
+
+    def test_failed_reset_preserves_committed_nondefault_filters(self) -> None:
+        service, _presenter, projection, _bridge, _calls = self.build()
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        before = projection.search(committed_query).payload["snapshot"]
+
+        def fail_search(_query):
+            raise PermissionError(r"C:\private\library.db")
+
+        service.search = fail_search
+        failed = projection.reset_filters()
+        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        self.assertEqual(committed_query, projection.query)
+        self.assertEqual(before, projection.snapshot())
+
     def test_bridge_rejects_cursor_and_unknown_fields_without_reflecting_values(self) -> None:
         _service, _presenter, _projection, bridge, _calls = self.build()
         for payload in (
