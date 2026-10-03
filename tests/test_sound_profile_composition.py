@@ -16,6 +16,7 @@ from acs.sound_pack_catalog import (
 )
 from acs.sound_pack_store import FilesystemSoundPackStore
 from acs.sound_profile_composition import (
+    _installed_pack_inventory,
     _local_pack_resolver,
     _playable_installed_packs,
     _windows_pack_is_playable,
@@ -424,6 +425,10 @@ class LocalSoundCompositionTests(unittest.TestCase):
         self.assertFalse(_windows_pack_is_playable(ogg))
         self.assertEqual("local.wav", _local_pack_resolver(store)("local.wav"))
         self.assertEqual("classic", _local_pack_resolver(store)("local.ogg"))
+        self.assertEqual(
+            {"local.wav": wav, "local.ogg": ogg},
+            _installed_pack_inventory(store),
+        )
         self.assertEqual({"local.wav": wav}, _playable_installed_packs(store))
 
     def test_optional_pack_inventory_failure_does_not_break_classic_startup(self) -> None:
