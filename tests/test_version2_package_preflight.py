@@ -739,6 +739,8 @@ class Version2PackagePreflightTests(unittest.TestCase):
             "LPT¹.txt",
             "lpt².bin",
             "Lpt³.dat",
+            "CONIN$.txt",
+            "conout$.bin",
         )
         for name in reserved:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
