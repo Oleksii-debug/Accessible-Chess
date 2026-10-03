@@ -29,6 +29,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
 _MAX_BOOK_SEMANTIC_TAGS = 4_096
+_MAX_BOOK_SEMANTIC_COMMENT_ENTRIES = 10_000
 
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
@@ -107,6 +108,19 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticTreeError("book semantic GameTree exceeds the visible-text budget")
             return text
 
+        semantic_comment_entries = 0
+
+        def safe_comment(value: object) -> str:
+            nonlocal semantic_comment_entries
+            text = safe(value)
+            if text:
+                semantic_comment_entries += 1
+                if semantic_comment_entries > _MAX_BOOK_SEMANTIC_COMMENT_ENTRIES:
+                    raise _BookSemanticTreeError(
+                        "book semantic GameTree exceeds the comment entry limit"
+                    )
+            return text
+
         labels = _SEMANTIC_TREE_LABELS[self.language]
         if len(view.tags) > _MAX_BOOK_SEMANTIC_TAGS:
             raise _BookSemanticTreeError(
@@ -125,7 +139,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
         intro_comments = tuple(
             comment
-            for comment in (safe(raw.text) for raw in game.line.leading_comments)
+            for comment in (safe_comment(raw.text) for raw in game.line.leading_comments)
             if comment
         )
 
@@ -151,12 +165,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             if item.kind == "move":
                 comments_before = tuple(
                     comment
-                    for comment in (safe(raw) for raw in item.comments_before)
+                    for comment in (safe_comment(raw) for raw in item.comments_before)
                     if comment
                 )
                 comments_after = tuple(
                     comment
-                    for comment in (safe(raw) for raw in item.comments_after)
+                    for comment in (safe_comment(raw) for raw in item.comments_after)
                     if comment
                 )
                 comments = ()
@@ -165,12 +179,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 comments_after = ()
                 comments = tuple(
                     comment
-                    for comment in (safe(raw) for raw in item.comments)
+                    for comment in (safe_comment(raw) for raw in item.comments)
                     if comment
                 )
             trailing_comments = tuple(
                 comment
-                for comment in (safe(raw) for raw in item.trailing_comments)
+                for comment in (safe_comment(raw) for raw in item.trailing_comments)
                 if comment
             )
             result = ""
@@ -200,12 +214,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
         outro_comments = tuple(
             comment
-            for comment in (safe(raw.text) for raw in game.line.trailing_comments)
+            for comment in (safe_comment(raw.text) for raw in game.line.trailing_comments)
             if comment
         )
         warnings = tuple(
             warning
-            for warning in (safe(raw) for raw in workflow_warnings)
+            for warning in (safe_comment(raw) for raw in workflow_warnings)
             if warning
         )
         players = safe(view.title)
