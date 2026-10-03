@@ -780,6 +780,52 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 self._prepare(output)
         self._assert_no_publication(output)
 
+    def test_link_like_output_grandparent_is_rejected(self) -> None:
+        grandparent = self.root / "publication-root"
+        grandparent.mkdir()
+        parent = grandparent / "nested"
+        output = parent / "payload"
+        original = payload._is_link_like
+
+        def fake_is_link_like(path: Path) -> bool:
+            if path == grandparent:
+                return True
+            return original(path)
+
+        with patch.object(payload, "_is_link_like", side_effect=fake_is_link_like):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload parent must be a real directory",
+            ):
+                self._prepare(output)
+        self._assert_no_publication(output)
+        self.assertFalse(parent.exists())
+
+    def test_output_appearing_during_release_staging_is_not_overwritten(self) -> None:
+        output = self.root / "payload-race"
+        original_lexists = payload.os.path.lexists
+        output_checks = 0
+
+        def fake_lexists(path: object) -> bool:
+            nonlocal output_checks
+            if Path(path) == output:
+                output_checks += 1
+                return output_checks >= 2
+            return original_lexists(path)
+
+        with patch.object(payload.os.path, "lexists", side_effect=fake_lexists):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload root appeared during staging",
+            ):
+                self._prepare(output)
+
+        self._assert_no_publication(output)
+        self.assertEqual(
+            list(output.parent.glob(f".{output.name}.payload-*")),
+            [],
+        )
+
     def test_existing_output_is_never_overwritten(self) -> None:
         output = self.root / "payload"
         output.mkdir()
