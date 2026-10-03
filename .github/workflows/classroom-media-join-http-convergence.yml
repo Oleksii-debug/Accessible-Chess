@@ -3,7 +3,7 @@ name: Classroom Media Join HTTP Convergence
 on:
   pull_request:
     branches:
-      - fix/classroom-media-clean-ack-recovery-20261003
+      - integrate/classroom-media-shipping-webview-20261003
     paths:
       - 'acs/classroom_join_credentials.py'
       - 'acs/classroom_join_http_client.py'
@@ -50,7 +50,7 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          test "$BASE_REF" = "fix/classroom-media-clean-ack-recovery-20261003"
+          test "$BASE_REF" = "integrate/classroom-media-shipping-webview-20261003"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           git cat-file -e "$BASE_SHA^{commit}"
           git merge-base --is-ancestor "$BASE_SHA" HEAD
@@ -91,14 +91,17 @@ jobs:
           acs/classroom_join_credentials.py
           acs/classroom_join_http_client.py
           acs/classroom_join_http_endpoint.py
+          acs/livekit_join_token_issuer.py
           acs/version2_final_product_application.py
           tests/test_classroom_join_http_client.py
+          tests/test_classroom_join_http_endpoint.py
           tests/test_classroom_media_join_http_composition.py
 
       - name: Run focused media/join contracts
         run: >-
           python -m unittest -v
           tests.test_classroom_join_http_client
+          tests.test_classroom_join_http_endpoint
           tests.test_classroom_media_join_http_composition
           tests.test_classroom_media_shipping_webview
 
