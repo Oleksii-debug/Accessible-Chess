@@ -1,0 +1,117 @@
+name: PGN Presentation Lease
+
+on:
+  pull_request:
+    branches:
+      - 'fix/pgn-stale-browser-command-recovery-20261003'
+    paths:
+      - '.github/workflows/pgn-presentation-lease.yml'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'web/full_product_pgn.js'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/js/pgn_tree_keyboard_dom_test.js'
+      - 'tests/test_version2_application.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-presentation-lease-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  presentation-lease:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove live #1439 parent and exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          parent_branch='fix/pgn-stale-browser-command-recovery-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin             "+refs/heads/$parent_branch:refs/remotes/origin/$parent_branch"
+          live_parent="$(git rev-parse "refs/remotes/origin/$parent_branch")"
+          git merge-base --is-ancestor "$live_parent" HEAD
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_parent"
+            test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+            changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+            expected="$(printf '%s\n'               '.github/workflows/pgn-presentation-lease.yml'               'acs/pgn_webview_bridge.py'               'acs/pgn_webview_projection.py'               'acs/pgn_workspace_webview_adapter.py'               'tests/js/pgn_tree_keyboard_dom_test.js'               'tests/test_dev1_pgn_workspace_webview_adapter.py'               'tests/test_version2_application.py'               'web/full_product_pgn.js' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_parent" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "e7babdd65abafd5293d68a4e76f5fb9bef292eff"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "c7ade6cc8fefdac160235b67291438fa15c689b8"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "10b604853608b6f1310888d04322dd5740622789"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "021aa2d66cfb01e6481cadb8911cba957f6b9d6a"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "4ff578e64bd0de7a6faade2355c616067c937f74"
+          test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "7095b7007e0df977901bb2c148f982beeccac413"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "20ddb93b03ee86073c41e96ad4713df9a41085af"
+
+          # Retain the unchanged browser and canonical command authorities.
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "7b701dd0a28ade8093dc8c99d91ba7cedee8d109"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "ad2cb1879868c73729d4895f229b3bd63245b288"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "300c0e71d1d714a51722ca4d517235be282bf9ae"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_atomicity.py)" = "dd84ea984555921eeed600a4b2f4e419cbb6fe75"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "2b2c655c82f2427b046eb63d7925e4ceb9c303d4"
+
+      - name: Validate browser lease and retained keyboard semantics
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile presentation lease boundary
+        run: >-
+          python -m py_compile
+          acs/pgn_webview_projection.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_workspace_webview_adapter.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_version2_application.py
+
+      - name: Prove stale-render lease and retained whole-product PGN flow
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_webview_atomicity
+          tests.test_version2_pgn_commands
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_v2_pgn_nested_comment_recovery
+          tests.test_version2_application
+
+      - name: Verify tracked diff
+        shell: bash
+        run: git diff --check
