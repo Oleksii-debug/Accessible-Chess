@@ -372,7 +372,7 @@ function installNewGameVisualSequence() {
             const chord = typeof eventChord === 'function' ? eventChord(event) : 'Ctrl+N';
             if (typeof resolveBinding === 'function') {
                 void resolveBinding(chord, 'document', 'document').then(action => {
-                    if (!action || action.actionId !== 'file.new') return;
+                    if (!action || !action.actionId) return;
                     const execute = window.executeAction;
                     if (typeof execute === 'function') void execute(action.actionId);
                 });
