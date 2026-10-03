@@ -47,6 +47,11 @@ class Roster:
             raise KeyError(participant_id)
         return "student"
 
+    def board_control_allowed(self, participant_id: str) -> bool:
+        if participant_id != "student-1":
+            raise KeyError(participant_id)
+        return True
+
 
 class NeverUsedFiles:
     pass
