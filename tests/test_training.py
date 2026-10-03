@@ -179,6 +179,67 @@ class ExerciseSessionTests(unittest.TestCase):
                 OversizedSteps(),  # type: ignore[arg-type]
             )
 
+    def test_unsized_definition_iterables_remain_supported_but_bounded(self):
+        steps = (
+            step
+            for step in (
+                ExerciseStep(frozenset({"e4"})),
+                ExerciseStep(frozenset({"e5"})),
+            )
+        )
+        tags = (tag for tag in ("Opening", "Calculation"))
+        definition = ExerciseDefinition(
+            "generator-definition",
+            Board.START,
+            steps,  # type: ignore[arg-type]
+            tags=tags,  # type: ignore[arg-type]
+        )
+        self.assertEqual(2, len(definition.steps))
+        self.assertEqual(("opening", "calculation"), definition.tags)
+
+        yielded_steps = 0
+
+        def endless_steps():
+            nonlocal yielded_steps
+            step = ExerciseStep(frozenset({"e4"}))
+            while True:
+                yielded_steps += 1
+                yield step
+
+        with self.assertRaisesRegex(ValueError, "too many steps"):
+            ExerciseDefinition(
+                "endless-steps",
+                Board.START,
+                endless_steps(),  # type: ignore[arg-type]
+            )
+        self.assertEqual(2049, yielded_steps)
+
+        yielded_tags = 0
+
+        def endless_tags():
+            nonlocal yielded_tags
+            while True:
+                yielded_tags += 1
+                yield "tag"
+
+        with self.assertRaisesRegex(ValueError, "too many tags"):
+            ExerciseDefinition(
+                "endless-tags",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                tags=endless_tags(),  # type: ignore[arg-type]
+            )
+        self.assertEqual(257, yielded_tags)
+
+    def test_source_id_type_contract_is_preserved(self):
+        with self.assertRaisesRegex(TypeError, "source_id must be a string or None"):
+            ExerciseDefinition(
+                "bad-source-id",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                source_id=True,  # type: ignore[arg-type]
+            )
+
     def test_definition_tag_count_precedes_tag_iteration(self):
         class OversizedTags:
             def __len__(self):
