@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import traceback
 import unittest
+from unittest.mock import patch
 
 from acs.classroom_join_credentials import ClassroomJoinGrant
 from acs.classroom_media_policy_authority import (
@@ -766,6 +767,35 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_failed_connection_setup_closes_opened_sqlite_handle(self):
+        class FailingPragmaConnection:
+            def __init__(self):
+                self.closed = False
+
+            def execute(self, statement):
+                if statement == "PRAGMA synchronous=FULL":
+                    raise sqlite3.OperationalError("private policy pragma failure")
+                return self
+
+            def close(self):
+                self.closed = True
+
+        authority = self.authority()
+        failing = FailingPragmaConnection()
+        with patch(
+            "acs.classroom_media_policy_authority.sqlite3.connect",
+            return_value=failing,
+        ):
+            with self.assertRaisesRegex(
+                ClassroomMediaPolicyError,
+                "^media policy storage is unavailable$",
+            ) as caught:
+                authority._connect()
+
+        self.assertTrue(failing.closed)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn("private policy pragma failure", str(caught.exception))
 
     def test_storage_contract_is_file_backed_wal_and_path_redacted(self):
         authority = self.authority()
