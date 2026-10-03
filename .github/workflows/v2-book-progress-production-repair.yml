@@ -41,7 +41,7 @@ jobs:
       CURRENT_STORE_BLOB: 4e3a96e1d2f64b8d79121ca2780dd8d260440491
       CURRENT_APPLICATION_BLOB: da0ebdc4fbf30c7963270a4c35f660a4044e9312
       CURRENT_BASE_TEST_BLOB: 0f7a06cdefe999ed98f16eeac894046366096b9e
-      CURRENT_APPLICATION_TEST_BLOB: 0c14b372cd2c75818c7a754825a835869855abcc
+      CURRENT_APPLICATION_TEST_BLOB: 9705793acb3ee458e01482e9aab5d46c9a8b4844
       CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -255,9 +255,13 @@ jobs:
             exit 1
           fi
 
-          # Every accepted topology must retain the current BookProgress owner
-          # and exact current owned blobs.
-          git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
+          # Product-line topologies must retain the historical owner commit.
+          # Current Books is a divergent canonical line, so ancestry to the
+          # Product-only owner is neither required nor possible; exact blob
+          # identity plus live-Books ancestry is the authority there.
+          if [ "$current_books_recovery" != true ]; then
+            git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
+          fi
           test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
           if [ "$current_books_recovery" = true ]; then
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
