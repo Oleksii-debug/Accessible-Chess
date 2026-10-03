@@ -121,6 +121,43 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertTrue(availability["previous_position"])
         self.assertTrue(availability["previous_game"])
 
+    def test_navigation_availability_exactly_matches_every_navigation_command(self) -> None:
+        document = self.make_document()
+        commands = (
+            ("previous", "previous_block", -1),
+            ("next", "next_block", 1),
+            ("previous_heading", "previous_heading", -1),
+            ("next_heading", "next_heading", 1),
+            ("previous_position", "previous_position", -1),
+            ("next_position", "next_position", 1),
+            ("previous_game", "previous_game", -1),
+            ("next_game", "next_game", 1),
+        )
+
+        for index in range(len(document.blocks)):
+            for availability_key, method_name, direction in commands:
+                with self.subTest(
+                    index=index,
+                    availability_key=availability_key,
+                ):
+                    reader = BookReader(document)
+                    reader.go_to(index)
+                    before = reader.location()
+                    availability = reader.navigation_availability()
+                    self.assertEqual(before, reader.location())
+
+                    command = getattr(reader, method_name)
+                    if availability[availability_key]:
+                        reached = command()
+                        self.assertGreater(
+                            (reached.index - index) * direction,
+                            0,
+                        )
+                    else:
+                        with self.assertRaises(LookupError):
+                            command()
+                        self.assertEqual(before, reader.location())
+
     def test_navigation_availability_scans_each_direction_at_most_once(self) -> None:
         document = self.make_document()
         reader = BookReader(document)
