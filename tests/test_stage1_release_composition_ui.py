@@ -309,6 +309,10 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("document.addEventListener('pointerdown'", text)
         self.assertIn("window.startNewGameVisualSequence = startNewGameVisualSequence", text)
         self.assertIn("stage1-new-game-animating", text)
+        self.assertIn("STANDARD_START_FEN", text)
+        self.assertIn("event.ctrlKey", text)
+        self.assertIn("key === 'n'", text)
+        self.assertIn("void execute('file.new')", text)
 
         menu = (self.root / "acs" / "ui_native_menu.py").read_text(encoding="utf-8")
         self.assertIn('getattr(fn, "__name__", "") == "new_game"', menu)
