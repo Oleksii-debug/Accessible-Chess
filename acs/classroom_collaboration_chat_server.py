@@ -159,14 +159,92 @@ class ClassroomChatServerSQLiteStore:
     def __init__(self, database_path: str | Path) -> None:
         if not isinstance(database_path, (str, Path)):
             raise TypeError("database_path must be str or pathlib.Path")
-        self._path = str(database_path)
+        path = str(database_path)
+        if path in {"", ":memory:"}:
+            raise ClassroomChatServerError(
+                "durable classroom chat server database path is required"
+            )
+        self._path = path
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self._path, timeout=30.0)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        db: sqlite3.Connection | None = None
+        try:
+            db = sqlite3.connect(self._path, timeout=30.0)
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys=ON")
+            return db
+        except sqlite3.Error:
+            if db is not None:
+                db.close()
+            raise ClassroomChatServerError(
+                "classroom chat server database open failed"
+            ) from None
+
+    @staticmethod
+    def _validate_no_authority_triggers(db: sqlite3.Connection) -> None:
+        trigger_row = db.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type='trigger'
+              AND (
+                name LIKE 'classroom_chat_server_%'
+                OR tbl_name LIKE 'classroom_chat_server_%'
+              )
+            LIMIT 1
+            """
+        ).fetchone()
+        if trigger_row is not None:
+            raise ClassroomChatServerError(
+                "classroom chat server schema contains unsupported trigger"
+            )
+
+    @staticmethod
+    def _validate_room_hidden_state(
+        db: sqlite3.Connection,
+        room_id: str,
+    ) -> None:
+        message_mismatch = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_messages AS m
+            LEFT JOIN classroom_chat_server_state_updates AS s
+              ON s.room_id=m.room_id AND s.message_id=m.message_id
+            WHERE m.room_id=?
+            GROUP BY m.message_id, m.hidden
+            HAVING typeof(m.hidden) != 'integer'
+                OR m.hidden NOT IN (0,1)
+                OR (m.hidden=1 AND COUNT(s.message_id) != 1)
+                OR (m.hidden=0 AND COUNT(s.message_id) != 0)
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if message_mismatch is not None:
+            raise ClassroomChatServerError(
+                "stored hidden message state is inconsistent"
+            )
+
+        state_mismatch = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_state_updates AS s
+            LEFT JOIN classroom_chat_server_messages AS m
+              ON m.room_id=s.room_id AND m.message_id=s.message_id
+            WHERE s.room_id=?
+              AND (
+                m.message_id IS NULL
+                OR typeof(s.hidden) != 'integer'
+                OR s.hidden != 1
+              )
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if state_mismatch is not None:
+            raise ClassroomChatServerError(
+                "stored moderation state is inconsistent"
+            )
 
     @staticmethod
     def _validate_schema_shape(
@@ -351,6 +429,12 @@ class ClassroomChatServerSQLiteStore:
                 # atomic unit. sqlite3.executescript() would implicitly commit
                 # before running its script and can leave a half-migrated DB.
                 db.execute("BEGIN IMMEDIATE")
+                # Persistent triggers on any canonical authority table can
+                # mutate or erase otherwise validated writes after this code has
+                # computed sequence/idempotency state. They are never part of the
+                # supported schema, so fail closed before migration or repair.
+                self._validate_no_authority_triggers(db)
+
                 namespace_rows = db.execute(
                     """
                     SELECT name FROM sqlite_master
@@ -555,10 +639,13 @@ class ClassroomChatServerSQLiteStore:
             raise ClassroomChatServerError("chat draft type is invalid")
         try:
             with closing(self._connect()) as db:
+                self._validate_room_hidden_state(db, draft.room_id)
                 row = db.execute(
                     "SELECT * FROM classroom_chat_server_messages WHERE message_id=?",
                     (draft.message_id,),
                 ).fetchone()
+        except ClassroomChatServerError:
+            raise
         except sqlite3.Error:
             raise ClassroomChatServerError(
                 "classroom chat server message read failed"
@@ -584,6 +671,8 @@ class ClassroomChatServerSQLiteStore:
         with closing(self._connect()) as db:
             try:
                 db.execute("BEGIN IMMEDIATE")
+                self._validate_no_authority_triggers(db)
+                self._validate_room_hidden_state(db, draft.room_id)
                 existing = db.execute(
                     "SELECT * FROM classroom_chat_server_messages WHERE message_id=?",
                     (draft.message_id,),
@@ -707,12 +796,53 @@ class ClassroomChatServerSQLiteStore:
         params.append(bounded)
         try:
             with closing(self._connect()) as db:
+                stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count, MAX(sequence_no) AS maximum_sequence
+                    FROM classroom_chat_server_messages
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                item_count = stats["item_count"]
+                maximum_sequence = stats["maximum_sequence"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomChatServerError(
+                        "stored message count is invalid"
+                    )
+                if maximum_sequence is None:
+                    if item_count != 0:
+                        raise ClassroomChatServerError(
+                            "stored message sequence is not contiguous"
+                        )
+                else:
+                    _stored_nonnegative_integer(
+                        maximum_sequence,
+                        "message sequence",
+                        maximum=MAX_WIRE_INTEGER,
+                    )
+                    if maximum_sequence + 1 != item_count:
+                        raise ClassroomChatServerError(
+                            "stored message sequence is not contiguous"
+                        )
+                self._validate_room_hidden_state(db, room)
                 rows = db.execute(sql, tuple(params)).fetchall()
+        except ClassroomChatServerError:
+            raise
         except sqlite3.Error:
             raise ClassroomChatServerError(
                 "classroom chat server history read failed"
             ) from None
-        return tuple(self._row_message(row) for row in rows)
+
+        decoded = tuple(self._row_message(row) for row in rows)
+        expected = 0 if after is None else after + 1
+        for message in decoded:
+            if message.sequence_no != expected:
+                raise ClassroomChatServerError(
+                    "stored message history is not contiguous"
+                )
+            expected += 1
+        return decoded
 
     def state_updates_after(
         self,
@@ -740,7 +870,39 @@ class ClassroomChatServerSQLiteStore:
         params.append(bounded)
         try:
             with closing(self._connect()) as db:
+                stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count, MAX(revision) AS maximum_revision
+                    FROM classroom_chat_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                item_count = stats["item_count"]
+                maximum_revision = stats["maximum_revision"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomChatServerError(
+                        "stored moderation revision count is invalid"
+                    )
+                if maximum_revision is None:
+                    if item_count != 0:
+                        raise ClassroomChatServerError(
+                            "stored moderation revision is not contiguous"
+                        )
+                else:
+                    _stored_nonnegative_integer(
+                        maximum_revision,
+                        "moderation revision",
+                        maximum=MAX_WIRE_INTEGER,
+                    )
+                    if maximum_revision + 1 != item_count:
+                        raise ClassroomChatServerError(
+                            "stored moderation revision is not contiguous"
+                        )
+                self._validate_room_hidden_state(db, room)
                 rows = db.execute(sql, tuple(params)).fetchall()
+        except ClassroomChatServerError:
+            raise
         except sqlite3.Error:
             raise ClassroomChatServerError(
                 "classroom chat server state history read failed"
@@ -769,6 +931,13 @@ class ClassroomChatServerSQLiteStore:
                 raise ClassroomChatServerError(
                     "stored classroom chat state update is invalid"
                 ) from None
+        expected = 0 if after_revision is None else after_revision + 1
+        for update in decoded:
+            if update.revision != expected:
+                raise ClassroomChatServerError(
+                    "stored moderation state history is not contiguous"
+                )
+            expected += 1
         return tuple(decoded)
 
     def apply_moderation(
@@ -789,6 +958,8 @@ class ClassroomChatServerSQLiteStore:
         with closing(self._connect()) as db:
             try:
                 db.execute("BEGIN IMMEDIATE")
+                self._validate_no_authority_triggers(db)
+                self._validate_room_hidden_state(db, room)
                 for command in commands:
                     fingerprint = _moderation_fingerprint(command)
                     previous = db.execute(
@@ -942,6 +1113,7 @@ class ClassroomChatServerSQLiteStore:
     def integrity_check(self) -> None:
         try:
             with closing(self._connect()) as db:
+                self._validate_no_authority_triggers(db)
                 row = db.execute("PRAGMA integrity_check").fetchone()
                 if row is None or row[0] != "ok":
                     raise ClassroomChatServerError(

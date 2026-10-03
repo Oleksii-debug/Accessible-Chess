@@ -183,6 +183,26 @@ class ClassroomChatServerTests(unittest.TestCase):
             draft=draft,
         )
 
+    def test_store_rejects_ephemeral_database_targets(self) -> None:
+        for target in ("", ":memory:"):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "durable classroom chat server database path is required",
+                ):
+                    ClassroomChatServerSQLiteStore(target)
+
+    def test_store_sanitizes_database_open_failure(self) -> None:
+        missing_parent = Path(self.tmp.name) / "missing-parent" / "server.sqlite3"
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "database open failed",
+        ) as raised:
+            ClassroomChatServerSQLiteStore(missing_parent)
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertFalse(missing_parent.exists())
+
     def test_schema_is_durable_and_integrity_checked(self) -> None:
         self.store.integrity_check()
         with closing(sqlite3.connect(self.path)) as db:
@@ -276,6 +296,55 @@ class ClassroomChatServerTests(unittest.TestCase):
             "hidden message state is inconsistent",
         ):
             self.store.integrity_check()
+
+    def test_live_history_rejects_hidden_message_without_state_event(self) -> None:
+        sent = self.send(self.draft("hidden-history-without-state"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET hidden=1
+                WHERE message_id=?
+                """,
+                (sent.message_id,),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored hidden message state is inconsistent",
+        ):
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored hidden message state is inconsistent",
+        ):
+            self.send(self.draft("hidden-history-without-state"))
+
+    def test_live_state_history_rejects_orphan_moderation_event(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, "orphan-live-state"),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored moderation state is inconsistent",
+        ):
+            self.store.state_updates_after(
+                room_id=ROOM,
+                after_revision=None,
+                limit=10,
+            )
 
     def test_hide_rejects_hidden_target_without_state_event(self) -> None:
         sent = self.send(self.draft("hidden-without-write-event"))
@@ -697,6 +766,39 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
+    def test_gapped_message_stream_is_not_served_as_authoritative_history(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            for message_id, sequence in (("read-gap-0", 0), ("read-gap-2", 2)):
+                db.execute(
+                    """
+                    INSERT INTO classroom_chat_server_messages(
+                        message_id, room_id, sender_id, sequence_no, body,
+                        retention, hidden, sent_at_unix_ms
+                    ) VALUES(?,?,?,?,?,?,0,?)
+                    """,
+                    (
+                        message_id,
+                        ROOM,
+                        STUDENT,
+                        sequence,
+                        "Corrupt read stream",
+                        "session",
+                        1700000000000 + sequence,
+                    ),
+                )
+
+        for after_sequence in (None, 1):
+            with self.subTest(after_sequence=after_sequence):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "stored message sequence is not contiguous",
+                ):
+                    self.store.history_after(
+                        room_id=ROOM,
+                        after_sequence=after_sequence,
+                        limit=10,
+                    )
+
     def test_corrupt_sequence_counter_blocks_new_send_without_partial_insert(self) -> None:
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("PRAGMA ignore_check_constraints=ON")
@@ -813,6 +915,40 @@ class ClassroomChatServerTests(unittest.TestCase):
                     (ROOM,),
                 ).fetchone()[0],
             )
+
+    def test_gapped_moderation_stream_is_not_served_as_authoritative_state(self) -> None:
+        first = self.send(self.draft("state-read-gap-0"))
+        second = self.send(self.draft("state-read-gap-2"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET hidden=1
+                WHERE message_id IN (?,?)
+                """,
+                (first.message_id, second.message_id),
+            )
+            for revision, message_id in ((0, first.message_id), (2, second.message_id)):
+                db.execute(
+                    """
+                    INSERT INTO classroom_chat_server_state_updates(
+                        room_id, revision, message_id, hidden
+                    ) VALUES(?,?,?,1)
+                    """,
+                    (ROOM, revision, message_id),
+                )
+
+        for after_revision in (None, 1):
+            with self.subTest(after_revision=after_revision):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "stored moderation revision is not contiguous",
+                ):
+                    self.store.state_updates_after(
+                        room_id=ROOM,
+                        after_revision=after_revision,
+                        limit=10,
+                    )
 
     def test_corrupt_revision_counter_rolls_back_hide_and_operation(self) -> None:
         sent = self.send(self.draft("message-before-corrupt-revision"))
@@ -997,6 +1133,81 @@ class ClassroomChatServerTests(unittest.TestCase):
                     SELECT 1 FROM sqlite_master
                     WHERE type='table'
                       AND name='classroom_chat_server_messages'
+                    """
+                ).fetchone()
+            )
+
+    def test_current_schema_rejects_persistent_authority_table_trigger(self) -> None:
+        path = Path(self.tmp.name) / "schema-trigger.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                CREATE TRIGGER mutate_chat_body_after_insert
+                AFTER INSERT ON classroom_chat_server_messages
+                BEGIN
+                    UPDATE classroom_chat_server_messages
+                    SET body='tampered by trigger'
+                    WHERE message_id=NEW.message_id;
+                END
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema contains unsupported trigger",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertIsNotNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='trigger'
+                      AND name='mutate_chat_body_after_insert'
+                    """
+                ).fetchone()
+            )
+            self.assertEqual(
+                0,
+                db.execute(
+                    "SELECT COUNT(*) FROM classroom_chat_server_messages"
+                ).fetchone()[0],
+            )
+
+    def test_live_store_rechecks_trigger_free_authority_before_writes(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                CREATE TRIGGER late_chat_body_mutator
+                AFTER INSERT ON classroom_chat_server_messages
+                BEGIN
+                    UPDATE classroom_chat_server_messages
+                    SET body='late tamper'
+                    WHERE message_id=NEW.message_id;
+                END
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema contains unsupported trigger",
+        ):
+            self.send(self.draft("must-not-cross-late-trigger"))
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema contains unsupported trigger",
+        ):
+            self.store.integrity_check()
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_messages
+                    WHERE message_id='must-not-cross-late-trigger'
                     """
                 ).fetchone()
             )
@@ -1843,6 +2054,41 @@ class ClassroomChatServerTests(unittest.TestCase):
             (),
         )
 
+    def test_exact_resend_after_hide_preserves_identity_and_mutable_hidden_state(self) -> None:
+        draft = self.draft("m-hide-resend", "Accepted before moderation")
+        sent = self.send(draft)
+        self.service.apply_moderation(
+            trusted_caller_identity=TEACHER,
+            commands=(
+                self.moderation(
+                    "hide-before-resend",
+                    target=None,
+                    action=ChatModerationAction.HIDE_MESSAGE,
+                    allowed=None,
+                    message_id=sent.message_id,
+                ),
+            ),
+        )
+
+        recovered = self.send(draft)
+
+        self.assertEqual(sent.message_id, recovered.message_id)
+        self.assertEqual(sent.sequence_no, recovered.sequence_no)
+        self.assertEqual(sent.sent_at_unix_ms, recovered.sent_at_unix_ms)
+        self.assertEqual(sent.body, recovered.body)
+        self.assertTrue(recovered.hidden)
+        self.assertEqual(1, self.clock.calls)
+        self.assertEqual(
+            1,
+            len(
+                self.store.history_after(
+                    room_id=ROOM,
+                    after_sequence=None,
+                    limit=10,
+                )
+            ),
+        )
+
     def test_repeated_hide_with_new_operation_does_not_duplicate_state_event(self) -> None:
         sent = self.send(self.draft("m-repeat-hide"))
         first = self.moderation(
@@ -1970,21 +2216,28 @@ class ClassroomChatServerTests(unittest.TestCase):
             )
         self.assertIsNone(raised.exception.__cause__)
 
-    def test_workflow_scope_uses_immutable_pull_request_base(self) -> None:
+    def test_workflow_scope_uses_live_stacked_base_with_event_ancestry_guard(self) -> None:
         workflow = CHAT_SERVER_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(
             "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
             workflow,
         )
         self.assertIn(
-            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD',
             workflow,
         )
         self.assertIn(
-            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            'LIVE_BASE_SHA="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"',
             workflow,
         )
-        self.assertNotIn("refs/remotes/origin/$PR_BASE_REF", workflow)
+        self.assertIn(
+            'git diff --name-only "$LIVE_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$LIVE_BASE_SHA...HEAD"',
+            workflow,
+        )
 
     def test_server_history_bound_matches_canonical_client_sync_page(self) -> None:
         self.assertEqual(MAX_SYNC_MESSAGES, MAX_SERVER_HISTORY_MESSAGES)
@@ -2147,12 +2400,15 @@ class ClassroomChatServerTests(unittest.TestCase):
         ):
             self.send(self.draft("after-max"))
 
-        history = self.store.history_after(
-            room_id=ROOM,
-            after_sequence=None,
-            limit=10,
-        )
-        self.assertEqual(("max-sequence",), tuple(item.message_id for item in history))
+        with closing(sqlite3.connect(self.path)) as db:
+            rows = db.execute(
+                """
+                SELECT message_id FROM classroom_chat_server_messages
+                WHERE room_id=? ORDER BY sequence_no
+                """,
+                (ROOM,),
+            ).fetchall()
+        self.assertEqual([("max-sequence",)], rows)
 
     def test_moderation_revision_exhaustion_rolls_back_hide_and_operation(self) -> None:
         sent = self.send(self.draft("revision-target"))
