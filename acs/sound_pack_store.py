@@ -101,6 +101,22 @@ def _require_real_dir(path: Path, label: str) -> None:
         raise SoundPackStoreError(f"{label} is not a real directory")
 
 
+def _require_real_dir_chain(path: Path, label: str) -> None:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    chain = tuple(reversed(absolute.parents)) + (absolute,)
+    for directory in chain:
+        if not os.path.lexists(directory):
+            continue
+        try:
+            metadata = os.lstat(directory)
+        except OSError as exc:
+            raise SoundPackStoreError(f"{label} is unavailable") from exc
+        if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata):
+            raise SoundPackStoreError(f"{label} is redirected")
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise SoundPackStoreError(f"{label} is not a real directory")
+
+
 def _require_regular_file(path: Path, label: str) -> os.stat_result:
     try:
         metadata = os.lstat(path)
@@ -499,13 +515,17 @@ class FilesystemSoundPackStore:
             pass
 
     def _open_mutation_lock_descriptor(self) -> int:
+        _require_real_dir_chain(
+            self._mutation_lock_path.parent,
+            "sound pack storage parent",
+        )
         try:
             self._mutation_lock_path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise SoundPackStoreError(
                 "sound pack storage mutation lock is unavailable"
             ) from exc
-        _require_real_dir(
+        _require_real_dir_chain(
             self._mutation_lock_path.parent,
             "sound pack storage parent",
         )
@@ -555,6 +575,8 @@ class FilesystemSoundPackStore:
     @contextmanager
     def _exclusive_mutation(self) -> Iterator[None]:
         with self._process_mutation_lock:
+            root_boundary = self.root if os.path.lexists(self.root) else self.root.parent
+            _require_real_dir_chain(root_boundary, "sound pack storage root")
             descriptor = self._open_mutation_lock_descriptor()
             acquired = False
             try:
@@ -574,11 +596,12 @@ class FilesystemSoundPackStore:
 
     def _ensure_pack_parent(self, pack_id: str) -> tuple[Path, Path]:
         root_existed = os.path.lexists(self.root)
+        _require_real_dir_chain(self.root.parent, "sound pack storage parent")
         try:
             self.root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise SoundPackStoreError("sound pack root could not be created") from exc
-        _require_real_dir(self.root, "sound pack root")
+        _require_real_dir_chain(self.root, "sound pack root")
         if not root_existed:
             _fsync_directory(self.root.parent)
 
@@ -660,6 +683,10 @@ class FilesystemSoundPackStore:
                 "downloaded payload_ref must be a staging-directory path"
             )
         source = Path(downloaded.payload_ref)
+        _require_real_dir_chain(
+            source,
+            "downloaded sound pack staging directory",
+        )
         files, directories = _scan_exact_tree(
             source, "downloaded sound pack staging directory"
         )
@@ -1165,6 +1192,7 @@ class FilesystemSoundPackStore:
 
     def _installed_disk_pack(self, pack_id: str) -> InstalledSoundPack:
         identity = _stable_id(pack_id, allow_dot=True)
+        _require_real_dir_chain(self.root, "sound pack root")
         pack_dir = self._pack_dir(identity)
         _require_real_dir(pack_dir, "sound pack identity directory")
         active_id, version = self._read_active(pack_dir)
@@ -1188,7 +1216,7 @@ class FilesystemSoundPackStore:
         result = dict(self._built_in)
         if not self.root.exists():
             return result
-        _require_real_dir(self.root, "sound pack root")
+        _require_real_dir_chain(self.root, "sound pack root")
         try:
             children = list(self.root.iterdir())
         except OSError as exc:
@@ -1256,6 +1284,7 @@ class FilesystemSoundPackStore:
         identity = _stable_id(pack_id, allow_dot=True)
         if identity in self._built_in:
             return (self._built_in[identity].version,)
+        _require_real_dir_chain(self.root, "sound pack root")
         versions_dir = self._pack_dir(identity) / "versions"
         if not versions_dir.exists():
             return ()

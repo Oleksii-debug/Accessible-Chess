@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import io
 import json
 from pathlib import Path
@@ -111,6 +112,50 @@ def _with_rights(
 
 
 class FilesystemSoundPackStoreTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
+    def test_redirected_store_ancestor_is_rejected_for_reads_and_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            outside = root / "outside"
+            outside.mkdir()
+            redirected = root / "redirected"
+            redirected.symlink_to(outside, target_is_directory=True)
+            store = FilesystemSoundPackStore(redirected / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+
+            with self.assertRaisesRegex(SoundPackStoreError, "redirected"):
+                store.install_atomically(downloaded)
+
+            (outside / "packs").mkdir()
+            with self.assertRaisesRegex(SoundPackStoreError, "redirected"):
+                store.installed()
+            self.assertEqual([], list(outside / "packs"))
+
+    @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
+    def test_redirected_download_staging_ancestor_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            outside = root / "outside"
+            outside.mkdir()
+            manifest = _manifest()
+            staged, _ = _staged_download(outside, manifest)
+            redirected = root / "redirected"
+            redirected.symlink_to(outside, target_is_directory=True)
+            redirected_download = DownloadedSoundPack(
+                manifest=staged.manifest,
+                assets=staged.assets,
+                total_bytes=staged.total_bytes,
+                payload_ref=redirected / Path(staged.payload_ref).name,
+            )
+            store = FilesystemSoundPackStore(root / "packs")
+
+            with self.assertRaisesRegex(SoundPackStoreError, "redirected"):
+                store.install_atomically(redirected_download)
+
+            self.assertFalse((root / "packs").exists())
+
+
     def test_rights_evidence_is_version_bound_and_survives_store_reopen(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
