@@ -10,6 +10,7 @@ without the data layer owning shortcuts.
 from dataclasses import dataclass
 import hashlib
 import json
+from itertools import islice
 from typing import Mapping
 
 from .book_index import BookIndex
@@ -379,13 +380,26 @@ class BookReader:
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("Book reader snapshot must be a mapping")
-        if len(snapshot) != len(_BOOK_READER_SNAPSHOT_FIELDS):
+        expected_count = len(_BOOK_READER_SNAPSHOT_FIELDS)
+        try:
+            snapshot_count = len(snapshot)
+        except Exception as exc:
+            raise TypeError("Book reader snapshot must be a stable mapping") from exc
+        if snapshot_count != expected_count:
             raise ValueError("invalid BookReader snapshot field count")
-        fields = set(snapshot)
-        if any(type(field) is not str for field in fields):
+        try:
+            snapshot_keys = tuple(islice(iter(snapshot), expected_count + 1))
+        except Exception as exc:
+            raise TypeError("Book reader snapshot must be a stable mapping") from exc
+        if len(snapshot_keys) != snapshot_count:
+            raise ValueError("Book reader snapshot changed while being read")
+        if any(type(field) is not str for field in snapshot_keys):
             raise ValueError(
                 "invalid BookReader snapshot fields (field names must be strings)"
             )
+        if len(set(snapshot_keys)) != len(snapshot_keys):
+            raise ValueError("invalid BookReader snapshot fields (duplicate fields)")
+        fields = set(snapshot_keys)
         if fields != _BOOK_READER_SNAPSHOT_FIELDS:
             missing = sorted(_BOOK_READER_SNAPSHOT_FIELDS - fields)
             unknown = sorted(fields - _BOOK_READER_SNAPSHOT_FIELDS)
@@ -396,20 +410,27 @@ class BookReader:
                 detail.append("unknown fields: " + ", ".join(unknown))
             raise ValueError("invalid BookReader snapshot fields (" + "; ".join(detail) + ")")
 
-        schema_version = snapshot["schema_version"]
+        snapshot_data: dict[str, object] = {}
+        try:
+            for key in snapshot_keys:
+                snapshot_data[key] = snapshot[key]
+        except Exception as exc:
+            raise TypeError("Book reader snapshot must be a stable mapping") from exc
+
+        schema_version = snapshot_data["schema_version"]
         if type(schema_version) is not int:
             raise TypeError("Book reader snapshot schema_version must be an integer")
         if schema_version != BOOK_READER_SNAPSHOT_SCHEMA_VERSION:
             raise ValueError(f"unsupported BookReader snapshot schema_version: {schema_version}")
 
-        current_target = snapshot["current_target"]
+        current_target = snapshot_data["current_target"]
         if current_target is not None:
             current_target = cls._durable_target(
                 current_target,
                 name="Book reader snapshot current_target",
             )
 
-        raw_return_points = snapshot["return_points"]
+        raw_return_points = snapshot_data["return_points"]
         if not isinstance(raw_return_points, Mapping):
             raise TypeError("Book reader snapshot return_points must be a mapping")
         if len(raw_return_points) > _MAX_RETURN_POINTS:
@@ -423,7 +444,7 @@ class BookReader:
             )
             return_points[validated_name] = validated_key
 
-        raw_fallback_digests = snapshot["fallback_digests"]
+        raw_fallback_digests = snapshot_data["fallback_digests"]
         if not isinstance(raw_fallback_digests, Mapping):
             raise TypeError("Book reader snapshot fallback_digests must be a mapping")
         if len(raw_fallback_digests) > _MAX_RETURN_POINTS + 1:
