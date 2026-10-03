@@ -19,6 +19,9 @@ from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
+from .sound_pack_catalog import SoundPackInstallError
+from .sound_pack_store import SoundPackStoreError
+from .sound_profile_file_store import SoundProfileFileError
 from .sound_settings_application import SoundSettingsApplication
 from .ui_native_menu import _resolve_windows_host_form
 from .ui_review_adapter import ReviewView
@@ -327,6 +330,17 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                 result = sound.uninstall_pack(pack_id, language=self.lang)
             else:
                 raise ValueError("command")
+        except (
+            SoundProfileFileError,
+            SoundPackStoreError,
+            SoundPackInstallError,
+        ):
+            return command_error(
+                self._sound_message(
+                    "Не вдалося повністю застосувати налаштування звуку. Поточний стан оновлено.",
+                    "Sound settings could not be fully applied. Current state was refreshed.",
+                )
+            )
         except (TypeError, ValueError):
             return command_error(
                 self._sound_message("Некоректні параметри звуку.", "Invalid sound settings.")
