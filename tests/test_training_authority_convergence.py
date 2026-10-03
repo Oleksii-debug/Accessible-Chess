@@ -409,8 +409,6 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             root = Path(raw)
             database = AcsDatabase(root / "library.acsdb")
             analysis = AnalysisService(lambda: None)
-            self.addCleanup(database.close)
-            self.addCleanup(analysis.close)
             app = Version2Application(
                 database,
                 progress_store=BookProgressStore(root / "book-progress.json"),
@@ -464,6 +462,12 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             self.assertIs(retained_bridge, app.training)
             self.assertIs(retained_session, app.training_workspace.session)
             self.assertEqual(training_before, app.training_workspace.session.snapshot())
+
+            # Close native resources before TemporaryDirectory cleanup on
+            # Windows, where open SQLite handles can otherwise mask the real
+            # regression result with a filesystem cleanup failure.
+            analysis.close()
+            database.close()
 
     def test_browser_payload_dict_subclasses_fail_before_hooks(self) -> None:
         class HostileDict(dict):
