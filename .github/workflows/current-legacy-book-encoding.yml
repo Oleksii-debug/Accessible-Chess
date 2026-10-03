@@ -8,6 +8,7 @@ on:
       - 'acs/legacy_text_encoding.py'
       - 'acs/book_text_import.py'
       - 'acs/book_html_import.py'
+      - 'tests/test_legacy_text_encoding.py'
       - 'tests/test_v2_book_text_import.py'
       - 'tests/test_v2_book_html_import.py'
       - '.github/workflows/current-legacy-book-encoding.yml'
@@ -16,6 +17,7 @@ on:
       - 'acs/legacy_text_encoding.py'
       - 'acs/book_text_import.py'
       - 'acs/book_html_import.py'
+      - 'tests/test_legacy_text_encoding.py'
       - 'tests/test_v2_book_text_import.py'
       - 'tests/test_v2_book_html_import.py'
       - '.github/workflows/current-legacy-book-encoding.yml'
@@ -51,12 +53,14 @@ jobs:
           acs/legacy_text_encoding.py
           acs/book_text_import.py
           acs/book_html_import.py
+          tests/test_legacy_text_encoding.py
           tests/test_v2_book_text_import.py
           tests/test_v2_book_html_import.py
 
       - name: Run TXT Markdown HTML semantic regressions
         run: >-
           python -m unittest -v
+          tests.test_legacy_text_encoding
           tests.test_v2_book_text_import
           tests.test_v2_book_html_import
 
