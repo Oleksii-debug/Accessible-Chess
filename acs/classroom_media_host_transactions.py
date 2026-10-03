@@ -491,6 +491,18 @@ class ClassroomMediaHostTransactions:
         if self._transaction_id_factory is not None:
             self._injected_transaction_ids.discard(transaction_id)
 
+    def _release_unexposed_transaction_id(self, transaction_id: str) -> None:
+        """Allow only injected identities that never crossed the host boundary to retry.
+
+        Production identities are nonce+counter monotonic and are intentionally
+        never rewound. Injected factories are used by deterministic hosts/tests;
+        their identity may be retried only when controller validation or a no-op
+        completed before any provider effect was exposed.
+        """
+
+        if self._transaction_id_factory is not None:
+            self._injected_transaction_ids.discard(transaction_id)
+
     def _prepare(self, replay: Callable[[], Any]) -> MediaProviderEffect | None:
         self._assert_owner_thread()
         with self._lock:
