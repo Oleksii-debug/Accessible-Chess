@@ -84,6 +84,29 @@ class SoundPackAssetSnapshot:
     content: bytes
 
 
+@dataclass(frozen=True, slots=True)
+class SoundPackAssetLookup:
+    """One verified lookup result without a second active-version inventory read."""
+
+    pack_available: bool
+    sound_declared: bool
+    snapshot: SoundPackAssetSnapshot | None
+
+    def __post_init__(self) -> None:
+        if type(self.pack_available) is not bool or type(self.sound_declared) is not bool:
+            raise TypeError("sound pack asset lookup flags must be boolean")
+        if self.sound_declared and not self.pack_available:
+            raise ValueError("declared sound requires an available pack")
+        if self.snapshot is not None and (
+            not isinstance(self.snapshot, SoundPackAssetSnapshot)
+            or not self.pack_available
+            or not self.sound_declared
+        ):
+            raise ValueError(
+                "sound pack asset snapshot requires available declared sound"
+            )
+
+
 def _is_reparse_point(metadata: os.stat_result) -> bool:
     flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
     attributes = getattr(metadata, "st_file_attributes", 0)
@@ -1480,17 +1503,6 @@ class FilesystemSoundPackStore:
             )
         return result
 
-    def installed_manifest(self, pack_id: str) -> SoundPackManifest | None:
-        """Return the verified active manifest for one installed pack."""
-
-        identity = _stable_id(pack_id, allow_dot=True)
-        if identity in self._built_in:
-            return self._built_in[identity]
-        try:
-            return self._installed_disk_pack(identity).manifest
-        except (TypeError, ValueError, SoundPackStoreError):
-            return None
-
     def active_version(self, pack_id: str) -> str | None:
         identity = _stable_id(pack_id, allow_dot=True)
         if identity in self._built_in:
@@ -1546,39 +1558,59 @@ class FilesystemSoundPackStore:
             return ()
         return tuple(sorted(valid, key=_semantic_version_key))
 
-    def read_asset_snapshot(
+    def read_asset_lookup(
         self,
         pack_id: str,
         sound_id: str,
-    ) -> SoundPackAssetSnapshot | None:
-        """Return integrity-verified bytes from one active installed-pack snapshot."""
+    ) -> SoundPackAssetLookup:
+        """Resolve declaration + verified bytes from one active-version snapshot."""
 
         identity = _stable_id(pack_id, allow_dot=True)
         if identity in self._built_in:
-            return None
+            return SoundPackAssetLookup(False, False, None)
         try:
             requested_sound = _stable_id(sound_id, allow_dot=True)
+        except (TypeError, ValueError):
+            return SoundPackAssetLookup(False, False, None)
+        try:
             installed = self._installed_disk_pack(identity)
-            relative = installed.manifest.sound_path(requested_sound)
-            digest = installed.digests[relative]
+        except (TypeError, ValueError, SoundPackStoreError):
+            return SoundPackAssetLookup(False, False, None)
+
+        relative = installed.manifest.files.get(requested_sound)
+        if relative is None:
+            return SoundPackAssetLookup(True, False, None)
+
+        digest = installed.digests.get(relative)
+        if digest is None:
+            return SoundPackAssetLookup(True, True, None)
+        try:
             content = _read_verified_asset_bytes(
                 installed.version_dir / relative,
                 digest,
             )
-            return SoundPackAssetSnapshot(
+        except (TypeError, ValueError, SoundPackStoreError):
+            return SoundPackAssetLookup(True, True, None)
+        return SoundPackAssetLookup(
+            True,
+            True,
+            SoundPackAssetSnapshot(
                 pack_id=identity,
                 version=installed.manifest.version,
                 sound_id=requested_sound,
                 relative_path=relative,
                 content=content,
-            )
-        except (
-            KeyError,
-            TypeError,
-            ValueError,
-            SoundPackStoreError,
-        ):
-            return None
+            ),
+        )
+
+    def read_asset_snapshot(
+        self,
+        pack_id: str,
+        sound_id: str,
+    ) -> SoundPackAssetSnapshot | None:
+        """Backward-compatible verified-byte projection for one sound id."""
+
+        return self.read_asset_lookup(pack_id, sound_id).snapshot
 
     def resolve_asset(
         self,
