@@ -286,6 +286,12 @@ class PgnWebViewProjection:
     def _safe_view(self, view: PgnGameView, count: int) -> dict[str, object]:
         if type(view) is not PgnGameView:
             raise TypeError("PGN presenter view is invalid")
+        if (
+            type(view.items) is not tuple
+            or type(view.tags) is not tuple
+            or type(view.warnings) is not tuple
+        ):
+            raise TypeError("PGN presenter collections must be canonical tuples")
         if len(view.items) > _MAX_PGN_TREE_ITEMS:
             raise ValueError("PGN presenter tree exceeds the item-count budget")
         if len(view.tags) > _MAX_PGN_TAGS:
@@ -299,6 +305,22 @@ class PgnWebViewProjection:
             or "\x00" in view.selected_node_id
         ):
             raise ValueError("PGN presenter selection id is invalid")
+
+        for item in view.items:
+            if type(item) is not PgnTreeItem:
+                raise TypeError("PGN presenter tree item is invalid")
+            if (
+                type(item.node_id) is not str
+                or not item.node_id
+                or len(item.node_id) > _MAX_PGN_NODE_ID
+                or "\x00" in item.node_id
+            ):
+                raise ValueError("PGN presenter node id is invalid")
+            if type(item.comments) is not tuple or type(item.nags) is not tuple:
+                raise TypeError("PGN presenter item collections must be canonical tuples")
+        for tag in view.tags:
+            if type(tag) is not tuple or len(tag) != 2:
+                raise TypeError("PGN presenter tag entry is invalid")
 
         labels = _LABELS[self._language]
         if view.game_index < 0:
