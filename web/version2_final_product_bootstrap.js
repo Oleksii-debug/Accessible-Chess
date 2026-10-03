@@ -377,6 +377,50 @@
     };
   }
 
+  function mediaTransactionId(event) {
+    const payload = event && event.payload && typeof event.payload === "object"
+      ? event.payload
+      : {};
+    const value = String(payload.transaction_id || "");
+    return /^(?:host|session)-[0-9a-f]{32}$/.test(value) ? value : "";
+  }
+
+  function executeMediaProviderEvent(event) {
+    const invoke = areaInvoke("media");
+    const transactionId = mediaTransactionId(event);
+    const runtime = global.AccessibleChessClassroomMediaProviderRuntime;
+    if (!runtime || typeof runtime.execute !== "function") {
+      if (!transactionId) {
+        return Promise.reject(new Error("media provider transaction is invalid"));
+      }
+      return invoke("media.provider_not_started", {
+        transaction_id: transactionId
+      });
+    }
+    return Promise.resolve(runtime.execute(event, invoke)).then(function (result) {
+      if (!result || typeof result !== "object") {
+        throw new TypeError("media provider runtime result is invalid");
+      }
+      return result;
+    }, function () {
+      if (!transactionId) {
+        throw new Error("media provider runtime failed");
+      }
+      return invoke("media.provider_not_started", {
+        transaction_id: transactionId
+      });
+    });
+  }
+
+  function mediaInvoke(command, payload) {
+    return areaInvoke("media")(command, payload).then(function (result) {
+      if (result && result.kind === "provider-dispatch") {
+        return executeMediaProviderEvent(result);
+      }
+      return result;
+    });
+  }
+
   function renderNavigation(snapshot) {
     const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
     const fragment = documentRef.createDocumentFragment();
@@ -466,7 +510,7 @@
         global.AccessibleChessClassroomMediaSurface.mount(
           workspace,
           snapshot.media || null,
-          areaInvoke("media"),
+          mediaInvoke,
           announce,
           currentLanguage,
           {
@@ -579,6 +623,33 @@
       let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
+        if (event && event.kind === "provider-dispatch") {
+          executeMediaProviderEvent(event).then(function (completed) {
+            const ordered = [];
+            const refreshRequired = applyQueuedEvent(completed, ordered);
+            const payload = completed && completed.payload &&
+              typeof completed.payload === "object" ? completed.payload : {};
+            const candidate = typeof payload.focus_target === "string"
+              ? payload.focus_target
+              : "";
+            const repaintBarrier = ordered.length
+              ? Promise.all(ordered)
+              : Promise.resolve();
+            if (refreshRequired) {
+              repaintBarrier.then(function () {
+                return refresh(true);
+              }).then(function () {
+                if (candidate) focusById(candidate);
+              }, function () {});
+            }
+          }, function () {
+            announce(uiText(
+              "Не вдалося виконати медіадію.",
+              "Could not complete the media action."
+            ));
+          });
+          return;
+        }
         const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
         if (!refreshRequired) return;
         needsRefresh = true;
