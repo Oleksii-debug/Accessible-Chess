@@ -13,6 +13,9 @@ class FakeElement {
     this.id = "";
     this.textContent = "";
     this.hidden = false;
+    this.disabled = false;
+    this.open = false;
+    this.value = "";
     this.tabIndex = 0;
   }
 
@@ -58,6 +61,19 @@ class FakeElement {
 
   focus() {
     documentRef.activeElement = this;
+  }
+
+  select() {}
+
+  showModal() {
+    this.open = true;
+  }
+
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    const listener = this.listeners.close;
+    if (typeof listener === "function") listener({});
   }
 
   contains(candidate) {
@@ -121,6 +137,15 @@ let intervalCallback = null;
 let snapshotCalls = 0;
 let libraryApplyCalls = 0;
 let stage1RefreshCalls = 0;
+let profileSnapshot = {
+  ok: true,
+  exists: true,
+  displayName: "Player-TEST0001",
+  generatedAlias: true,
+  recoveryRequired: false,
+  revision: 1,
+  announcement: ""
+};
 const recordedFocus = [];
 
 function snapshot(route) {
@@ -169,6 +194,7 @@ const windowObject = {
         snapshotCalls += 1;
         return Promise.resolve(snapshot(currentRoute));
       },
+      profile_snapshot: () => Promise.resolve(Object.assign({}, profileSnapshot)),
       v2_browser_command: (area, command, payload) => {
         if (area !== "shell" || payload == null || Object.keys(payload).length !== 0) {
           return Promise.reject(new Error("unexpected browser command"));
@@ -366,6 +392,34 @@ async function clickRoute(routeId) {
   check(snapshotCalls === beforeStage1ActionSnapshots, "native Stage 1 action incorrectly used a V2-only snapshot refresh");
   check(originalMain.hidden === false, "native Stage 1 action hid the original main");
   check(documentRef.activeElement === moveInput, "native Stage 1 action disturbed the current Stage 1 keyboard focus");
+
+  const profileButton = documentRef.getElementById("v2-profile-button");
+  const profileDialog = documentRef.getElementById("v2-profile-dialog");
+  const profileRepair = documentRef.getElementById("v2-profile-repair");
+  const profileClose = documentRef.getElementById("v2-profile-close");
+  check(profileButton && profileDialog && profileRepair && profileClose, "profile recovery controls are missing");
+  profileSnapshot = {
+    ok: true,
+    exists: true,
+    displayName: "Recovered Player",
+    generatedAlias: false,
+    recoveryRequired: true,
+    revision: 2,
+    announcement: ""
+  };
+  profileButton.focus();
+  check(typeof profileButton.listeners.click === "function", "profile button click listener missing");
+  profileButton.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "recovery-required profile dialog did not open");
+  check(profileRepair.hidden === false, "recovery action remained hidden");
+  check(profileRepair.disabled === false, "recovery action was unexpectedly disabled");
+  check(documentRef.activeElement === profileRepair, "recovery-required dialog did not focus the required Repair action");
+  check(typeof profileClose.listeners.click === "function", "profile close listener missing");
+  profileClose.listeners.click({});
+  check(profileDialog.open === false, "profile dialog did not close");
+  check(documentRef.activeElement === profileButton, "closing recovery dialog did not restore profile-button focus");
 
   console.log("Version 2 release bootstrap DOM/focus contract PASS");
 })().catch((error) => {
