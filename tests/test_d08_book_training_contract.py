@@ -403,6 +403,23 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, tampered_origin)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
 
+    def test_mutated_book_aux_text_bound_is_normalized_to_contract_error(self):
+        exercise = self.book.blocks[0]
+        assert isinstance(exercise, Exercise)
+        exercise.prompt = "x" * 4097
+
+        with self.assertRaises(BookTrainingError) as caught:
+            build_book_training_material(self.book, "block:opening-1")
+
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+        exercise.prompt = "Opening"
+        exercise.difficulty = "x" * 4097
+        with self.assertRaises(BookTrainingError) as caught:
+            build_book_training_material(self.book, "block:opening-1")
+
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
     def test_mutated_definition_metadata_cannot_be_exported_as_false_valid(self):
         # ExerciseDefinition is frozen, but its copied Mapping is intentionally a
         # normal dict.  The D08 wire boundary must still reject post-build scalar
