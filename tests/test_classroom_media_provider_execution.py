@@ -141,6 +141,25 @@ class ClassroomMediaProviderExecutionArbiterTests(unittest.TestCase):
         self.assertIsNone(arbiter.active_lease)
         self.assertIsNone(arbiter.recovery_status)
 
+    def test_media_effect_cannot_use_verified_clean_failure_shortcut(self):
+        arbiter = self.make_arbiter()
+        lease = arbiter.begin(MediaProviderExecutionOwner.EFFECT)
+        arbiter.bind_transaction(lease.lease_id, "host-" + "7" * 32)
+        arbiter.mark_provider_boundary_crossed(lease.lease_id)
+
+        with self.assertRaisesRegex(
+            MediaProviderExecutionError,
+            "not valid for media-effect",
+        ):
+            arbiter.release_after_verified_clean_failure(lease.lease_id)
+
+        self.assertEqual(arbiter.active_lease.lease_id, lease.lease_id)
+        recovery = arbiter.require_recovery(
+            lease.lease_id,
+            provider_outcome_unknown=True,
+        )
+        self.assertTrue(recovery.provider_outcome_unknown)
+
     def test_verified_clean_failure_rejects_undispatched_lease(self):
         arbiter = self.make_arbiter()
         lease = arbiter.begin(MediaProviderExecutionOwner.SESSION)
