@@ -9,6 +9,7 @@ class SoundEventPolicyTests(unittest.TestCase):
         self.assertEqual(SoundEventPolicy.game_end(), (SoundEvent.END,))
         self.assertEqual(SoundEventPolicy.checkmate(), (SoundEvent.MATE,))
         self.assertEqual(SoundEventPolicy.draw(), (SoundEvent.DRAW,))
+        self.assertEqual(SoundEventPolicy.low_time(), (SoundEvent.LOW_TIME,))
         self.assertEqual(SoundEventPolicy.illegal(), (SoundEvent.ILLEGAL,))
 
     def test_plain_move_emits_move_only(self):
