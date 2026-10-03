@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from acs.sqlite_classroom_moderation_ledger import (
     ClassroomModerationLedgerError,
@@ -357,6 +358,34 @@ class SqliteClassroomModerationLedgerTests(unittest.TestCase):
                 )
         finally:
             connection.close()
+
+    def test_failed_connection_setup_closes_opened_sqlite_handle(self):
+        class FailingPragmaConnection:
+            def __init__(self):
+                self.closed = False
+
+            def execute(self, statement):
+                if statement == "PRAGMA synchronous=FULL":
+                    raise sqlite3.OperationalError("private pragma failure")
+                return self
+
+            def close(self):
+                self.closed = True
+
+        failing = FailingPragmaConnection()
+        with patch(
+            "acs.sqlite_classroom_moderation_ledger.sqlite3.connect",
+            return_value=failing,
+        ):
+            with self.assertRaisesRegex(
+                ClassroomModerationLedgerError,
+                "^moderation ledger storage is unavailable$",
+            ) as caught:
+                self.ledger._connect()
+
+        self.assertTrue(failing.closed)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn("private pragma failure", str(caught.exception))
 
     def test_invalid_storage_inputs_fail_closed_without_path_in_repr(self):
         self.assertNotIn(str(self.path), repr(self.ledger))
