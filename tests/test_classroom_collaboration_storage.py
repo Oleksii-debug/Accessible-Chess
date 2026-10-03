@@ -551,6 +551,14 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "x" * 4001)
         with self.assertRaises(ValueError):
+            ChatMessageMetadata(
+                "m1",
+                "room",
+                "teacher",
+                0,
+                "bad" + chr(0xD800),
+            )
+        with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=True)
         with self.assertRaises(ValueError):
             ChatMessageMetadata("m1", "room", "teacher", 0, "Hello", sent_at_unix_ms=-1)
