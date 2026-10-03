@@ -195,16 +195,18 @@ class EducationWorkspace:
 
     def to_record(self) -> dict[str, object]:
         record = self._body()
-        record["digest"] = _digest(record)
+        # Keep write/read symmetry exact: anything emitted here must be
+        # reopenable through from_record()/from_json() under the same complete
+        # workspace byte ceiling.  _body() also calls ledger.to_record(), so
+        # nested D10 history cannot bypass its own stricter snapshot budget.
+        record["digest"] = _digest(record, max_bytes=MAX_WORKSPACE_JSON_BYTES)
+        _digest(record, max_bytes=MAX_WORKSPACE_JSON_BYTES)
         return record
 
     def to_json(self) -> str:
-        record = self.to_record()
-        # Bound the complete canonical wire record before materializing the
-        # returned JSON string.  This keeps programmatic oversized workspaces
-        # from allocating an over-limit canonical payload first.
-        _digest(record, max_bytes=MAX_WORKSPACE_JSON_BYTES)
-        return _canonical_json(record)
+        # to_record() proves the complete canonical wire record is bounded
+        # before the returned JSON string is materialized.
+        return _canonical_json(self.to_record())
 
     @classmethod
     def from_record(cls, value: Mapping[str, Any]) -> "EducationWorkspace":
