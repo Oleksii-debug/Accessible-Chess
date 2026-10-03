@@ -416,6 +416,17 @@ class AcsDatabase:
             raise ValueError(f"{name} exceeds SQLite integer range")
         return value
 
+    @staticmethod
+    def _row_id(value: int, *, name: str) -> int:
+        """Validate a persisted SQLite row identity without scalar coercion."""
+        if type(value) is not int:
+            raise TypeError(f"{name} must be an integer")
+        if value <= 0:
+            raise ValueError(f"{name} must be positive")
+        if value > _SQLITE_INTEGER_MAX:
+            raise ValueError(f"{name} exceeds SQLite integer range")
+        return value
+
     @classmethod
     def _position_cursor(
         cls,
@@ -839,15 +850,18 @@ class AcsDatabase:
             raise
 
     def get_game(self, game_id: int) -> dict | None:
+        game_id = self._row_id(game_id, name="game_id")
         row = self.conn.execute("SELECT * FROM games WHERE id=?", (game_id,)).fetchone()
         return dict(row) if row else None
 
     def get_source(self, source_id: int) -> dict | None:
+        source_id = self._row_id(source_id, name="source_id")
         row = self.conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
         return dict(row) if row else None
 
     def get_import_attempt(self, attempt_id: int) -> dict | None:
-        row = self.conn.execute("SELECT * FROM import_attempts WHERE id=?", (int(attempt_id),)).fetchone()
+        attempt_id = self._row_id(attempt_id, name="attempt_id")
+        row = self.conn.execute("SELECT * FROM import_attempts WHERE id=?", (attempt_id,)).fetchone()
         return dict(row) if row else None
 
     def list_import_attempts(self, *, status: str | None = None, sha256: str | None = None,
@@ -1035,6 +1049,7 @@ class AcsDatabase:
         *,
         overwrite: bool = False,
     ) -> None:
+        game_id = self._row_id(game_id, name="game_id")
         overwrite = self._validate_overwrite(overwrite)
         ply = self._position_ply(ply)
         key = self.position_key(fen)
@@ -1056,6 +1071,7 @@ class AcsDatabase:
         *,
         overwrite: bool = False,
     ) -> None:
+        game_id = self._row_id(game_id, name="game_id")
         overwrite = self._validate_overwrite(overwrite)
         rows: list[tuple[int, int, str, str]] = []
         seen: set[int] = set()
