@@ -1316,7 +1316,7 @@ async function testTransportLossGenericErrorIsNotTerminal() {
   assert.equal(transportCalls, 1);
 
   runtime._transportRetryAt = 0;
-  const terminal = await runtime.reconcileTransport(async (command) => {
+  const recovery = await runtime.reconcileTransport(async (command) => {
     assert.equal(command, "media.provider_transport_lost");
     transportCalls += 1;
     return {
@@ -1327,16 +1327,36 @@ async function testTransportLossGenericErrorIsNotTerminal() {
       }
     };
   });
-  assert.equal(terminal.kind, "error");
-  assert.equal(terminal.payload.recovery_required, true);
+  assert.equal(recovery.kind, "error");
+  assert.equal(recovery.payload.recovery_required, true);
   assert.equal(transportCalls, 2);
 
-  const afterTerminal = await runtime.reconcileTransport(async () => {
+  const recoveryCooldown = await runtime.reconcileTransport(async () => {
     transportCalls += 1;
-    throw new Error("terminal recovery acknowledgement did not clear loss");
+    throw new Error("recovery retry cooldown was bypassed");
   });
-  assert.equal(afterTerminal, null);
+  assert.equal(recoveryCooldown, null);
   assert.equal(transportCalls, 2);
+
+  // Recovery is only the provider/canonical uncertainty latch.  The provider is
+  // still cleanly disconnected, so preserve that fact until Python later
+  // accepts and commits the canonical transport loss.
+  runtime._transportRetryAt = 0;
+  const accepted = await runtime.reconcileTransport(async (command, payload) => {
+    assert.equal(command, "media.provider_transport_lost");
+    assert.equal(payload.snapshot.connected, false);
+    transportCalls += 1;
+    return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+  });
+  assert.equal(accepted.kind, "media-updated");
+  assert.equal(transportCalls, 3);
+
+  const afterAccepted = await runtime.reconcileTransport(async () => {
+    transportCalls += 1;
+    throw new Error("accepted transport loss was not cleared");
+  });
+  assert.equal(afterAccepted, null);
+  assert.equal(transportCalls, 3);
 }
 
 async function testMovedRoomCleanupRetriesBeforePythonTransportLoss() {
