@@ -48,6 +48,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$EXACT_PARENT" HEAD
           test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          git merge-base --is-ancestor "$PRODUCT_RENDER_SOURCE" HEAD
           test "$(git rev-parse "HEAD:web/version2_release_bootstrap.js")" = "$RELEASE_BOOTSTRAP_BLOB"
           test "$(git rev-parse "HEAD:tests/js/version2_release_bootstrap_dom_test.js")" = "$RELEASE_DOM_TEST_BLOB"
           changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"

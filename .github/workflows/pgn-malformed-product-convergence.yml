@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      EXACT_PARENT: 432d8c3cee20eda89df6f7e71d7f3cf090846900
+      EXACT_PARENT: 0b04596146a0e49666450198193853bcfb744739
       SOURCE_PGN_HEAD: 8839fe5b0492a0f77fcb13a7d8dc1a07827c02c6
       PROJECTION_BLOB: 127037cb6cf264f579516df599bf8c1ad44e8985
       BRIDGE_BLOB: 25b3d03179f42b4565a4dd6d7a2ccd283607e09c
@@ -54,6 +54,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$EXACT_PARENT" HEAD
           test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          git merge-base --is-ancestor "$SOURCE_PGN_HEAD" HEAD
           test "$(git rev-parse "HEAD:acs/pgn_webview_projection.py")" = "$PROJECTION_BLOB"
           test "$(git rev-parse "HEAD:acs/pgn_webview_bridge.py")" = "$BRIDGE_BLOB"
           test "$(git rev-parse "HEAD:web/full_product_pgn.js")" = "$WEB_BLOB"
