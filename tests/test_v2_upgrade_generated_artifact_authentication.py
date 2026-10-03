@@ -67,6 +67,27 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
                 ):
                     self._coordinator(root)._files()
 
+    def test_hardlinked_control_name_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            source = root / "important-user-data.bin"
+            source.write_bytes(b"preserve-control-alias-source")
+            control = root / "book-progress.json.lock"
+            try:
+                os.link(source, control)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "control entry must be a private file",
+            ):
+                self._coordinator(root)._files()
+
+            self.assertEqual(source.read_bytes(), b"preserve-control-alias-source")
+            self.assertEqual(control.read_bytes(), b"preserve-control-alias-source")
+
     def test_exact_generated_runtime_aliases_fail_closed(self):
         digest = "a" * 64
         generated = (
