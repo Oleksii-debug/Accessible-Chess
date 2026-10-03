@@ -812,7 +812,9 @@ class TrainingProjectionTests(unittest.TestCase):
     def test_language_switch_preserves_progress_identity(self) -> None:
         self.projection.submit("e4")
         en = self.projection.snapshot()
-        ua = self.projection.set_language(UILanguage.UA).payload["snapshot"]
+        language_event = self.projection.set_language(UILanguage.UA)
+        ua = language_event.payload["snapshot"]
+        self.assertEqual(ua["focus_target"], language_event.payload["focus_target"])
         for key in ("step", "total", "attempts", "mistakes", "hints_used", "completed"):
             self.assertEqual(en["progress"][key], ua["progress"][key])
         self.assertEqual(en["title"], ua["title"])
