@@ -575,6 +575,78 @@ async function run() {
     "stale Training solution focus"
   );
 
+  const synchronousTrainingRoot = new FakeElement("div");
+  const synchronousTrainingInvoke = () => {
+    throw new Error("synchronous Training host failure");
+  };
+  window.AccessibleChessTrainingSurface.render(
+    synchronousTrainingRoot,
+    trainingSnapshot(),
+    synchronousTrainingInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const synchronousTrainingReplaceCount = synchronousTrainingRoot.replaceChildrenCalls;
+  const synchronousTrainingFocus = document.activeElement;
+  find(synchronousTrainingRoot, "BUTTON", "Hint").listeners.click();
+  check(
+    synchronousTrainingRoot.replaceChildrenCalls === synchronousTrainingReplaceCount,
+    "synchronous Training host failure must preserve readable DOM"
+  );
+  check(document.activeElement === synchronousTrainingFocus,
+    "synchronous Training host failure must preserve focus");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "synchronous Training host failure must announce the safe fallback");
+
+  const resetFailureRoot = new FakeElement("div");
+  const resetFailureInvoke = (command) => {
+    check(command === "training.reset", "unexpected reset failure command");
+    return {
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: { stale: true },
+        announcement: "Must not announce reset",
+        clear_answer: true,
+        solution: []
+      }
+    };
+  };
+  window.AccessibleChessTrainingSurface.render(
+    resetFailureRoot,
+    trainingSnapshot(),
+    resetFailureInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const resetFailureReplaceCount = resetFailureRoot.replaceChildrenCalls;
+  const resetFailureButton = find(resetFailureRoot, "BUTTON", "Reset");
+  resetFailureButton.focus();
+  resetFailureButton.listeners.click();
+  const resetFailureDialog = resetFailureRoot.querySelector("#training-reset-dialog");
+  const resetFailureConfirm = find(resetFailureDialog, "BUTTON", "Confirm");
+  check(resetFailureDialog.open, "reset failure dialog did not open");
+  check(document.activeElement === resetFailureConfirm,
+    "reset failure confirmation did not receive focus");
+  resetFailureConfirm.listeners.click();
+  await flushPromises();
+  check(resetFailureDialog.open,
+    "malformed reset response must keep the confirmation dialog open");
+  check(
+    resetFailureRoot.replaceChildrenCalls === resetFailureReplaceCount,
+    "malformed reset response must preserve readable DOM"
+  );
+  check(document.activeElement === resetFailureConfirm,
+    "malformed reset response must preserve confirmation focus");
+  check(!announcements.includes("Must not announce reset"),
+    "malformed reset response must not publish its announcement");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "malformed reset response must use the safe fallback announcement");
+
   const malformedTrainingRoot = new FakeElement("div");
   const malformedTrainingInvoke = () => ({
     kind: "render",
@@ -638,6 +710,29 @@ async function run() {
   await flushPromises();
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
+
+  const synchronousBookInvoke = () => {
+    throw new Error("synchronous Book host failure");
+  };
+  window.AccessibleChessBookSurface.render(
+    bookRoot,
+    bookSnapshot(3, "Synchronous host failure"),
+    synchronousBookInvoke,
+    announce,
+    "book-block-3",
+    "Action failed"
+  );
+  const synchronousBookReplaceCount = bookRoot.replaceChildrenCalls;
+  const synchronousBookFocus = document.activeElement;
+  find(bookRoot, "BUTTON", "Next").listeners.click();
+  check(
+    bookRoot.replaceChildrenCalls === synchronousBookReplaceCount,
+    "synchronous Book host failure must preserve readable DOM"
+  );
+  check(document.activeElement === synchronousBookFocus,
+    "synchronous Book host failure must preserve reading focus");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "synchronous Book host failure must announce the safe fallback");
 
   const eventContractSnapshot = bookSnapshot(3, "Event contract");
   const eventContractInvoke = () => ({
