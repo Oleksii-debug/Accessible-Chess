@@ -420,6 +420,48 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (),
         )
 
+    def test_ambiguous_chat_recovery_validates_entire_history_page(self):
+        controller = self.controller()
+        accepted = ChatMessageMetadata(
+            "ambiguous-page",
+            "room-1",
+            "student-1",
+            0,
+            "Accepted",
+            sent_at_unix_ms=1700000000000,
+        )
+        crossed_room = ChatMessageMetadata(
+            "cross-room-neighbor",
+            "room-2",
+            "teacher-1",
+            1,
+            "Must invalidate the page",
+            sent_at_unix_ms=1700000000001,
+        )
+
+        with patch.object(
+            self.chat,
+            "send_message",
+            side_effect=RuntimeError("ambiguous transport failure"),
+        ), patch.object(
+            self.chat,
+            "history_after",
+            return_value=(accepted, crossed_room),
+        ):
+            with self.assertRaisesRegex(
+                CollaborationError,
+                "chat history crossed room boundary",
+            ):
+                controller.send_chat(
+                    message_id=accepted.message_id,
+                    body=accepted.body,
+                )
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+
     def test_transport_cannot_mutate_message_identity_or_body(self):
         controller = self.controller()
         self.chat.mutate_delivery = True
