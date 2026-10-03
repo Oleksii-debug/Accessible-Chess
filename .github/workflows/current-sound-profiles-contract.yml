@@ -114,9 +114,12 @@ jobs:
             echo 'SOUND_SCOPE_MODE=OWNER_EXACT'
           else
             test "$head_ref" = 'reconverge/sound-profiles-current-product-20260926'
-            test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
+            if [ '${{ github.event_name }}' = 'pull_request' ]; then
+              test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
+            fi
             base="$CURRENT_PRODUCT_BASE"
-            git fetch --no-tags origin "refs/heads/${{ github.event.pull_request.base.ref }}"
+            product_ref='work/full-product-teacher-education-reachability-20260911'
+            git fetch --no-tags origin "refs/heads/$product_ref"
             live_product="$(git rev-parse FETCH_HEAD)"
             test "$live_product" = "$CURRENT_PRODUCT_BASE" || {
               printf 'Pinned Product is stale: pinned=%s live=%s\n' "$CURRENT_PRODUCT_BASE" "$live_product" >&2
