@@ -917,6 +917,38 @@ class ClassroomFileServerSQLiteStore:
             ).fetchone()
         return None if row is None else self._terminal_from_row(row)
 
+    def queue_pending_upload_rollbacks(self) -> tuple[tuple[str, str], ...]:
+        """Atomically stop uncommitted uploads before quiescent restart cleanup."""
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                rows = db.execute(
+                    """
+                    SELECT *
+                    FROM classroom_file_server_attachments
+                    WHERE transfer_state='uploading'
+                    ORDER BY room_id, attachment_id
+                    """
+                ).fetchall()
+                pending = tuple(
+                    (row["attachment_id"], self._canonical_row_object_key(row))
+                    for row in rows
+                )
+                for attachment_id, _object_key in pending:
+                    db.execute(
+                        """
+                        UPDATE classroom_file_server_attachments
+                        SET transfer_state='cancelled', delete_completed=0
+                        WHERE attachment_id=? AND transfer_state='uploading'
+                        """,
+                        (attachment_id,),
+                    )
+                db.commit()
+                return pending
+            except Exception:
+                db.rollback()
+                raise
+
     def pending_deletions(self) -> tuple[tuple[str, str], ...]:
         with closing(self._connect()) as db:
             rows = db.execute(
@@ -1414,6 +1446,32 @@ class ClassroomFileServerService:
                 "durable object deletion failed"
             ) from None
         self._store.complete_deletion(attachment.attachment_id)
+
+    def rollback_pending_uploads(self) -> int:
+        """Rollback uncommitted uploads during a quiescent restart/operator pass.
+
+        This must run only when requests from the prior server process are no
+        longer executing. Reservations are atomically moved out of uploading
+        state before any object deletion so they can never later finalize into
+        authoritative room history. Failed byte deletion remains durable as the
+        existing cancelled cleanup state for a later recovery pass.
+        """
+        pending = self._store.queue_pending_upload_rollbacks()
+        completed = 0
+        incomplete = False
+        for attachment_id, object_key in pending:
+            try:
+                self._object_store.delete(object_key=object_key)
+            except Exception:
+                incomplete = True
+                continue
+            self._store.complete_deletion(attachment_id)
+            completed += 1
+        if incomplete:
+            raise ClassroomFileServerError(
+                "durable upload rollback incomplete"
+            )
+        return completed
 
     def drain_pending_deletions(self) -> int:
         """Trusted restart/operator recovery; no client authorization is involved."""
