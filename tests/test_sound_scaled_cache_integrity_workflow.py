@@ -35,22 +35,55 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
     def test_nested_scope_stays_sound_owner_only(self) -> None:
         self.assertIn("Unexpected sound-cache scope:", self.text)
         self.assertNotIn('git diff --name-only "$base" HEAD', self.text)
-        self.assertIn("tests/test_sound_scaled_cache_integrity_workflow.py", self.text)
+        for approved in (
+            "acs/sound_events.py",
+            "acs/sound_runtime.py",
+            "acs/sound_windows.py",
+            "acs/settings.py",
+            "acs/stage1_release_ui_core.py",
+            "tests/test_sound_runtime.py",
+            "tests/test_sound_events.py",
+            "tests/test_settings.py",
+            "tests/test_stage1_engine_play_ui.py",
+            "tests/test_sound_scaled_cache_integrity_workflow.py",
+            "version2-windows-composition",
+            "d01-pgn-workspace-webview",
+            "w4-v2-p0-fresh-windows-candidate",
+            "w6-v2-package-preflight-current-runtime",
+            "w6-v2-package-assembler",
+        ):
+            self.assertIn(approved, self.text)
 
-    def test_workflow_structure_is_not_duplicated_or_injected_into_regex(self) -> None:
+    def test_workflow_structure_is_not_duplicated_or_corrupted(self) -> None:
         self.assertEqual(self.text.count("- name: Compile sound authority"), 1)
         self.assertEqual(self.text.count("- name: Run sound regressions"), 1)
-        self.assertIn(
-            "sound-scaled-cache-integrity\\.yml)$' || true)",
-            self.text,
-        )
+        self.assertEqual(self.text.count("jobs:"), 1)
+        self.assertEqual(self.text.count("if __name__"), 0)
+        self.assertIn("w4-v2-p0-fresh-windows-candidate", self.text)
+        self.assertIn("|| true)", self.text)
 
     def test_dual_os_regressions_and_contract_run(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)
-        self.assertIn("tests.test_sound_runtime", self.text)
-        self.assertIn("tests.test_sound_events", self.text)
-        self.assertIn("tests.test_dev3_sound_failure_isolation", self.text)
-        self.assertIn("tests.test_sound_scaled_cache_integrity_workflow", self.text)
+        for module in (
+            "tests.test_sound_runtime",
+            "tests.test_settings",
+            "tests.test_sound_events",
+            "tests.test_stage1_release_composition_ui",
+            "tests.test_stage1_engine_play_ui",
+            "tests.test_dev3_sound_failure_isolation",
+            "tests.test_sound_scaled_cache_integrity_workflow",
+            "tests.test_version2_release_payload",
+            "tests.test_w4_v2_p0_fresh_candidate_workflow",
+        ):
+            self.assertIn(module, self.text)
+
+    def test_webview_and_keymap_syntax_checks_are_present(self) -> None:
+        self.assertIn("node --check web/stage1_release_bootstrap.js", self.text)
+        self.assertIn("python -m json.tool web/keybindings.json", self.text)
+
+    def test_superseded_sound_runs_are_cancelled(self) -> None:
+        self.assertIn("group: sound-scaled-cache-integrity-", self.text)
+        self.assertIn("cancel-in-progress: true", self.text)
 
 
 if __name__ == "__main__":

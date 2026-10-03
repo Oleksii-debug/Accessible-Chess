@@ -12,15 +12,46 @@ DEFAULTS: dict[str, Any] = {
     "language": "uk",
     "notation": "uk_literal",
     "sounds": True,
+    "newgame_animation": True,
     "volume": 80,
     "tick_policy": "my_turn",
     "tick_last_seconds": 0,
+    "low_time_policy": "my_turn",
+    "low_time_seconds": 30,
     "engine_path": "",
+    "sound_move_variant": "1",
+    "sound_capture_variant": "1",
+    "sound_check_variant": "1",
+    "sound_castle_variant": "1",
+    "sound_promotion_variant": "1",
+    "sound_illegal_variant": "1",
+    "sound_start_variant": "1",
+    "sound_end_variant": "1",
+    "sound_mate_variant": "1",
+    "sound_draw_variant": "1",
+    "sound_tick_variant": "1",
+    "sound_low_time_variant": "1",
 }
 
 _ALLOWED_LANGUAGE = {"uk", "en"}
 _ALLOWED_NOTATION = {"san", "uk_literal", "en_literal"}
 _ALLOWED_TICK_POLICY = {"off", "my_turn", "both"}
+_SOUND_VARIANT_KEYS = frozenset(
+    {
+        "sound_move_variant",
+        "sound_capture_variant",
+        "sound_check_variant",
+        "sound_castle_variant",
+        "sound_promotion_variant",
+        "sound_illegal_variant",
+        "sound_start_variant",
+        "sound_end_variant",
+        "sound_mate_variant",
+        "sound_draw_variant",
+        "sound_tick_variant",
+        "sound_low_time_variant",
+    }
+)
 
 
 class SettingsError(ValueError):
@@ -98,22 +129,34 @@ def _validated_value(key: str, value: Any) -> Any:
         if value not in _ALLOWED_NOTATION:
             raise SettingsError("notation must be san, uk_literal, or en_literal")
         return value
-    if key == "sounds":
+    if key in {"sounds", "newgame_animation"}:
         if not isinstance(value, bool):
-            raise SettingsError("sounds must be boolean")
+            raise SettingsError(f"{key} must be boolean")
         return value
     if key == "volume":
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
             raise SettingsError("volume must be an integer in 0..100")
         return value
-    if key == "tick_policy":
+    if key in {"tick_policy", "low_time_policy"}:
         if value not in _ALLOWED_TICK_POLICY:
-            raise SettingsError("tick_policy must be off, my_turn, or both")
+            raise SettingsError(f"{key} must be off, my_turn, or both")
         return value
-    if key == "tick_last_seconds":
+    if key in {"tick_last_seconds", "low_time_seconds"}:
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3600:
-            raise SettingsError("tick_last_seconds must be an integer in 0..3600")
+            raise SettingsError(f"{key} must be an integer in 0..3600")
         return value
+    if key in _SOUND_VARIANT_KEYS:
+        if not isinstance(value, str):
+            raise SettingsError("sound variant must be text")
+        token = value.strip()
+        if (
+            not token
+            or len(token) > 40
+            or token != value
+            or any(not (character.isalnum() or character in {"-", "_"}) for character in token)
+        ):
+            raise SettingsError("sound variant id is invalid")
+        return token
     if key == "engine_path":
         if not isinstance(value, str):
             raise SettingsError("engine_path must be a string")
