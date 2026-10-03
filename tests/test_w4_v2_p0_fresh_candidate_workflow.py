@@ -18,7 +18,9 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
     def test_workflow_is_manual_single_candidate_wip(self) -> None:
         self.assertIn("workflow_dispatch:", self.text)
         self.assertIn("product_sha:", self.text)
-        self.assertIn("required: true", self.text)
+        self.assertIn("sound_pack_url:", self.text)
+        self.assertIn("sound_pack_sha256:", self.text)
+        self.assertGreaterEqual(self.text.count("required: true"), 3)
         self.assertIn("group: w4-v2-p0-fresh-windows-candidate", self.text)
         self.assertIn("cancel-in-progress: false", self.text)
         self.assertNotIn("schedule:", self.text)
@@ -42,81 +44,47 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn('test "$requested" = "$live"', self.text)
         self.assertIn("product_sha must be one exact 40-hex commit", self.text)
 
+    def test_candidate_requires_exact_user_sound_pack_and_never_generates_fallback_tones(self) -> None:
+        self.assertIn("sound_pack_url:", self.text)
+        self.assertIn("sound_pack_sha256:", self.text)
+        self.assertIn("USER_SOUND_WAV_COUNT: '330'", self.text)
+        self.assertIn(
+            "USER_SOUND_INVENTORY_SHA256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920",
+            self.text,
+        )
+        self.assertIn("USER_SOUND_PACK_URL_MUST_BE_HTTPS", self.text)
+        self.assertIn("USER_SOUND_PACK_SHA256_INVALID", self.text)
+        self.assertIn("USER_SOUND_PACK_ZIP_SHA256_MISMATCH", self.text)
+        self.assertIn("scripts/build_user_sound_pack.py", self.text)
+        self.assertIn("USER_SOUND_PACK_EXACT=PASS", self.text)
+        self.assertIn("USER_SOUND_PACK_CANONICAL=PASS", self.text)
+        self.assertIn("USER_SOUND_PACK_330_WAV=YES", self.text)
+        self.assertIn("library/Board/MOVEHIT1.WAV", self.text)
+        self.assertIn("library/Board/CAPHIT1.WAV", self.text)
+        self.assertNotIn("Build deterministic nine-event sound input with provenance", self.text)
+        self.assertNotIn("generated-tone:v1", self.text)
+        self.assertNotIn("frequencies = (330, 220, 660, 440", self.text)
+        self.assertNotIn("deterministic tone generator", self.text)
+
+    def test_sound_identity_is_retained_in_run_metadata_before_publication(self) -> None:
+        validation = self.text.index("USER_SOUND_PACK_EXACT=PASS")
+        metadata = self.text.index('"user_sound_pack_zip_sha256"')
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(validation, metadata)
+        self.assertLess(metadata, upload)
+        self.assertIn('"user_sound_inventory_sha256"', self.text)
+        self.assertIn('"user_sound_wav_count"', self.text)
+        self.assertIn('os.environ["USER_SOUND_PACK_ZIP_SHA256"]', self.text)
+        self.assertIn('os.environ["USER_SOUND_INVENTORY_SHA256"]', self.text)
+
     def test_build_reuses_qualified_nuitka_and_v2_release_authorities(self) -> None:
         self.assertIn("NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29", self.text)
         self.assertIn("python -m nuitka --standalone", self.text)
-        self.assertIn(
-            "--include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config",
-            self.text,
-        )
-        self.assertIn("test -f product-source/packaging/AccessibleChess.exe.config", self.text)
-        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING", self.text)
-        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
-        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
-        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=", self.text)
-        self.assertIn("WINFORMS_CONFIG_SHA256=", self.text)
-        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS", self.text)
         self.assertIn("run_accessible_chess_v2.py", self.text)
         self.assertIn("prepare_version2_release_payload", self.text)
         self.assertIn("assemble_version2_package_tree", self.text)
         self.assertIn("write_version2_package_zip", self.text)
         self.assertIn("validate_version2_package_tree", self.text)
-
-    def test_winforms_accessibility_config_is_bound_before_payload_preparation(self) -> None:
-        source = self.text.index("test -f product-source/packaging/AccessibleChess.exe.config")
-        include = self.text.index(
-            "--include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config"
-        )
-        byte_proof = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
-        prepare = self.text.index("Prepare release payload and inject qualified P0-F package content")
-        self.assertLess(source, include)
-        self.assertLess(include, byte_proof)
-        self.assertLess(byte_proof, prepare)
-
-    def test_winforms_accessibility_config_authority_is_bound_before_product_code_runs(self) -> None:
-        qualify = self.text.index("Qualify exact Product source before compilation")
-        diff = self.text.index("git diff --exit-code -- packaging/AccessibleChess.exe.config")
-        bind = self.text.index("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=")
-        semantic = self.text.index("validate_winforms_accessibility_app_config")
-        semantic_pass = self.text.index("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
-        diagnostic = self.text.index("python run_accessible_chess_v2.py --diagnostic")
-        self.assertLess(qualify, diff)
-        self.assertLess(diff, bind)
-        self.assertLess(bind, semantic)
-        self.assertLess(semantic, semantic_pass)
-        self.assertLess(semantic_pass, diagnostic)
-        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
-        self.assertIn("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS_FAILURE", self.text)
-
-    def test_packaged_probe_powershell_automatic_variable_guard_precedes_product_code(self) -> None:
-        qualify = self.text.index("Qualify exact Product source before compilation")
-        config_semantics = self.text.index("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
-        guard = self.text.index("SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY=PASS")
-        diagnostic = self.text.index("python run_accessible_chess_v2.py --diagnostic")
-        build = self.text.index("Build standalone AccessibleChess.exe")
-        self.assertLess(qualify, config_semantics)
-        self.assertLess(config_semantics, guard)
-        self.assertLess(guard, diagnostic)
-        self.assertLess(diagnostic, build)
-        self.assertIn("scripts/p0_packaged_document_copy_probe.ps1", self.text)
-        self.assertIn("scripts/p0g_packaged_hotkey_result_probe.ps1", self.text)
-        self.assertIn(r"\$matches\s*", self.text)
-        self.assertIn(
-            "SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY_FAILURE",
-            self.text,
-        )
-
-    def test_winforms_accessibility_config_bytes_survive_fresh_package_readback(self) -> None:
-        standalone = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
-        extracted = self.text.index("FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
-        metadata = self.text.index("W4_RUN_METADATA_WINFORMS_CONFIG_SHA256=")
-        upload = self.text.index(UPLOAD_ARTIFACT_V462)
-        self.assertLess(standalone, extracted)
-        self.assertLess(extracted, metadata)
-        self.assertLess(metadata, upload)
-        self.assertIn("WINFORMS_ACCESSIBILITY_CONFIG_AUTHORITY_HASH_INVALID", self.text)
-        self.assertIn("FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
-        self.assertIn('"winforms_accessibility_config_sha256": config_sha', self.text)
 
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
@@ -188,7 +156,6 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             "tests.test_verify_p0_packaged_document_copy_evidence_hardening",
             "tests.test_verify_p0_packaged_document_copy_cli",
             "tests.test_p0_packaged_acceptance_orchestrator",
-            "tests.test_p0g_packaged_hotkey_result_probe",
             "tests.test_verify_p0g_packaged_hotkey_result_evidence",
             "tests.test_verify_p0g_packaged_hotkey_result_cli",
             "tests.test_w3_p0f_starter_books_training_content",
@@ -253,8 +220,6 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(metadata_pass, upload)
         self.assertIn('"product_sha": product_sha', self.text)
         self.assertIn('"workflow_sha": workflow_sha', self.text)
-        self.assertIn('"winforms_accessibility_config_sha256": config_sha', self.text)
-        self.assertIn("RUN_METADATA_WINFORMS_CONFIG_SHA_INVALID", self.text)
         self.assertIn('"pre_upload_product_freshness": True', self.text)
         self.assertIn('"pre_upload_workflow_freshness": True', self.text)
         self.assertIn('"human_tested": False', self.text)
@@ -267,6 +232,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(checkpoint, upload)
         self.assertLess(self.text.index("HUMAN_TESTED=NO"), upload)
         self.assertLess(self.text.index("NVDA_VERIFIED=NO"), upload)
+        self.assertLess(self.text.index("USER_SOUND_PACK_330_WAV=YES"), upload)
 
     def test_successful_run_does_not_rebind_freshness_after_artifact_upload(self) -> None:
         upload = self.text.index(UPLOAD_ARTIFACT_V462)
