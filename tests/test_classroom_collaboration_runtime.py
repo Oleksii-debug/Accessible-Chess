@@ -35,6 +35,21 @@ from acs.version2_final_product_application import Version2FinalProductApplicati
 from tests.test_classroom_collaboration import FakeRoster
 
 
+class MemorySecretStore:
+    def __init__(self) -> None:
+        self.values: dict[str, bytes] = {}
+
+    def write(self, name: str, value: bytes) -> None:
+        self.values[name] = bytes(value)
+
+    def read(self, name: str) -> bytes | None:
+        value = self.values.get(name)
+        return None if value is None else bytes(value)
+
+    def delete(self, name: str) -> bool:
+        return self.values.pop(name, None) is not None
+
+
 CHAT_URL = "http://127.0.0.1/v1/classroom/chat"
 FILE_URL = "http://127.0.0.1/v1/classroom/files"
 
@@ -201,6 +216,68 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
                 self.assertEqual(self.chat_token_calls, 0)
                 self.assertEqual(self.file_token_calls, 0)
 
+
+
+    def test_runtime_secure_outbox_reuses_message_identity_after_full_rebuild(self) -> None:
+        secure = MemorySecretStore()
+        first = self.build(chat_secret_store=secure)
+        first_calls: list[str] = []
+
+        def ambiguous_send(*, message_id: str, body: str, retention: str = "session"):
+            first_calls.append(message_id)
+            raise RuntimeError("acknowledgement unavailable")
+
+        with mock.patch.object(
+            first.controller,
+            "send_chat",
+            side_effect=ambiguous_send,
+        ):
+            failed = first.webview.dispatch(
+                "collaboration.chat.send",
+                {"body": "Durable runtime draft"},
+            )
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(first_calls, ["message-" + first_calls[0].split("message-", 1)[1]])
+        self.assertIsNotNone(first.chat_outbox)
+        assert first.chat_outbox is not None
+        pending_id = first.chat_outbox.entries()[0].message_id
+
+        second = self.build(chat_secret_store=secure)
+        second_calls: list[str] = []
+
+        def confirmed_send(*, message_id: str, body: str, retention: str = "session"):
+            second_calls.append(message_id)
+            return None
+
+        with mock.patch.object(
+            second.controller,
+            "send_chat",
+            side_effect=confirmed_send,
+        ):
+            sent = second.webview.dispatch(
+                "collaboration.chat.send",
+                {"body": "Durable runtime draft"},
+            )
+
+        self.assertEqual("collaboration.chat.sent", sent.kind)
+        self.assertEqual(second_calls, [pending_id])
+        assert second.chat_outbox is not None
+        self.assertEqual(second.chat_outbox.entries(), ())
+
+    def test_invalid_secure_outbox_fails_before_collaboration_sqlite_or_network(self) -> None:
+        class FailingSecretStore(MemorySecretStore):
+            def read(self, name: str) -> bytes | None:
+                raise RuntimeError("unavailable secret backend")
+
+        target = self.root / "outbox-preflight.sqlite3"
+        with self.assertRaisesRegex(RuntimeError, "chat outbox"):
+            self.build(
+                store_path=target,
+                chat_secret_store=FailingSecretStore(),
+            )
+        self.assertFalse(target.exists())
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
 
 
 class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
@@ -1322,6 +1399,50 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertIsNone(app._collaboration_runtime)
         self.assertEqual(self.chat_token_calls, 0)
         self.assertEqual(self.file_token_calls, 0)
+
+
+    def test_windows_final_product_defaults_chat_outbox_to_dpapi_state_root(self) -> None:
+        app = self.bare_app()
+        secure = MemorySecretStore()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.version2_final_product_application.sys.platform",
+                "win32",
+            ),
+            mock.patch(
+                "acs.version2_final_product_application.WindowsDpapiSecretStore",
+                return_value=secure,
+            ) as dpapi,
+        ):
+            runtime = self.configure(
+                app,
+                collaboration_store_path=self.root / "windows-runtime.sqlite3",
+            )
+
+        dpapi.assert_called_once_with(self.root / "secure")
+        self.assertIsNotNone(runtime.chat_outbox)
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
+    def test_explicit_chat_secret_store_is_forwarded_without_windows_default(self) -> None:
+        app = self.bare_app()
+        secure = MemorySecretStore()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.version2_final_product_application.WindowsDpapiSecretStore"
+            ) as dpapi,
+        ):
+            runtime = self.configure(
+                app,
+                chat_secret_store=secure,
+            )
+
+        dpapi.assert_not_called()
+        self.assertIsNotNone(runtime.chat_outbox)
+        assert runtime.chat_outbox is not None
+        self.assertIs(runtime.chat_outbox.secret_store, secure)
 
 
 if __name__ == "__main__":
