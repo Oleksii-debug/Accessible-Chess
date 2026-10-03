@@ -133,7 +133,7 @@
     tree.setAttribute("aria-label", game.tree_heading || "");
 
     const items = Array.isArray(snapshot.tree) ? snapshot.tree : [];
-    items.forEach(function (item) {
+    items.forEach(function (item, itemIndex) {
       const treeItem = node("li");
       treeItem.id = String(item.dom_id || "");
       treeItem.setAttribute("role", "treeitem");
@@ -158,17 +158,52 @@
       treeItem.addEventListener("keydown", function (event) {
         let command = "";
         let payload = {};
+        const level = Number(item.aria_level || 1);
+        const nextItem = itemIndex + 1 < items.length ? items[itemIndex + 1] : null;
+        const navigationKey =
+          event.key === "ArrowUp"
+          || event.key === "ArrowDown"
+          || event.key === "ArrowLeft"
+          || event.key === "ArrowRight"
+          || event.key === "Home"
+          || event.key === "End";
+        if (!navigationKey) return;
+
+        // A rendered ARIA tree owns its navigation keys even at a boundary.
+        // Quiet boundaries must not scroll the page or manufacture a backend
+        // LookupError/NVDA error announcement.
+        if (typeof event.preventDefault === "function") event.preventDefault();
+
         if (event.key === "ArrowUp") {
-          command = "pgn.move";
-          payload = { delta: -1 };
+          if (itemIndex > 0) {
+            command = "pgn.move";
+            payload = { delta: -1 };
+          }
         } else if (event.key === "ArrowDown") {
-          command = "pgn.move";
-          payload = { delta: 1 };
-        } else if (event.key === "ArrowLeft" && item.has_parent) {
-          command = "pgn.parent";
+          if (itemIndex + 1 < items.length) {
+            command = "pgn.move";
+            payload = { delta: 1 };
+          }
+        } else if (event.key === "ArrowLeft") {
+          if (item.has_parent) command = "pgn.parent";
+        } else if (event.key === "ArrowRight") {
+          if (nextItem && Number(nextItem.aria_level || 1) === level + 1) {
+            command = "pgn.select";
+            payload = { node_id: nextItem.node_id };
+          }
+        } else if (event.key === "Home") {
+          if (itemIndex > 0 && items[0]) {
+            command = "pgn.select";
+            payload = { node_id: items[0].node_id };
+          }
+        } else if (event.key === "End") {
+          const lastIndex = items.length - 1;
+          if (itemIndex < lastIndex && items[lastIndex]) {
+            command = "pgn.select";
+            payload = { node_id: items[lastIndex].node_id };
+          }
         }
         if (!command) return;
-        event.preventDefault();
         invokeCommand(root, invoke, announce, command, payload);
       });
       tree.appendChild(treeItem);
