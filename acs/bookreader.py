@@ -433,10 +433,38 @@ class BookReader:
         raw_return_points = snapshot_data["return_points"]
         if not isinstance(raw_return_points, Mapping):
             raise TypeError("Book reader snapshot return_points must be a mapping")
-        if len(raw_return_points) > _MAX_RETURN_POINTS:
+        try:
+            return_point_count = len(raw_return_points)
+        except Exception as exc:
+            raise TypeError(
+                "Book reader snapshot return_points must be a stable mapping"
+            ) from exc
+        if return_point_count > _MAX_RETURN_POINTS:
             raise ValueError(f"Book reader snapshot exceeds {_MAX_RETURN_POINTS} return points")
+        try:
+            return_point_keys = tuple(
+                islice(iter(raw_return_points), return_point_count + 1)
+            )
+        except Exception as exc:
+            raise TypeError(
+                "Book reader snapshot return_points must be a stable mapping"
+            ) from exc
+        if len(return_point_keys) != return_point_count:
+            raise ValueError("Book reader snapshot return_points changed while being read")
+        if any(type(name) is not str for name in return_point_keys):
+            raise TypeError("Return point name must be a string")
+        if len(set(return_point_keys)) != len(return_point_keys):
+            raise ValueError("Book reader snapshot contains duplicate return point names")
+        try:
+            raw_return_point_items = tuple(
+                (name, raw_return_points[name]) for name in return_point_keys
+            )
+        except Exception as exc:
+            raise TypeError(
+                "Book reader snapshot return_points must be a stable mapping"
+            ) from exc
         return_points: dict[str, str] = {}
-        for name, key in raw_return_points.items():
+        for name, key in raw_return_point_items:
             validated_name = cls._return_point_name(name)
             validated_key = cls._durable_target(
                 key,
@@ -447,10 +475,39 @@ class BookReader:
         raw_fallback_digests = snapshot_data["fallback_digests"]
         if not isinstance(raw_fallback_digests, Mapping):
             raise TypeError("Book reader snapshot fallback_digests must be a mapping")
-        if len(raw_fallback_digests) > _MAX_RETURN_POINTS + 1:
+        max_fallback_digests = _MAX_RETURN_POINTS + 1
+        try:
+            fallback_digest_count = len(raw_fallback_digests)
+        except Exception as exc:
+            raise TypeError(
+                "Book reader snapshot fallback_digests must be a stable mapping"
+            ) from exc
+        if fallback_digest_count > max_fallback_digests:
             raise ValueError("Book reader snapshot contains too many fallback digests")
+        try:
+            fallback_digest_keys = tuple(
+                islice(iter(raw_fallback_digests), fallback_digest_count + 1)
+            )
+        except Exception as exc:
+            raise TypeError(
+                "Book reader snapshot fallback_digests must be a stable mapping"
+            ) from exc
+        if len(fallback_digest_keys) != fallback_digest_count:
+            raise ValueError("Book reader snapshot fallback_digests changed while being read")
+        if any(type(key) is not str for key in fallback_digest_keys):
+            raise TypeError("Book reader fallback digest keys and values must be strings")
+        if len(set(fallback_digest_keys)) != len(fallback_digest_keys):
+            raise ValueError("Book reader snapshot contains duplicate fallback digest keys")
+        try:
+            raw_fallback_digest_items = tuple(
+                (key, raw_fallback_digests[key]) for key in fallback_digest_keys
+            )
+        except Exception as exc:
+            raise TypeError(
+                "Book reader snapshot fallback_digests must be a stable mapping"
+            ) from exc
         fallback_digests: dict[str, str] = {}
-        for key, digest in raw_fallback_digests.items():
+        for key, digest in raw_fallback_digest_items:
             validated_key = cls._durable_target(
                 key,
                 name="Book reader fallback digest key",
