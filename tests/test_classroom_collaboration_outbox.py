@@ -176,6 +176,28 @@ class DurableChatOutboxTests(unittest.TestCase):
         self.assertEqual(persisted[0].message_id, "message-first-process")
         self.assertEqual(self.secrets.values, {})
 
+    def test_restart_retry_preserves_original_retention_for_same_body(self) -> None:
+        first_chat = AmbiguousCommitChat()
+        first = self.controller(first_chat, self.outbox())
+        with self.assertRaises(OSError):
+            first.send_chat(
+                message_id="message-original-retention",
+                body="Same logical draft",
+                retention="session",
+            )
+
+        second_chat = SuccessfulChat()
+        second = self.controller(second_chat, self.outbox())
+        delivered = second.send_chat(
+            message_id="message-new-process",
+            body="Same logical draft",
+            retention="persistent",
+        )
+
+        self.assertEqual(delivered.message_id, "message-original-retention")
+        self.assertEqual(delivered.retention, "session")
+        self.assertEqual(second_chat.message_ids, ["message-original-retention"])
+
     def test_persisted_message_with_failed_outbox_cleanup_never_resends(self) -> None:
         self.secrets.fail_delete = True
         first_chat = SuccessfulChat()
