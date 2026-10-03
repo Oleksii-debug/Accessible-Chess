@@ -75,6 +75,20 @@ _LIVEKIT_FIXTURE_BUNDLE_SHA256 = hashlib.sha256(
 ).hexdigest()
 
 
+def _livekit_fixture_notice() -> bytes:
+    return (
+        b"Copyright 2021 LiveKit, Inc.\n"
+        b"Apache License, Version 2.0\n"
+        b"fixture redistribution notice\n"
+        b"Distributed on an AS IS basis without warranties or conditions.\n"
+    )
+
+
+_LIVEKIT_FIXTURE_NOTICE_SHA256 = hashlib.sha256(
+    _livekit_fixture_notice()
+).hexdigest()
+
+
 def _minimal_windows_pe() -> bytes:
     data = bytearray(512)
     data[0:2] = b"MZ"
@@ -93,13 +107,20 @@ def _minimal_windows_pe() -> bytes:
 
 class Version2PackageAssemblerTests(unittest.TestCase):
     def setUp(self) -> None:
-        pin = patch.object(
+        bundle_pin = patch.object(
             package_preflight,
             "_LIVEKIT_CLIENT_BUNDLE_SHA256",
             _LIVEKIT_FIXTURE_BUNDLE_SHA256,
         )
-        pin.start()
-        self.addCleanup(pin.stop)
+        notice_pin = patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_NOTICE_SHA256",
+            _LIVEKIT_FIXTURE_NOTICE_SHA256,
+        )
+        bundle_pin.start()
+        notice_pin.start()
+        self.addCleanup(notice_pin.stop)
+        self.addCleanup(bundle_pin.stop)
 
     def _sources(self, root: Path) -> tuple[Path, Path]:
         product = root / "prepared-product"
@@ -119,12 +140,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
         livekit.mkdir(parents=True)
         livekit_bundle = _livekit_fixture_bundle()
         livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
-        livekit_notice = (
-            b"Copyright 2021 LiveKit, Inc.\n"
-            b"Apache License, Version 2.0\n"
-            b"fixture redistribution notice\n"
-            b"Distributed on an AS IS basis without warranties or conditions.\n"
-        )
+        livekit_notice = _livekit_fixture_notice()
         (livekit / "livekit-client.umd.js").write_bytes(livekit_bundle)
         (livekit / "LICENSE").write_bytes(livekit_license)
         (livekit / "NOTICE").write_bytes(livekit_notice)
