@@ -1042,6 +1042,9 @@ class ClassroomCollaborationWebView:
         for fingerprint in recovered_fingerprints:
             self._pending_chat.pop(fingerprint, None)
 
+        if received.hidden:
+            self._unread_message_ids.discard(received.message_id)
+
         announcement = ""
         if (
             is_new
