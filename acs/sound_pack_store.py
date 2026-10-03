@@ -787,13 +787,20 @@ class FilesystemSoundPackStore:
         if metadata.st_size != digest.size_bytes:
             raise SoundPackStoreError("downloaded sound asset size mismatch")
 
+        _require_real_dir_chain(
+            destination.parent,
+            "sound pack destination directory",
+        )
         try:
             destination.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise SoundPackStoreError(
                 "sound pack destination directory could not be created"
             ) from exc
-        _require_real_dir(destination.parent, "sound pack destination directory")
+        _require_real_dir_chain(
+            destination.parent,
+            "sound pack destination directory",
+        )
 
         flags = os.O_RDONLY
         flags |= getattr(os, "O_BINARY", 0)
@@ -868,13 +875,20 @@ class FilesystemSoundPackStore:
 
     @staticmethod
     def _write_new(path: Path, data: bytes) -> None:
+        _require_real_dir_chain(
+            path.parent,
+            "sound pack metadata directory",
+        )
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise SoundPackStoreError(
                 "sound pack metadata directory could not be created"
             ) from exc
-        _require_real_dir(path.parent, "sound pack metadata directory")
+        _require_real_dir_chain(
+            path.parent,
+            "sound pack metadata directory",
+        )
         try:
             with path.open("xb") as handle:
                 handle.write(data)
