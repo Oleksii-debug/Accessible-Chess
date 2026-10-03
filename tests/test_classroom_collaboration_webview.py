@@ -1274,6 +1274,46 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             second.payload["collaboration"]["files"]["transfer_progress"]["total_bytes"],
         )
 
+    def test_all_bytes_sent_remains_finalizing_until_authoritative_completion(self) -> None:
+        self.selected_file = self.root / "finalizing.pgn"
+        self.selected_file.write_bytes(b"0123456789")
+        self.files.scan_state = "clean"
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-ui-1", 10, 10),
+        )
+        progress_events = []
+        view = self.webview(file_progress_event_sink=progress_events.append)
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+
+        self.assertEqual("collaboration.file.sent", uploaded.kind)
+        self.assertEqual(
+            [(0, False), (10, False), (10, True)],
+            [
+                (
+                    event.payload["file_progress"]["transferred_bytes"],
+                    event.payload["file_progress"]["complete"],
+                )
+                for event in progress_events
+            ],
+        )
+        provider_all_bytes = progress_events[-2].payload["file_progress"]
+        terminal = progress_events[-1].payload["file_progress"]
+        self.assertEqual(
+            "All bytes transferred; finalizing transfer: finalizing.pgn.",
+            provider_all_bytes["text"],
+        )
+        self.assertEqual(
+            "Transferred 10 B of 10 B: finalizing.pgn.",
+            terminal["text"],
+        )
+        self.assertFalse(provider_all_bytes["complete"])
+        self.assertTrue(terminal["complete"])
+        self.assertLess(
+            provider_all_bytes["progress_revision"],
+            terminal["progress_revision"],
+        )
+
     def test_partial_upload_failure_clears_progress_before_retry(self) -> None:
         self.selected_file = self.root / "partial-retry.pgn"
         self.selected_file.write_bytes(b"0123456789")
