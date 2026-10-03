@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 """Books-side adapter for resolving referenced Library games.
 
 The semantic Book model identifies a Library game by the opaque ``games.id`` value
@@ -14,7 +16,7 @@ presentation-safe Book error.
 """
 
 from .acsdb import AcsDatabase
-from .gametree import PgnGame
+from .gametree import GameTreeSerializationError, PgnGame, serialize_game
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -40,6 +42,43 @@ class AcsdbBookGameLookup:
             raise BookLibraryGameLookupError("book game identity is invalid")
         return value
 
+    @staticmethod
+    def _stored_warnings(row: dict) -> list[str]:
+        raw = row.get("warnings_json")
+        if type(raw) is not str:
+            raise BookLibraryGameLookupError("stored book game warnings are invalid")
+        try:
+            warnings = json.loads(raw)
+        except (json.JSONDecodeError, RecursionError) as exc:
+            raise BookLibraryGameLookupError(
+                "stored book game warnings are invalid"
+            ) from None
+        if (
+            type(warnings) is not list
+            or any(
+                type(item) is not str
+                or any(0xD800 <= ord(character) <= 0xDFFF for character in item)
+                for item in warnings
+            )
+        ):
+            raise BookLibraryGameLookupError("stored book game warnings are invalid")
+        return list(warnings)
+
+    @staticmethod
+    def _merge_warnings(
+        persisted: list[str],
+        reparsed: list[str],
+    ) -> list[str]:
+        if not persisted:
+            return list(reparsed)
+        merged = list(persisted)
+        seen = set(persisted)
+        for warning in reparsed:
+            if warning not in seen:
+                merged.append(warning)
+                seen.add(warning)
+        return merged
+
     def load_book_game(self, game_id: int) -> PgnGame:
         """Return one canonical GameTree game for an ACSDB ``games.id``.
 
@@ -54,8 +93,8 @@ class AcsdbBookGameLookup:
         identity = self._game_id(game_id)
         try:
             row = self._database.get_game(identity)
-        except Exception as exc:
-            raise BookLibraryGameLookupError("book game lookup failed") from exc
+        except Exception:
+            raise BookLibraryGameLookupError("book game lookup failed") from None
 
         if row is None:
             raise BookLibraryGameLookupError("book game was not found")
@@ -65,6 +104,7 @@ class AcsdbBookGameLookup:
         source_index = row.get("source_index")
         if type(source_index) is not int or source_index < 0 or source_index > _SQLITE_INTEGER_MAX:
             raise BookLibraryGameLookupError("stored book game identity is invalid")
+        persisted_warnings = self._stored_warnings(row)
 
         pgn_text = row.get("pgn_text")
         if type(pgn_text) is not str or not pgn_text.strip():
@@ -72,11 +112,16 @@ class AcsdbBookGameLookup:
 
         try:
             games = parse_pgn_text(pgn_text, strict=False)
-        except (PgnRoundTripError, RecursionError) as exc:
-            raise BookLibraryGameLookupError("stored book game is not canonical") from exc
+        except (PgnRoundTripError, RecursionError):
+            raise BookLibraryGameLookupError("stored book game is not canonical") from None
         if len(games) != 1:
             raise BookLibraryGameLookupError("stored book game must contain exactly one game")
 
         game = games[0]
         game.source_index = source_index
+        game.warnings = self._merge_warnings(persisted_warnings, game.warnings)
+        try:
+            serialize_game(game)
+        except GameTreeSerializationError:
+            raise BookLibraryGameLookupError("stored book game is not canonical") from None
         return game
