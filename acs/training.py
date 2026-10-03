@@ -65,13 +65,21 @@ class ExerciseStep:
     explanation: str | None = None
 
     def __post_init__(self) -> None:
+        if isinstance(self.accepted_moves, str):
+            raise TypeError("exercise accepted_moves must be a finite collection")
         try:
             count = len(self.accepted_moves)
         except TypeError as exc:
             raise TypeError("exercise accepted_moves must be a finite collection") from exc
         if count > _MAX_ACCEPTED_MOVES_PER_STEP:
             raise ValueError("exercise step has too many accepted moves")
-        normalized = frozenset(_normalize_move(move) for move in self.accepted_moves)
+        try:
+            authored_moves = tuple(self.accepted_moves)
+        except TypeError as exc:
+            raise TypeError("exercise accepted_moves must be a finite collection") from exc
+        if len(authored_moves) != count:
+            raise ValueError("exercise accepted_moves changed while being read")
+        normalized = frozenset(_normalize_move(move) for move in authored_moves)
         if not normalized:
             raise ValueError("exercise step requires at least one accepted move")
         if self.hint is not None and type(self.hint) is not str:
