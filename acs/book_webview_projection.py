@@ -175,9 +175,19 @@ class BookWebViewProjection:
                 raise ValueError("unsupported UI language") from None
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
-        self._language = language
-        self._presenter.set_language(language)
-        return BookWebViewEvent("render", {"snapshot": self.snapshot(), "focus_target": ""})
+        previous_language = self._language
+        try:
+            self._language = language
+            self._presenter.set_language(language)
+            snapshot = self.snapshot()
+        except Exception:
+            # Language is presentation state, but a failed render must not publish
+            # a half-applied locale. Restore both projection and presenter so the
+            # bridge's generic error and the next successful render remain coherent.
+            self._language = previous_language
+            self._presenter.set_language(previous_language)
+            raise
+        return BookWebViewEvent("render", {"snapshot": snapshot, "focus_target": ""})
 
     def _snapshot_from_block(self, block: BookBlockView) -> dict[str, object]:
         if not isinstance(block, BookBlockView):
