@@ -60,6 +60,7 @@ def test_final_bootstrap_is_packaged_and_remote_transport_is_absent():
     assert "AccessibleChessTeacherSurface" in source
     assert "AccessibleChessEducationSurface" in source
     assert "AccessibleChessClassroomMediaSurface" in source
+    assert "executeProvider" in source
     assert 'areaInvoke("media")' in source
     assert "media_binding_active" in source
     assert "media_recovery_required" in source
