@@ -40,6 +40,9 @@ _EXPORT_LABELS = {
 }
 
 
+_MAX_EXPORT_SELECTION = 5000
+
+
 class LibraryExportWebViewProjection(LibraryWebViewProjection):
     """Keyboard-first export enrichment of the canonical Library presenter."""
 
@@ -126,6 +129,8 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             self._export_game_ids.remove(game_id)
             announcement = labels["selected_off"]
         else:
+            if len(self._export_game_ids) >= _MAX_EXPORT_SELECTION:
+                raise ValueError("Library export selection exceeds browser contract")
             self._export_game_ids.add(game_id)
             announcement = labels["selected_on"]
         event = self._render_event(self._presenter.view(), announce=False)
