@@ -12,6 +12,7 @@ from acs.book_training import build_book_training_material
 from acs.bookdocument import BookDocument, Exercise, Heading, Paragraph
 from acs.bookreader import BookReader
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_ui_shell import UILanguage
 from acs.starter_books_training_content import STARTER_COURSE_BOOK_KEY
 from acs.starter_books_training_release import (
     STARTER_BOOKLET_CHAPTERS,
@@ -231,6 +232,113 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+
+    def test_training_presentation_only_commands_do_not_depend_on_progress_writes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-training-presentation-only-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Presentation-only Training",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Exercise",
+                        answer_text="e4",
+                        hint="Use the king pawn.",
+                        block_id="exercise",
+                    )
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+                language=UILanguage.UA,
+            )
+            workspace.start_current()
+            before = workspace.session.snapshot()
+            store = workspace._store
+            self.assertIsNotNone(store)
+
+            with patch.object(
+                store,
+                "save",
+                side_effect=AssertionError(
+                    "presentation-only Training command must not write progress"
+                ),
+            ) as save:
+                language = workspace.dispatch(
+                    " training.language ",
+                    {"language": "en"},
+                )
+                revealed = workspace.dispatch(" training.reveal ", {})
+                retried = workspace.dispatch(" training.retry ", {})
+
+            save.assert_not_called()
+            self.assertEqual("render", language.kind)
+            self.assertEqual("en", language.payload["snapshot"]["document"]["lang"])
+            self.assertEqual(UILanguage.EN, workspace.language)
+            self.assertEqual("render", revealed.kind)
+            self.assertEqual(("e4",), revealed.payload["solution"])
+            self.assertEqual("render", retried.kind)
+            self.assertEqual(before, workspace.session.snapshot())
+
+            with patch.object(
+                store,
+                "save",
+                wraps=store.save,
+            ) as save:
+                hinted = workspace.dispatch(" training.hint ", {})
+
+            self.assertEqual("render", hinted.kind)
+            self.assertEqual(1, workspace.session.hints_used)
+            save.assert_called_once()
+
+    def test_whitespace_command_cannot_bypass_completed_training_action_fence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-training-command-fence-") as raw:
+            root = Path(raw)
+            document = BookDocument(
+                title="Training command fence",
+                language="en",
+                blocks=[
+                    Exercise(
+                        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                        prompt="Exercise",
+                        answer_text="e4",
+                        hint="Use the king pawn.",
+                        block_id="exercise",
+                    )
+                ],
+            )
+            workspace = Version2BookTrainingWorkspace(
+                BookReader(document),
+                progress_root=root / "training-progress",
+            )
+            workspace.start_current()
+            completed = workspace.dispatch("training.submit", {"answer": "e4"})
+            self.assertEqual("render", completed.kind)
+            self.assertTrue(workspace.session.completed)
+            before = workspace.session.snapshot()
+            before_message = workspace.presenter_message
+            store = workspace._store
+            self.assertIsNotNone(store)
+
+            with patch.object(
+                store,
+                "save",
+                side_effect=AssertionError(
+                    "disabled stale Training command must not reach persistence"
+                ),
+            ) as save:
+                rejected_hint = workspace.dispatch(" training.hint ", {})
+                rejected_reveal = workspace.dispatch(" training.reveal ", {})
+                rejected_retry = workspace.dispatch(" training.retry ", {})
+
+            save.assert_not_called()
+            self.assertEqual("error", rejected_hint.kind)
+            self.assertEqual("error", rejected_reveal.kind)
+            self.assertEqual("error", rejected_retry.kind)
+            self.assertEqual(before, workspace.session.snapshot())
+            self.assertEqual(before_message, workspace.presenter_message)
 
     def test_workspace_continue_render_error_restores_exact_local_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-w3-p0f-workspace-continue-atomic-") as raw:
