@@ -4,18 +4,24 @@ import tempfile
 import unittest
 from collections import UserDict
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from acs.acsdb import AcsDatabase
+from acs.analysis_service import AnalysisService
+from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import BookDocument, Exercise, Heading
 from acs.bookreader import BookReader
 from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewProjection
 from acs.chesscore import Board
 from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
+from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 from acs.training_webview_bridge import TrainingWebViewBridge
 from acs.training_webview_projection import TrainingWebViewProjection
+from acs.version2_application import Version2Application
 from acs.version2_training_workspace import Version2BookTrainingWorkspace
 
 
@@ -382,6 +388,82 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             self.assertIs(retained_session, workspace.session)
             self.assertIs(retained_bridge, workspace.bridge)
             self.assertEqual(before, workspace.session.snapshot())
+
+    def test_application_book_and_training_command_subclasses_fail_before_hooks(self) -> None:
+        class HostileCommand(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("application must not strip command subclasses")
+
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("application must not compare command subclasses")
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("application must not hash command subclasses")
+
+        with tempfile.TemporaryDirectory(prefix="training-app-command-") as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            self.addCleanup(database.close)
+            self.addCleanup(analysis.close)
+            app = Version2Application(
+                database,
+                progress_store=BookProgressStore(root / "book-progress.json"),
+                engine_assistance=EngineAssistedWorkflowService(analysis),
+                board_dispatch=lambda *_args: None,
+            )
+            source = root / "training.md"
+            source.write_text("# Training\n", encoding="utf-8")
+            document = BookDocument(
+                title="Training",
+                blocks=[
+                    Exercise(
+                        fen=Board.START,
+                        prompt="Play e4",
+                        answer_text="e4",
+                        block_id="exercise-one",
+                    )
+                ],
+            )
+            imported = SimpleNamespace(
+                book_key="training-command-book",
+                document=document,
+                warnings=(),
+            )
+            with patch("acs.version2_application.import_text_book", return_value=imported):
+                app.open_book(source)
+
+            book_reader_before = app.reader
+            book_snapshot_before = app.reader.snapshot()
+            book_result = app.browser_command("books", HostileCommand("book.next"), {})
+            self.assertEqual("error", book_result["kind"])
+            self.assertFalse(HostileCommand.touched)
+            self.assertIs(book_reader_before, app.reader)
+            self.assertEqual(book_snapshot_before, app.reader.snapshot())
+
+            routed = app.browser_command("shell", "screen.training")
+            self.assertEqual("route", routed["kind"])
+            retained_workspace = app.training_workspace
+            retained_bridge = app.training
+            retained_session = retained_workspace.session
+            training_before = retained_session.snapshot()
+
+            training_result = app.browser_command(
+                "training",
+                HostileCommand("training.hint"),
+                {},
+            )
+            self.assertEqual("error", training_result["kind"])
+            self.assertFalse(HostileCommand.touched)
+            self.assertIs(retained_workspace, app.training_workspace)
+            self.assertIs(retained_bridge, app.training)
+            self.assertIs(retained_session, app.training_workspace.session)
+            self.assertEqual(training_before, app.training_workspace.session.snapshot())
 
     def test_browser_payload_dict_subclasses_fail_before_hooks(self) -> None:
         class HostileDict(dict):
