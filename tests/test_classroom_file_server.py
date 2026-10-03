@@ -55,9 +55,12 @@ class FakeScanner:
     def __init__(self):
         self.state = "clean"
         self.calls = []
+        self.after_scan = None
 
     def scan(self, **kwargs):
         self.calls.append(kwargs)
+        if self.after_scan is not None:
+            self.after_scan()
         return self.state
 
 
@@ -71,6 +74,7 @@ class FakeObjectStore:
         self.raise_before_put_once = False
         self.raise_after_put_once = False
         self.status_failures = 0
+        self.after_status = None
         self.delete_failures = 0
 
     def stored_sha256(self, *, object_key):
@@ -79,7 +83,10 @@ class FakeObjectStore:
             self.status_failures -= 1
             raise RuntimeError("status unavailable")
         content = self.objects.get(object_key)
-        return None if content is None else hashlib.sha256(content).hexdigest()
+        result = None if content is None else hashlib.sha256(content).hexdigest()
+        if self.after_status is not None:
+            self.after_status()
+        return result
 
     def put(self, *, object_key, content, expected_sha256):
         self.put_calls.append((object_key, bytes(content), expected_sha256))
@@ -344,6 +351,61 @@ class ClassroomFileServerTests(unittest.TestCase):
                 limit=100,
             ),
             (),
+        )
+
+    def test_membership_revoked_during_scan_cannot_reserve_or_store(self):
+        prepared = self.prepared(
+            attachment_id="revoked-during-scan-a0",
+            content=b"must never become durable",
+        )
+        self.scanner.after_scan = lambda: self.auth.members.discard(
+            ("student-1", "room-1")
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "not authorized",
+        ):
+            self.student1.upload(prepared)
+
+        self.assertEqual(self.objects.put_calls, [])
+        self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
+        with self.store._connect() as db:
+            self.assertIsNone(
+                db.execute(
+                    "SELECT 1 FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (prepared.metadata.attachment_id,),
+                ).fetchone()
+            )
+
+    def test_membership_revoked_during_status_reconciliation_cannot_finalize(self):
+        prepared = self.prepared(
+            attachment_id="revoked-during-status-a0",
+            content=b"already durable but not finalized",
+        )
+        self.objects.raise_after_put_once = True
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ):
+            self.student1.upload(prepared)
+
+        self.objects.after_status = lambda: self.auth.members.discard(
+            ("student-1", "room-1")
+        )
+        put_calls = len(self.objects.put_calls)
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "not authorized",
+        ):
+            self.student1.retry(prepared)
+
+        self.assertEqual(len(self.objects.put_calls), put_calls)
+        self.assertIn(prepared.metadata.object_key, self.objects.objects)
+        self.assertEqual(
+            self.student1._service._store.existing_upload(prepared.metadata),
+            (None, True),
         )
 
     def test_authoritative_quota_counts_concurrent_reservations(self):
