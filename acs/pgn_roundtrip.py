@@ -310,12 +310,15 @@ def _preflight_text(
 
     for line in normalized.split("\n"):
         line_end = line_start + len(line)
-        starts_inside_comment = comment_until > line_start
+        starts_inside_recovered_comment = comment_until > line_start
+        starts_inside_framing_comment = game_framer.inside_brace_comment
 
-        # Match the same header grammar as gametree while outside a
-        # brace-comment span. A line that starts inside recovered
-        # comment text cannot become a tag boundary after its close.
-        if not starts_inside_comment and line.lstrip().startswith("["):
+        # Header boundaries must follow CanonicalPgnGameFramer exactly. The
+        # recovery span scanner intentionally has slightly different semantics
+        # for the historical "{{ ... }" literal-opening form; letting that
+        # scanner decide header status can hide a real next-game header from
+        # field/count gates even though the canonical framer will split there.
+        if not starts_inside_framing_comment and line.lstrip().startswith("["):
             match = TAG_RE.match(line)
             if match is None:
                 raise PgnRoundTripError(
@@ -325,6 +328,9 @@ def _preflight_text(
             if seen_movetext:
                 tags_in_game = 0
                 seen_movetext = False
+                # A canonical frame boundary terminates any recovery-only span
+                # that crossed into this header in the whole-text scanner.
+                comment_until = 0
             tags_in_game += 1
             if tags_in_game > MAX_PGN_TAGS_PER_GAME:
                 _raise_limit(
@@ -346,7 +352,7 @@ def _preflight_text(
             line_start = line_end + 1
             continue
 
-        if line.strip() and not starts_inside_comment:
+        if line.strip() and not starts_inside_recovered_comment:
             seen_movetext = True
 
         token_length = 0
@@ -358,7 +364,7 @@ def _preflight_text(
                 token_length = 0
 
         index = 0
-        if starts_inside_comment:
+        if starts_inside_recovered_comment:
             if comment_until > line_end:
                 claim_framed_line(line)
                 line_start = line_end + 1
