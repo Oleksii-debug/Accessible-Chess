@@ -338,9 +338,20 @@ def _publish_expected_hash(
         try:
             snapshot_sha256 = _current_sha256(snapshot)
         except (OSError, ValueError, PgnFileError) as exc:
-            preserve_snapshot = True
+            # The requested inode is already at the public destination, but
+            # verification did not complete. Restore the known pre-publication
+            # inode before reporting failure so callers are never told to retry
+            # while the requested commit remains silently published.
+            try:
+                os.replace(snapshot, destination)
+            except OSError as rollback_exc:
+                preserve_snapshot = True
+                raise PgnFileError(
+                    "PGN publication verification and rollback failed; recovery snapshot was preserved"
+                ) from rollback_exc
+            snapshot = None
             raise PgnFileError(
-                "PGN publication could not be verified safely; recovery snapshot was preserved"
+                "PGN publication verification failed; original destination was restored"
             ) from exc
 
         if snapshot_sha256 != expected_sha256:
