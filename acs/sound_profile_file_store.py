@@ -49,6 +49,18 @@ def _require_real_directory(path: Path, *, message: str) -> None:
         raise SoundProfileFileError(message)
 
 
+def _require_real_directory_chain(path: Path) -> None:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    chain = tuple(reversed(absolute.parents)) + (absolute,)
+    for directory in chain:
+        if not os.path.lexists(directory):
+            continue
+        _require_real_directory(
+            directory,
+            message="sound profile storage directory is redirected or invalid",
+        )
+
+
 def _require_regular_metadata(
     metadata: os.stat_result,
     *,
@@ -233,10 +245,7 @@ class JsonSoundProfileStorage:
                 raise SoundProfileFileError(
                     "sound profile storage is unavailable"
                 ) from exc
-            _require_real_directory(
-                self.path.parent,
-                message="sound profile storage directory is not a real directory",
-            )
+            _require_real_directory_chain(self.path.parent)
             descriptor = self._open_lock_descriptor()
             acquired = False
             try:
@@ -267,6 +276,7 @@ class JsonSoundProfileStorage:
     def _read_raw_with_token(
         self,
     ) -> tuple[bytes | None, tuple[object, ...] | None]:
+        _require_real_directory_chain(self.path.parent)
         try:
             metadata = os.lstat(self.path)
         except FileNotFoundError:
