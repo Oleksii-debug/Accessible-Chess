@@ -41,6 +41,22 @@ _DERIVED_ROOT_DIRECTORIES = {"sound-cache"}
 _DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
 )
+
+
+def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
+    """Return whether a root file is crash residue from a canonical writer."""
+    if len(relative_path.parts) != 1:
+        return False
+    name = relative_path.parts[0].casefold()
+    return (
+        name.startswith("gametree-resume.json.") and name.endswith(".tmp")
+    ) or (
+        name.startswith("gametree-resume.json.cas-") and name.endswith(".bak")
+    ) or (
+        name.startswith(".book-progress.json.") and name.endswith(".tmp")
+    )
+
+
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -660,6 +676,12 @@ class Version2UpgradeCoordinator:
                 and relative_path.parts[0].casefold()
                 in _DERIVED_ROOT_DIRECTORY_KEYS
             ):
+                continue
+            # Atomic GameTree/Book-progress writers may leave these exact-root
+            # temporary files behind only after abrupt process death. They are
+            # internal publication residue, not preservation-backed user data.
+            # Nested lookalikes and non-matching near names remain ordinary data.
+            if _is_generated_root_runtime_file(relative_path):
                 continue
             folded = relative.casefold()
             if folded in seen:

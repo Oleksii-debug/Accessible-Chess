@@ -98,6 +98,55 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 b"durable-pack-bytes",
             )
 
+
+    def test_generated_root_writer_residue_is_derived_but_nested_lookalikes_are_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            generated = (
+                "gametree-resume.json.abcd1234.tmp",
+                "gametree-resume.json.cas-abcd1234.bak",
+                ".book-progress.json.abcd1234.tmp",
+                ".book-progress.json.bak.abcd1234.tmp",
+            )
+            for name in generated:
+                (root / name).write_bytes(b"derived-runtime-residue")
+
+            nested = root / "user-content"
+            nested.mkdir()
+            for name in generated:
+                (nested / name).write_bytes(b"nested-user-data")
+
+            near_misses = (
+                "gametree-resume.json.abcd1234.tmp.keep",
+                "gametree-resume.json.cas-abcd1234.bak.keep",
+                ".book-progress.json.abcd1234.tmp.keep",
+            )
+            for name in near_misses:
+                (root / name).write_bytes(b"root-user-data")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            for name in generated:
+                self.assertNotIn(name, files)
+                self.assertIn(f"user-content/{name}", files)
+            for name in near_misses:
+                self.assertIn(name, files)
+
+            backup, manifest = coordinator._create_backup("writer-residue-derived")
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            for name in generated:
+                self.assertNotIn(name, paths)
+                self.assertIn(f"user-content/{name}", paths)
+                self.assertEqual(
+                    (backup / "data" / "user-content" / name).read_bytes(),
+                    b"nested-user-data",
+                )
+            for name in near_misses:
+                self.assertIn(name, paths)
+
     def test_exact_root_sound_cache_subtree_is_derived_and_nested_names_are_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
@@ -370,6 +419,9 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             cache.mkdir()
             (cache / "huge.wav").write_bytes(b"x" * 4096)
             (root / "book-progress.json.lock").write_bytes(b"z" * 4096)
+            (root / "gametree-resume.json.deadbeef.tmp").write_bytes(b"t" * 4096)
+            (root / "gametree-resume.json.cas-deadbeef.bak").write_bytes(b"c" * 4096)
+            (root / ".book-progress.json.deadbeef.tmp").write_bytes(b"p" * 4096)
             durable_profile = root / "sound-profile.json"
             durable_profile.write_bytes(b"x")
 
