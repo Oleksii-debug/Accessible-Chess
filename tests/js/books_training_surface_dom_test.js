@@ -16,6 +16,7 @@ class FakeElement {
     this.disabled = false;
     this.open = false;
     this.replaceChildrenCalls = 0;
+    this.failNextReplace = false;
   }
 
   appendChild(child) {
@@ -26,6 +27,10 @@ class FakeElement {
 
   replaceChildren(child) {
     this.replaceChildrenCalls += 1;
+    if (this.failNextReplace) {
+      this.failNextReplace = false;
+      throw new Error("injected replaceChildren failure");
+    }
     this.children = [];
     if (child) this.appendChild(child);
   }
@@ -1284,6 +1289,63 @@ async function run() {
     "stale deferred Book response must not steal newer reading focus");
   check(!announcements.includes("Stale Book response must not announce"),
     "stale deferred Book response must not announce");
+
+  const failedCommitBookRoot = new FakeElement("div");
+  let failedCommitBookResolve = null;
+  const failedCommitBookInvoke = () => new Promise(function (resolve) {
+    failedCommitBookResolve = resolve;
+  });
+  window.AccessibleChessBookSurface.render(
+    failedCommitBookRoot,
+    bookSnapshot(3, "Pending before failed commit"),
+    failedCommitBookInvoke,
+    announce,
+    "book-block-3",
+    "Action failed"
+  );
+  const failedCommitNext = find(failedCommitBookRoot, "BUTTON", "Next");
+  failedCommitNext.focus();
+  failedCommitNext.listeners.click();
+  check(failedCommitBookRoot.attributes["aria-busy"] === "true",
+    "pending Book command must own busy state before failed DOM commit");
+  const failedCommitFocus = document.activeElement;
+  failedCommitBookRoot.failNextReplace = true;
+  let failedCommitRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      failedCommitBookRoot,
+      bookSnapshot(4, "DOM commit must fail"),
+      failedCommitBookInvoke,
+      announce,
+      "book-block-4",
+      "Action failed"
+    );
+  } catch (error) {
+    failedCommitRejected = true;
+  }
+  check(failedCommitRejected, "injected Book DOM commit failure must propagate");
+  check(failedCommitBookRoot.attributes["aria-busy"] === "true",
+    "failed Book DOM commit must preserve pending command ownership");
+  check(document.activeElement === failedCommitFocus,
+    "failed Book DOM commit must preserve prior focus");
+  check(failedCommitBookRoot.querySelector("#book-block-3") !== null,
+    "failed Book DOM commit must preserve prior readable DOM");
+
+  failedCommitBookResolve({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(4, "Pending command recovered"),
+      focus_target: "book-block-4",
+      announcement: "Pending command recovered"
+    }
+  });
+  await flushPromises();
+  check(failedCommitBookRoot.attributes["aria-busy"] === "false",
+    "recovered pending Book command must clear busy state");
+  check(failedCommitBookRoot.querySelector("#book-block-4") !== null,
+    "recovered pending Book command must publish after failed external commit");
+  check(document.activeElement === failedCommitBookRoot.querySelector("#book-block-4"),
+    "recovered pending Book command must restore current reading focus");
 
   const malformedBookHeading = bookSnapshot(3, "Malformed heading");
   malformedBookHeading.heading = { text: "Chess book reader" };
