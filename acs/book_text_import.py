@@ -618,6 +618,40 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
                 ordered=ordered,
                 start=start_value if ordered else None,
             )
+
+            # One to three leading spaces can represent a top-level Markdown
+            # list when the whole list uses that indentation.  A deeper list
+            # marker immediately following this list, however, is authored
+            # nesting. BookDocument has no nested-list model, so never flatten
+            # that child into a second peer ListBlock. Preserve its text and
+            # surface the structural loss explicitly.
+            nested_warning_emitted = False
+            while next_index < len(lines):
+                nested_line = lines[next_index]
+                nested_match = _LIST_RE.match(nested_line)
+                if nested_match is None:
+                    break
+                nested_indent = nested_match.group("indent")
+                is_deeper = (
+                    "\t" in nested_indent
+                    or len(nested_indent) > len(indent)
+                )
+                if not is_deeper:
+                    break
+                visible += len(nested_line)
+                if visible > MAX_TEXT_VISIBLE_CHARS:
+                    raise BookTextImportError(
+                        "Markdown book visible text exceeds the supported size",
+                        code=BookTextImportErrorCode.RESOURCE_LIMIT,
+                    )
+                builder.paragraph(nested_line.strip(), next_index + 1)
+                if not nested_warning_emitted:
+                    builder.warning(
+                        "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
+                    )
+                    nested_warning_emitted = True
+                next_index += 1
+
             index = next_index
             continue
         if quote_match:
