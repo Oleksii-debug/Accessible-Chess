@@ -159,6 +159,20 @@ def _sha256(path: Path) -> str:
 MAX_ARCHIVE_MEMBER_COUNT = 2048
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+_WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+    "com¹",
+    "com²",
+    "com³",
+    "lpt¹",
+    "lpt²",
+    "lpt³",
+}
 
 
 def _snapshot_sound_zip(source: Path, destination: Path) -> int:
@@ -185,11 +199,28 @@ def _snapshot_sound_zip(source: Path, destination: Path) -> int:
 
 
 def _safe_archive_member(name: str) -> PurePosixPath:
-    if not isinstance(name, str) or not name or "\\" in name:
+    if not isinstance(name, str) or not name or "\\" in name or "\x00" in name:
         raise SoundPackBuildError("unsafe ZIP member path")
-    relative = PurePosixPath(name)
-    if relative.is_absolute() or ".." in relative.parts or any(":" in part for part in relative.parts):
+    token = name[:-1] if name.endswith("/") else name
+    if not token:
         raise SoundPackBuildError("unsafe ZIP member path")
+    relative = PurePosixPath(token)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != token
+        or ".." in relative.parts
+    ):
+        raise SoundPackBuildError("unsafe ZIP member path")
+    for part in relative.parts:
+        if (
+            not part
+            or part in {".", ".."}
+            or ":" in part
+            or part.rstrip(" .") != part
+            or any(ord(character) < 32 or ord(character) == 127 for character in part)
+            or part.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_NAMES
+        ):
+            raise SoundPackBuildError("sound-pack ZIP member path is not Windows-portable")
     return relative
 
 
@@ -204,17 +235,33 @@ def _extract_sound_zip(source: Path, destination: Path) -> None:
             raise SoundPackBuildError("sound-pack ZIP has too many entries")
         total = 0
         seen: set[str] = set()
+        files: set[str] = set()
+        directories: set[str] = set()
         for info in members:
             relative = _safe_archive_member(info.filename)
             folded = relative.as_posix().casefold()
             if folded in seen:
                 raise SoundPackBuildError("sound-pack ZIP has duplicate paths")
             seen.add(folded)
+
+            ancestors = tuple(
+                PurePosixPath(*relative.parts[:index]).as_posix().casefold()
+                for index in range(1, len(relative.parts))
+            )
+            if any(ancestor in files for ancestor in ancestors):
+                raise SoundPackBuildError("sound-pack ZIP has file/directory topology collision")
+
             unix_mode = (info.external_attr >> 16) & 0o170000
             if unix_mode == 0o120000:
                 raise SoundPackBuildError("sound-pack ZIP cannot contain symlinks")
             if info.is_dir():
+                if folded in files:
+                    raise SoundPackBuildError("sound-pack ZIP has file/directory topology collision")
+                directories.add(folded)
                 continue
+            if folded in directories:
+                raise SoundPackBuildError("sound-pack ZIP has file/directory topology collision")
+            files.add(folded)
             total += int(info.file_size)
             if total > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
                 raise SoundPackBuildError("sound-pack ZIP expands beyond the size limit")
