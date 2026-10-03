@@ -1,0 +1,126 @@
+name: LiveKit Join Token Issuer
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-join-credential-rpc-core-20261002
+    paths:
+      - 'acs/livekit_join_token_issuer.py'
+      - 'tests/test_livekit_join_token_issuer.py'
+      - '.github/workflows/livekit-join-token-issuer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livekit-join-token-issuer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  token-issuer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact stacked scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/classroom-join-credential-rpc-core-20261002"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-livekit-two-client-media-smoke.yml' \
+            '.github/workflows/livekit-join-token-issuer.yml' \
+            'acs/livekit_join_token_issuer.py' \
+            'tests/js/livekit_two_client_media_smoke.js' \
+            'tests/livekit_two_client_token_fixture.py' \
+            'tests/test_livekit_join_token_issuer.py' | sort)"
+          test "$changed" = "$allowed"
+          git diff --quiet "$EVENT_BASE_SHA" HEAD -- \
+            acs/classroom_join_credentials.py \
+            acs/classroom_realtime_media.py \
+            acs/classroom_domain.py \
+            acs/chesscore.py
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile concrete token boundary
+        run: >-
+          python -m py_compile
+          acs/livekit_join_token_issuer.py
+          tests/test_livekit_join_token_issuer.py
+
+      - name: Run dependency-free issuer regressions and canonical contracts
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_join_token_issuer
+          tests.test_classroom_join_credentials
+          tests.test_classroom_realtime_media
+
+      - name: Verify pinned official LiveKit server wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --dest .livekit-sdk livekit-api==1.2.1
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          expected_name = "livekit_api-1.2.1-py3-none-any.whl"
+          expected_sha = "aa15b0a194c9e8167d4261bc61381682df23f98bc6d77760fcded93d2ce4b4ca"
+          files = list(Path(".livekit-sdk").glob("*"))
+          assert len(files) == 1, files
+          assert files[0].name == expected_name, files[0].name
+          assert sha256(files[0].read_bytes()).hexdigest() == expected_sha
+          PY
+
+      - name: Install exact LiveKit server SDK
+        run: python -m pip install --disable-pip-version-check -q livekit-api==1.2.1
+
+      - name: Prove exact installed SDK and real signed-token contract
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_join_token_issuer.LiveKitJoinTokenIssuerTests.test_real_pinned_sdk_emits_verified_source_scoped_jwt_when_installed
+
+      - name: Re-run LiveKit client moderation wire contract
+        run: node tests/js/livekit_classroom_media_adapter_test.js
+
+      - name: Prove server-only credential and pin boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eq 'os\.(environ|getenv)|LIVEKIT_API_SECRET|LIVEKIT_API_KEY' acs/livekit_join_token_issuer.py
+          grep -Fq 'LIVEKIT_API_VERSION = "1.2.1"' acs/livekit_join_token_issuer.py
+          grep -Fq 'LIVEKIT_API_WHEEL_SHA256' acs/livekit_join_token_issuer.py
+          grep -Fq 'TokenVerifier' acs/livekit_join_token_issuer.py
+          grep -Fq 'can_publish_data=True' acs/livekit_join_token_issuer.py
+          grep -Fq 'performRpc({' web/livekit_classroom_media.js
+          grep -Fq 'room_admin=False' acs/livekit_join_token_issuer.py
+          grep -Fq 'api_key=<redacted>, api_secret=<redacted>' acs/livekit_join_token_issuer.py
+
+      - name: Core selftest
+        run: python -m acs.selftest
