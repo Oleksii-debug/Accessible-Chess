@@ -663,6 +663,73 @@ class ClassroomFileHttpClientTests(unittest.TestCase):
         self.assertTrue(upload_conn.closed)
         self.assertTrue(history_conn.closed)
 
+    def test_client_reports_only_actual_raw_upload_bytes_monotonically(self):
+        content = b"abcdefghij"
+        stored = attachment_wire(
+            body=content,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+        stored["sequence_no"] = 0
+        FakeHttpConnection.response = FakeHttpResponse(
+            {"v": 1, "ok": True, "attachment": stored}
+        )
+        transport = ClassroomFileHttpRpcCall(
+            endpoint_url="https://files.example.test/v1/classroom/files",
+            bearer_token_provider=lambda: "token",
+        )
+        observed = []
+
+        with (
+            patch(
+                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+                FakeHttpConnection,
+            ),
+            patch(
+                "acs.classroom_file_http_transport._UPLOAD_SEND_CHUNK_BYTES",
+                3,
+            ),
+        ):
+            transport.call(
+                upload_request(content),
+                on_upload_progress=observed.append,
+            )
+
+        self.assertEqual([0, 3, 6, 9, 10], observed)
+        sent = FakeHttpConnection.instances[0].sent_parts
+        self.assertEqual(6, len(sent))
+        self.assertEqual(content, b"".join(sent[2:]))
+
+    def test_client_progress_callback_failure_aborts_without_response_read(self):
+        content = b"abcdef"
+        transport = ClassroomFileHttpRpcCall(
+            endpoint_url="https://files.example.test/v1/classroom/files",
+            bearer_token_provider=lambda: "token",
+        )
+
+        def reject_progress(value):
+            if value > 0:
+                from acs.classroom_file_rpc import ClassroomFileRpcError
+                raise ClassroomFileRpcError("progress contract rejected sample")
+
+        with (
+            patch(
+                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+                FakeHttpConnection,
+            ),
+            self.assertRaisesRegex(
+                Exception,
+                "progress contract rejected sample",
+            ),
+        ):
+            transport.call(
+                upload_request(content),
+                on_upload_progress=reject_progress,
+            )
+
+        self.assertEqual(1, len(FakeHttpConnection.instances))
+        self.assertTrue(FakeHttpConnection.instances[0].closed)
+
     def test_client_integrates_with_canonical_file_rpc_client(self):
         content = b"canonical HTTP file"
         with tempfile.TemporaryDirectory() as temp:
