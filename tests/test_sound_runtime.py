@@ -130,6 +130,73 @@ class SoundRuntimeTests(unittest.TestCase):
         SoundRuntime(fake, settings=SoundRuntimeSettings(volume=37)).dispatch([SoundEvent.MOVE])
         self.assertEqual(fake.calls, [(SoundEvent.MOVE, 37)])
 
+    def test_per_event_disable_skips_only_that_event(self):
+        fake = FakePlayback()
+        settings = SoundRuntimeSettings(
+            volume=80,
+            event_enabled={SoundEvent.CAPTURE: False},
+        )
+        report = SoundRuntime(fake, settings=settings).dispatch(
+            [SoundEvent.CAPTURE, SoundEvent.CHECK]
+        )
+        self.assertEqual(report.requested, (SoundEvent.CAPTURE, SoundEvent.CHECK))
+        self.assertEqual(report.delivered, (SoundEvent.CHECK,))
+        self.assertFalse(report.disabled)
+        self.assertEqual(fake.calls, [(SoundEvent.CHECK, 80)])
+
+    def test_per_event_volume_scales_master_volume(self):
+        fake = FakePlayback()
+        settings = SoundRuntimeSettings(
+            volume=80,
+            event_volume={SoundEvent.MOVE: 25, SoundEvent.CHECK: 50},
+        )
+        SoundRuntime(fake, settings=settings).dispatch(
+            [SoundEvent.MOVE, SoundEvent.CHECK]
+        )
+        self.assertEqual(
+            fake.calls,
+            [(SoundEvent.MOVE, 20), (SoundEvent.CHECK, 40)],
+        )
+
+    def test_zero_per_event_volume_is_silent_without_touching_adapter(self):
+        fake = FakePlayback()
+        settings = SoundRuntimeSettings(
+            volume=80,
+            event_volume={SoundEvent.MOVE: 0},
+        )
+        report = SoundRuntime(fake, settings=settings).dispatch([SoundEvent.MOVE])
+        self.assertTrue(report.disabled)
+        self.assertEqual(report.delivered, ())
+        self.assertEqual(fake.calls, [])
+
+    def test_mapping_reads_all_per_event_controls(self):
+        settings = SoundRuntimeSettings.from_mapping(
+            {
+                "sounds": True,
+                "volume": 60,
+                "sound_move_enabled": False,
+                "sound_move_volume": 25,
+                "sound_check_enabled": True,
+                "sound_check_volume": 50,
+            }
+        )
+        self.assertFalse(settings.enabled_for(SoundEvent.MOVE))
+        self.assertEqual(settings.volume_for(SoundEvent.MOVE), 15)
+        self.assertTrue(settings.enabled_for(SoundEvent.CHECK))
+        self.assertEqual(settings.volume_for(SoundEvent.CHECK), 30)
+        self.assertTrue(settings.enabled_for(SoundEvent.CAPTURE))
+        self.assertEqual(settings.volume_for(SoundEvent.CAPTURE), 60)
+
+    def test_per_event_settings_reject_invalid_keys_and_values(self):
+        with self.assertRaises(TypeError):
+            SoundRuntimeSettings(event_enabled={"move": True})
+        with self.assertRaises(TypeError):
+            SoundRuntimeSettings(event_enabled={SoundEvent.MOVE: 1})
+        with self.assertRaises(TypeError):
+            SoundRuntimeSettings(event_volume={"move": 50})
+        with self.assertRaises(ValueError):
+            SoundRuntimeSettings(event_volume={SoundEvent.MOVE: 101})
+
     def test_adapter_failure_is_explicit_and_later_events_continue(self):
         failures = []
         fake = FakePlayback(fail_on=SoundEvent.CAPTURE)
