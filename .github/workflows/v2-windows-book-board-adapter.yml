@@ -5,6 +5,7 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'run_accessible_chess_v2.py'
       - 'acs/version2_windows_book_board_adapter.py'
       - 'acs/book_board_workflow.py'
       - 'acs/book_webview_projection.py'
@@ -20,6 +21,7 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
     paths:
+      - 'run_accessible_chess_v2.py'
       - 'acs/version2_windows_book_board_adapter.py'
       - 'acs/book_board_workflow.py'
       - 'acs/book_webview_projection.py'
@@ -69,19 +71,25 @@ jobs:
       - name: Install pinned verification dependencies
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact current-product pull-request geometry
+      - name: Prove exact live Product pull-request geometry
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
         run: |
           set -euo pipefail
-          base="${PR_BASE_SHA:-}"
-          if test -n "$base"; then
-            git cat-file -e "$base^{commit}"
-            git merge-base --is-ancestor "$base" HEAD
-            test "$(git merge-base "$base" HEAD)" = "$base"
-            git diff --check "$base" HEAD
-            echo "BOOK_BOARD_ADAPTER_PRODUCT_PARENT=$base"
+          event_base="${PR_BASE_SHA:-}"
+          if test -n "$event_base"; then
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+            live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+            git cat-file -e "$live_product^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_product"
+            git merge-base --is-ancestor "$live_product" HEAD
+            test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+            git diff --check "$live_product" HEAD
+            echo "BOOK_BOARD_ADAPTER_EVENT_BASE=$event_base"
+            echo "BOOK_BOARD_ADAPTER_PRODUCT_PARENT=$live_product"
           else
             parent="$(git rev-parse HEAD^)"
             git cat-file -e "$parent^{commit}"
@@ -90,7 +98,9 @@ jobs:
           fi
 
       - name: Compile adapter and inherited application seam
-        run: python -m compileall -q acs tests run_accessible_chess.py
+        run: >-
+          python -m compileall -q
+          acs tests run_accessible_chess.py run_accessible_chess_v2.py
 
       - name: Focused D01 plus BookBoard application contracts
         run: >-
@@ -112,7 +122,8 @@ jobs:
       - name: Full repository pytest
         run: python -m pytest -q tests
 
-      - name: SELFTEST and complete diagnostic
+      - name: SELFTEST and complete diagnostics
         run: |
           python -m acs.selftest
           python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
