@@ -205,6 +205,7 @@ class Version2Application:
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self._focus = self.shell.open_route("books")
+        self._repair_book_block_focus_after_rebind()
         warning_count = len(imported.warnings)
         if warning_count:
             announcement = (
@@ -263,6 +264,28 @@ class Version2Application:
                     self._reload_book_progress_after_durability_ambiguity()
                 raise
 
+    def _repair_book_block_focus_after_rebind(self):
+        """Replace only a stale route-local Book block token after reader rebind.
+
+        Stable controls such as the bookmark input keep their remembered focus.
+        Block ids, however, encode the old reader index and can become invalid
+        when canonical recovery accepts a different valid BookReader snapshot.
+        """
+        if self.reader is None or self.books is None:
+            return
+        if self.shell.current_route.route_id != "books":
+            return
+        remembered = self.shell.restore_focus_target()
+        if type(remembered) is not str:
+            return
+        if remembered != "book-reader" and not remembered.startswith("book-block-"):
+            return
+        canonical = f"book-block-{self.reader.index}"
+        if remembered == canonical:
+            return
+        self.shell.record_focus(canonical)
+        self._focus = canonical
+
     def _reload_book_progress_after_durability_ambiguity(self):
         """Rebind Books/Training to the canonical primary after uncertain commit."""
 
@@ -305,6 +328,8 @@ class Version2Application:
                     self._events.append(
                         {"kind": "route", "payload": {"route_id": "books"}}
                     )
+                # Canonical recovery may select a different valid reader index.
+                self._repair_book_block_focus_after_rebind()
                 return
             except Exception:
                 pass
@@ -400,6 +425,7 @@ class Version2Application:
             and self.training_workspace is None
         ):
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             # The packaged WebView consumes the application event queue on its
             # polling seam. A route event requests one authoritative snapshot
             # refresh; omit focus_target so the host chooses the real current
@@ -656,6 +682,7 @@ class Version2Application:
             # the safe workflow unwind. Emergency projection-failure unwind stays
             # storage-independent in _recover_book_projection_failure().
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             # Route ownership changed synchronously inside the domain workflow.
             # Publish one V2 refresh request even if the caller subsequently
             # reports a persistence error, so the visible/NVDA surface cannot
@@ -710,6 +737,7 @@ class Version2Application:
             except Exception:
                 return
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             self._events.append(
                 {"kind": "route", "payload": {"route_id": "books"}}
             )
@@ -927,7 +955,18 @@ class Version2Application:
                     # Synchronize before another keyboard/native action can
                     # reuse the previous route's focus token.
                     self._focus = self.shell.restore_focus_target()
-                return asdict(value)
+                    self._repair_book_block_focus_after_rebind()
+                projected = asdict(value)
+                if value.kind == "route":
+                    projected_payload = projected.get("payload")
+                    if isinstance(projected_payload, dict):
+                        projected_payload["focus_target"] = self._focus
+                        projected_snapshot = projected_payload.get("snapshot")
+                        if isinstance(projected_snapshot, dict):
+                            projected_screen = projected_snapshot.get("screen")
+                            if isinstance(projected_screen, dict):
+                                projected_screen["focus_target"] = self._focus
+                return projected
             if area == "training":
                 try:
                     return asdict(self._dispatch_training_surface_command(command, payload))
@@ -990,6 +1029,8 @@ class Version2Application:
                 )
                 if self.shell.current_route.route_id == "training":
                     self._focus = self.shell.open_route(recovery_route)
+                    if recovery_route == "books":
+                        self._repair_book_block_focus_after_rebind()
                     self._events.append(
                         {"kind": "route", "payload": {"route_id": recovery_route}}
                     )
@@ -1000,7 +1041,17 @@ class Version2Application:
             # reaches this application boundary. Bind the application token to
             # the exact new route focus before another native action can arrive.
             self._focus = self.shell.restore_focus_target()
+            self._repair_book_block_focus_after_rebind()
         event = asdict(value)
+        if value.kind == "route":
+            event_payload = event.get("payload")
+            if isinstance(event_payload, dict):
+                event_payload["focus_target"] = self._focus
+                event_snapshot = event_payload.get("snapshot")
+                if isinstance(event_snapshot, dict):
+                    event_screen = event_snapshot.get("screen")
+                    if isinstance(event_screen, dict):
+                        event_screen["focus_target"] = self._focus
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")
             if isinstance(payload, dict):
