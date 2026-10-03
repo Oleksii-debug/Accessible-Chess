@@ -1180,6 +1180,30 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             failed_rows[0].attachment_id,
         )
 
+    def test_collaboration_remains_visible_when_education_workspace_is_unavailable(self) -> None:
+        app = self.bare_app()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch.object(Version2Application, "snapshot", return_value={}),
+        ):
+            runtime = self.configure(app)
+            snapshot = app.snapshot()
+
+        self.assertIsNone(app.education)
+        self.assertFalse(snapshot["product_status"]["education_available"])
+        self.assertTrue(snapshot["product_status"]["collaboration_available"])
+        education = snapshot["education"]
+        self.assertIsInstance(education, dict)
+        self.assertEqual("en", education["document"]["lang"])
+        self.assertEqual("Classes and students", education["document"]["heading"])
+        self.assertEqual((), education["sections"])
+        self.assertIsNone(education["detail"])
+        self.assertEqual(
+            runtime.webview.safe_snapshot()["session_key"],
+            education["collaboration"]["session_key"],
+        )
+        self.assertTrue(education["collaboration"]["available"])
+
     def test_product_status_reports_http_only_for_owned_http_composition(self) -> None:
         app = self.bare_app()
         with (
