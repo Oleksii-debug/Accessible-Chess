@@ -32,11 +32,10 @@
   }
 
   function transactionId(value) {
-    const token = String(value || "");
-    if (!TRANSACTION_RE.test(token)) {
+    if (typeof value !== "string" || !TRANSACTION_RE.test(value)) {
       throw new TypeError("media provider transaction identity is invalid");
     }
-    return token;
+    return value;
   }
 
   function providerIdentifier(value, label) {
@@ -97,8 +96,8 @@
     if (transactionId(provider.transaction_id) !== transaction) {
       throw new TypeError("media provider instruction transaction mismatch");
     }
-    const operation = String(provider.operation || "");
-    if (!OPERATIONS.has(operation)) {
+    const operation = provider.operation;
+    if (typeof operation !== "string" || !OPERATIONS.has(operation)) {
       throw new TypeError("media provider operation is invalid");
     }
 
