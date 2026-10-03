@@ -21,6 +21,7 @@ _MAX_BOOKMARK_NAME = 80
 # complete current semantic block up to that release budget instead of silently
 # truncating reader-visible/copyable content to a small UI preview.
 _MAX_BOOK_BLOCK_VISIBLE_CHARS = 12 * 1024 * 1024
+_MAX_BOOK_LIST_ITEMS = 65536
 
 _LABELS = {
     UILanguage.UA: {
@@ -100,6 +101,8 @@ def _safe_visible_list_items(
     *,
     language: UILanguage,
 ) -> tuple[str, ...]:
+    if len(values) > _MAX_BOOK_LIST_ITEMS:
+        raise ValueError("book presentation list exceeds the item-count budget")
     rendered: list[str] = []
     total = 0
     for value in values:
