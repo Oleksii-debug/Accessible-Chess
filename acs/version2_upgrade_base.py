@@ -774,8 +774,7 @@ class Version2UpgradeCoordinator:
         ):
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
-            if relative.casefold() in _CONTROL_NAME_KEYS:
-                continue
+            control_name = relative.casefold() in _CONTROL_NAME_KEYS
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
             # The root object itself is still validated below, so a regular file
@@ -792,6 +791,12 @@ class Version2UpgradeCoordinator:
             # not authenticated writer output and must fail closed rather than
             # disappearing from the preservation set.
             info = _safe_stat(path, "user-data entry")
+            # Fixed coordination/control names are trustworthy only when the
+            # filesystem object has the regular-file shape produced by the
+            # canonical writer. An exact-looking directory remains traversable
+            # user data, while symlink/reparse points fail closed in _safe_stat.
+            if control_name and stat.S_ISREG(info.st_mode):
+                continue
             generated_runtime_file = (
                 _is_generated_root_runtime_file(relative_path)
                 or _is_generated_training_progress_file(relative_path)
