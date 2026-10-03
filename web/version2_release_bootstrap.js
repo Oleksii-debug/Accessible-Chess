@@ -13,10 +13,32 @@
   let eventDrainInFlight = false;
   let eventDrainPending = false;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+  const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
+  const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
   const MAX_NATIVE_EVENT_BATCH = 64;
+  const MAX_NAVIGATION_ITEMS = 32;
+  const MAX_NAVIGATION_LABEL = 240;
+  const MAX_SCREEN_HEADING = 600;
+  const MAX_ANNOUNCEMENT_TEXT = 1200;
 
   function validFocusId(value) {
     return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
+  }
+
+  function validRouteId(value) {
+    return typeof value === "string" && ROUTE_ID_PATTERN.test(value);
+  }
+
+  function validActionId(value) {
+    return typeof value === "string" && ACTION_ID_PATTERN.test(value);
+  }
+
+  function boundedText(value, limit) {
+    return typeof value === "string" &&
+      value.length <= limit &&
+      value.indexOf("\x00") < 0
+      ? value
+      : "";
   }
 
   function uiText(uk, en) {
@@ -28,9 +50,10 @@
   }
 
   function announce(message) {
-    if (!message) return;
+    const text = boundedText(message, MAX_ANNOUNCEMENT_TEXT);
+    if (!text) return;
     live.textContent = "";
-    global.setTimeout(function () { live.textContent = String(message).slice(0, 300); }, 20);
+    global.setTimeout(function () { live.textContent = text.slice(0, 300); }, 20);
   }
 
   const nav = documentRef.createElement("nav");
@@ -86,16 +109,21 @@
 
   function restoreStage1Focus(routeId, requestedFocus) {
     if (focusById(requestedFocus)) return true;
-    return focusById(stage1Focus[routeId] || "");
+    if (focusById(stage1Focus[routeId] || "")) return true;
+    // Stage 1 does not yet own route-local DOM targets for every canonical
+    // shell module (notably Teacher/Classes). Never leave keyboard/NVDA focus
+    // stale on the previous route: the current navigation button is the safe
+    // canonical fallback until that route supplies its own surface target.
+    return focusById("v2-nav-" + routeId);
   }
 
   function productSurfaceFocusTarget(snapshot, routeId) {
     if (routeId === "pgn" && snapshot.pgn && typeof snapshot.pgn === "object") {
-      return String(snapshot.pgn.focus_target || "");
+      return validFocusId(snapshot.pgn.focus_target) ? snapshot.pgn.focus_target : "";
     }
     if (routeId === "books" && snapshot.books && typeof snapshot.books === "object") {
       const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
-      return String(block.dom_id || "");
+      return validFocusId(block.dom_id) ? block.dom_id : "";
     }
     if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
       return "training-answer";
@@ -120,7 +148,7 @@
         : routeId === "training"
           ? uiText("Тренування", "Training")
           : uiText("Книги", "Books");
-    title.textContent = String(heading || fallbackHeading);
+    title.textContent = boundedText(heading, MAX_SCREEN_HEADING) || fallbackHeading;
     const status = documentRef.createElement("p");
     status.id = emptyStatusId(routeId);
     status.tabIndex = -1;
@@ -159,27 +187,55 @@
   }
 
   function renderNavigation(snapshot) {
-    const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
+    if (!Array.isArray(snapshot.navigation) ||
+        snapshot.navigation.length < 1 ||
+        snapshot.navigation.length > MAX_NAVIGATION_ITEMS) {
+      throw new TypeError("V2 navigation schema is invalid");
+    }
+    const routeIds = new Set();
+    const currentRouteIds = new Set();
     const fragment = documentRef.createDocumentFragment();
-    items.forEach(function (item) {
+    snapshot.navigation.forEach(function (item) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      const routeId = item.route_id;
+      const actionId = item.action_id;
+      const label = boundedText(item.label, MAX_NAVIGATION_LABEL);
+      const current =
+        item.current === true || item.current === "true"
+          ? true
+          : item.current === false || item.current === "false"
+            ? false
+            : null;
+      if (!validRouteId(routeId) || !validActionId(actionId) || !label ||
+          current === null || routeIds.has(routeId)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      routeIds.add(routeId);
+      if (current) currentRouteIds.add(routeId);
+
       const row = documentRef.createElement("li");
       const button = documentRef.createElement("button");
       button.type = "button";
-      button.id = "v2-nav-" + String(item.route_id || "");
-      button.textContent = String(item.label || item.route_id || "");
-      if (String(item.current) === "true") button.setAttribute("aria-current", "page");
+      button.id = "v2-nav-" + routeId;
+      button.textContent = label;
+      if (current) button.setAttribute("aria-current", "page");
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
-        bridge.v2_browser_command("shell", String(item.action_id || ""), {}).then(function (result) {
+        bridge.v2_browser_command("shell", actionId, {}).then(function (result) {
           if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
-          refresh(true);
+          return refresh(true).catch(function () {
+            announce(uiText("Не вдалося відкрити розділ.", "Could not open the section."));
+          });
         }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
       });
       row.appendChild(button);
       fragment.appendChild(row);
     });
     navList.replaceChildren(fragment);
+    return { routeIds: routeIds, currentRouteIds: currentRouteIds };
   }
 
   function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {
@@ -235,14 +291,24 @@
     documentRef.documentElement.lang = currentLanguage;
     nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
     navHeading.textContent = uiText("Розділи", "Sections");
-    renderNavigation(snapshot);
-    const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
-    const routeId = String(screen.route_id || "board");
+    const screen = snapshot.screen && typeof snapshot.screen === "object" && !Array.isArray(snapshot.screen)
+      ? snapshot.screen
+      : {};
+    const routeId = screen.route_id;
+    const heading = boundedText(screen.heading, MAX_SCREEN_HEADING);
+    if (!validRouteId(routeId) || !heading) {
+      throw new TypeError("V2 screen schema is invalid");
+    }
+    const navigationState = renderNavigation(snapshot);
+    if (!navigationState.routeIds.has(routeId) ||
+        navigationState.currentRouteIds.size !== 1 ||
+        !navigationState.currentRouteIds.has(routeId)) {
+      throw new TypeError("V2 navigation current-route contract is invalid");
+    }
     currentRouteId = routeId;
     const requestedFocus = validFocusId(screen.focus_target)
       ? screen.focus_target
       : "";
-    const heading = String(screen.heading || "");
 
     if (routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training") {
       renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
