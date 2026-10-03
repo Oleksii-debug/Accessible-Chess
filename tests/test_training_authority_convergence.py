@@ -387,6 +387,37 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             self.assertIs(retained_bridge, workspace.bridge)
             self.assertEqual(before, workspace.session.snapshot())
 
+    def test_workspace_overlong_command_is_rejected_without_state_or_identity_drift(self) -> None:
+        document = BookDocument(
+            title="Training overlong command",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Play e4",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="training-overlong-command-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            retained_bridge = workspace.start_current()
+            retained_session = workspace.session
+            before = workspace.session.snapshot()
+
+            event = workspace.dispatch("training." + ("x" * 80), {})
+
+            self.assertEqual("error", event.kind)
+            self.assertIs(retained_session, workspace.session)
+            self.assertIs(retained_bridge, workspace.bridge)
+            self.assertEqual(before, workspace.session.snapshot())
+            self.assertEqual((), tuple(Path(raw).glob("*.json")))
+
     def test_workspace_generic_error_does_not_replace_live_training_objects(self) -> None:
         document = BookDocument(
             title="Training rejected command",
