@@ -483,6 +483,44 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
             finally:
                 self._close_real_application(api, application, analysis)
 
+    def test_real_prepublication_replace_failure_rolls_back_without_compensating_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings_path = root / "settings.json"
+            settings = Settings(settings_path)
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            native_refresh = mock.Mock(return_value=True)
+            api.bind_version2_language_refresh(native_refresh)
+
+            try:
+                with mock.patch.object(
+                    Path,
+                    "replace",
+                    side_effect=OSError("simulated settings replace failure"),
+                ) as replace:
+                    result = api.set_language("en")
+
+                self.assertFalse(result["ok"])
+                replace.assert_called_once()
+                self.assertEqual(settings.get("language"), "uk")
+                self.assertEqual(Settings(settings_path).get("language"), "uk")
+                self.assertEqual(api.lang, "uk")
+                self.assertEqual(application.shell.language, UILanguage.UA)
+                self.assertEqual(application.pgn.projection.language, UILanguage.UA)
+                self.assertEqual(application.library.projection.language, UILanguage.UA)
+                self.assertEqual(application.books.projection.language, UILanguage.UA)
+                self.assertEqual(application.training_workspace.language, UILanguage.UA)
+                self.assertEqual(application.training.projection.language, UILanguage.UA)
+                self._assert_all_snapshot_languages(application, "uk")
+                self.assertEqual(native_refresh.call_count, 2)
+                self.assertEqual(
+                    application.drain_events(),
+                    ({"kind": "language", "payload": {}},),
+                )
+            finally:
+                self._close_real_application(api, application, analysis)
+
     def test_persistence_failure_restores_settings_memory_and_leaves_real_surfaces_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
