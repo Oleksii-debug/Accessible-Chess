@@ -150,8 +150,42 @@ class Version2BookWorkspaceTests(unittest.TestCase):
             {"kind": "event", "label": "Подія", "value": "First"},
             tree["details"],
         )
-        self.assertTrue(
-            any("duplicate tag Event" in warning for warning in tree["warnings"])
+        self.assertIn(
+            "Дубльований тег PGN відновлено; використано останнє значення.",
+            tree["warnings"],
+        )
+        self.assertNotIn("Event", json.dumps(tree["warnings"], ensure_ascii=False))
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_recovery_warning_never_echoes_source_derived_result_value(self):
+        secret = "SECRET_RESULT_SHOULD_NOT_REACH_UI"
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Recovered result",
+                blocks=[
+                    Game(
+                        pgn=(
+                            f'[Result "{secret}"]\n\n'
+                            '1. e4 e5 *'
+                        ),
+                        title="Recovered result",
+                        block_id="recovered-result",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        tree = bridge.projection.snapshot()["block"]["semantic_tree"]
+        serialized = json.dumps(tree, ensure_ascii=False)
+
+        self.assertEqual(tree["result"], "*")
+        self.assertNotIn(secret, serialized)
+        self.assertIn(
+            "Некоректний результат у заголовку PGN проігноровано.",
+            tree["warnings"],
         )
         self.assertFalse(workflow.active)
         self.assertEqual(workflow.revision, 0)
