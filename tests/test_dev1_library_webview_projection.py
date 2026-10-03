@@ -231,7 +231,13 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
 
         service.search = fail_search
         failed = projection.search(GameSearchQuery(player="Changed", limit=25))
-        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        failed_snapshot = failed.payload["snapshot"]
+        self.assertEqual("error", failed_snapshot["status"])
+        self.assertEqual(1, failed_snapshot["export_selection_count"])
+        failed_selected = next(
+            row for row in failed_snapshot["rows"] if row["game_id"] == 2
+        )
+        self.assertTrue(failed_selected["export_selected"])
         self.assertEqual((2,), projection.export_game_ids)
         self.assertEqual(committed_query, projection.query)
         committed = projection.snapshot()
@@ -255,6 +261,26 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         self.assertEqual("ready", completed.payload["snapshot"]["status"])
         self.assertEqual((), projection.export_game_ids)
         self.assertEqual(0, completed.payload["snapshot"]["export_selection_count"])
+
+    def test_malformed_replacement_page_is_rejected_before_presenter_commit(self) -> None:
+        service, presenter, projection, _bridge, _calls = self.build()
+        committed_query = GameSearchQuery(player="Alpha", limit=2).normalized()
+        before = projection.search(committed_query).payload["snapshot"]
+
+        def malformed_search(_query):
+            duplicate = item(7, white="Malformed", black="Page")
+            return GameSearchPage(
+                items=(duplicate, duplicate),
+                next_after_game_id=None,
+                has_more=False,
+            )
+
+        service.search = malformed_search
+        failed = projection.search(GameSearchQuery(player="Changed", limit=25))
+        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        self.assertEqual(committed_query, projection.query)
+        self.assertEqual(before, projection.snapshot())
+        self.assertEqual(SurfaceStatus.READY, presenter.view().status)
 
     def test_bridge_rejects_cursor_and_unknown_fields_without_reflecting_values(self) -> None:
         _service, _presenter, _projection, bridge, _calls = self.build()

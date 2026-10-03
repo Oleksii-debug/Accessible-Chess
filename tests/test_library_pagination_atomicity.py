@@ -31,6 +31,7 @@ def _item(game_id: int, white: str, black: str) -> GameSearchItem:
 class _PagingService:
     def __init__(self) -> None:
         self.fail_next = False
+        self.malformed_next = False
         self.calls: list[GameSearchQuery] = []
 
     def search(self, query: GameSearchQuery) -> GameSearchPage:
@@ -46,6 +47,13 @@ class _PagingService:
             raise AssertionError("unexpected paging cursor")
         if self.fail_next:
             raise PermissionError(r"C:\\Users\\BlindTeacher\\private-library.sqlite")
+        if self.malformed_next:
+            duplicate = _item(2, "Gamma", "Delta")
+            return GameSearchPage(
+                items=(duplicate, duplicate),
+                next_after_game_id=None,
+                has_more=False,
+            )
         return GameSearchPage(
             items=(_item(2, "Gamma", "Delta"),),
             next_after_game_id=None,
@@ -54,6 +62,26 @@ class _PagingService:
 
 
 class LibraryPaginationAtomicityTests(unittest.TestCase):
+    def test_malformed_next_page_is_rejected_before_cache_or_selection_commit(self) -> None:
+        service = _PagingService()
+        presenter = LibraryPresenter(service)  # type: ignore[arg-type]
+        projection = LibraryWebViewProjection(presenter, lambda _action, _payload: None)
+        query = GameSearchQuery(player="Alpha", limit=25).normalized()
+
+        projection.search(query)
+        committed = projection.snapshot()
+        service.malformed_next = True
+
+        failed = projection.next_page()
+        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        self.assertEqual(committed, projection.snapshot())
+        self.assertEqual(query, projection.query)
+
+        service.malformed_next = False
+        retry = projection.next_page()
+        self.assertEqual("ready", retry.payload["snapshot"]["status"])
+        self.assertEqual(2, retry.payload["snapshot"]["selected_game_id"])
+
     def test_failed_next_page_is_transient_and_retry_keeps_navigation_coherent(self) -> None:
         service = _PagingService()
         presenter = LibraryPresenter(service)  # type: ignore[arg-type]
