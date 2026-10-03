@@ -238,6 +238,91 @@
     );
   }
 
+  function collaborationFileProgressCanFollow(previous, next) {
+    if (!validCollaborationFileProgress(previous) || !validCollaborationFileProgress(next)) {
+      return false;
+    }
+    if (previous.transfer_key === next.transfer_key) {
+      return (
+        previous.total_bytes === next.total_bytes &&
+        next.transferred_bytes >= previous.transferred_bytes &&
+        (
+          !previous.complete ||
+          (next.complete && next.transferred_bytes === previous.transferred_bytes)
+        )
+      );
+    }
+    return (
+      previous.complete &&
+      next.transferred_bytes === 0 &&
+      next.complete === false
+    );
+  }
+
+  function collaborationFileProgressFromContainer(container) {
+    if (!container || typeof container.getAttribute !== "function") return null;
+    const completeValue = container.getAttribute("data-progress-complete");
+    const textNode = (
+      typeof container.querySelector === "function"
+        ? container.querySelector("#collaboration-file-transfer-text")
+        : null
+    );
+    const progress = {
+      transfer_key: container.getAttribute("data-progress-key"),
+      name: container.getAttribute("data-progress-name"),
+      transferred_bytes: Number(container.getAttribute("data-progress-transferred")),
+      total_bytes: Number(container.getAttribute("data-progress-total")),
+      complete: completeValue === "true",
+      label: container.getAttribute("data-progress-label"),
+      text: textNode ? String(textNode.textContent || "") : ""
+    };
+    if (
+      (completeValue !== "true" && completeValue !== "false") ||
+      !validCollaborationFileProgress(progress)
+    ) {
+      return null;
+    }
+    const sessionKey = container.getAttribute("data-progress-session");
+    if (typeof sessionKey !== "string" || !sessionKey) return null;
+    return { session_key: sessionKey, progress: progress };
+  }
+
+  function collaborationSnapshotWithMonotonicProgress(previousWrapper, snapshot) {
+    if (
+      !previousWrapper ||
+      !snapshot ||
+      typeof snapshot !== "object" ||
+      typeof previousWrapper.querySelector !== "function"
+    ) {
+      return snapshot;
+    }
+    const previous = collaborationFileProgressFromContainer(
+      previousWrapper.querySelector("#collaboration-file-transfer-progress")
+    );
+    if (!previous || String(snapshot.session_key || "") !== previous.session_key) {
+      return snapshot;
+    }
+    const files = snapshot.files && typeof snapshot.files === "object"
+      ? snapshot.files
+      : null;
+    if (!files) return snapshot;
+    const incoming = files.transfer_progress;
+    if (
+      incoming &&
+      typeof incoming === "object" &&
+      collaborationFileProgressCanFollow(previous.progress, incoming)
+    ) {
+      return snapshot;
+    }
+    return {
+      ...snapshot,
+      files: {
+        ...files,
+        transfer_progress: { ...previous.progress }
+      }
+    };
+  }
+
   function paintCollaborationFileProgress(container, progressInfo, sessionKey) {
     if (
       !container ||
@@ -266,6 +351,8 @@
     if (text.textContent) meter.setAttribute("aria-valuetext", text.textContent);
     container.setAttribute("data-progress-session", sessionKey);
     container.setAttribute("data-progress-key", progressInfo.transfer_key);
+    container.setAttribute("data-progress-name", name);
+    container.setAttribute("data-progress-label", label);
     container.setAttribute("data-progress-transferred", String(transferred));
     container.setAttribute("data-progress-total", String(total));
     container.setAttribute("data-progress-complete", complete ? "true" : "false");
@@ -295,50 +382,16 @@
     }
     const container = wrapper.querySelector("#collaboration-file-transfer-progress");
     if (!container || typeof container.replaceChildren !== "function") return false;
-    const previousSession = container.getAttribute("data-progress-session");
-    const previousKey = container.getAttribute("data-progress-key");
-    if (previousSession === sessionKey) {
-      const previousTransferred = Number(
-        container.getAttribute("data-progress-transferred")
-      );
-      const previousTotal = Number(container.getAttribute("data-progress-total"));
-      const previousComplete = (
-        container.getAttribute("data-progress-complete") === "true"
-      );
-      if (
-        !Number.isSafeInteger(previousTransferred) ||
-        !Number.isSafeInteger(previousTotal) ||
-        previousTransferred < 0 ||
-        previousTotal < 0 ||
-        typeof previousKey !== "string" ||
-        !/^[0-9a-f]{64}$/.test(previousKey)
-      ) {
-        return false;
-      }
-      if (previousKey === progressInfo.transfer_key) {
-        if (
-          progressInfo.total_bytes !== previousTotal ||
-          progressInfo.transferred_bytes < previousTransferred ||
-          (
-            previousComplete &&
-            (!progressInfo.complete ||
-              progressInfo.transferred_bytes !== previousTransferred)
-          )
-        ) {
-          return false;
-        }
-      } else if (
-        !previousComplete ||
-        progressInfo.transferred_bytes !== 0 ||
-        progressInfo.complete
-      ) {
-        // UI commands are single-flight. A different transfer identity is a
-        // valid next sequence only after the previous transfer reached its
-        // authoritative terminal sample and the next sequence starts at zero.
-        // This also prevents a delayed old-key event from replacing an active
-        // newer transfer.
-        return false;
-      }
+    const previous = collaborationFileProgressFromContainer(container);
+    if (
+      previous &&
+      previous.session_key === sessionKey &&
+      !collaborationFileProgressCanFollow(previous.progress, progressInfo)
+    ) {
+      // UI commands are single-flight. A different transfer identity can only
+      // start at zero after authoritative completion of the prior transfer.
+      // Same-transfer byte counts are monotonic and terminal state cannot regress.
+      return false;
     }
     return paintCollaborationFileProgress(container, progressInfo, sessionKey);
   }
@@ -380,8 +433,14 @@
     if (payload.collaboration && typeof payload.collaboration === "object") {
       const previousCollaboration = root.querySelector("#classroom-collaboration");
       if (previousCollaboration && typeof previousCollaboration.replaceWith === "function") {
+        const collaborationSnapshot = settledCollaborationCommand
+          ? payload.collaboration
+          : collaborationSnapshotWithMonotonicProgress(
+              previousCollaboration,
+              payload.collaboration
+            );
         previousCollaboration.replaceWith(
-          renderCollaboration(payload.collaboration, invoke, announce, fallbackMessage)
+          renderCollaboration(collaborationSnapshot, invoke, announce, fallbackMessage)
         );
         if (result.kind !== "collaboration.chat.sent") {
           restoreCollaborationDraft(root, previousDraft);
