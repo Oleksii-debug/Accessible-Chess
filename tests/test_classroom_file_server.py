@@ -5,10 +5,13 @@ from dataclasses import replace
 import hashlib
 import sqlite3
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from acs.classroom_collaboration import (
+    AttachmentHistoryPage,
     ClassroomCollaborationController,
     FileQuotaPolicy,
     PreparedFile,
@@ -339,7 +342,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=1,
-            )
+            ).attachments
 
         self.assertIsNone(raised.exception.__cause__)
         self.assertNotIn("sensitive", str(raised.exception).lower())
@@ -393,7 +396,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            ),
+            ).attachments,
             (stored,),
         )
         token = self.student2.issue_read_token(
@@ -422,7 +425,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            ),
+            ).attachments,
             (),
         )
 
@@ -465,7 +468,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            ),
+            ).attachments,
             (),
         )
 
@@ -544,7 +547,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                     room_id="room-1",
                     after_sequence=None,
                     limit=100,
-                )
+                ).attachments
             ),
             1,
         )
@@ -610,7 +613,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            ),
+            ).attachments,
             (recovered,),
         )
 
@@ -743,7 +746,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             room_id="room-1",
             after_sequence=None,
             limit=100,
-        )
+        ).attachments
         self.assertEqual(
             tuple(item.sequence_no for item in history),
             (0, 1),
@@ -772,7 +775,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                     room_id="room-1",
                     after_sequence=None,
                     limit=100,
-                )
+                ).attachments
             ),
             1,
         )
@@ -789,7 +792,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             room_id="room-1",
             after_sequence=None,
             limit=100,
-        )
+        ).attachments
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].transfer_state, "deleted")
         updates = self.student2.state_updates_after(
@@ -819,7 +822,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             room_id="room-1",
             after_sequence=None,
             limit=100,
-        )[0]
+        ).attachments[0]
         self.assertEqual(tombstone.transfer_state, "deleted")
         reopened_store = ClassroomFileServerSQLiteStore(str(self.db_path))
         reopened = ClassroomFileServerService(
@@ -975,7 +978,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            ),
+            ).attachments,
             (),
         )
         reopened = ClassroomFileServerService(
@@ -1099,7 +1102,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=10,
-            )
+            ).attachments
 
     def test_canonical_controller_uses_file_server_for_progress_and_download(self):
         collaboration_store = ClassroomCollaborationSQLiteStore(
@@ -1232,7 +1235,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=-1,
                 limit=1,
-            )
+            ).attachments
         with self.assertRaises(ClassroomFileServerError):
             self.student1.state_updates_after(
                 room_id="room-1",
@@ -1323,7 +1326,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            )
+            ).attachments
         with self.assertRaisesRegex(
             ClassroomFileServerError,
             "history has a sequence gap",
@@ -1332,7 +1335,138 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=first.sequence_no,
                 limit=100,
-            )
+            ).attachments
+
+    def test_history_page_carries_current_state_watermark(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="watermark-a0")
+        )
+
+        initial = self.student2.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=100,
+        )
+        self.assertIsInstance(initial, AttachmentHistoryPage)
+        self.assertEqual(initial.attachments, (stored,))
+        self.assertIsNone(initial.snapshot_state_revision)
+
+        self.student1.cancel(attachment_id=stored.attachment_id)
+
+        tombstoned = self.student2.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=100,
+        )
+        self.assertEqual(len(tombstoned.attachments), 1)
+        self.assertEqual(tombstoned.attachments[0].transfer_state, "deleted")
+        self.assertEqual(tombstoned.snapshot_state_revision, 0)
+        self.assertEqual(
+            self.student2.state_updates_after(
+                room_id="room-1",
+                after_revision=tombstoned.snapshot_state_revision,
+                limit=100,
+            ),
+            (),
+        )
+
+    def test_history_page_is_atomic_across_concurrent_cancellation(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="watermark-race-a0")
+        )
+        writer_store = ClassroomFileServerSQLiteStore(str(self.db_path))
+        snapshot_rows_read = threading.Event()
+        writer_done = threading.Event()
+        original_connect = self.store._connect
+
+        class CoordinatedCursor:
+            def __init__(self, cursor, after_fetch=None):
+                self._cursor = cursor
+                self._after_fetch = after_fetch
+
+            def fetchall(self):
+                rows = self._cursor.fetchall()
+                if self._after_fetch is not None:
+                    callback = self._after_fetch
+                    self._after_fetch = None
+                    callback()
+                return rows
+
+            def fetchone(self):
+                return self._cursor.fetchone()
+
+            def __getattr__(self, name):
+                return getattr(self._cursor, name)
+
+        class CoordinatedConnection:
+            def __init__(self, db):
+                self._db = db
+
+            def execute(self, sql, parameters=()):
+                cursor = self._db.execute(sql, parameters)
+                normalized = " ".join(str(sql).split())
+                after_fetch = (
+                    pause_after_attachment_snapshot
+                    if normalized.startswith(
+                        "SELECT * FROM classroom_file_server_attachments"
+                    )
+                    and "transfer_state IN ('stored','deleted')" in normalized
+                    else None
+                )
+                return CoordinatedCursor(cursor, after_fetch)
+
+            def commit(self):
+                return self._db.commit()
+
+            def rollback(self):
+                return self._db.rollback()
+
+            def close(self):
+                return self._db.close()
+
+        def pause_after_attachment_snapshot():
+            snapshot_rows_read.set()
+            if not writer_done.wait(5):
+                raise AssertionError("concurrent cancellation did not complete")
+
+        def cancel_concurrently():
+            if not snapshot_rows_read.wait(5):
+                raise AssertionError("history snapshot did not begin")
+            try:
+                writer_store.cancel(
+                    trusted_sender_id="student-1",
+                    attachment_id=stored.attachment_id,
+                )
+            finally:
+                writer_done.set()
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(cancel_concurrently)
+            with patch.object(
+                self.store,
+                "_connect",
+                side_effect=lambda: CoordinatedConnection(original_connect()),
+            ):
+                during_race = self.store.history_after(
+                    room_id="room-1",
+                    after_sequence=None,
+                    limit=100,
+                )
+            future.result(timeout=5)
+
+        # The page must describe one database snapshot: because attachment rows
+        # were read before the concurrent cancellation committed, the watermark
+        # must also remain pre-cancellation rather than jumping to revision 0.
+        self.assertEqual(during_race.attachments, (stored,))
+        self.assertIsNone(during_race.snapshot_state_revision)
+
+        after = self.student2.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=100,
+        )
+        self.assertEqual(after.attachments[0].transfer_state, "deleted")
+        self.assertEqual(after.snapshot_state_revision, 0)
 
     def test_state_update_read_rejects_authoritative_revision_gap(self):
         first = self.student1.upload(
@@ -1348,6 +1482,16 @@ class ClassroomFileServerTests(unittest.TestCase):
                 "UPDATE classroom_file_server_state_updates "
                 "SET revision=2 WHERE attachment_id=?",
                 (second.attachment_id,),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "state revision has a gap",
+        ):
+            self.student2.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=100,
             )
 
         with self.assertRaisesRegex(
