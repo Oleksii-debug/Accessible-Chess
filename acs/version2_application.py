@@ -44,10 +44,6 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 
 
 class Version2Application:
-    _MAX_BROWSER_AREA_CHARS = 16
-    _MAX_BROWSER_COMMAND_CHARS = 128
-    _MAX_CANONICAL_BOARD_POSITION_CHARS = 4096
-
     # Some canonical shutdown/recovery tests deliberately construct a minimal
     # application via __new__ instead of __init__. Keep optional Training state
     # absent-safe on those valid pre-Training construction paths.
@@ -60,13 +56,24 @@ class Version2Application:
             "book.next",
             "book.previous_heading",
             "book.next_heading",
+            "book.previous_position",
             "book.next_position",
+            "book.previous_game",
             "book.next_game",
             "book.bookmark.save",
             "book.bookmark.restore",
         }
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
+    _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
+        {
+            "book.board_next_move",
+            "book.board_previous_move",
+            "book.board_enter_variation",
+            "book.board_leave_variation",
+            "book.board_analyze",
+        }
+    )
     _BOOK_PROGRESS_RELOAD_CODES = frozenset(
         {
             BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
@@ -141,6 +148,11 @@ class Version2Application:
     def set_document(self, session):
         self._assert_thread()
         if not isinstance(session, PgnDocumentSession): raise TypeError("invalid PGN document")
+        # Library/native domain actions can reach this seam without a shell route
+        # action. Reject before publishing a new PGN session while modal focus is
+        # owned elsewhere, matching AccessibleShellState.open_route().
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before replacing the PGN document")
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before replacing the PGN document")
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
@@ -152,6 +164,10 @@ class Version2Application:
 
     def open_book(self, source: Path):
         self._assert_thread()
+        # Domain/native Book Open can bypass shell route dispatch. Reject it
+        # before any reader/progress mutation while a modal owns keyboard focus.
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before opening a book")
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before opening another source")
         suffix = source.suffix.casefold()
@@ -179,13 +195,32 @@ class Version2Application:
         workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
         delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
         bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
+        # Rendering is part of accepting an external Book source. Validate the
+        # exact initial projection while every published application owner still
+        # points at the previous Book. This matches bundled starter-content
+        # staging and prevents a malformed/unrenderable import from creating new
+        # durable progress for a Book the user never actually saw open.
+        bridge.projection.snapshot()
         # Do not publish the staged reader/workflow/route until its initial
-        # progress state is durably accepted by the canonical progress store.
+        # presentation and progress state are both accepted.
         self._persist_book_progress(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
         self._focus = self.shell.open_route("books")
-        return len(imported.warnings)
+        self._repair_book_block_focus_after_rebind()
+        warning_count = len(imported.warnings)
+        if warning_count:
+            announcement = (
+                f"Книгу відкрито з попередженнями імпорту: {warning_count}."
+                if self.shell.language is UILanguage.UA
+                else f"Book opened with import warnings: {warning_count}."
+            )
+            # Importer diagnostics remain trusted-host data. Publish only the
+            # bounded count through the existing path-free status event.
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
+        return warning_count
 
     def _persist_book_progress(self, book_key, reader):
         """Publish Book progress, offering only explicit bounded backup rollback."""
@@ -231,6 +266,27 @@ class Version2Application:
                     self._reload_book_progress_after_durability_ambiguity()
                 raise
 
+    def _repair_book_block_focus_after_rebind(self):
+        """Replace only a stale route-local Book block token after reader rebind.
+
+        Stable controls such as the bookmark input keep their remembered focus.
+        Block ids, however, encode the old reader index and can become invalid
+        when canonical recovery accepts a different valid BookReader snapshot.
+        """
+        if self.reader is None or self.books is None:
+            return
+        if self.shell.current_route.route_id != "books":
+            return
+        remembered = self.shell.restore_focus_target()
+        if type(remembered) is not str:
+            return
+        if remembered != "book-reader" and not remembered.startswith("book-block-"):
+            return
+        canonical = f"book-block-{self.reader.index}"
+        if remembered == canonical:
+            return
+        self.shell.record_focus(canonical)
+        self._focus = canonical
 
     def _reload_book_progress_after_durability_ambiguity(self):
         """Rebind Books/Training after ambiguous durability or a stale write.
@@ -280,6 +336,10 @@ class Version2Application:
                     self._events.append(
                         {"kind": "route", "payload": {"route_id": "books"}}
                     )
+                # Canonical recovery may legitimately select a different Book
+                # block than the one remembered by the previous reader. Repair
+                # only index-bound block focus; persistent controls keep focus.
+                self._repair_book_block_focus_after_rebind()
                 return
             except Exception:
                 pass
@@ -375,6 +435,7 @@ class Version2Application:
             and self.training_workspace is None
         ):
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             # The packaged WebView consumes the application event queue on its
             # polling seam. A route event requests one authoritative snapshot
             # refresh; omit focus_target so the host chooses the real current
@@ -410,12 +471,14 @@ class Version2Application:
             language = self.training_workspace.language
         return concise_user_error("", language=language)
 
-
     def _dispatch_training_surface_command(self, command, payload=None):
-        # Inspect transaction ownership only for an exact built-in browser/native
-        # command. The strict Training bridge remains the schema authority for
-        # malformed values; this preflight must not execute subclass hooks first.
-        command_id = command.strip() if type(command) is str else None
+        command_id = (
+            command.strip()
+            if type(command) is str and len(command) <= 64
+            else command
+        )
+        classifiable_command = type(command_id) is str and len(command_id) <= 64
+        is_continue = classifiable_command and command_id == "training.continue"
         if self.shell.current_route.route_id != "training":
             raise ValueError(self._training_error_message())
         if self.shell.active_dialog_id is not None:
@@ -426,7 +489,7 @@ class Version2Application:
         language = bookmark_name = training_language = None
         training_message = ""
         training_message_key = None
-        if command_id == "training.continue":
+        if is_continue:
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
@@ -436,7 +499,7 @@ class Version2Application:
         try:
             result = self.training_workspace.dispatch(command_id, payload)
         except Exception:
-            if command_id == "training.continue":
+            if is_continue:
                 # The strict Training bridge normally sanitizes callback/render
                 # failures into an error event. If even that error projection
                 # fails after continuation moved the canonical BookReader, keep
@@ -459,7 +522,7 @@ class Version2Application:
                     )
             raise
         self.training = self.training_workspace.bridge
-        if command_id == "training.continue":
+        if is_continue:
             if result.kind == "error":
                 # The continuation callback can fail after moving the canonical
                 # BookReader and swapping the Training model (for example while
@@ -511,16 +574,27 @@ class Version2Application:
                 raise
         return result
 
-
     def _dispatch_book_surface_command(self, command, payload=None):
         """Publish mutating Book commands only after durable progress succeeds."""
-        # Transaction preflight is intentionally exact-string only. A hostile
-        # str subclass must reach the strict Book bridge unchanged and fail
-        # closed there, never run an overridden strip/equality hook here.
-        command_id = command.strip() if type(command) is str else None
+        command_id = (
+            command.strip()
+            if type(command) is str and len(command) <= 64
+            else command
+        )
+        classifiable_command = type(command_id) is str and len(command_id) <= 64
+        is_language = classifiable_command and command_id == "book.language"
+        is_board_open = (
+            classifiable_command and command_id in self._BOOK_BOARD_OPEN_COMMANDS
+        )
+        is_return_from_board = (
+            classifiable_command and command_id == "book.return_from_board"
+        )
+        is_progress = (
+            classifiable_command and command_id in self._BOOK_PROGRESS_COMMANDS
+        )
         if self.books is None or self.reader is None:
             raise ValueError("no book is open")
-        if command_id == "book.language":
+        if is_language:
             # Language is presentation-only, but the Book-local WebView must still
             # own the visible route/focus before it may mutate projection state.
             if (
@@ -529,7 +603,7 @@ class Version2Application:
             ):
                 return self.books.projection.generic_error()
             return self.books.dispatch(command_id, payload)
-        if command_id in self._BOOK_BOARD_OPEN_COMMANDS:
+        if is_board_open:
             # Native menu actions are globally reachable even though Book Board
             # opening belongs to the visible Book Reader. Never open a hidden
             # Book position/game from Library, PGN, Settings, or another route.
@@ -548,13 +622,13 @@ class Version2Application:
             # Book WebView dispatches its open through that same delegate, and a
             # second write would advance BookProgress twice for one transition.
             return self.books.dispatch(command_id, payload)
-        if command_id == "book.return_from_board":
+        if is_return_from_board:
             # The canonical workflow unwinds through the shared router delegate,
             # which re-publishes the exact Book origin once after safe Return.
             # Keeping persistence in that one owner also makes browser/native
             # failure behavior identical.
             return self.books.dispatch(command_id, payload)
-        if command_id in self._BOOK_PROGRESS_COMMANDS:
+        if is_progress:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
             # hidden reading cursor from Library/PGN/Settings or another route.
@@ -634,6 +708,7 @@ class Version2Application:
             # the safe workflow unwind. Emergency projection-failure unwind stays
             # storage-independent in _recover_book_projection_failure().
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             # Route ownership changed synchronously inside the domain workflow.
             # Publish one V2 refresh request even if the caller subsequently
             # reports a persistence error, so the visible/NVDA surface cannot
@@ -688,6 +763,7 @@ class Version2Application:
             except Exception:
                 return
             self._focus = self.shell.open_route("books")
+            self._repair_book_block_focus_after_rebind()
             self._events.append(
                 {"kind": "route", "payload": {"route_id": "books"}}
             )
@@ -756,7 +832,12 @@ class Version2Application:
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
         if action == "book.open":
-            if payload: raise ValueError("book file selection belongs to the host")
+            if payload:
+                raise ValueError("book file selection belongs to the host")
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before opening a book")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("return to the book before opening another source")
             source = self.open_book_dialog()
             return None if source is None else self.open_book(source)
         if action.startswith("book."):
@@ -862,30 +943,39 @@ class Version2Application:
     def browser_command(self, area, command, payload=None):
         self._assert_thread()
         try:
-            # Browser ingress is a scalar trust boundary before any equality,
-            # hashing, startswith or strip operation in the per-surface routers.
-            if (
-                type(area) is not str
-                or not area
-                or len(area) > self._MAX_BROWSER_AREA_CHARS
-            ):
-                raise ValueError("invalid browser command area")
-            if (
-                type(command) is not str
-                or not command
-                or len(command) > self._MAX_BROWSER_COMMAND_CHARS
-            ):
-                raise ValueError("invalid browser command")
-            if area == "review":
+            # Browser surface names and shell/review envelopes are authority
+            # inputs. Validate exact bounded JSON-shaped values before equality,
+            # hashing, prefix scans or payload truthiness can run subclass hooks.
+            if type(area) is not str or len(area) > 16:
+                raise ValueError("invalid browser surface")
+            area_id = area
+            empty_authority_payload = payload is None or (
+                type(payload) is dict and len(payload) == 0
+            )
+            if area_id == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
-                if command not in allowed or payload: raise ValueError("invalid review command")
+                if (
+                    type(command) is not str
+                    or len(command) > 64
+                    or command not in allowed
+                    or not empty_authority_payload
+                ):
+                    raise ValueError("invalid review command")
                 result = self.router.dispatch(command).value
                 if getattr(result, "kind", None) is BookBoardUiEventKind.FAILED: return self._error()
                 return {"kind": "review", "payload": {}}
-            if area == "shell":
-                if payload: raise ValueError("shell accepts no authority payload")
-                if type(command) is not str or not (command.startswith("screen.") or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}):
+            if area_id == "shell":
+                if not empty_authority_payload:
+                    raise ValueError("shell accepts no authority payload")
+                if (
+                    type(command) is not str
+                    or len(command) > 64
+                    or not (
+                        command.startswith("screen.")
+                        or command in {"pgn.open", "pgn.save", "pgn.save_as", "book.open"}
+                    )
+                ):
                     raise ValueError("unsupported shell command")
                 if command == "screen.training":
                     # Route changes are modal-blocked by the shell. Apply the same
@@ -900,8 +990,19 @@ class Version2Application:
                     # Synchronize before another keyboard/native action can
                     # reuse the previous route's focus token.
                     self._focus = self.shell.restore_focus_target()
-                return asdict(value)
-            if area == "training":
+                    self._repair_book_block_focus_after_rebind()
+                projected = asdict(value)
+                if value.kind == "route":
+                    projected_payload = projected.get("payload")
+                    if isinstance(projected_payload, dict):
+                        projected_payload["focus_target"] = self._focus
+                        projected_snapshot = projected_payload.get("snapshot")
+                        if isinstance(projected_snapshot, dict):
+                            projected_screen = projected_snapshot.get("screen")
+                            if isinstance(projected_screen, dict):
+                                projected_screen["focus_target"] = self._focus
+                return projected
+            if area_id == "training":
                 try:
                     return asdict(self._dispatch_training_surface_command(command, payload))
                 except Exception:
@@ -909,10 +1010,10 @@ class Version2Application:
                         "kind": "error",
                         "payload": {"message": self._training_error_message()},
                     }
-            if area == "books":
+            if area_id == "books":
                 value = self._dispatch_book_surface_command(command, payload)
                 return asdict(value)
-            bridge = {"pgn": self.pgn, "library": self.library}.get(area)
+            bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
             value = bridge.dispatch(command, payload)
             return asdict(value)
@@ -963,6 +1064,8 @@ class Version2Application:
                 )
                 if self.shell.current_route.route_id == "training":
                     self._focus = self.shell.open_route(recovery_route)
+                    if recovery_route == "books":
+                        self._repair_book_block_focus_after_rebind()
                     self._events.append(
                         {"kind": "route", "payload": {"route_id": recovery_route}}
                     )
@@ -973,7 +1076,17 @@ class Version2Application:
             # reaches this application boundary. Bind the application token to
             # the exact new route focus before another native action can arrive.
             self._focus = self.shell.restore_focus_target()
+            self._repair_book_block_focus_after_rebind()
         event = asdict(value)
+        if value.kind == "route":
+            event_payload = event.get("payload")
+            if isinstance(event_payload, dict):
+                event_payload["focus_target"] = self._focus
+                event_snapshot = event_payload.get("snapshot")
+                if isinstance(event_snapshot, dict):
+                    event_screen = event_snapshot.get("screen")
+                    if isinstance(event_screen, dict):
+                        event_screen["focus_target"] = self._focus
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")
             if isinstance(payload, dict):

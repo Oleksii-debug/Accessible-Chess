@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -11,9 +12,13 @@ from acs.book_progress_store import (
     BookProgressStoreError,
     BookProgressStoreErrorCode,
 )
+from acs.book_text_import import BookTextFormat, import_text_book
+from acs.bookdocument import BookDocument, Exercise
+from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
+from acs.report_paths import report_safe_name
 from acs.version2_application import Version2Application
 from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
@@ -50,6 +55,25 @@ class Version2ApplicationTests(unittest.TestCase):
             event_sink=self.mailbox, next_delegate=lambda *_: None)
         self.app.bind_files(self.files)
         self.addCleanup(lambda: self.files.shutdown(timeout=5))
+
+    def test_record_focus_uses_one_exact_shell_dom_id_authority(self):
+        self.app.record_focus("board-square-e4")
+        self.assertEqual("board-square-e4", self.app._focus)
+        self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
+
+        # Empty/non-text notifications are not focus transitions and must not
+        # erase the last valid token consumed by the native menu.
+        self.app.record_focus("")
+        self.app.record_focus(None)
+        self.assertEqual("board-square-e4", self.app._focus)
+        self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
+
+        for token in (" board-square-e4", "board-square-e4 ", "кнопка", "bad.focus"):
+            with self.subTest(token=token):
+                with self.assertRaises(ValueError):
+                    self.app.record_focus(token)
+                self.assertEqual("board-square-e4", self.app._focus)
+                self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
 
     def test_native_file_open_browser_edit_save_and_reopen(self):
         self.app.browser_command("shell", "pgn.open")
@@ -97,337 +121,23 @@ class Version2ApplicationTests(unittest.TestCase):
 
     def _open_book_game(self):
         book = self.root / "study.md"
-        book.write_text("# Навчання\n\nТекст\n\n```pgn\n" + PGN + "```\n\nПісля\n", encoding="utf-8")
+        book_pgn = (
+            '[Event "Україна"]\n'
+            '[White "Петренко"]\n'
+            '[Black "Smith"]\n'
+            '[Result "*"]\n\n'
+            '{Intro C:\\\\private\\\\root.txt} '
+            '1. e4 {before} (1. d4 $1 d5 *) e5 * '
+            '{Outro /home/private/tail.txt}\n'
+        )
+        book.write_text(
+            "# Навчання\n\nТекст\n\n```pgn\n" + book_pgn + "```\n\nПісля\n",
+            encoding="utf-8",
+        )
         self.app.open_book_dialog = lambda: book
         self.assertEqual(self.app.browser_command("shell", "book.open")["kind"], "delegated")
         self.app.browser_command("books", "book.next_game")
         return book, self.app.reader.location()
-
-    def test_book_native_open_board_exact_return_and_persistent_resume(self):
-        book, origin = self._open_book_game()
-        self.projected_positions.clear()
-        opened = self.app.browser_command("books", "book.open_position")
-        self.assertEqual(opened["kind"], "delegated")
-        self.assertEqual(opened["payload"]["announcement"], "Позицію відкрито на дошці.")
-        self.assertTrue(self.app.book_workflow.active)
-        self.assertEqual(self.projected_positions[-1], Board.START)
-
-        self.app.router.dispatch("book.board_next_move")
-        expected = Board()
-        expected.push_text("e4")
-        self.assertEqual(self.projected_positions[-1], expected.fen())
-        self.assertEqual(self.app.book_delegate.board_snapshot().fen(), expected.fen())
-
-        returned = self.app.browser_command("books", "book.return_from_board")
-        self.assertEqual(returned["kind"], "render")
-        self.assertEqual(returned["payload"]["announcement"], "Повернуто до місця читання.")
-        self.assertEqual(self.app.reader.location(), origin)
-        self.app.open_book(book)
-        self.assertEqual(self.app.reader.location(), origin)
-
-    def _restarted_application(self, store):
-        restarted = Version2Application(
-            self.database,
-            progress_store=store,
-            engine_assistance=self.app.engine_assistance,
-            board_dispatch=lambda *_: None,
-            board_position_projector=lambda fen: {"ok": True},
-            copy_text=self.copied.append,
-        )
-        return restarted
-
-    def test_book_open_can_explicitly_recover_corrupt_progress_from_valid_backup(self):
-        book, origin = self._open_book_game()
-        store = self.app.progress_store
-        key = self.app.book_key
-
-        # Pin a previous-valid backup to the exact current semantic cursor, then
-        # simulate a crash/torn primary. The restarted app has no in-memory Book
-        # state that could hide the persistence failure.
-        store.save(key, self.app.reader)
-        backup_before = store.backup_path.read_bytes()
-        store.path.write_bytes(b'{"schema_version":2,"generation":')
-        corrupt_primary = store.path.read_bytes()
-
-        restarted = self._restarted_application(store)
-        confirmations = []
-        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
-
-        restarted.open_book(book)
-
-        self.assertEqual(confirmations, [True])
-        self.assertEqual(restarted.shell.current_route.route_id, "books")
-        self.assertEqual(restarted.reader.location(), origin)
-        self.assertEqual(store.restore(key, restarted.reader.document).location(), origin)
-        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
-        self.assertTrue(store.backup_path.exists())
-        self.assertNotEqual(backup_before, b"")
-
-    def test_book_open_declined_progress_recovery_is_atomic_and_non_destructive(self):
-        book, _origin = self._open_book_game()
-        store = self.app.progress_store
-        key = self.app.book_key
-        store.save(key, self.app.reader)
-        backup_before = store.backup_path.read_bytes()
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        store.path.write_bytes(corrupt_primary)
-
-        restarted = self._restarted_application(store)
-        route_before = restarted.shell.current_route.route_id
-        confirmations = []
-        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or False
-
-        with self.assertRaises(BookProgressStoreError) as caught:
-            restarted.open_book(book)
-
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
-        self.assertEqual(confirmations, [True])
-        self.assertIsNone(restarted.reader)
-        self.assertIsNone(restarted.books)
-        self.assertIsNone(restarted.book_workflow)
-        self.assertEqual(restarted.shell.current_route.route_id, route_before)
-        self.assertEqual(store.path.read_bytes(), corrupt_primary)
-        self.assertEqual(store.backup_path.read_bytes(), backup_before)
-
-    def test_book_open_future_progress_schema_never_offers_backup_rollback(self):
-        book, _origin = self._open_book_game()
-        store = self.app.progress_store
-        key = self.app.book_key
-        store.save(key, self.app.reader)
-        backup_before = store.backup_path.read_bytes()
-        future_primary = b'{"schema_version":999,"entries":{}}'
-        store.path.write_bytes(future_primary)
-
-        restarted = self._restarted_application(store)
-        confirmations = []
-        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
-
-        with self.assertRaises(BookProgressStoreError) as caught:
-            restarted.open_book(book)
-
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA)
-        self.assertEqual(confirmations, [])
-        self.assertIsNone(restarted.reader)
-        self.assertIsNone(restarted.books)
-        self.assertEqual(store.path.read_bytes(), future_primary)
-        self.assertEqual(store.backup_path.read_bytes(), backup_before)
-
-    def test_book_open_recovery_confirmation_failure_preserves_all_progress_bytes(self):
-        book, _origin = self._open_book_game()
-        store = self.app.progress_store
-        key = self.app.book_key
-        store.save(key, self.app.reader)
-        backup_before = store.backup_path.read_bytes()
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        store.path.write_bytes(corrupt_primary)
-
-        restarted = self._restarted_application(store)
-
-        def broken_confirmation():
-            raise RuntimeError("private dialog failure")
-
-        restarted.confirm_book_progress_recovery = broken_confirmation
-        with self.assertRaises(BookProgressStoreError) as caught:
-            restarted.open_book(book)
-
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
-        self.assertIsNone(restarted.reader)
-        self.assertIsNone(restarted.books)
-        self.assertEqual(store.path.read_bytes(), corrupt_primary)
-        self.assertEqual(store.backup_path.read_bytes(), backup_before)
-        self.assertNotIn("private dialog failure", str(caught.exception))
-
-
-    def test_runtime_book_save_does_not_offer_recovery_without_backup(self):
-        self._open_book_game()
-        store = self.app.progress_store
-        store.backup_path.unlink(missing_ok=True)
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        store.path.write_bytes(corrupt_primary)
-        confirmations = []
-        self.app.confirm_book_progress_recovery = (
-            lambda: confirmations.append(True) or True
-        )
-
-        with self.assertRaises(BookProgressStoreError) as caught:
-            self.app.save_book_progress()
-
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
-        self.assertEqual(confirmations, [])
-        self.assertEqual(store.path.read_bytes(), corrupt_primary)
-        self.assertFalse(store.backup_path.exists())
-
-    def test_runtime_book_save_does_not_offer_recovery_from_corrupt_backup(self):
-        self._open_book_game()
-        store = self.app.progress_store
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        corrupt_backup = b'{"schema_version":2,"entries":'
-        store.path.write_bytes(corrupt_primary)
-        store.backup_path.write_bytes(corrupt_backup)
-        confirmations = []
-        self.app.confirm_book_progress_recovery = (
-            lambda: confirmations.append(True) or True
-        )
-
-        with self.assertRaises(BookProgressStoreError) as caught:
-            self.app.save_book_progress()
-
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
-        self.assertEqual(confirmations, [])
-        self.assertEqual(store.path.read_bytes(), corrupt_primary)
-        self.assertEqual(store.backup_path.read_bytes(), corrupt_backup)
-
-
-
-    def test_runtime_book_save_does_not_offer_recovery_from_unrelated_valid_backup(self):
-        self._open_book_game()
-        store = self.app.progress_store
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        unrelated_backup = b'{"entries":{},"generation":1,"schema_version":2}'
-        store.path.write_bytes(corrupt_primary)
-        store.backup_path.write_bytes(unrelated_backup)
-        confirmations = []
-        self.app.confirm_book_progress_recovery = (
-            lambda: confirmations.append(True) or True
-        )
-
-        with self.assertRaises(BookProgressStoreError) as caught:
-            self.app.save_book_progress()
-
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
-        self.assertEqual(confirmations, [])
-        self.assertEqual(store.path.read_bytes(), corrupt_primary)
-        self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
-
-
-
-    def test_runtime_book_save_recovers_only_after_usable_backup_confirmation(self):
-        self._open_book_game()
-        store = self.app.progress_store
-        key = self.app.book_key
-        # A second successful write pins a valid previous generation as backup.
-        store.save(key, self.app.reader)
-        self.assertTrue(store.backup_path.exists())
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        store.path.write_bytes(corrupt_primary)
-        confirmations = []
-        self.app.confirm_book_progress_recovery = (
-            lambda: confirmations.append(True) or True
-        )
-        expected = self.app.reader.snapshot()
-
-        self.app.save_book_progress()
-
-        self.assertEqual(confirmations, [True])
-        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
-        restored = store.restore(key, self.app.reader.document)
-        self.assertEqual(restored.snapshot(), expected)
-
-
-    def test_book_recovery_publishes_only_the_semantically_validated_backup_revision(self):
-        self._open_book_game()
-        store = self.app.progress_store
-        key = self.app.book_key
-        store.save(key, self.app.reader)
-        self.assertTrue(store.backup_path.exists())
-
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        store.path.write_bytes(corrupt_primary)
-        swapped_backup = b'{"entries":{},"generation":1,"schema_version":2}'
-        confirmations = []
-
-        def confirm_and_swap_backup():
-            confirmations.append(True)
-            store.backup_path.write_bytes(swapped_backup)
-            return True
-
-        self.app.confirm_book_progress_recovery = confirm_and_swap_backup
-        with self.assertRaises(BookProgressStoreError) as caught:
-            self.app.save_book_progress()
-
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
-        self.assertEqual(confirmations, [True])
-        self.assertEqual(store.path.read_bytes(), corrupt_primary)
-        self.assertEqual(store.backup_path.read_bytes(), swapped_backup)
-
-    def test_book_store_expected_backup_revision_is_exact_and_backward_compatible(self):
-        self._open_book_game()
-        store = self.app.progress_store
-        key = self.app.book_key
-        store.save(key, self.app.reader)
-        revision = store.validated_backup_revision(key, self.app.reader.document)
-        self.assertEqual(len(revision), 64)
-        self.assertTrue(all(character in "0123456789abcdef" for character in revision))
-
-        corrupt_primary = b'{"schema_version":2,"generation":'
-        store.path.write_bytes(corrupt_primary)
-        self.assertTrue(store.recover_from_backup(expected_backup_revision=revision))
-        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
-
-        store.path.write_bytes(corrupt_primary)
-        with self.assertRaises(BookProgressStoreError) as caught:
-            store.recover_from_backup(expected_backup_revision="not-a-revision")
-        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.INVALID_ARGUMENT)
-        self.assertEqual(store.path.read_bytes(), corrupt_primary)
-
-    def test_book_open_fails_closed_when_release_board_rejects_position(self):
-        _book, origin = self._open_book_game()
-        self.app._board_position_projector = lambda _fen: {"ok": False}
-
-        result = self.app.browser_command("books", "book.open_position")
-
-        self.assertEqual(result["kind"], "error")
-        self.assertNotIn("announcement", result["payload"])
-        self.assertFalse(self.app.book_workflow.active)
-        self.assertEqual(self.app.reader.location(), origin)
-        self.assertEqual(self.app.shell.current_route.route_id, "books")
-
-    def test_book_navigation_projection_failure_restores_canonical_cursor(self):
-        _book, _origin = self._open_book_game()
-        self.assertEqual(self.app.browser_command("books", "book.open_position")["kind"], "delegated")
-        before = self.app.book_delegate.view()
-        projected = []
-
-        def reject_changed_position(fen):
-            projected.append(fen)
-            return {"ok": fen == before.current_fen}
-
-        self.app._board_position_projector = reject_changed_position
-        result = self.app.browser_command("review", "book.board_next_move")
-
-        self.assertEqual(result["kind"], "error")
-        after = self.app.book_delegate.view()
-        self.assertEqual(after.cursor, before.cursor)
-        self.assertEqual(after.current_fen, before.current_fen)
-        self.assertTrue(self.app.book_workflow.active)
-        self.assertEqual(self.app.shell.current_route.route_id, "board")
-        self.assertEqual(projected[-1], before.current_fen)
-
-    def test_browser_path_payload_rejected_before_native_picker(self):
-        self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
-        result = self.app.browser_command("shell", "pgn.open", {"path": str(self.source)})
-        self.assertEqual(result["kind"], "error")
-        self.assertIsNone(self.app.session)
-
-
-    def test_record_focus_uses_one_exact_shell_dom_id_authority(self):
-        self.app.record_focus("board-square-e4")
-        self.assertEqual("board-square-e4", self.app._focus)
-        self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
-
-        # Empty/non-text notifications are not focus transitions and must not
-        # erase the last valid token consumed by the native menu.
-        self.app.record_focus("")
-        self.app.record_focus(None)
-        self.assertEqual("board-square-e4", self.app._focus)
-        self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
-
-        for token in (" board-square-e4", "board-square-e4 ", "кнопка", "bad.focus"):
-            with self.subTest(token=token):
-                with self.assertRaises(ValueError):
-                    self.app.record_focus(token)
-                self.assertEqual("board-square-e4", self.app._focus)
-                self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
 
     def test_browser_ingress_rejects_string_subclasses_before_custom_hooks(self):
         class HostileText(str):
@@ -457,6 +167,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual("error", result["kind"])
         self.assertFalse(HostileText.touched)
 
+
     def test_direct_book_dispatch_rejects_command_subclass_without_strip_hook(self):
         self._open_book_game()
 
@@ -470,6 +181,7 @@ class Version2ApplicationTests(unittest.TestCase):
         event = self.app._dispatch_book_surface_command(StripBomb("book.next"))
         self.assertEqual("error", event.kind)
         self.assertFalse(StripBomb.touched)
+
 
     def test_board_projection_rejects_hostile_or_oversized_position_before_projector(self):
         class StripBomb(str):
@@ -489,6 +201,7 @@ class Version2ApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "canonical board position"):
             self.app._project_board_position("8/8/8/8/8/8/8/8 w - - 0 1\x00")
         self.assertEqual(before, self.projected_positions)
+
 
     def test_whole_app_book_snapshot_exposes_semantic_game_reading_without_board_activation(self):
         _book, origin = self._open_book_game()
@@ -596,7 +309,6 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
         self.assertEqual("books", self.app.shell.current_route.route_id)
 
-
     def test_book_durability_unknown_reloads_visible_canonical_progress(self):
         book = self.root / "durability-unknown.md"
         book.write_text(
@@ -663,6 +375,132 @@ class Version2ApplicationTests(unittest.TestCase):
         persisted = store.restore(key, self.app.reader.document)
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+    def test_book_open_binds_native_focus_to_rendered_current_block(self):
+        book = self.root / "initial-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+
+        self.app.open_book(book)
+
+        self.assertEqual(self.app.reader.index, 0)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+        self.assertEqual(
+            self.app.snapshot()["screen"]["focus_target"],
+            "book-block-0",
+        )
+
+    def test_native_books_route_replaces_legacy_placeholder_before_event_publish(self):
+        book = self.root / "native-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        self.app.record_focus("book-reader")
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library["kind"], "route")
+
+        route = self.app.adapter.activate_action(
+            "screen.books",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual(route.kind, "route")
+        self.assertEqual(route.payload["focus_target"], "book-reader")
+
+        self.assertTrue(self.app.native_command(route))
+
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+        route_events = [
+            event for event in self.app.drain_events()
+            if event.get("kind") == "route"
+        ]
+        self.assertEqual(len(route_events), 1)
+        self.assertEqual(
+            route_events[0]["payload"]["focus_target"],
+            "book-block-0",
+        )
+        self.assertEqual(
+            route_events[0]["payload"]["snapshot"]["screen"]["focus_target"],
+            "book-block-0",
+        )
+
+    def test_browser_books_route_projects_repaired_focus_in_route_snapshot(self):
+        book = self.root / "browser-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        self.app.record_focus("book-reader")
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library["kind"], "route")
+
+        books = self.app.browser_command("shell", "screen.books")
+
+        self.assertEqual(books["kind"], "route")
+        self.assertEqual(books["payload"]["focus_target"], "book-block-0")
+        self.assertEqual(
+            books["payload"]["snapshot"]["screen"]["focus_target"],
+            "book-block-0",
+        )
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+
+    def test_book_durability_rebind_repairs_stale_book_block_focus(self):
+        book = self.root / "durability-rebind-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        key = self.app.book_key
+        document = self.app.reader.document
+        self.app.record_focus("book-block-0")
+
+        external = BookReader(document)
+        external.go_to(2)
+        self.app.progress_store.save(key, external)
+
+        self.app._reload_book_progress_after_durability_ambiguity()
+
+        self.assertEqual(self.app.reader.index, 2)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-2")
+        self.assertEqual(self.app._focus, "book-block-2")
+        self.assertEqual(
+            self.app.snapshot()["screen"]["focus_target"],
+            "book-block-2",
+        )
+
+    def test_book_durability_rebind_preserves_stable_book_control_focus(self):
+        book = self.root / "durability-rebind-control-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        key = self.app.book_key
+        document = self.app.reader.document
+        self.app.record_focus("book-bookmark-name")
+
+        external = BookReader(document)
+        external.go_to(2)
+        self.app.progress_store.save(key, external)
+
+        self.app._reload_book_progress_after_durability_ambiguity()
+
+        self.assertEqual(self.app.reader.index, 2)
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "book-bookmark-name",
+        )
+        self.assertEqual(self.app._focus, "book-bookmark-name")
 
     def test_book_durability_unknown_with_unreadable_primary_fails_surface_closed(self):
         book = self.root / "durability-unknown-unreadable.md"
@@ -970,7 +808,6 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
         self.assertEqual("training", self.app.shell.current_route.route_id)
 
-
     def test_training_continue_durability_unknown_rebinds_to_canonical_successor(self):
         board = Board()
         board.push_text("e4")
@@ -1194,6 +1031,28 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "books")
         self.assertEqual(self.app.reader.location(), origin)
 
+        self.app.open_book(book)
+        self.assertEqual(self.app.reader.location(), origin)
+
+    def test_book_native_open_board_exact_return_and_persistent_resume(self):
+        book, origin = self._open_book_game()
+        self.projected_positions.clear()
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertEqual(opened["payload"]["announcement"], "Позицію відкрито на дошці.")
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.projected_positions[-1], Board.START)
+
+        self.app.router.dispatch("book.board_next_move")
+        expected = Board()
+        expected.push_text("e4")
+        self.assertEqual(self.projected_positions[-1], expected.fen())
+        self.assertEqual(self.app.book_delegate.board_snapshot().fen(), expected.fen())
+
+        returned = self.app.browser_command("books", "book.return_from_board")
+        self.assertEqual(returned["kind"], "render")
+        self.assertEqual(returned["payload"]["announcement"], "Повернуто до місця читання.")
+        self.assertEqual(self.app.reader.location(), origin)
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
 
@@ -1533,6 +1392,251 @@ class Version2ApplicationTests(unittest.TestCase):
             "book-block-2",
         )
 
+    def _restarted_application(self, store):
+        restarted = Version2Application(
+            self.database,
+            progress_store=store,
+            engine_assistance=self.app.engine_assistance,
+            board_dispatch=lambda *_: None,
+            board_position_projector=lambda fen: {"ok": True},
+            copy_text=self.copied.append,
+        )
+        return restarted
+
+    def test_book_open_can_explicitly_recover_corrupt_progress_from_valid_backup(self):
+        book, origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+
+        # Pin a previous-valid backup to the exact current semantic cursor, then
+        # simulate a crash/torn primary. The restarted app has no in-memory Book
+        # state that could hide the persistence failure.
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        store.path.write_bytes(b'{"schema_version":2,"generation":')
+        corrupt_primary = store.path.read_bytes()
+
+        restarted = self._restarted_application(store)
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
+
+        restarted.open_book(book)
+
+        self.assertEqual(confirmations, [True])
+        self.assertEqual(restarted.shell.current_route.route_id, "books")
+        self.assertEqual(restarted.reader.location(), origin)
+        self.assertEqual(store.restore(key, restarted.reader.document).location(), origin)
+        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertTrue(store.backup_path.exists())
+        self.assertNotEqual(backup_before, b"")
+
+    def test_book_open_declined_progress_recovery_is_atomic_and_non_destructive(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+
+        restarted = self._restarted_application(store)
+        route_before = restarted.shell.current_route.route_id
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or False
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [True])
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertIsNone(restarted.book_workflow)
+        self.assertEqual(restarted.shell.current_route.route_id, route_before)
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), backup_before)
+
+    def test_book_open_future_progress_schema_never_offers_backup_rollback(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        future_primary = b'{"schema_version":999,"entries":{}}'
+        store.path.write_bytes(future_primary)
+
+        restarted = self._restarted_application(store)
+        confirmations = []
+        restarted.confirm_book_progress_recovery = lambda: confirmations.append(True) or True
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA)
+        self.assertEqual(confirmations, [])
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertEqual(store.path.read_bytes(), future_primary)
+        self.assertEqual(store.backup_path.read_bytes(), backup_before)
+
+    def test_book_open_recovery_confirmation_failure_preserves_all_progress_bytes(self):
+        book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        backup_before = store.backup_path.read_bytes()
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+
+        restarted = self._restarted_application(store)
+
+        def broken_confirmation():
+            raise RuntimeError("private dialog failure")
+
+        restarted.confirm_book_progress_recovery = broken_confirmation
+        with self.assertRaises(BookProgressStoreError) as caught:
+            restarted.open_book(book)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertIsNone(restarted.reader)
+        self.assertIsNone(restarted.books)
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), backup_before)
+        self.assertNotIn("private dialog failure", str(caught.exception))
+
+
+    def test_runtime_book_save_does_not_offer_recovery_without_backup(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        store.backup_path.unlink(missing_ok=True)
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertFalse(store.backup_path.exists())
+
+    def test_runtime_book_save_does_not_offer_recovery_from_corrupt_backup(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        corrupt_backup = b'{"schema_version":2,"entries":'
+        store.path.write_bytes(corrupt_primary)
+        store.backup_path.write_bytes(corrupt_backup)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), corrupt_backup)
+
+
+
+    def test_runtime_book_save_does_not_offer_recovery_from_unrelated_valid_backup(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        unrelated_backup = b'{"entries":{},"generation":1,"schema_version":2}'
+        store.path.write_bytes(corrupt_primary)
+        store.backup_path.write_bytes(unrelated_backup)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(confirmations, [])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
+
+
+
+    def test_runtime_book_save_recovers_only_after_usable_backup_confirmation(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        # A second successful write pins a valid previous generation as backup.
+        store.save(key, self.app.reader)
+        self.assertTrue(store.backup_path.exists())
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        confirmations = []
+        self.app.confirm_book_progress_recovery = (
+            lambda: confirmations.append(True) or True
+        )
+        expected = self.app.reader.snapshot()
+
+        self.app.save_book_progress()
+
+        self.assertEqual(confirmations, [True])
+        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
+        restored = store.restore(key, self.app.reader.document)
+        self.assertEqual(restored.snapshot(), expected)
+
+
+    def test_book_recovery_publishes_only_the_semantically_validated_backup_revision(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        self.assertTrue(store.backup_path.exists())
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        swapped_backup = b'{"entries":{},"generation":1,"schema_version":2}'
+        confirmations = []
+
+        def confirm_and_swap_backup():
+            confirmations.append(True)
+            store.backup_path.write_bytes(swapped_backup)
+            return True
+
+        self.app.confirm_book_progress_recovery = confirm_and_swap_backup
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(confirmations, [True])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), swapped_backup)
+
+    def test_book_store_expected_backup_revision_is_exact_and_backward_compatible(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        revision = store.validated_backup_revision(key, self.app.reader.document)
+        self.assertEqual(len(revision), 64)
+        self.assertTrue(all(character in "0123456789abcdef" for character in revision))
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        self.assertTrue(store.recover_from_backup(expected_backup_revision=revision))
+        self.assertNotEqual(store.path.read_bytes(), corrupt_primary)
+
+        store.path.write_bytes(corrupt_primary)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            store.recover_from_backup(expected_backup_revision="not-a-revision")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.INVALID_ARGUMENT)
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+
     def test_book_board_open_and_return_publish_exact_origin_once_each(self):
         _book, origin = self._open_book_game()
         before = self.app.reader.snapshot()
@@ -1561,6 +1665,39 @@ class Version2ApplicationTests(unittest.TestCase):
             self.assertEqual("books", self.app.shell.current_route.route_id)
             self.assertEqual(origin, self.app.reader.location())
             self.assertEqual(before, self.app.reader.snapshot())
+
+    def test_book_open_fails_closed_when_release_board_rejects_position(self):
+        _book, origin = self._open_book_game()
+        self.app._board_position_projector = lambda _fen: {"ok": False}
+
+        result = self.app.browser_command("books", "book.open_position")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertNotIn("announcement", result["payload"])
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+    def test_book_navigation_projection_failure_restores_canonical_cursor(self):
+        _book, _origin = self._open_book_game()
+        self.assertEqual(self.app.browser_command("books", "book.open_position")["kind"], "delegated")
+        before = self.app.book_delegate.view()
+        projected = []
+
+        def reject_changed_position(fen):
+            projected.append(fen)
+            return {"ok": fen == before.current_fen}
+
+        self.app._board_position_projector = reject_changed_position
+        result = self.app.browser_command("review", "book.board_next_move")
+
+        self.assertEqual(result["kind"], "error")
+        after = self.app.book_delegate.view()
+        self.assertEqual(after.cursor, before.cursor)
+        self.assertEqual(after.current_fen, before.current_fen)
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(projected[-1], before.current_fen)
 
     def test_book_projection_recovery_return_is_storage_independent(self):
         _book, origin = self._open_book_game()
@@ -1595,6 +1732,13 @@ class Version2ApplicationTests(unittest.TestCase):
             ],
             [{"kind": "route", "payload": {"route_id": "books"}}],
         )
+
+    def test_browser_path_payload_rejected_before_native_picker(self):
+        self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
+        result = self.app.browser_command("shell", "pgn.open", {"path": str(self.source)})
+        self.assertEqual(result["kind"], "error")
+        self.assertIsNone(self.app.session)
+
 
     def test_pgn_open_on_board_is_atomic_when_modal_blocks_route_change(self):
         opened = self.app.browser_command("shell", "pgn.open")
@@ -1668,5 +1812,6 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIs(pgn_before, self.app.pgn)
         self.assertEqual(route_before, self.app.shell.current_route.route_id)
         self.assertEqual("test-library-modal", self.app.shell.active_dialog_id)
+
 
 if __name__ == "__main__": unittest.main()
