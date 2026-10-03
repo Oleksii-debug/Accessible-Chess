@@ -578,10 +578,21 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
     fd, raw = tempfile.mkstemp(
         prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
     )
-    temp = Path(raw)
+    temp: Path | None = Path(raw)
+    temp_identity: os.stat_result | None = None
     digest = hashlib.sha256()
     source_fd = -1
     try:
+        created = os.fstat(fd)
+        temp_identity = created
+        if (
+            not stat.S_ISREG(created.st_mode)
+            or int(getattr(created, "st_nlink", 1)) != 1
+        ):
+            raise Version2UpgradeError(
+                "backup copy temporary file must be private"
+            )
+
         # Low-level os.open/os.read is subject to CRT text translation on
         # Windows unless O_BINARY is explicit. Upgrade backups and restores must
         # preserve arbitrary user bytes (including CRLF and 0x1A) exactly.
@@ -600,8 +611,9 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
         )
         if opened_id != before_id:
             raise Version2UpgradeError("user-data source changed before backup copy")
-        with os.fdopen(fd, "wb") as target:
-            fd = -1
+        stream = os.fdopen(fd, "wb")
+        fd = -1
+        with stream as target:
             while True:
                 block = os.read(source_fd, 1024 * 1024)
                 if not block:
@@ -610,6 +622,16 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
                 digest.update(block)
             target.flush()
             os.fsync(target.fileno())
+            prepared = os.fstat(target.fileno())
+            if (
+                not stat.S_ISREG(prepared.st_mode)
+                or int(getattr(prepared, "st_nlink", 1)) != 1
+                or not _same_file_identity(created, prepared)
+            ):
+                raise Version2UpgradeError(
+                    "backup copy temporary file changed while being prepared"
+                )
+            temp_identity = prepared
         after = _safe_stat(source, "user-data source")
         after_id = (
             after.st_dev,
@@ -619,7 +641,27 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
         )
         if after_id != before_id:
             raise Version2UpgradeError("user-data source changed during backup copy")
+
+        assert temp is not None
+        try:
+            current = os.lstat(temp)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "backup copy temporary file changed before publication"
+            ) from exc
+        if (
+            stat.S_ISLNK(current.st_mode)
+            or _reparse(current)
+            or not stat.S_ISREG(current.st_mode)
+            or int(getattr(current, "st_nlink", 1)) != 1
+            or temp_identity is None
+            or not _same_file_identity(temp_identity, current)
+        ):
+            raise Version2UpgradeError(
+                "backup copy temporary file changed before publication"
+            )
         os.replace(temp, destination)
+        temp = None
         _fsync_dir(destination.parent)
         return int(after.st_size), digest.hexdigest()
     finally:
@@ -627,8 +669,23 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
             os.close(source_fd)
         if fd >= 0:
             os.close(fd)
-        if temp.exists():
-            temp.unlink()
+        if temp is not None and temp_identity is not None:
+            try:
+                current = os.lstat(temp)
+            except OSError:
+                current = None
+            if (
+                current is not None
+                and stat.S_ISREG(current.st_mode)
+                and not stat.S_ISLNK(current.st_mode)
+                and not _reparse(current)
+                and int(getattr(current, "st_nlink", 1)) == 1
+                and _same_file_identity(temp_identity, current)
+            ):
+                try:
+                    temp.unlink()
+                except OSError:
+                    pass
 
 
 def _canonical_library_schema(connection: sqlite3.Connection) -> int:
