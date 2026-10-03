@@ -74,6 +74,10 @@ class ExerciseStep:
         normalized = frozenset(_normalize_move(move) for move in self.accepted_moves)
         if not normalized:
             raise ValueError("exercise step requires at least one accepted move")
+        if self.hint is not None and type(self.hint) is not str:
+            raise TypeError("exercise hint must be a string or None")
+        if self.explanation is not None and type(self.explanation) is not str:
+            raise TypeError("exercise explanation must be a string or None")
         object.__setattr__(self, "accepted_moves", normalized)
 
 
@@ -112,8 +116,17 @@ class ExerciseDefinition:
             raise ValueError("exercise has too many steps")
         if any(not isinstance(step, ExerciseStep) for step in steps):
             raise TypeError("exercise steps must contain ExerciseStep values")
+        if type(self.title) is not str:
+            raise TypeError("exercise title must be a string")
+        if isinstance(self.tags, str):
+            raise TypeError("exercise tags must be a collection of strings")
         if self.source_id is not None and type(self.source_id) is not str:
             raise TypeError("exercise source_id must be a string or None")
+        if not isinstance(self.metadata, Mapping) or any(
+            type(key) is not str or type(value) is not str
+            for key, value in self.metadata.items()
+        ):
+            raise TypeError("exercise metadata must map strings to strings")
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
         object.__setattr__(self, "steps", steps)
