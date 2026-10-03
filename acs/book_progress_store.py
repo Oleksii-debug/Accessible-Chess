@@ -347,6 +347,7 @@ class BookProgressStore:
         self._path = Path(path)
         self._process_lock = _process_lock_for(self._path)
         self._active_storage_directory_identity: os.stat_result | None = None
+        self._active_lock_descriptor: int | None = None
 
     @property
     def path(self) -> Path:
@@ -505,6 +506,7 @@ class BookProgressStore:
         then the opened descriptor and a post-open path snapshot must identify
         the same regular file.  Reads never reopen the path after validation.
         """
+        self._require_active_lock_unlocked()
         active_directory = self._active_storage_directory_identity
         if active_directory is not None:
             self._require_storage_directory_unlocked(active_directory)
@@ -640,6 +642,7 @@ class BookProgressStore:
                 )
             if active_directory is not None:
                 self._require_storage_directory_unlocked(active_directory)
+            self._require_active_lock_unlocked()
             return raw
         except BookProgressStoreError:
             raise
@@ -803,6 +806,11 @@ class BookProgressStore:
                 "book progress storage lock changed while being acquired",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
+
+    def _require_active_lock_unlocked(self) -> None:
+        descriptor = self._active_lock_descriptor
+        if descriptor is not None:
+            self._require_lock_descriptor_current(descriptor)
 
     def _open_lock_descriptor(
         self,
@@ -1075,15 +1083,20 @@ class BookProgressStore:
             )
             acquired = False
             previous_directory_identity = self._active_storage_directory_identity
+            previous_lock_descriptor = self._active_lock_descriptor
             try:
                 self._lock_file_descriptor(descriptor)
                 acquired = True
                 self._require_lock_descriptor_current(descriptor)
                 self._require_storage_directory_unlocked(directory_identity)
                 self._active_storage_directory_identity = directory_identity
+                self._active_lock_descriptor = descriptor
                 self._cleanup_stale_temps_unlocked()
+                self._require_active_lock_unlocked()
                 yield
+                self._require_active_lock_unlocked()
             finally:
+                self._active_lock_descriptor = previous_lock_descriptor
                 self._active_storage_directory_identity = previous_directory_identity
                 # The protected body is the transaction authority. A save can
                 # already have atomically published primary progress bytes when
@@ -1110,6 +1123,7 @@ class BookProgressStore:
         expected_guard_path: Path | None = None,
         expected_guard_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
     ) -> None:
+        self._require_active_lock_unlocked()
         if type(require_no_orphan_backup_before_replace) is not bool:
             raise TypeError("require_no_orphan_backup_before_replace must be a boolean")
         if (
@@ -1180,6 +1194,7 @@ class BookProgressStore:
                 os.fsync(stream.fileno())
                 temp_identity = os.fstat(stream.fileno())
                 self._require_private_temp_metadata(temp_identity)
+                self._require_active_lock_unlocked()
                 if not self._same_file_identity(created_identity, temp_identity):
                     raise BookProgressStoreError(
                         "book progress temporary file changed while being prepared",
@@ -1229,9 +1244,11 @@ class BookProgressStore:
                 )
             if active_directory is not None:
                 self._require_storage_directory_unlocked(active_directory)
+            self._require_active_lock_unlocked()
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
+                self._require_active_lock_unlocked()
                 # Publication success is bound to the exact fsynced temp inode,
                 # not merely to equivalent bytes at the canonical pathname.
                 # A non-cooperating same-user writer can substitute the temp
@@ -1250,7 +1267,9 @@ class BookProgressStore:
                     )
                 if active_directory is not None:
                     self._require_storage_directory_unlocked(active_directory)
+                self._require_active_lock_unlocked()
                 _sync_published_path(target)
+                self._require_active_lock_unlocked()
                 visible = self._read_raw_file_unlocked(target, missing_ok=False)
                 # Byte equality is not sufficient confirmation: a same-user
                 # non-cooperating writer can replace the canonical pathname
@@ -1267,6 +1286,7 @@ class BookProgressStore:
                         "book progress was published but canonical storage changed before confirmation",
                         code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
                     )
+                self._require_active_lock_unlocked()
             except (OSError, BookProgressStoreError):
                 # Replacement already succeeded. The published bytes may be
                 # visible even though crash durability or canonical pathname
@@ -1315,6 +1335,7 @@ class BookProgressStore:
         expected_revision: str | None,
         previous_raw: bytes | None,
     ) -> None:
+        self._require_active_lock_unlocked()
         validated = _validate_payload(payload)
         encoded = _canonical_json_bytes(validated)
 
