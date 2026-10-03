@@ -24,6 +24,7 @@ from .sound_profiles import (
 
 
 DEFAULT_MAX_SOUND_PACK_BYTES = 32 * 1024 * 1024
+SOUND_PACK_RIGHTS_SCHEMA_VERSION = 1
 _MAX_SOUND_PACK_SIGNATURE_CHARS = 16 * 1024
 _MAX_RIGHTS_EVIDENCE_URI_CHARS = 4096
 _MAX_RIGHTS_EVIDENCE_LICENSE_CHARS = 256
@@ -145,8 +146,9 @@ class SoundPackRightsEvidence:
             _auditable_rights_uri("license_uri", self.license_uri),
         )
 
-    def to_mapping(self) -> dict[str, str]:
+    def to_mapping(self) -> dict[str, object]:
         return {
+            "schema_version": SOUND_PACK_RIGHTS_SCHEMA_VERSION,
             "license_id": self.license_id,
             "source_uri": self.source_uri,
             "license_uri": self.license_uri,
@@ -154,13 +156,22 @@ class SoundPackRightsEvidence:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, object]) -> "SoundPackRightsEvidence":
-        if not isinstance(raw, Mapping) or set(raw) != {
+        if not isinstance(raw, Mapping) or any(type(key) is not str for key in raw):
+            raise TypeError("sound pack rights evidence must be an object with text keys")
+        if set(raw) != {
+            "schema_version",
             "license_id",
             "source_uri",
             "license_uri",
         }:
             raise ValueError("sound pack rights evidence fields are invalid")
-        if any(type(key) is not str or type(value) is not str for key, value in raw.items()):
+        schema = raw["schema_version"]
+        if type(schema) is not int or schema != SOUND_PACK_RIGHTS_SCHEMA_VERSION:
+            raise ValueError(f"unsupported sound pack rights schema: {schema}")
+        if any(
+            type(raw[name]) is not str
+            for name in ("license_id", "source_uri", "license_uri")
+        ):
             raise TypeError("sound pack rights evidence must contain text fields")
         return cls(
             license_id=raw["license_id"],
