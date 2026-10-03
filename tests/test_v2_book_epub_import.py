@@ -400,6 +400,53 @@ class BookEpubImportTests(unittest.TestCase):
             import_epub_book(raw, source_name="external.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
 
+    def test_package_urls_are_not_repaired_by_surrounding_whitespace(self) -> None:
+        for href in (" Text/chapter.xhtml", "Text/chapter.xhtml ", "\tText/chapter.xhtml"):
+            with self.subTest(href=href):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            f'    <item id="c1" href="{href}" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="manifest-url-whitespace.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path=" OEBPS/content.opf " media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            },
+            container=container,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="rootfile-url-whitespace.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     def test_manifest_item_href_fragment_is_rejected(self) -> None:
         for href in ("Text/chapter.xhtml#start", "Text/chapter.xhtml#"):
             with self.subTest(href=href):
