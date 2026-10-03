@@ -1806,11 +1806,24 @@ def complete_user_flow_diagnostic(
         checks["final_board_64"] = len(final.get("board") or []) == 64
         checks["no_raw_exception_text"] = not any(token in str(final.get("announcement") or "") for token in ("Traceback", "ValueError", "RuntimeError", "Exception"))
         sound = api.get_sound_settings()
+        event_enabled = sound.get("eventEnabled")
+        event_volumes = sound.get("eventVolumes")
         checks["sound_settings_contract"] = (
             bool(sound.get("ok"))
             and isinstance(sound.get("enabled"), bool)
             and isinstance(sound.get("newGameAnimation"), bool)
             and 0 <= int(sound.get("volume", -1)) <= 100
+            and isinstance(event_enabled, dict)
+            and isinstance(event_volumes, dict)
+            and set(event_enabled) == {event.value for event in SoundEvent}
+            and set(event_volumes) == {event.value for event in SoundEvent}
+            and all(isinstance(value, bool) for value in event_enabled.values())
+            and all(
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and 0 <= value <= 100
+                for value in event_volumes.values()
+            )
         )
 
         return {
