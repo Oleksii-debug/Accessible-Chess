@@ -578,6 +578,29 @@ class ClassroomMediaProviderBinder:
             )
         return self.acknowledge_effect_chunk_success(transaction_id, 0)
 
+    def resolve_clean_session_recovery(
+        self,
+        transaction_id: str,
+        provider_snapshot: Mapping[str, object],
+    ) -> None:
+        """Release one session recovery only after exact provider teardown."""
+
+        status = self._arbiter.recovery_status
+        if (
+            status is None
+            or status.lease.transaction_id != transaction_id
+            or status.lease.owner is not MediaProviderExecutionOwner.SESSION
+        ):
+            raise MediaProviderExecutionError(
+                "media session cleanup recovery transaction is unknown"
+            )
+        self._sessions.resolve_clean_disconnected_recovery(
+            transaction_id,
+            provider_snapshot,
+        )
+        self._arbiter.resolve_recovery(status.lease.lease_id)
+        self._session_credential_handed_off = False
+
     def resolve_recovery(self, transaction_id: str) -> None:
         status = self._arbiter.recovery_status
         if (
