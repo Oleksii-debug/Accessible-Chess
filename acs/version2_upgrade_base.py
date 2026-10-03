@@ -47,17 +47,24 @@ _DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
 
 
 def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
-    """Return whether a root file is crash residue from a canonical writer."""
+    """Return whether a root file is exact crash residue from a canonical writer."""
     if len(relative_path.parts) != 1:
         return False
     name = relative_path.parts[0].casefold()
-    return (
-        name.startswith("gametree-resume.json.") and name.endswith(".tmp")
-    ) or (
-        name.startswith("gametree-resume.json.cas-") and name.endswith(".bak")
-    ) or (
-        name.startswith(".book-progress.json.") and name.endswith(".tmp")
+
+    generated_shapes = (
+        ("gametree-resume.json.", ".tmp"),
+        ("gametree-resume.json.cas-", ".bak"),
+        (".book-progress.json.bak.", ".tmp"),
+        (".book-progress.json.", ".tmp"),
     )
+    for prefix, suffix in generated_shapes:
+        if not name.startswith(prefix) or not name.endswith(suffix):
+            continue
+        token = name[len(prefix) : -len(suffix)]
+        if _is_tempfile_token(token):
+            return True
+    return False
 
 
 def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
