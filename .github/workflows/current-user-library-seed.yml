@@ -8,6 +8,7 @@ on:
       - 'acs/user_library_seed.py'
       - 'acs/version2_packaged_starter_application.py'
       - 'tests/test_user_library_seed.py'
+      - 'tests/test_user_library_seed_parent_safety.py'
       - 'tests/test_v2_packaged_starter_application.py'
       - '.github/workflows/current-user-library-seed.yml'
   pull_request:
@@ -15,6 +16,7 @@ on:
       - 'acs/user_library_seed.py'
       - 'acs/version2_packaged_starter_application.py'
       - 'tests/test_user_library_seed.py'
+      - 'tests/test_user_library_seed_parent_safety.py'
       - 'tests/test_v2_packaged_starter_application.py'
       - '.github/workflows/current-user-library-seed.yml'
 
@@ -49,12 +51,14 @@ jobs:
           acs/user_library_seed.py
           acs/version2_packaged_starter_application.py
           tests/test_user_library_seed.py
+          tests/test_user_library_seed_parent_safety.py
           tests/test_v2_packaged_starter_application.py
 
       - name: Seed security, semantic and startup integration
         run: >-
           python -m unittest -v
           tests.test_user_library_seed
+          tests.test_user_library_seed_parent_safety
           tests.test_v2_packaged_starter_application
 
       - name: Exact whitespace check
