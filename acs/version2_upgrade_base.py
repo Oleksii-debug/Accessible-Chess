@@ -118,17 +118,18 @@ def _is_generated_education_workspace_file(
     return _is_tempfile_token(token)
 
 
-def _is_upgrade_publication_guard_file(
+def _upgrade_publication_guard_target(
     relative_path: PurePosixPath,
     *,
     settings_name: str,
     library_name: str,
-) -> bool:
-    """Classify exact publication guards, whose legitimate inode is hard-linked."""
+) -> str | None:
+    """Return the exact tracked target named by a publication-guard candidate."""
     if len(relative_path.parts) != 1:
-        return False
+        return None
     name = relative_path.parts[0].casefold()
-    for target in (settings_name.casefold(), library_name.casefold()):
+    for target_name in (settings_name, library_name):
+        target = target_name.casefold()
         prefix = f".{target}.publish-guard-"
         if not name.startswith(prefix):
             continue
@@ -136,8 +137,25 @@ def _is_upgrade_publication_guard_file(
         if len(token) == 12 and all(
             character in _HEX_CHARACTERS for character in token
         ):
-            return True
-    return False
+            return target_name
+    return None
+
+
+def _is_upgrade_publication_guard_file(
+    relative_path: PurePosixPath,
+    *,
+    settings_name: str,
+    library_name: str,
+) -> bool:
+    """Classify exact publication-guard filename grammar."""
+    return (
+        _upgrade_publication_guard_target(
+            relative_path,
+            settings_name=settings_name,
+            library_name=library_name,
+        )
+        is not None
+    )
 
 
 def _is_upgrade_generated_root_runtime_file(
@@ -920,23 +938,40 @@ class Version2UpgradeCoordinator:
                 settings_name=self.layout.settings_name,
                 library_name=self.layout.library_name,
             )
-            publication_guard = _is_upgrade_publication_guard_file(
+            publication_guard_target = _upgrade_publication_guard_target(
                 relative_path,
                 settings_name=self.layout.settings_name,
                 library_name=self.layout.library_name,
             )
+            publication_guard = publication_guard_target is not None
             if private_generated_runtime or upgrade_generated_runtime:
                 # Filename grammar identifies ownership, but it does not prove
                 # filesystem identity. Canonical writer temps/locks are created
                 # as private inodes and may be excluded only while st_nlink=1.
-                # Publication guards are the deliberate exception: their writer
-                # contract is a same-filesystem hard link to an authenticated
-                # Settings/Library inode, so regular hard-linked guards remain
-                # derived coordination state.
+                # Publication guards are different: exclude one only while it is
+                # still the same hard-linked inode as the tracked Settings or
+                # Library pathname named by the guard. A private lookalike, an
+                # unrelated hard link, or a stale guard whose target was already
+                # replaced can contain preservation-worthy user bytes.
                 generated_info = _safe_stat(path, "generated runtime entry")
                 if stat.S_ISREG(generated_info.st_mode):
                     link_count = int(getattr(generated_info, "st_nlink", 1))
-                    if publication_guard or link_count == 1:
+                    if publication_guard:
+                        target_path = self.layout.root / publication_guard_target
+                        try:
+                            target_info = target_path.lstat()
+                        except OSError:
+                            target_info = None
+                        if (
+                            target_info is not None
+                            and stat.S_ISREG(target_info.st_mode)
+                            and not stat.S_ISLNK(target_info.st_mode)
+                            and not _reparse(target_info)
+                            and link_count >= 2
+                            and os.path.samestat(generated_info, target_info)
+                        ):
+                            continue
+                    elif link_count == 1:
                         continue
                     # A hard-linked temp/lock-shaped regular file cannot be an
                     # authentic private writer residue. Preserve it as ordinary
