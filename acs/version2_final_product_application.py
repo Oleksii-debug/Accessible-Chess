@@ -366,7 +366,7 @@ class Version2FinalProductApplication(Version2Application):
             # authority. Keep encrypted outbox material beside other per-user
             # application state without reading ambient provider credentials.
             effective_chat_secret_store = WindowsDpapiSecretStore(
-                path.parent / "secure"
+                self.progress_store.path.parent / "secure"
             )
         runtime = build_classroom_collaboration_http_runtime(
             room_id=room_id,
