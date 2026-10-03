@@ -213,6 +213,7 @@
       this._adapter = null;
       this._config = null;
       this._busy = false;
+      this._activeTransaction = null;
       this._transportLossSnapshot = null;
       this._transportRetryAt = 0;
     }
@@ -560,6 +561,7 @@
       try {
         return await this._deliverTransportLoss(invoke);
       } finally {
+        this._activeTransaction = null;
         this._busy = false;
       }
     }
@@ -582,6 +584,12 @@
           } catch (_identityError) {
             return null;
           }
+        }
+        if (transaction === this._activeTransaction) {
+          // Duplicate delivery of the exact in-flight dispatch must not retire
+          // the canonical transaction that currently owns the provider. The
+          // original execution will publish the sole terminal acknowledgement.
+          return { kind: "status", payload: {} };
         }
         return this._providerNotStarted(invoke, transaction);
       }
@@ -608,7 +616,16 @@
         return reconciled || retired;
       }
 
+      let activeTransaction = null;
+      try {
+        activeTransaction = transactionId(
+          event && event.payload && event.payload.transaction_id
+        );
+      } catch (_error) {
+        activeTransaction = null;
+      }
       this._busy = true;
+      this._activeTransaction = activeTransaction;
       try {
         let current = event;
         for (let index = 0; index < MAX_DISPATCH_STEPS; index += 1) {
@@ -640,7 +657,7 @@
     }
   }
 
-  // The runtime has mutable execution state (_busy, _adapter, _config).
+  // The runtime has mutable execution state (_busy, _activeTransaction, _adapter, _config).
   // Seal its shape without freezing those state slots.
   global.AccessibleChessClassroomMediaProviderRuntime = Object.seal(
     new ClassroomMediaProviderRuntime()
