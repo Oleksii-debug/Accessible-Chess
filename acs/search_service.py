@@ -53,6 +53,43 @@ def _sqlite_integer(value: object, *, name: str, minimum: int) -> int:
     return integer
 
 
+def _row_required_integer(
+    row: dict,
+    key: str,
+    *,
+    minimum: int,
+) -> int:
+    """Read one canonical SQLite integer without presentation-side coercion."""
+
+    if key not in row:
+        raise ValueError(f"search row is missing {key}")
+    return _sqlite_integer(row[key], name=key, minimum=minimum)
+
+
+def _row_required_text(row: dict, key: str) -> str:
+    """Read required persisted text without converting malformed scalars."""
+
+    if key not in row:
+        raise ValueError(f"search row is missing {key}")
+    value = row[key]
+    if type(value) is not str:
+        raise TypeError(f"{key} must be text")
+    return value
+
+
+def _row_optional_text(row: dict, key: str) -> str | None:
+    """Read optional persisted text while preserving SQL NULL exactly."""
+
+    if key not in row:
+        raise ValueError(f"search row is missing {key}")
+    value = row[key]
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise TypeError(f"{key} must be text or null")
+    return value
+
+
 def _validate_cancel_check(
     cancel_check: Callable[[], bool] | None,
 ) -> Callable[[], bool] | None:
@@ -248,22 +285,22 @@ class GameSearchService:
         visible_rows = rows[: q.limit]
         items = tuple(
             GameSearchItem(
-                game_id=int(row["id"]),
-                source_id=int(row["source_id"]),
-                source_name=str(row["source_name"]),
-                source_format=str(row["source_format"]),
-                source_index=int(row["source_index"]),
-                import_status=str(row["import_status"]),
-                white=row["white"],
-                black=row["black"],
-                event=row["event"],
-                site=row["site"],
-                game_date=row["game_date"],
-                round=row["round"],
-                result=row["result"],
-                eco=row["eco"],
-                opening=row["opening"],
-                start_fen=row["start_fen"],
+                game_id=_row_required_integer(row, "id", minimum=1),
+                source_id=_row_required_integer(row, "source_id", minimum=1),
+                source_name=_row_required_text(row, "source_name"),
+                source_format=_row_required_text(row, "source_format"),
+                source_index=_row_required_integer(row, "source_index", minimum=0),
+                import_status=_row_required_text(row, "import_status"),
+                white=_row_optional_text(row, "white"),
+                black=_row_optional_text(row, "black"),
+                event=_row_optional_text(row, "event"),
+                site=_row_optional_text(row, "site"),
+                game_date=_row_optional_text(row, "game_date"),
+                round=_row_optional_text(row, "round"),
+                result=_row_optional_text(row, "result"),
+                eco=_row_optional_text(row, "eco"),
+                opening=_row_optional_text(row, "opening"),
+                start_fen=_row_optional_text(row, "start_fen"),
             )
             for row in visible_rows
         )
