@@ -408,6 +408,48 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not available"):
             app.set_event("move", sound_id="missing.sound", language="en")
 
+    def test_crafted_install_command_cannot_bypass_noninstallable_catalog_state(self) -> None:
+        classic = _manifest("classic")
+        current = _manifest("soft", "2.0.0")
+        conflict = SoundPackManifest(
+            pack_id=current.pack_id,
+            version=current.version,
+            title="conflicting title",
+            license_id=current.license_id,
+            author=current.author,
+            provenance="conflicting catalog provenance",
+            files=dict(current.files),
+        )
+        cases = (
+            ("current", current, _entry(current)),
+            ("catalog_older", current, _entry(_manifest("soft", "1.5.0"))),
+            ("version_conflict", current, _entry(conflict)),
+            ("incompatible", current, _entry(_manifest("soft", "3.0.0"), compatible=False)),
+        )
+
+        for label, installed, entry in cases:
+            with self.subTest(state=label):
+                pack_storage = _PackStorage([classic, installed])
+                downloader = _Downloader()
+                manager = SoundPackManager(downloader, pack_storage)
+                profile_storage = _ProfileStorage()
+                profiles = SoundProfileManager(profile_storage, manager)
+                profiles.load()
+                runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+                app = SoundSettingsApplication(
+                    profiles,
+                    runtime,
+                    pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+                    catalog={"soft": entry},
+                    installed_pack_provider=lambda installed=installed: {"soft": installed},
+                )
+
+                with self.assertRaisesRegex(ValueError, "not installable"):
+                    app.install_pack("soft", activate=True, language="en")
+
+                self.assertEqual([], downloader.entries)
+                self.assertEqual([], pack_storage.installed_payloads)
+
     def test_catalog_without_rights_evidence_is_visible_but_not_installable(self) -> None:
         classic = _manifest("classic")
         soft = _manifest("soft")
