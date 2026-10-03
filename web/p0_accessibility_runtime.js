@@ -21,8 +21,10 @@
 
   function rootForNode(node) {
     if (!node) return null;
-    if (workspace && workspace.contains(node)) return workspace;
-    if (navigation && navigation.contains(node)) return navigation;
+    const activeWorkspace = documentRef.getElementById("v2-workspace");
+    const activeNavigation = documentRef.getElementById("v2-navigation");
+    if (activeWorkspace && activeWorkspace.contains(node)) return activeWorkspace;
+    if (activeNavigation && activeNavigation.contains(node)) return activeNavigation;
     if (main.contains(node)) return main;
     return null;
   }
@@ -122,7 +124,7 @@
     const range = selection.getRangeAt(0);
     const root = rootForNode(range.startContainer);
     if (!root || rootForNode(range.endContainer) !== root) return null;
-    if ((root === workspace && workspace.hidden) || (root === main && main.hidden)) return null;
+    if (root.hidden) return null;
     try {
       const text = String(range.toString() || "");
       if (!text.trim()) return null;
