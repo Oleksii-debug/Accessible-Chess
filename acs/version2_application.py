@@ -393,6 +393,8 @@ class Version2Application:
         if action == "pgn.export_selection" and not payload and self.pgn is not None:
             return self.pgn.dispatch(action)
         if action == "library.open_game":
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before opening a Library game")
             if not payload: return self.library.projection.open_selected()
             if set(payload) != {"game_id", "source_id", "source_index"}: raise ValueError("invalid Library game request")
             row = self.database.get_game(payload["game_id"])
