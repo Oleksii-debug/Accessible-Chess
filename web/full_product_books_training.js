@@ -1151,16 +1151,23 @@
       if (payload.clear_answer !== undefined && typeof payload.clear_answer !== "boolean") {
         throw new TypeError("Training clear-answer flag is invalid");
       }
-      if (payload.solution !== undefined &&
-          (!Array.isArray(payload.solution) ||
-           payload.solution.length > MAX_TRAINING_SOLUTION_MOVES ||
-           payload.solution.some(function (move) {
-             return typeof move !== "string" ||
-               !move ||
-               move.length > MAX_TRAINING_SOLUTION_TEXT ||
-               move.indexOf("\x00") >= 0;
-           }))) {
-        throw new TypeError("Training solution payload is invalid");
+      if (payload.solution !== undefined) {
+        if (!Array.isArray(payload.solution) ||
+            payload.solution.length > MAX_TRAINING_SOLUTION_MOVES) {
+          throw new TypeError("Training solution payload is invalid");
+        }
+        for (let index = 0; index < payload.solution.length; index += 1) {
+          if (!Object.prototype.hasOwnProperty.call(payload.solution, index)) {
+            throw new TypeError("Training solution payload is invalid");
+          }
+          const move = payload.solution[index];
+          if (typeof move !== "string" ||
+              !move ||
+              move.length > MAX_TRAINING_SOLUTION_TEXT ||
+              move.indexOf("\x00") >= 0) {
+            throw new TypeError("Training solution payload is invalid");
+          }
+        }
       }
       requireTrainingFocusTarget(
         payload.snapshot,
@@ -1250,7 +1257,10 @@
       const solutionSection = node("section");
       solutionSection.id = "training-solution";
       solutionSection.tabIndex = -1;
-      solutionSection.appendChild(node("h3", snapshot.solution_label || ""));
+      const solutionHeading = node("h3", snapshot.solution_label || "");
+      solutionHeading.id = "training-solution-heading";
+      solutionSection.setAttribute("aria-labelledby", solutionHeading.id);
+      solutionSection.appendChild(solutionHeading);
       const list = node("ul");
       solution.forEach(function (move) { list.appendChild(node("li", move)); });
       solutionSection.appendChild(list);
