@@ -65,10 +65,8 @@ jobs:
 
           product='e09a44361750f3f37025fc783201e95814e5be1b'
           recovery='06eb89be10cfa504bfa166771022f8a0d14c7266'
-          books_source='22f6d79ccb054ff004a97186b247309843436bb0'
           git cat-file -e "$product^{commit}"
           git cat-file -e "$recovery^{commit}"
-          git cat-file -e "$books_source^{commit}"
           git merge-base --is-ancestor "$product" HEAD
           git merge-base --is-ancestor "$recovery" HEAD
           git diff --check "$product" HEAD
