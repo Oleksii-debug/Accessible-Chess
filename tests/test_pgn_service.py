@@ -83,7 +83,7 @@ class PgnFileServiceTests(unittest.TestCase):
                 '[Result "*"]\n\n'
                 '1. e4 {'
             ).encode("cp1251")
-            path.write_bytes(prefix + b"bad-\\x98-byte} *\\n")
+            path.write_bytes(prefix + b"bad-" + bytes((0x98,)) + b"-byte} *\\n")
 
             opened = open_pgn(path)
 
