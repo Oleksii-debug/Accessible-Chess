@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -41,10 +42,10 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
             "full_product_teacher.js",
             "full_product_education.js",
             "full_product_classroom_media.js",
+            "livekit_classroom_media_runtime.js",
             "version2_final_product_bootstrap.js",
             "p0_accessibility_runtime.js",
             "livekit_classroom_media.js",
-            "livekit_classroom_media_runtime.js",
         )
         for name in resources:
             (web / name).write_text("// test resource\n", encoding="utf-8")
@@ -216,6 +217,59 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         self.assertIs(resources, final_release._final_product_resource_sources)
         self.assertEqual(self._snapshot_release_globals(), before)
 
+    def test_final_accessibility_resource_rejects_pathname_replacement(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = self._write_resource_fixture(root)
+            target = web / "p0_accessibility_runtime.js"
+            replacement = root / "replacement-p0.js"
+            replacement.write_bytes(target.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    final_release._release_ui,
+                    "_asset_root",
+                    return_value=root,
+                ),
+                mock.patch.object(Path, "open", new=replacing_open),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "P0 event-aware accessibility runtime changed while being opened",
+                ):
+                    final_release._final_product_resource_sources()
+            self.assertTrue(swapped)
+
+    def test_final_resource_rejects_non_utf8_bytes(self) -> None:
+        from acs import version2_final_release as final_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = self._write_resource_fixture(root)
+            (web / "full_product_pgn.js").write_bytes(b"\xff\xfe\x00")
+
+            with mock.patch.object(
+                final_release._release_ui,
+                "_asset_root",
+                return_value=root,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "V2 PGN surface resource is not UTF-8",
+                ):
+                    final_release._final_product_resource_sources()
+
     def test_staged_livekit_sdk_precedes_adapter_and_teacher_surface(self) -> None:
         from acs import version2_final_release as final_release
 
@@ -242,9 +296,9 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         labels = [label for label, _source in sources]
         sdk_label = "LiveKit browser SDK"
         adapter_label = "Classroom LiveKit media adapter"
-        runtime_label = "Classroom LiveKit transactional runtime"
         teacher_label = "V2 Teacher surface"
         media_label = "V2 Classroom media surface"
+        runtime_label = "Classroom LiveKit transactional runtime"
         bootstrap_label = "V2 final-product bootstrap"
         self.assertEqual(labels.count(sdk_label), 1)
         self.assertEqual(labels.count(adapter_label), 1)

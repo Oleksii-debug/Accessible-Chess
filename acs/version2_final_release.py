@@ -24,6 +24,82 @@ from .version2_final_product_profile import (
 )
 
 
+_MAX_FINAL_RESOURCE_BYTES = 16 * 1024 * 1024
+
+
+def _resource_reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_resource_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
+def _read_resource_text(path: Any, *, label: str) -> str:
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise RuntimeError(f"{label} not found in packaged resources.") from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or _resource_reparse(before)
+        or not stat.S_ISREG(before.st_mode)
+    ):
+        raise RuntimeError(f"{label} resource is invalid.")
+    if before.st_size <= 0 or before.st_size > _MAX_FINAL_RESOURCE_BYTES:
+        raise RuntimeError(f"{label} resource size is invalid.")
+
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _resource_reparse(opened)
+            or not _same_resource_snapshot(before, opened)
+        ):
+            raise RuntimeError(f"{label} changed while being opened.")
+        data = source.read(_MAX_FINAL_RESOURCE_BYTES + 1)
+        after_read = os.fstat(source.fileno())
+        after_path = path.lstat()
+        if (
+            len(data) > _MAX_FINAL_RESOURCE_BYTES
+            or len(data) != int(after_read.st_size)
+            or stat.S_ISLNK(after_path.st_mode)
+            or _resource_reparse(after_path)
+            or not stat.S_ISREG(after_path.st_mode)
+            or not _same_resource_snapshot(opened, after_read)
+            or not _same_resource_snapshot(after_read, after_path)
+        ):
+            raise RuntimeError(f"{label} changed while being read.")
+        try:
+            return data.decode("utf-8")
+        except UnicodeError as exc:
+            raise RuntimeError(f"{label} resource is not UTF-8.") from exc
+    except RuntimeError:
+        raise
+    except OSError as exc:
+        raise RuntimeError(f"{label} resource cannot be read safely.") from exc
+    finally:
+        if source is not None:
+            source.close()
+
+
 def _is_link_like_resource(path: Any) -> bool:
     try:
         if path.is_symlink():
@@ -31,28 +107,7 @@ def _is_link_like_resource(path: Any) -> bool:
         info = path.lstat()
     except OSError:
         return True
-    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    return bool(getattr(info, "st_file_attributes", 0) & reparse_flag)
-
-
-def _required_resource_text(path: Any, label: str) -> str:
-    """Read one packaged script fail-closed without exposing filesystem details."""
-
-    if (
-        not os.path.lexists(path)
-        or _is_link_like_resource(path)
-        or not path.is_file()
-    ):
-        raise RuntimeError(f"{label} not found or invalid in packaged resources.")
-    try:
-        source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        raise RuntimeError(
-            f"{label} could not be read from packaged resources."
-        ) from None
-    if not source.strip():
-        raise RuntimeError(f"{label} is empty in packaged resources.")
-    return source
+    return _resource_reparse(info)
 
 
 def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
@@ -107,7 +162,12 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         if label in seen_labels:
             raise RuntimeError("Final-product WebView resource label is duplicated.")
         seen_labels.add(label)
-        output.append((label, _required_resource_text(path, label)))
+        if not path.exists():
+            raise RuntimeError(f"{label} not found in packaged resources.")
+        source = _read_resource_text(path, label=label)
+        if not source.strip():
+            raise RuntimeError(f"{label} is empty in packaged resources.")
+        output.append((label, source))
     return tuple(output)
 
 
