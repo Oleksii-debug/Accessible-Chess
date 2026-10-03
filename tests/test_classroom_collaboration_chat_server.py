@@ -717,6 +717,39 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
+    def test_gapped_message_stream_is_not_served_as_authoritative_history(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            for message_id, sequence in (("read-gap-0", 0), ("read-gap-2", 2)):
+                db.execute(
+                    """
+                    INSERT INTO classroom_chat_server_messages(
+                        message_id, room_id, sender_id, sequence_no, body,
+                        retention, hidden, sent_at_unix_ms
+                    ) VALUES(?,?,?,?,?,?,0,?)
+                    """,
+                    (
+                        message_id,
+                        ROOM,
+                        STUDENT,
+                        sequence,
+                        "Corrupt read stream",
+                        "session",
+                        1700000000000 + sequence,
+                    ),
+                )
+
+        for after_sequence in (None, 1):
+            with self.subTest(after_sequence=after_sequence):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "stored message sequence is not contiguous",
+                ):
+                    self.store.history_after(
+                        room_id=ROOM,
+                        after_sequence=after_sequence,
+                        limit=10,
+                    )
+
     def test_corrupt_sequence_counter_blocks_new_send_without_partial_insert(self) -> None:
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("PRAGMA ignore_check_constraints=ON")
@@ -833,6 +866,40 @@ class ClassroomChatServerTests(unittest.TestCase):
                     (ROOM,),
                 ).fetchone()[0],
             )
+
+    def test_gapped_moderation_stream_is_not_served_as_authoritative_state(self) -> None:
+        first = self.send(self.draft("state-read-gap-0"))
+        second = self.send(self.draft("state-read-gap-2"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET hidden=1
+                WHERE message_id IN (?,?)
+                """,
+                (first.message_id, second.message_id),
+            )
+            for revision, message_id in ((0, first.message_id), (2, second.message_id)):
+                db.execute(
+                    """
+                    INSERT INTO classroom_chat_server_state_updates(
+                        room_id, revision, message_id, hidden
+                    ) VALUES(?,?,?,1)
+                    """,
+                    (ROOM, revision, message_id),
+                )
+
+        for after_revision in (None, 1):
+            with self.subTest(after_revision=after_revision):
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    "stored moderation revision is not contiguous",
+                ):
+                    self.store.state_updates_after(
+                        room_id=ROOM,
+                        after_revision=after_revision,
+                        limit=10,
+                    )
 
     def test_corrupt_revision_counter_rolls_back_hide_and_operation(self) -> None:
         sent = self.send(self.draft("message-before-corrupt-revision"))
