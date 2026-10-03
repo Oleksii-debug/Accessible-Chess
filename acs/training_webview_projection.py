@@ -16,6 +16,7 @@ from .presentation_privacy import redact_local_paths
 from .training import ExerciseStatus
 
 _MAX_ANSWER = 128
+_MAX_SOLUTION_MOVES = 64
 
 _LABELS = {
     UILanguage.UA: {
@@ -70,9 +71,33 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
         return ""
     if not isinstance(value, str):
         raise TypeError("training presentation text must be text")
-    text = value.replace("\x00", "").strip()
+    if "\x00" in value:
+        raise ValueError("training presentation text contains NUL")
+    text = value.strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
     return text[:limit]
+
+
+def _safe_solution(value: object, *, language: UILanguage) -> tuple[str, ...]:
+    if type(value) is not tuple:
+        raise TypeError("training solution must be a tuple")
+    if len(value) > _MAX_SOLUTION_MOVES:
+        raise ValueError("training solution exceeds the move limit")
+    rendered: list[str] = []
+    for move in value:
+        if type(move) is not str:
+            raise TypeError("training solution moves must be text")
+        if "\x00" in move:
+            raise ValueError("training solution move contains NUL")
+        if len(move) > _MAX_ANSWER:
+            raise ValueError("training solution move is too long")
+        token = move.strip()
+        if not token:
+            raise ValueError("training solution move must not be empty")
+        rendered.append(
+            redact_local_paths(token, _LABELS[language]["hidden_path"])
+        )
+    return tuple(rendered)
 
 
 def _answer(value: object) -> str:
@@ -135,17 +160,25 @@ class TrainingWebViewProjection:
                 raise ValueError("unsupported UI language") from None
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
-        self._language = language
-        self._presenter.set_language(language)
-        return TrainingWebViewEvent("render", {"snapshot": self.snapshot(), "focus_target": ""})
+        previous_language = self._language
+        try:
+            self._language = language
+            self._presenter.set_language(language)
+            snapshot = self.snapshot()
+        except Exception:
+            self._language = previous_language
+            self._presenter.set_language(previous_language)
+            raise
+        return TrainingWebViewEvent("render", {"snapshot": snapshot, "focus_target": ""})
 
     def _continuation_available(self, completed: bool) -> bool:
         if not completed or self._can_continue is None:
             return False
         try:
-            return bool(self._can_continue())
+            available = self._can_continue()
         except Exception:
             return False
+        return available if type(available) is bool else False
 
     def _snapshot_from_view(self, view: TrainingView) -> dict[str, object]:
         if not isinstance(view, TrainingView):
@@ -239,17 +272,36 @@ class TrainingWebViewProjection:
                 if enabled_actions.get("training.continue", False)
                 else "training-action-reset"
             )
-        safe_solution = tuple(
-            _safe_text(move, language=self._language, limit=_MAX_ANSWER)
-            for move in solution
-        )
+        if type(clear_answer) is not bool:
+            raise TypeError("training clear-answer flag must be boolean")
+        if type(focus_target) is not str:
+            raise TypeError("training focus target must be text")
+        safe_solution = _safe_solution(solution, language=self._language)
+        allowed_focus = {""}
+        if not snapshot["answer"]["disabled"]:
+            allowed_focus.add("training-answer")
+        if safe_solution:
+            allowed_focus.add("training-solution")
+        for action in snapshot["actions"]:
+            if action["enabled"]:
+                allowed_focus.add(
+                    {
+                        "training.hint": "training-action-hint",
+                        "training.reveal": "training-action-reveal",
+                        "training.retry": "training-action-retry",
+                        "training.continue": "training-action-continue",
+                        "training.reset.request": "training-action-reset",
+                    }[action["command"]]
+                )
+        if focus_target not in allowed_focus:
+            raise ValueError("training focus target is inconsistent with the snapshot")
         return TrainingWebViewEvent(
             "render",
             {
                 "snapshot": snapshot,
                 "focus_target": focus_target,
                 "announcement": _safe_text(announcement, language=self._language, limit=1200),
-                "clear_answer": bool(clear_answer),
+                "clear_answer": clear_answer,
                 "solution": safe_solution,
             },
         )
