@@ -379,14 +379,20 @@ class ClassroomMediaHostTransactions:
             raise TypeError("transaction id factory must be callable")
         self._controller = controller
         self._port = port
-        self._transaction_id_factory = transaction_id_factory or (
-            lambda: "host-" + secrets.token_hex(16)
-        )
+        self._transaction_id_factory = transaction_id_factory
+        # Production transaction identities must be unique without retaining an
+        # ever-growing tombstone set for the lifetime of a long classroom
+        # session. A per-coordinator random nonce plus a monotonic 64-bit counter
+        # gives deterministic in-process uniqueness while preserving the compact
+        # host-<32 hex> wire shape. Injected factories keep strict replay
+        # detection because tests/alternate hosts may supply non-monotonic ids.
+        self._transaction_nonce = secrets.token_hex(8)
+        self._transaction_counter = 0
+        self._injected_transaction_ids: set[str] = set()
         self._lock = RLock()
         self._owner_thread_id = get_ident()
         self._pending: _PendingTransaction | None = None
         self._recovery: _PendingTransaction | None = None
-        self._used_transaction_ids: set[str] = set()
 
     @property
     def pending_effect(self) -> MediaProviderEffect | None:
@@ -419,16 +425,28 @@ class ClassroomMediaHostTransactions:
             )
 
     def _transaction_id(self) -> str:
+        if self._transaction_id_factory is None:
+            if self._transaction_counter >= (1 << 64) - 1:
+                raise MediaHostTransactionError(
+                    "media transaction identity space is exhausted"
+                )
+            self._transaction_counter += 1
+            return (
+                "host-"
+                + self._transaction_nonce
+                + f"{self._transaction_counter:016x}"
+            )
+
         value = self._transaction_id_factory()
         if type(value) is not str or _TRANSACTION_RE.fullmatch(value) is None:
             raise MediaHostTransactionError(
                 "transaction id factory returned invalid identity"
             )
-        if value in self._used_transaction_ids:
+        if value in self._injected_transaction_ids:
             raise MediaHostTransactionError(
                 "transaction id factory reused a media transaction identity"
             )
-        self._used_transaction_ids.add(value)
+        self._injected_transaction_ids.add(value)
         return value
 
     def _prepare(self, replay: Callable[[], Any]) -> MediaProviderEffect | None:
