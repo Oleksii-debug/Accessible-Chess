@@ -59,39 +59,62 @@ jobs:
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
 
-          git fetch --no-tags origin work/full-product-teacher-education-reachability-20260911
-          product="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
-          git merge-base --is-ancestor "$product" HEAD
-          test "$(git merge-base "$product" HEAD)" = "$product"
-          git diff --check "$product" HEAD
+          product_branch='work/full-product-teacher-education-reachability-20260911'
+          books_branch='work/books-bidirectional-semantic-navigation-20260927'
+          pr_base_ref='${{ github.event.pull_request.base.ref }}'
+          pr_base_sha='${{ github.event.pull_request.base.sha }}'
 
-          mapfile -t actual < <(git diff --name-only "$product" HEAD | LC_ALL=C sort)
-          expected_paths=(
-            '.github/workflows/books-bidirectional-semantic-navigation.yml'
-            '.github/workflows/d01-pgn-workspace-webview.yml'
-            '.github/workflows/w3-p0f-starter-books-training.yml'
-            'acs/book_webview_bridge.py'
-            'acs/book_webview_projection.py'
-            'acs/book_board_workflow.py'
-            'acs/bookreader.py'
-            'acs/full_product_actions.py'
-            'acs/full_product_native_menu.py'
-            'acs/full_product_presenters.py'
-            'acs/version2_application.py'
-            'acs/version2_book_workspace.py'
-            'acs/version2_starter_content_application.py'
-            'tests/test_book_bidirectional_semantic_navigation.py'
-            'tests/test_dev1_books_training_web_asset.py'
-            'tests/test_bookreader.py'
-            'tests/test_bookreader_snapshot_bounds.py'
-            'tests/test_book_reverse_progress_failure_exact.py'
-            'tests/test_v2_book_board_workflow.py'
-            'tests/test_version2_book_workspace.py'
-            'tests/test_w3_p0f_starter_books_training_content.py'
-            'tests/test_version2_application.py'
-            'tests/test_full_product_native_menu.py'
-            'tests/test_v2_shared_presentation_path_privacy.py'
-          )
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$pr_base_ref" = "$books_branch" ]; then
+            books_ref="refs/remotes/origin/$books_branch"
+            git fetch --no-tags origin "+refs/heads/$books_branch:$books_ref"
+            scope_base="$(git rev-parse "$books_ref")"
+            test -n "$pr_base_sha"
+            git cat-file -e "$pr_base_sha^{commit}"
+            git merge-base --is-ancestor "$pr_base_sha" "$scope_base"
+            git merge-base --is-ancestor "$scope_base" HEAD
+            test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+            expected_paths=(
+              '.github/workflows/books-bidirectional-semantic-navigation.yml'
+              'tests/test_book_bidirectional_semantic_navigation.py'
+            )
+            echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
+          else
+            product_ref="refs/remotes/origin/$product_branch"
+            git fetch --no-tags origin "+refs/heads/$product_branch:$product_ref"
+            scope_base="$(git rev-parse "$product_ref")"
+            git merge-base --is-ancestor "$scope_base" HEAD
+            test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+            expected_paths=(
+              '.github/workflows/books-bidirectional-semantic-navigation.yml'
+              '.github/workflows/d01-pgn-workspace-webview.yml'
+              '.github/workflows/w3-p0f-starter-books-training.yml'
+              'acs/book_webview_bridge.py'
+              'acs/book_webview_projection.py'
+              'acs/book_board_workflow.py'
+              'acs/bookreader.py'
+              'acs/full_product_actions.py'
+              'acs/full_product_native_menu.py'
+              'acs/full_product_presenters.py'
+              'acs/version2_application.py'
+              'acs/version2_book_workspace.py'
+              'acs/version2_starter_content_application.py'
+              'tests/test_book_bidirectional_semantic_navigation.py'
+              'tests/test_dev1_books_training_web_asset.py'
+              'tests/test_bookreader.py'
+              'tests/test_bookreader_snapshot_bounds.py'
+              'tests/test_book_reverse_progress_failure_exact.py'
+              'tests/test_v2_book_board_workflow.py'
+              'tests/test_version2_book_workspace.py'
+              'tests/test_w3_p0f_starter_books_training_content.py'
+              'tests/test_version2_application.py'
+              'tests/test_full_product_native_menu.py'
+              'tests/test_v2_shared_presentation_path_privacy.py'
+            )
+            echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=PRODUCT'
+          fi
+
+          git diff --check "$scope_base" HEAD
+          mapfile -t actual < <(git diff --name-only "$scope_base" HEAD | LC_ALL=C sort)
           mapfile -t wanted < <(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
           test "${actual[*]}" = "${wanted[*]}"
 
