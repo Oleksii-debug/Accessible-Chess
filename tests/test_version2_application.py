@@ -156,6 +156,39 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
+    def test_book_post_replace_change_reloads_actual_canonical_progress(self):
+        book = self.root / "post-replace-change.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(
+            self.app.browser_command("shell", "book.open")["kind"],
+            "delegated",
+        )
+        store = self.app.progress_store
+        key = self.app.book_key
+        before = self.app.reader.snapshot()
+        canonical_before = store.path.read_bytes()
+
+        def replace_after_sync(path):
+            if Path(path) == store.path:
+                store.path.write_bytes(canonical_before)
+
+        with patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=replace_after_sync,
+        ):
+            result = self.app.browser_command("books", "book.next")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertIsNotNone(self.app.reader)
+        self.assertEqual(self.app.reader.snapshot(), before)
+        persisted = store.restore(key, self.app.reader.document)
+        self.assertEqual(persisted.snapshot(), before)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+
     def test_book_durability_unknown_with_unreadable_primary_fails_surface_closed(self):
         book = self.root / "durability-unknown-unreadable.md"
         book.write_text(
