@@ -335,6 +335,27 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
         self.assertEqual(block["role"], "list")
         self.assertEqual(block["text"], "")
 
+    def test_projection_fails_closed_on_excessive_list_item_count(self) -> None:
+        document = BookDocument(
+            title="Bounded list nodes",
+            blocks=[
+                ListBlock(
+                    items=["One", "Two"],
+                    ordered=False,
+                    block_id="bounded-list",
+                )
+            ],
+        )
+        projection = BookWebViewProjection(
+            BookReaderPresenter(BookReader(document), language=UILanguage.EN),
+            lambda *_: None,
+            language=UILanguage.EN,
+        )
+
+        with patch("acs.book_webview_projection._MAX_BOOK_LIST_ITEMS", 1):
+            with self.assertRaisesRegex(ValueError, "item-count budget"):
+                projection.snapshot()
+
     def test_projection_preserves_complete_text_beyond_legacy_preview_cap(self) -> None:
         long_text = "Початок " + ("абвгд" * 1800) + " Кінець"
         document = BookDocument(
