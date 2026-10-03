@@ -24,10 +24,12 @@ class FakeElement {
     this.children.push(child);
     return child;
   }
-  replaceChildren(child) {
+  replaceChildren(...children) {
     this.children.forEach((item) => { item.parentNode = null; });
     this.children = [];
-    if (child) this.appendChild(child);
+    children.forEach((child) => {
+      if (child) this.appendChild(child);
+    });
   }
   replaceWith(replacement) {
     if (!this.parentNode) throw new Error("detached node");
@@ -282,6 +284,179 @@ window.AccessibleChessEducationSurface.apply(
 check(
   root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "512",
   "progress from a retired browser session must be ignored"
+);
+
+[
+  {
+    session_key: "session-a",
+    name: "lesson.pgn",
+    transferred_bytes: "700",
+    total_bytes: 1024,
+    complete: false,
+    label: "File transfer progress",
+    text: "numeric string must be rejected"
+  },
+  {
+    session_key: "session-a",
+    name: "lesson.pgn",
+    transferred_bytes: 400,
+    total_bytes: 1024,
+    complete: false,
+    label: "File transfer progress",
+    text: "regression must be rejected"
+  },
+  {
+    session_key: "session-a",
+    name: "lesson.pgn",
+    transferred_bytes: 700,
+    total_bytes: 2048,
+    complete: false,
+    label: "File transfer progress",
+    text: "total mutation must be rejected"
+  },
+  {
+    session_key: "session-a",
+    name: "lesson.pgn",
+    transferred_bytes: 900,
+    total_bytes: 1024,
+    complete: true,
+    label: "File transfer progress",
+    text: "forged completion must be rejected"
+  }
+].forEach((fileProgress) => {
+  window.AccessibleChessEducationSurface.apply(
+    root,
+    {
+      kind: "collaboration.file.progress",
+      payload: { file_progress: fileProgress }
+    },
+    invoke,
+    (message) => announcements.push(message),
+    "Action failed"
+  );
+  check(
+    root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "512" &&
+    root.querySelector("#collaboration-file-transfer-text").textContent ===
+      "Transferred 512 B of 1.0 KB: lesson.pgn.",
+    "malformed or regressive same-session progress must fail closed"
+  );
+});
+
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        name: "lesson.pgn",
+        transferred_bytes: 1024,
+        total_bytes: 1024,
+        complete: true,
+        label: "File transfer progress",
+        text: "Transferred 1.0 KB of 1.0 KB: lesson.pgn."
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "1024" &&
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 1.0 KB of 1.0 KB: lesson.pgn.",
+  "authoritative terminal progress must advance to completion"
+);
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        name: "lesson.pgn",
+        transferred_bytes: 1024,
+        total_bytes: 1024,
+        complete: false,
+        label: "File transfer progress",
+        text: "terminal regression"
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 1.0 KB of 1.0 KB: lesson.pgn.",
+  "terminal progress must not regress back to a non-terminal state"
+);
+
+const zeroProgressRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  zeroProgressRoot,
+  {
+    document: { lang: "en", heading: "Classes" },
+    sections: [],
+    detail: null,
+    collaboration: collaboration([], 0, false, "zero-session")
+  },
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+window.AccessibleChessEducationSurface.apply(
+  zeroProgressRoot,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "zero-session",
+        name: "empty.pgn",
+        transferred_bytes: 0,
+        total_bytes: 0,
+        complete: false,
+        label: "File transfer progress",
+        text: "Transferred 0 B of 0 B: empty.pgn."
+      }
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  zeroProgressRoot.querySelector("#collaboration-file-transfer-meter").getAttribute("max") === "1" &&
+  zeroProgressRoot.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "0",
+  "zero-byte transfer start must remain a valid determinate native progress element"
+);
+window.AccessibleChessEducationSurface.apply(
+  zeroProgressRoot,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "zero-session",
+        name: "empty.pgn",
+        transferred_bytes: 0,
+        total_bytes: 0,
+        complete: true,
+        label: "File transfer progress",
+        text: "Transferred 0 B of 0 B: empty.pgn."
+      }
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  zeroProgressRoot.querySelector("#collaboration-file-transfer-meter").getAttribute("max") === "1" &&
+  zeroProgressRoot.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "1",
+  "zero-byte terminal transfer must expose completion without invalid max=0 semantics"
 );
 check(
   root.querySelector("#collaboration-chat-retention-policy").textContent ===
