@@ -291,6 +291,24 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
         self.assertEqual("error", failed.kind)
         pending_id = calls[0]
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
+        self.assertNotIn("Recovered later", pending_draft_key)
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=failed_send,
+        ):
+            failed_again = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Recovered later"},
+            )
+        self.assertEqual(
+            pending_draft_key,
+            failed_again.payload["pending_chat_draft_key"],
+        )
+        self.assertEqual(calls, [pending_id, pending_id])
 
         accepted = ChatMessageMetadata(
             pending_id,
@@ -306,7 +324,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         synced = view.dispatch("collaboration.chat.sync", {})
         self.assertEqual("collaboration.chat.synced", synced.kind)
         self.assertEqual("Message sent.", synced.payload["announcement"])
-        self.assertIs(synced.payload["clear_chat_draft"], True)
+        self.assertEqual(
+            (pending_draft_key,),
+            synced.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", synced.payload)
         self.assertEqual({}, view._pending_chat)
         self.assertNotIn(pending_id, repr(synced.payload))
 
@@ -347,6 +369,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
         self.assertEqual("error", failed.kind)
         pending_id = calls[0]
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
 
         accepted = ChatMessageMetadata(
             pending_id,
@@ -377,7 +401,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             f"Message sent. {self.labels['student-2']}: New reply",
             synced.payload["announcement"],
         )
-        self.assertIs(synced.payload["clear_chat_draft"], True)
+        self.assertEqual(
+            (pending_draft_key,),
+            synced.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", synced.payload)
         self.assertEqual({}, view._pending_chat)
         self.assertEqual(
             1,
@@ -662,6 +690,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
         self.assertEqual("error", failed.kind)
         pending_id = calls[0]
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
         redacted = ChatMessageMetadata(
             pending_id,
             "room-1",
@@ -679,7 +709,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         self.assertEqual("collaboration.chat.synced", synced.kind)
         self.assertEqual("Message sent.", synced.payload["announcement"])
-        self.assertIs(synced.payload["clear_chat_draft"], True)
+        self.assertEqual(
+            (pending_draft_key,),
+            synced.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", synced.payload)
         self.assertEqual({}, view._pending_chat)
         self.assertEqual(0, synced.payload["collaboration"]["chat"]["unread_count"])
         tombstone = synced.payload["collaboration"]["chat"]["messages"][0]
@@ -701,6 +735,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("error", failed.kind)
         self.assertEqual(1, len(view._pending_chat))
         pending_id = next(iter(view._pending_chat.values()))
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
         self.assertNotIn("Pending live echo", repr(view._pending_chat))
 
         recovered = view.receive_chat(
@@ -716,7 +752,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("collaboration.chat.received", recovered.kind)
         self.assertEqual("Message sent.", recovered.payload["announcement"])
-        self.assertIs(recovered.payload["clear_chat_draft"], True)
+        self.assertEqual(
+            (pending_draft_key,),
+            recovered.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", recovered.payload)
         self.assertEqual({}, view._pending_chat)
         self.assertEqual(
             0,
