@@ -311,7 +311,7 @@ class BookProgressStore:
             raise BookProgressStoreError(
                 "book progress storage is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
 
         if before is not None:
             self._require_regular_metadata(
@@ -363,11 +363,11 @@ class BookProgressStore:
 
             try:
                 after_open = os.lstat(path)
-            except OSError as exc:
+            except OSError:
                 raise BookProgressStoreError(
                     "book progress storage changed while being opened",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
-                ) from exc
+                ) from None
             self._require_regular_metadata(
                 after_open,
                 message="book progress storage is not a regular file",
@@ -398,11 +398,11 @@ class BookProgressStore:
                 )
             try:
                 after_read = os.lstat(path)
-            except OSError as exc:
+            except OSError:
                 raise BookProgressStoreError(
                     "book progress storage changed while being read",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
-                ) from exc
+                ) from None
             self._require_regular_metadata(
                 after_read,
                 message="book progress storage is not a regular file",
@@ -548,7 +548,7 @@ class BookProgressStore:
             raise BookProgressStoreError(
                 "book progress storage lock is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
         if existing is not None:
             self._require_regular_metadata(
                 existing,
@@ -580,11 +580,11 @@ class BookProgressStore:
                 )
             try:
                 current_path = os.lstat(self._lock_path)
-            except OSError as exc:
+            except OSError:
                 raise BookProgressStoreError(
                     "book progress storage lock changed while being opened",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
-                ) from exc
+                ) from None
             self._require_regular_metadata(
                 current_path,
                 message="book progress storage lock is not a regular file",
@@ -599,11 +599,11 @@ class BookProgressStore:
                 os.fsync(descriptor)
             try:
                 final_path = os.lstat(self._lock_path)
-            except OSError as exc:
+            except OSError:
                 raise BookProgressStoreError(
                     "book progress storage lock changed while being initialized",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
-                ) from exc
+                ) from None
             self._require_regular_metadata(
                 final_path,
                 message="book progress storage lock is not a regular file",
@@ -641,11 +641,11 @@ class BookProgressStore:
         with self._process_lock:
             try:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
+            except OSError:
                 raise BookProgressStoreError(
                     "book progress storage is unavailable",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
-                ) from exc
+                ) from None
             descriptor = self._open_lock_descriptor()
             acquired = False
             try:
@@ -684,7 +684,7 @@ class BookProgressStore:
             raise BookProgressStoreError(
                 "book progress storage is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
         if existing is not None:
             self._require_regular_metadata(
                 existing,
