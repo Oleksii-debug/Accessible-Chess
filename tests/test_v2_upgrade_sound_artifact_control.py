@@ -377,11 +377,18 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             packs_lock = root / "sound-packs.lock"
             resume_lock = root / "gametree-resume.json.lock"
             book_lock = root / "book-progress.json.lock"
+            training = root / "training-progress"
+            training.mkdir()
+            training_digest = "a" * 64
+            training_lock = training / f".{training_digest}.json.lock"
+            training_temp = training / f".{training_digest}.json.abcd_123.tmp"
             cache_file = root / "sound-cache" / "scaled" / "move.wav"
             profile_lock.write_bytes(b"old-profile-lock")
             packs_lock.write_bytes(b"old-packs-lock")
             resume_lock.write_bytes(b"old-resume-lock")
             book_lock.write_bytes(b"old-book-lock")
+            training_lock.write_bytes(b"old-training-lock")
+            training_temp.write_bytes(b"old-training-temp")
             cache_file.parent.mkdir(parents=True)
             cache_file.write_bytes(b"old-cache")
 
@@ -398,6 +405,8 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             packs_lock.write_bytes(b"new-live-packs-lock")
             resume_lock.write_bytes(b"new-live-resume-lock")
             book_lock.write_bytes(b"new-live-book-lock")
+            training_lock.write_bytes(b"new-live-training-lock")
+            training_temp.write_bytes(b"new-live-training-temp")
             cache_file.write_bytes(b"new-live-cache")
 
             recovered = Version2UpgradeCoordinator(UserDataLayout(root)).run()
@@ -407,6 +416,8 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertEqual(packs_lock.read_bytes(), b"new-live-packs-lock")
             self.assertEqual(resume_lock.read_bytes(), b"new-live-resume-lock")
             self.assertEqual(book_lock.read_bytes(), b"new-live-book-lock")
+            self.assertEqual(training_lock.read_bytes(), b"new-live-training-lock")
+            self.assertEqual(training_temp.read_bytes(), b"new-live-training-temp")
             self.assertEqual(cache_file.read_bytes(), b"new-live-cache")
 
             backup = (
@@ -419,6 +430,16 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertFalse((backup / "sound-packs.lock").exists())
             self.assertFalse((backup / "gametree-resume.json.lock").exists())
             self.assertFalse((backup / "book-progress.json.lock").exists())
+            self.assertFalse(
+                (backup / "training-progress" / f".{training_digest}.json.lock").exists()
+            )
+            self.assertFalse(
+                (
+                    backup
+                    / "training-progress"
+                    / f".{training_digest}.json.abcd_123.tmp"
+                ).exists()
+            )
             self.assertFalse((backup / "sound-cache").exists())
 
     def test_recovery_accepts_legacy_backup_entries_without_replaying_sound_artifacts(self):
@@ -432,12 +453,19 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             packs_lock = root / "sound-packs.lock"
             resume_lock = root / "gametree-resume.json.lock"
             book_lock = root / "book-progress.json.lock"
+            training = root / "training-progress"
+            training.mkdir()
+            training_digest = "a" * 64
+            training_lock = training / f".{training_digest}.json.lock"
+            training_temp = training / f".{training_digest}.json.abcd_123.tmp"
             cache_lock = root / "sound-cache" / ".playback.lock"
             cache_file = root / "sound-cache" / "scaled" / "move.wav"
             profile_lock.write_bytes(b"legacy-profile-lock")
             packs_lock.write_bytes(b"legacy-packs-lock")
             resume_lock.write_bytes(b"legacy-resume-lock")
             book_lock.write_bytes(b"legacy-book-lock")
+            training_lock.write_bytes(b"legacy-training-lock")
+            training_temp.write_bytes(b"legacy-training-temp")
             cache_file.parent.mkdir(parents=True)
             cache_lock.write_bytes(b"legacy-cache-lock")
             cache_file.write_bytes(b"legacy-cache")
@@ -464,6 +492,11 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                     "_DERIVED_ROOT_DIRECTORY_KEYS",
                     frozenset(),
                 ),
+                patch.object(
+                    upgrade_base,
+                    "_is_generated_training_progress_file",
+                    lambda relative_path: False,
+                ),
                 self.assertRaises(_Crash),
             ):
                 Version2UpgradeCoordinator(
@@ -483,6 +516,20 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertTrue((backup_data / "sound-packs.lock").exists())
             self.assertTrue((backup_data / "gametree-resume.json.lock").exists())
             self.assertTrue((backup_data / "book-progress.json.lock").exists())
+            self.assertTrue(
+                (
+                    backup_data
+                    / "training-progress"
+                    / f".{training_digest}.json.lock"
+                ).exists()
+            )
+            self.assertTrue(
+                (
+                    backup_data
+                    / "training-progress"
+                    / f".{training_digest}.json.abcd_123.tmp"
+                ).exists()
+            )
             self.assertTrue((backup_data / "sound-cache" / ".playback.lock").exists())
             self.assertTrue((backup_data / "sound-cache" / "scaled" / "move.wav").exists())
 
@@ -490,6 +537,8 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             packs_lock.write_bytes(b"new-packs-lock")
             resume_lock.write_bytes(b"new-resume-lock")
             book_lock.write_bytes(b"new-book-lock")
+            training_lock.write_bytes(b"new-training-lock")
+            training_temp.write_bytes(b"new-training-temp")
             cache_lock.write_bytes(b"new-cache-lock")
             cache_file.write_bytes(b"new-cache")
 
@@ -502,6 +551,8 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertEqual(packs_lock.read_bytes(), b"new-packs-lock")
             self.assertEqual(resume_lock.read_bytes(), b"new-resume-lock")
             self.assertEqual(book_lock.read_bytes(), b"new-book-lock")
+            self.assertEqual(training_lock.read_bytes(), b"new-training-lock")
+            self.assertEqual(training_temp.read_bytes(), b"new-training-temp")
             self.assertEqual(cache_lock.read_bytes(), b"new-cache-lock")
             self.assertEqual(cache_file.read_bytes(), b"new-cache")
 
