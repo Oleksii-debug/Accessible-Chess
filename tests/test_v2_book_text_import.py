@@ -395,6 +395,22 @@ Starting board
         self.assertEqual(Board(diagram.fen).fen(), Board.START)
         self.assertEqual(diagram.alt_text, "Starting board")
 
+    def test_recoverable_explicit_pgn_surfaces_loss_warning(self) -> None:
+        source = "```pgn\n[Event \"Recovered\"]\n[Result \"*\"]\n\n1. e4\n```\n"
+        result = import_text_book(
+            source,
+            source_name="recovered-pgn.md",
+            source_format="markdown",
+        )
+        self.assertEqual(result.pgn_games, 1)
+        games = [block for block in result.document.blocks if isinstance(block, Game)]
+        self.assertEqual(len(games), 1)
+        self.assertTrue(
+            any("required canonical recovery" in warning for warning in result.warnings)
+        )
+        resolved = resolve_book_game(games[0])
+        self.assertTrue(resolved.warnings)
+
     def test_invalid_explicit_chess_fails_closed_without_raw_payload_in_message(self) -> None:
         bad_fen = "8/8/8/8/8/8/8/8 w - - 0 1"
         with self.assertRaises(BookTextImportError) as fen_error:
