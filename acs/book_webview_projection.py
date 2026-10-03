@@ -103,6 +103,27 @@ _LABELS = {
 }
 
 
+def _utf16_units(value: str) -> int:
+    """Return the exact JavaScript String.length for one Python string."""
+
+    return sum(2 if ord(character) > 0xFFFF else 1 for character in value)
+
+
+def _truncate_utf16(value: str, limit: int) -> str:
+    """Bound text by WebView UTF-16 units without splitting a Unicode scalar."""
+
+    if type(limit) is not int or limit < 0:
+        raise ValueError("book presentation text limit is invalid")
+    used = 0
+    end = 0
+    for end, character in enumerate(value, start=1):
+        width = 2 if ord(character) > 0xFFFF else 1
+        if used + width > limit:
+            return value[: end - 1]
+        used += width
+    return value
+
+
 def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
@@ -110,16 +131,19 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
         raise TypeError("book presentation text must be text")
     text = value.replace("\x00", "").strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
-    return text[:limit]
+    return _truncate_utf16(text, limit)
 
 
 def _safe_visible_block_text(value: object, *, language: UILanguage) -> str:
+    # Two UTF-16 units are enough to retain one complete non-BMP scalar beyond
+    # the canonical WebView budget, making oversize detection exact without
+    # slicing through a surrogate pair on the browser side.
     text = _safe_text(
         value,
         language=language,
-        limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
+        limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 2,
     )
-    if len(text) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+    if _utf16_units(text) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
         raise ValueError("book presentation block exceeds the visible-text budget")
     return text
 
@@ -135,7 +159,9 @@ def _safe_visible_list_items(
     total = 0
     for value in values:
         item = _safe_visible_block_text(value, language=language)
-        total += len(item)
+        if not item:
+            raise ValueError("book presentation list contains an empty visible item")
+        total += _utf16_units(item)
         if total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
             raise ValueError("book presentation list exceeds the visible-text budget")
         rendered.append(item)
@@ -148,7 +174,7 @@ def _bookmark_name(value: object) -> str:
     if "\x00" in value:
         raise ValueError("bookmark name contains NUL")
     token = " ".join(value.split())
-    if not token or len(token) > _MAX_BOOKMARK_NAME:
+    if not token or _utf16_units(token) > _MAX_BOOKMARK_NAME:
         raise ValueError("bookmark name is invalid")
     return token
 
@@ -249,9 +275,11 @@ class BookWebViewProjection:
             raise ValueError("non-heading book block contains a heading level")
         if (block.position_fen is not None) != (block.kind in _POSITION_KINDS):
             raise ValueError("book block position presence disagrees with semantic kind")
-        if type(block.list_items) is not tuple or any(
-            type(item) is not str or not item.strip() for item in block.list_items
-        ):
+        if type(block.list_items) is not tuple:
+            raise ValueError("book list items are invalid")
+        if len(block.list_items) > _MAX_BOOK_LIST_ITEMS:
+            raise ValueError("book presentation list exceeds the item-count budget")
+        if any(type(item) is not str or not item.strip() for item in block.list_items):
             raise ValueError("book list items are invalid")
         if type(block.list_ordered) is not bool:
             raise ValueError("book list ordered flag is invalid")
@@ -268,6 +296,12 @@ class BookWebViewProjection:
                 raise ValueError("book list must contain items")
         elif block.list_items or block.list_ordered or block.list_start is not None:
             raise ValueError("non-list book block contains list metadata")
+        safe_heading_path = tuple(
+            _safe_text(part, language=self._language, limit=360)
+            for part in block.heading_path
+        )
+        if any(not part for part in safe_heading_path):
+            raise ValueError("book heading path contains an empty visible part")
         labels = _LABELS[self._language]
         navigation = self._presenter.navigation_availability()
         if not isinstance(navigation, Mapping) or set(navigation) != _NAVIGATION_KEYS:
@@ -303,10 +337,7 @@ class BookWebViewProjection:
                 "heading_level": block.heading_level,
                 # Raw FEN stays in Python/presenter and is never serialized to browser.
                 "has_position": block.position_fen is not None,
-                "heading_path": tuple(
-                    _safe_text(part, language=self._language, limit=360)
-                    for part in block.heading_path
-                ),
+                "heading_path": safe_heading_path,
                 "heading_path_label": labels["heading_path"],
                 "source_anchor": _safe_text(block.source_anchor, language=self._language, limit=160),
                 "source_label": labels["source"],

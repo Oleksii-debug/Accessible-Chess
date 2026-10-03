@@ -108,6 +108,76 @@ class BookProjectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "navigation availability flags"):
                 self.projection.snapshot()
 
+    def test_snapshot_rejects_semantics_that_sanitize_to_empty_webview_text(self) -> None:
+        block = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "empty visible part"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=("\x00",))
+            )
+
+        with self.assertRaisesRegex(ValueError, "empty visible item"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=("\x00",),
+                    list_ordered=False,
+                    list_start=None,
+                )
+            )
+
+    def test_snapshot_rejects_oversized_list_before_element_scan(self) -> None:
+        block = self.presenter.current()
+        oversized = ("item",) * 65536 + (object(),)
+
+        with self.assertRaisesRegex(ValueError, "item-count budget"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=oversized,  # type: ignore[arg-type]
+                    list_ordered=False,
+                    list_start=None,
+                )
+            )
+
+    def test_snapshot_visible_text_budget_matches_webview_utf16_units(self) -> None:
+        paragraph = self.presenter.next_block()
+        with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4):
+            with self.assertRaisesRegex(ValueError, "visible-text budget"):
+                self.projection._snapshot_from_block(
+                    replace(paragraph, text="😀😀😀")
+                )
+
+    def test_snapshot_list_aggregate_budget_matches_webview_utf16_units(self) -> None:
+        block = self.presenter.current()
+        with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4):
+            with self.assertRaisesRegex(ValueError, "list exceeds the visible-text budget"):
+                self.projection._snapshot_from_block(
+                    replace(
+                        block,
+                        kind="List",
+                        role="list",
+                        heading_level=None,
+                        list_items=("😀", "😀", "a"),
+                        list_ordered=False,
+                        list_start=None,
+                    )
+                )
+
+    def test_snapshot_bounded_labels_never_exceed_webview_utf16_limit(self) -> None:
+        block = self.presenter.current()
+        snapshot = self.projection._snapshot_from_block(
+            replace(block, title="😀" * 200)
+        )
+        title = snapshot["block"]["title"]
+        self.assertEqual(180, len(title))
+        self.assertEqual(360, len(title.encode("utf-16-le")) // 2)
+
     def test_snapshot_rejects_numbers_that_webview_cannot_represent_exactly(self) -> None:
         block = self.presenter.current()
         too_large = 1 << 53
@@ -238,6 +308,16 @@ class BookProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.projection.save_bookmark("   ")
         self.assertEqual(0, self.presenter.current().index)
+
+    def test_bookmark_utf16_bound_fails_before_reader_mutation(self) -> None:
+        before = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "bookmark name"):
+            self.projection.save_bookmark("😀" * 41)
+        self.assertEqual(before, self.presenter.current())
+
+        accepted = self.projection.save_bookmark("😀" * 40)
+        value = accepted.payload["snapshot"]["bookmark"]["value"]
+        self.assertEqual(80, len(value.encode("utf-16-le")) // 2)
 
     def test_language_switch_changes_labels_without_changing_location(self) -> None:
         before = self.projection.snapshot()
