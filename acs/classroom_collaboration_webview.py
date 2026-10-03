@@ -1262,6 +1262,7 @@ class ClassroomCollaborationWebView:
         if not isinstance(selected, Path):
             raise TypeError("file picker must return pathlib.Path or None")
         self._file_progress = None
+        self._file_progress_attempt_token = None
         attachments = self._store.room_attachments(self._controller.room_id)
         sequence = 0 if not attachments else max(item.sequence_no for item in attachments) + 1
         prepared = self._controller.prepare_file(
