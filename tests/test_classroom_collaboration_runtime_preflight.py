@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.classroom_chat_rpc import ClassroomChatRpcError
 from acs.classroom_collaboration import CollaborationError
 from acs.classroom_collaboration_runtime import (
     ClassroomCollaborationRuntime,
@@ -153,7 +154,7 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
         for index, overrides in enumerate(cases):
             with self.subTest(overrides=overrides):
                 path = self.root / f"invalid-bound-identity-{index}.sqlite3"
-                with self.assertRaises(Exception):
+                with self.assertRaises(ClassroomChatRpcError):
                     self.build(
                         roster=FakeRoster(),
                         path=path,
