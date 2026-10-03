@@ -41,10 +41,19 @@ class SecretStoreChatOutbox:
     """Bounded pending-chat document protected by one injected SecretStore."""
 
     secret_store: SecretStore
+    scope_id: str
     room_id: str
     participant_id: str
 
     def __post_init__(self) -> None:
+        if (
+            type(self.scope_id) is not str
+            or not self.scope_id
+            or len(self.scope_id) > 2048
+            or "\x00" in self.scope_id
+            or any(0xD800 <= ord(ch) <= 0xDFFF for ch in self.scope_id)
+        ):
+            raise ChatOutboxError("chat outbox transport scope is invalid")
         # Reuse the canonical collaboration validators instead of creating a
         # second room/participant identifier grammar.
         try:
@@ -68,7 +77,13 @@ class SecretStoreChatOutbox:
     @property
     def slot_name(self) -> str:
         digest = hashlib.sha256(
-            (self.room_id + "\0" + self.participant_id).encode("utf-8")
+            (
+                self.scope_id
+                + "\0"
+                + self.room_id
+                + "\0"
+                + self.participant_id
+            ).encode("utf-8")
         ).hexdigest()
         return "classroom-chat-outbox-" + digest[:40]
 
@@ -98,6 +113,7 @@ class SecretStoreChatOutbox:
             raise ChatOutboxError("chat outbox document is malformed")
         if type(value) is not dict or set(value) != {
             "v",
+            "scope_id",
             "room_id",
             "participant_id",
             "entries",
@@ -105,7 +121,11 @@ class SecretStoreChatOutbox:
             raise ChatOutboxError("chat outbox document shape is invalid")
         if value["v"] != _SCHEMA_VERSION:
             raise ChatOutboxError("chat outbox schema is unsupported")
-        if value["room_id"] != self.room_id or value["participant_id"] != self.participant_id:
+        if (
+            value["scope_id"] != self.scope_id
+            or value["room_id"] != self.room_id
+            or value["participant_id"] != self.participant_id
+        ):
             raise ChatOutboxError("chat outbox identity binding is invalid")
         entries = value["entries"]
         if type(entries) is not list or len(entries) > _MAX_PENDING_CHAT_DRAFTS:
@@ -163,6 +183,7 @@ class SecretStoreChatOutbox:
             return
         document = {
             "v": _SCHEMA_VERSION,
+            "scope_id": self.scope_id,
             "room_id": self.room_id,
             "participant_id": self.participant_id,
             "entries": [
