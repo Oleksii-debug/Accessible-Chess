@@ -44,6 +44,7 @@ _DERIVED_ROOT_DIRECTORIES = {
 _DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
     name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
 )
+_EDUCATION_WORKSPACE_LOCK_DIRECTORY = ".education-workspace.json.lock"
 
 
 def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
@@ -822,6 +823,18 @@ class Version2UpgradeCoordinator:
             # not authenticated writer output and must fail closed rather than
             # disappearing from the preservation set.
             info = _safe_stat(path, "user-data entry")
+            if (
+                len(relative_path.parts) == 1
+                and relative_path.parts[0].casefold()
+                == _EDUCATION_WORKSPACE_LOCK_DIRECTORY
+                and stat.S_ISDIR(info.st_mode)
+            ):
+                # EducationWorkspaceStore owns this exact root directory as its
+                # live publication lock. It does not participate in the upgrade
+                # lock, so migration must not race an active workspace save.
+                raise Version2UpgradeBusy(
+                    "education workspace store is busy during upgrade"
+                )
             # Fixed coordination/control names are trustworthy only when the
             # filesystem object has the regular-file shape produced by the
             # canonical writer. An exact-looking directory remains traversable
