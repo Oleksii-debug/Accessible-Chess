@@ -13,6 +13,7 @@ from acs.classroom_collaboration_runtime import (
     ClassroomCollaborationRuntime,
     build_classroom_collaboration_http_runtime,
 )
+from acs.classroom_collaboration_storage import ChatMessageMetadata
 from acs.classroom_file_rpc import MAX_RPC_UPLOAD_BYTES
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_application import Version2Application
@@ -489,6 +490,51 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 retired["product_status"]["remote_transport"],
                 "not_approved",
             )
+
+    def test_final_app_forwards_bounded_file_quota_to_runtime(self) -> None:
+        app = self.bare_app()
+        quota = FileQuotaPolicy(max_file_bytes=7, max_room_bytes=20)
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            runtime = self.configure(app, local_quota=quota)
+
+        self.assertIs(runtime.controller._quota, quota)
+        self.assertEqual(runtime.file_client._max_upload_bytes, 7)
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
+    def test_final_app_rebind_reopens_durable_collaboration_without_credentials(self) -> None:
+        store_path = self.root / "restart-collaboration.sqlite3"
+        first = self.bare_app()
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            runtime = self.configure(
+                first,
+                collaboration_store_path=store_path,
+            )
+            runtime.store.append_message(
+                ChatMessageMetadata(
+                    "restart-message",
+                    "room-1",
+                    "student-1",
+                    0,
+                    "Persist across rebind",
+                    sent_at_unix_ms=1700000000000,
+                )
+            )
+            first.unbind_classroom_collaboration()
+
+            second = self.bare_app()
+            reopened = self.configure(
+                second,
+                collaboration_store_path=store_path,
+            )
+            snapshot = reopened.webview.safe_snapshot()
+
+        self.assertEqual(
+            ("Persist across rebind",),
+            tuple(item["body"] for item in snapshot["chat"]["messages"]),
+        )
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
 
     def test_custom_store_path_and_language_are_bound_without_fetching_tokens(self) -> None:
         app = self.bare_app()
