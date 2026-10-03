@@ -717,6 +717,74 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertIsNotNone(current)
         self.assertEqual(current.transfer_state, "stored")
 
+    def test_history_read_rejects_authoritative_sequence_gap(self):
+        first = self.student1.upload(
+            self.prepared(attachment_id="read-gap-a0")
+        )
+        second = self.student1.upload(
+            self.prepared(attachment_id="read-gap-a1")
+        )
+        with self.store._connect() as db, db:
+            db.execute(
+                "UPDATE classroom_file_server_attachments "
+                "SET sequence_no=2 WHERE attachment_id=?",
+                (second.attachment_id,),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "history has a sequence gap",
+        ):
+            self.student2.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=100,
+            )
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "history has a sequence gap",
+        ):
+            self.student2.history_after(
+                room_id="room-1",
+                after_sequence=first.sequence_no,
+                limit=100,
+            )
+
+    def test_state_update_read_rejects_authoritative_revision_gap(self):
+        first = self.student1.upload(
+            self.prepared(attachment_id="read-revision-gap-a0")
+        )
+        second = self.student1.upload(
+            self.prepared(attachment_id="read-revision-gap-a1")
+        )
+        self.student1.cancel(attachment_id=first.attachment_id)
+        self.student1.cancel(attachment_id=second.attachment_id)
+        with self.store._connect() as db, db:
+            db.execute(
+                "UPDATE classroom_file_server_state_updates "
+                "SET revision=2 WHERE attachment_id=?",
+                (second.attachment_id,),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "state has a revision gap",
+        ):
+            self.student2.state_updates_after(
+                room_id="room-1",
+                after_revision=None,
+                limit=100,
+            )
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "state has a revision gap",
+        ):
+            self.student2.state_updates_after(
+                room_id="room-1",
+                after_revision=0,
+                limit=100,
+            )
+
     def test_corrupt_terminal_sequence_fails_integrity(self):
         stored = self.student1.upload(
             self.prepared(attachment_id="corrupt-a0")
