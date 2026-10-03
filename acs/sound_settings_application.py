@@ -16,7 +16,7 @@ from .sound_pack_catalog import (
     SoundPackState,
 )
 from .sound_pack_profile import SoundPackProfileCoordinator
-from .sound_profile_store import SoundProfileManager
+from .sound_profile_store import SoundProfileManager, SoundProfileWriteBlockedError
 from .sound_profiles import (
     CORE_SOUND_EVENTS,
     OPTIONAL_CLASSROOM_SOUND_EVENTS,
@@ -109,6 +109,12 @@ class SoundSettingsApplication:
     @staticmethod
     def _language(value: object) -> str:
         return "en" if value == "en" else "uk"
+
+    def _require_writable(self) -> None:
+        if self._profiles.writes_blocked:
+            raise SoundProfileWriteBlockedError(
+                "sound profile mutations are blocked by a newer schema"
+            )
 
     def _installed_local_packs(self) -> dict[str, SoundPackManifest]:
         provider = self._installed_pack_provider
@@ -413,6 +419,7 @@ class SoundSettingsApplication:
         volume_percent: int | None = None,
         language: str = "uk",
     ) -> SoundSettingsResult:
+        self._require_writable()
         if enabled is not None and type(enabled) is not bool:
             raise TypeError("enabled must be boolean or null")
         if volume_percent is not None and type(volume_percent) is not int:
@@ -430,6 +437,7 @@ class SoundSettingsApplication:
         sound_id: str | None = None,
         language: str = "uk",
     ) -> SoundSettingsResult:
+        self._require_writable()
         profile = self._profiles.current
         installed_local = self._installed_local_packs()
         active_manifest = self._active_manifest(profile, installed_local)
@@ -480,6 +488,7 @@ class SoundSettingsApplication:
         return self._result(message, language=language)
 
     def select_pack(self, pack_id: str, *, language: str = "uk") -> SoundSettingsResult:
+        self._require_writable()
         manifest: SoundPackManifest | None = None
         if pack_id == "classic":
             pass
@@ -509,6 +518,7 @@ class SoundSettingsApplication:
         activate: bool = False,
         language: str = "uk",
     ) -> SoundSettingsResult:
+        self._require_writable()
         if self._packs is None:
             raise RuntimeError("sound pack management is unavailable")
         if type(activate) is not bool:
@@ -531,6 +541,7 @@ class SoundSettingsApplication:
         return self._result(message, language=language)
 
     def uninstall_pack(self, pack_id: str, *, language: str = "uk") -> SoundSettingsResult:
+        self._require_writable()
         if self._packs is None:
             raise RuntimeError("sound pack management is unavailable")
         installed_local = self._installed_local_packs()
