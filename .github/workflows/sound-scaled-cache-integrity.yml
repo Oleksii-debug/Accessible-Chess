@@ -37,6 +37,10 @@ on:
       - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
 
+concurrency:
+  group: sound-scaled-cache-integrity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
