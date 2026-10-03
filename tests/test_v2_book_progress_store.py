@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import traceback
 import unittest
 from unittest import mock
 
@@ -155,6 +156,23 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
 
+    def test_deeply_nested_progress_json_fails_with_stable_store_error(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        depth = 5000
+        self.path.write_text(
+            "[" * depth + "0" + "]" * depth,
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_unknown_or_future_store_schema_fails_closed(self) -> None:
         cases = [
             {"schema_version": 2, "entries": {}},
@@ -170,7 +188,14 @@ class BookProgressStoreTests(unittest.TestCase):
 
     def test_invalid_book_keys_fail_before_any_file_mutation(self) -> None:
         reader = BookReader(self.original_document())
-        bad = ["", " book", "book ", "line\nbreak", "x" * (MAX_BOOK_KEY_CHARS + 1)]
+        bad = [
+            "",
+            " book",
+            "book ",
+            "line\nbreak",
+            "\ud800",
+            "x" * (MAX_BOOK_KEY_CHARS + 1),
+        ]
         for key in bad:
             with self.subTest(key=key):
                 with self.assertRaises(BookProgressStoreError):
@@ -178,6 +203,34 @@ class BookProgressStoreTests(unittest.TestCase):
         with self.assertRaises(BookProgressStoreError):
             self.store.save(123, reader)  # type: ignore[arg-type]
         self.assertFalse(self.path.exists())
+
+    def test_invalid_unicode_scalar_in_persisted_snapshot_fails_stably(self) -> None:
+        payload = {
+            "schema_version": BOOK_PROGRESS_STORE_SCHEMA_VERSION,
+            "generation": 1,
+            "entries": {
+                "book:invalid-unicode": {
+                    "schema_version": 2,
+                    "current_target": "\ud800",
+                    "return_points": {},
+                    "fallback_digests": {},
+                }
+            },
+        }
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(
+            json.dumps(payload, ensure_ascii=True),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:invalid-unicode")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
 
     def test_snapshot_resource_limit_is_checked_before_restore(self) -> None:
         huge_target = "x" * (MAX_BOOK_SNAPSHOT_BYTES + 1)
@@ -198,6 +251,277 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:huge")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.RESOURCE_LIMIT)
 
+    def test_missing_primary_read_path_restores_valid_backup_without_mutation(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:read-orphan", reader)
+        reader.go_to(3)
+        self.store.save("book:read-orphan", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.unlink()
+
+        self.assertTrue(self.store.has("book:read-orphan"))
+        restored = self.store.restore(
+            "book:read-orphan",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_missing_primary_with_corrupt_backup_fails_closed_on_read(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        corrupt_backup = b'{"schema_version":2,"generation":'
+        self.store.backup_path.write_bytes(corrupt_backup)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:corrupt-orphan")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), corrupt_backup)
+
+    def test_recovery_without_primary_or_backup_remains_a_noop(self) -> None:
+        self.assertFalse(self.store.recover_from_backup())
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.store.backup_path.exists())
+
+    def test_missing_primary_can_be_explicitly_recovered_from_validated_backup(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:recover-missing", reader)
+        reader.go_to(3)
+        self.store.save("book:recover-missing", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        backup_revision = self.store.validated_backup_revision(
+            "book:recover-missing",
+            self.original_document(),
+        )
+        self.path.unlink()
+
+        self.assertTrue(
+            self.store.recover_from_backup(
+                expected_backup_revision=backup_revision,
+            )
+        )
+        self.assertEqual(self.path.read_bytes(), backup_bytes)
+        reopened = self.store.restore(
+            "book:recover-missing",
+            self.original_document(),
+        )
+        self.assertEqual(reopened.index, 1)
+
+    def test_save_does_not_destroy_orphan_backup_when_primary_is_missing(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:orphan", reader)
+        reader.go_to(3)
+        self.store.save("book:orphan", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.unlink()
+
+        replacement = BookReader(self.original_document())
+        replacement.go_to(2)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:new-state", replacement)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_save_rechecks_orphan_backup_immediately_before_primary_publication(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        backup_bytes = b'{"entries":{},"generation":7,"schema_version":2}'
+        real_require = self.store._require_no_orphan_backup_unlocked
+        checks = 0
+
+        def backup_appears_after_write_stage_check() -> None:
+            nonlocal checks
+            checks += 1
+            real_require()
+            if checks == 2:
+                self.store.backup_path.write_bytes(backup_bytes)
+
+        with mock.patch.object(
+            self.store,
+            "_require_no_orphan_backup_unlocked",
+            side_effect=backup_appears_after_write_stage_check,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:late-orphan",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(checks, 3)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_save_rechecks_orphan_backup_after_temp_fsync_before_replace(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        backup_bytes = b'{"entries":{},"generation":7,"schema_version":2}'
+        real_mkstemp = tempfile.mkstemp
+        injected = False
+
+        def backup_appears_during_primary_temp_write(*args, **kwargs):
+            nonlocal injected
+            descriptor, name = real_mkstemp(*args, **kwargs)
+            if kwargs.get("prefix") == f".{self.path.name}.":
+                self.store.backup_path.write_bytes(backup_bytes)
+                injected = True
+            return descriptor, name
+
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=backup_appears_during_primary_temp_write,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:temp-window-orphan",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
+    def test_publish_orphan_guard_requires_exact_boolean(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        for invalid in (0, 1, None, "", object()):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaisesRegex(
+                    TypeError,
+                    "require_no_orphan_backup_before_replace must be a boolean",
+                ):
+                    self.store._atomic_publish_bytes_unlocked(
+                        self.path,
+                        b"{}",
+                        require_no_orphan_backup_before_replace=invalid,
+                    )
+        self.assertFalse(self.path.exists())
+
+    def test_missing_primary_recovery_rejects_stale_backup_revision(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:stale-backup", reader)
+        reader.go_to(3)
+        self.store.save("book:stale-backup", reader)
+
+        expected_revision = self.store.validated_backup_revision(
+            "book:stale-backup",
+            self.original_document(),
+        )
+        newer_valid_bytes = self.path.read_bytes()
+        self.path.unlink()
+        self.store.backup_path.write_bytes(newer_valid_bytes)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.recover_from_backup(
+                expected_backup_revision=expected_revision,
+            )
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), newer_valid_bytes)
+
+    def test_missing_primary_recovery_never_overwrites_reappeared_primary(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:reappeared", reader)
+        reader.go_to(3)
+        self.store.save("book:reappeared", reader)
+
+        reappeared_bytes = self.path.read_bytes()
+        backup_revision = self.store.validated_backup_revision(
+            "book:reappeared",
+            self.original_document(),
+        )
+        self.path.unlink()
+
+        real_read = self.store._read_raw_file_unlocked
+        primary_reads = 0
+
+        def reappearing_read(
+            path: Path,
+            *,
+            missing_ok: bool,
+        ) -> bytes | None:
+            nonlocal primary_reads
+            if path == self.path:
+                primary_reads += 1
+                if primary_reads == 2:
+                    self.path.write_bytes(reappeared_bytes)
+            return real_read(path, missing_ok=missing_ok)
+
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=reappearing_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.recover_from_backup(
+                    expected_backup_revision=backup_revision,
+                )
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), reappeared_bytes)
+
+    def test_remove_does_not_report_missing_when_orphan_backup_contains_book(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:remove-orphan", reader)
+        reader.go_to(3)
+        self.store.save("book:remove-orphan", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.unlink()
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.remove("book:remove-orphan")
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_future_schema_orphan_backup_is_preserved_and_never_downgraded(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        future_backup = b'{"entries":{},"generation":9,"schema_version":999}'
+        self.store.backup_path.write_bytes(future_backup)
+
+        with self.assertRaises(BookProgressStoreError) as read_error:
+            self.store.has("book:future")
+        self.assertEqual(
+            read_error.exception.code,
+            BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA,
+        )
+
+        with self.assertRaises(BookProgressStoreError) as save_error:
+            self.store.save("book:new", BookReader(self.original_document()))
+        self.assertEqual(
+            save_error.exception.code,
+            BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), future_backup)
+
+    def test_corrupt_orphan_backup_is_preserved_instead_of_erased_by_save(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        corrupt_backup = b'{"schema_version":2,"generation":'
+        self.store.backup_path.write_bytes(corrupt_backup)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:new", BookReader(self.original_document()))
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), corrupt_backup)
+
     def test_failed_atomic_replace_preserves_previous_valid_snapshot(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
@@ -205,10 +529,18 @@ class BookProgressStoreTests(unittest.TestCase):
         original_bytes = self.path.read_bytes()
 
         reader.go_to(3)
-        with mock.patch("acs.book_progress_store.os.replace", side_effect=OSError("replace failed")):
+        private_failure = OSError(5, "replace failed", str(self.path))
+        with mock.patch(
+            "acs.book_progress_store.os.replace",
+            side_effect=private_failure,
+        ):
             with self.assertRaises(BookProgressStoreError) as caught:
                 self.store.save("book:atomic", reader)
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn(str(self.path), rendered)
+        self.assertNotIn(self.tempdir.name, rendered)
         self.assertEqual(self.path.read_bytes(), original_bytes)
         self.assertEqual(self.store.restore("book:atomic", self.original_document()).index, 1)
 
@@ -345,6 +677,42 @@ class BookProgressStoreTests(unittest.TestCase):
                 self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_post_commit_lock_close_failure_does_not_report_save_failure(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(2)
+
+        real_open_lock = self.store._open_lock_descriptor
+        real_close = os.close
+        lock_descriptor = None
+
+        def capture_lock_descriptor() -> int:
+            nonlocal lock_descriptor
+            lock_descriptor = real_open_lock()
+            return lock_descriptor
+
+        def close_then_report_failure(descriptor: int) -> None:
+            real_close(descriptor)
+            if descriptor == lock_descriptor:
+                raise OSError("late lock close failure")
+
+        with mock.patch.object(
+            self.store,
+            "_open_lock_descriptor",
+            side_effect=capture_lock_descriptor,
+        ), mock.patch(
+            "acs.book_progress_store.os.close",
+            side_effect=close_then_report_failure,
+        ):
+            saved = self.store.save("book:post-commit-close", reader)
+
+        self.assertEqual(saved["current_target"], "block:diagram")
+        self.assertTrue(self.path.exists())
+        restored = self.store.restore(
+            "book:post-commit-close",
+            self.original_document(),
+        )
+        self.assertEqual(restored.location().block_id, "diagram")
+
     def test_storage_errors_do_not_put_local_path_in_exception_message(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_bytes(b"not json")
@@ -353,6 +721,10 @@ class BookProgressStoreTests(unittest.TestCase):
         message = str(caught.exception)
         self.assertNotIn(str(self.path), message)
         self.assertNotIn(self.tempdir.name, message)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn(str(self.path), rendered)
+        self.assertNotIn(self.tempdir.name, rendered)
 
 
 if __name__ == "__main__":
