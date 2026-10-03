@@ -262,6 +262,127 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             self.assertTrue(temp_path.exists())
             self.assertEqual(temp_path.read_bytes(), substitute_bytes)
 
+    def test_atomic_publication_rejects_same_bytes_temp_swap_at_replace(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "state.json"
+            real_replace = os.replace
+            injected = False
+
+            def replace_with_same_bytes_swap(source, destination):
+                nonlocal injected
+                source = Path(source)
+                destination = Path(destination)
+                if destination == target and not injected:
+                    foreign = root / "foreign-same-bytes-atomic.tmp"
+                    foreign.write_bytes(source.read_bytes())
+                    real_replace(foreign, source)
+                    injected = True
+                return real_replace(source, destination)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.os.replace",
+                side_effect=replace_with_same_bytes_swap,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "atomic write publication changed before durability confirmation",
+                ):
+                    _atomic_bytes(target, b"owned-publication")
+
+            self.assertTrue(injected)
+            self.assertEqual(target.read_bytes(), b"owned-publication")
+
+    def test_backup_copy_rejects_same_bytes_temp_swap_at_replace(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.bin"
+            source.write_bytes(b"source-preservation-bytes")
+            destination = root / "backup" / "source.bin"
+            real_replace = os.replace
+            injected = False
+
+            def replace_with_same_bytes_swap(candidate, published):
+                nonlocal injected
+                candidate = Path(candidate)
+                published = Path(published)
+                if published == destination and not injected:
+                    foreign = root / "foreign-same-bytes-backup.tmp"
+                    foreign.write_bytes(candidate.read_bytes())
+                    real_replace(foreign, candidate)
+                    injected = True
+                return real_replace(candidate, published)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.os.replace",
+                side_effect=replace_with_same_bytes_swap,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "backup copy publication changed before durability confirmation",
+                ):
+                    _stable_copy(source, destination)
+
+            self.assertTrue(injected)
+            self.assertEqual(source.read_bytes(), b"source-preservation-bytes")
+            self.assertEqual(destination.read_bytes(), b"source-preservation-bytes")
+
+    def test_sqlite_backup_rejects_same_bytes_atomic_publication_swap(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "library.acsdb"
+            destination = root / "backup" / "library.acsdb"
+            connection = sqlite3.connect(source)
+            try:
+                connection.execute("PRAGMA user_version=5")
+                connection.execute("CREATE TABLE sample(value TEXT NOT NULL)")
+                connection.execute("INSERT INTO sample(value) VALUES ('stable')")
+                connection.commit()
+            finally:
+                connection.close()
+
+            def validate(connection):
+                row = connection.execute("PRAGMA user_version").fetchone()
+                return int(row[0])
+
+            real_replace = os.replace
+            injected = False
+
+            def replace_with_same_bytes_swap(candidate, published):
+                nonlocal injected
+                candidate = Path(candidate)
+                published = Path(published)
+                if published == destination and not injected:
+                    foreign = root / "foreign-same-bytes-sqlite.tmp"
+                    foreign.write_bytes(candidate.read_bytes())
+                    real_replace(foreign, candidate)
+                    injected = True
+                return real_replace(candidate, published)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.os.replace",
+                side_effect=replace_with_same_bytes_swap,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "atomic write publication changed before durability confirmation",
+                ):
+                    _sqlite_backup(
+                        source,
+                        destination,
+                        schema_validator=validate,
+                    )
+
+            self.assertTrue(injected)
+            visible = sqlite3.connect(destination)
+            try:
+                self.assertEqual(
+                    [("stable",)],
+                    visible.execute("SELECT value FROM sample").fetchall(),
+                )
+            finally:
+                visible.close()
+
     def test_sqlite_backup_uses_memory_snapshot_before_atomic_publication(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
