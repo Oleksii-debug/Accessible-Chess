@@ -454,7 +454,7 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             else:
                 self._warning("an image reference has no accessible text and no explicit chess position")
-        elif "data-acs-fen" in attrs:
+        elif "data-acs-fen" in attrs and not self._head_depth:
             self._emit_explicit_position(tag, attrs)
 
         if tag in {"ol", "ul"} and self._lists:
