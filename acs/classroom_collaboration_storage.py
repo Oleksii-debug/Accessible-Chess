@@ -407,7 +407,9 @@ class ClassroomCollaborationSQLiteStore:
                     """
                     CREATE TABLE collaboration_chat_state_cursors(
                         room_id TEXT PRIMARY KEY,
-                        revision INTEGER NOT NULL CHECK(revision >= 0)
+                        revision INTEGER NOT NULL CHECK(
+                            revision >= 0 AND revision <= 9007199254740991
+                        )
                     )
                     """
                 )
@@ -1234,13 +1236,25 @@ class ClassroomCollaborationSQLiteStore:
                             """,
                             (attachment.attachment_id,),
                         ).fetchone()
-                        if watermark is not None and (
-                            watermark["room_id"] != room_id
-                            or int(watermark["revision"]) > snapshot_state_revision
-                        ):
-                            raise CollaborationStorageError(
-                                "attachment snapshot state watermark regressed"
-                            )
+                        if watermark is not None:
+                            try:
+                                stored_revision = int(watermark["revision"])
+                            except (TypeError, ValueError, OverflowError):
+                                raise CollaborationStorageError(
+                                    "stored attachment snapshot watermark is invalid"
+                                ) from None
+                            if not 0 <= stored_revision <= MAX_WIRE_INTEGER:
+                                raise CollaborationStorageError(
+                                    "stored attachment snapshot watermark is invalid"
+                                )
+                            if (
+                                snapshot_state_revision is None
+                                or watermark["room_id"] != room_id
+                                or stored_revision > snapshot_state_revision
+                            ):
+                                raise CollaborationStorageError(
+                                    "attachment snapshot state watermark regressed"
+                                )
                         db.execute(
                             """
                             INSERT INTO collaboration_attachment_snapshot_watermarks(
@@ -1289,10 +1303,22 @@ class ClassroomCollaborationSQLiteStore:
                         """,
                         (update.attachment_id,),
                     ).fetchone()
+                    watermark_revision: int | None = None
+                    if watermark is not None:
+                        try:
+                            watermark_revision = int(watermark["revision"])
+                        except (TypeError, ValueError, OverflowError):
+                            raise CollaborationStorageError(
+                                "stored attachment snapshot watermark is invalid"
+                            ) from None
+                        if not 0 <= watermark_revision <= MAX_WIRE_INTEGER:
+                            raise CollaborationStorageError(
+                                "stored attachment snapshot watermark is invalid"
+                            )
                     covered_by_snapshot = (
-                        watermark is not None
+                        watermark_revision is not None
                         and watermark["room_id"] == room_id
-                        and update.revision <= int(watermark["revision"])
+                        and update.revision <= watermark_revision
                     )
                     if not covered_by_snapshot:
                         current = self._attachment_from_row(row)
@@ -1462,7 +1488,19 @@ class ClassroomCollaborationSQLiteStore:
                 """,
                 (attachment_id,),
             ).fetchone()
-        return None if row is None else int(row["revision"])
+        if row is None:
+            return None
+        try:
+            revision = int(row["revision"])
+        except (TypeError, ValueError, OverflowError):
+            raise CollaborationStorageError(
+                "stored attachment snapshot watermark is invalid"
+            ) from None
+        if not 0 <= revision <= MAX_WIRE_INTEGER:
+            raise CollaborationStorageError(
+                "stored attachment snapshot watermark is invalid"
+            )
+        return revision
 
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
