@@ -1765,12 +1765,7 @@ class Version2UpgradeCoordinator:
                         schema_validator=self._validate_library_schema,
                     )
                 else:
-                    size, digest = _stable_copy(
-                source,
-                destination,
-                expected_size=int(entry["size"]),
-                expected_sha256=str(entry["sha256"]),
-            )
+                    size, digest = _stable_copy(source, destination)
                     if relative == self.layout.settings_name:
                         state_digest = digest
                 require_staging()
@@ -2316,7 +2311,12 @@ class Version2UpgradeCoordinator:
             chain = _dir_chain(
                 self.layout.root, destination.parent, create=True
             )
-            size, digest = _stable_copy(source, destination)
+            size, digest = _stable_copy(
+                source,
+                destination,
+                expected_size=int(entry["size"]),
+                expected_sha256=str(entry["sha256"]),
+            )
             if _dir_chain(self.layout.root, destination.parent) != chain:
                 raise Version2UpgradeRecoveryError(
                     "user-data parent directory changed during recovery"
