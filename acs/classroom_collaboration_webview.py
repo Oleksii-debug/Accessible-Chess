@@ -59,6 +59,9 @@ _LABELS = {
         "history_page": "Історія повідомлень: сторінка {current} з {total}",
         "history_empty": "Історія повідомлень порожня",
         "timestamp": "Час повідомлення",
+        "retention": "Зберігання",
+        "chat_retention_policy": "Зберігання нових повідомлень: {value}",
+        "file_retention_policy": "Зберігання нових файлів: {value}",
         "hide": "Приховати повідомлення",
         "mute_sender": "Заборонити надсилання автору",
         "allow_sender": "Дозволити надсилання автору",
@@ -117,6 +120,9 @@ _LABELS = {
         "history_page": "Message history page {current} of {total}",
         "history_empty": "Message history is empty",
         "timestamp": "Message time",
+        "retention": "Retention",
+        "chat_retention_policy": "New message retention: {value}",
+        "file_retention_policy": "New file retention: {value}",
         "hide": "Hide message",
         "mute_sender": "Mute sender",
         "allow_sender": "Allow sender",
@@ -180,6 +186,18 @@ _TRANSFER_LABELS = {
         "deleted": "cancelled",
     },
 }
+_RETENTION_LABELS = {
+    UILanguage.UA: {
+        "transient": "тимчасове",
+        "session": "до завершення сесії",
+        "persistent": "постійне",
+    },
+    UILanguage.EN: {
+        "transient": "transient",
+        "session": "session",
+        "persistent": "persistent",
+    },
+}
 _SCAN_LABELS = {
     UILanguage.UA: {
         "pending": "очікує",
@@ -221,6 +239,8 @@ class ClassroomCollaborationWebView:
         file_opener: Callable[[str, str], object] | None = None,
         moderation_allowed: Callable[[], bool] | None = None,
         participant_moderation: ClassroomMediaController | None = None,
+        chat_retention: str = "session",
+        file_retention: str = "session",
         id_factory: Callable[[str], str] = _default_id,
     ) -> None:
         if not isinstance(controller, ClassroomCollaborationController):
@@ -243,6 +263,10 @@ class ClassroomCollaborationWebView:
             participant_moderation, ClassroomMediaController
         ):
             raise TypeError("participant_moderation must be ClassroomMediaController")
+        if type(chat_retention) is not str or chat_retention not in {"transient", "session", "persistent"}:
+            raise ValueError("chat_retention must be transient, session, or persistent")
+        if type(file_retention) is not str or file_retention not in {"transient", "session", "persistent"}:
+            raise ValueError("file_retention must be transient, session, or persistent")
         if not callable(id_factory):
             raise TypeError("id_factory must be callable")
         self._controller = controller
@@ -254,6 +278,8 @@ class ClassroomCollaborationWebView:
         self._file_opener = file_opener
         self._moderation_allowed = moderation_allowed
         self._participant_moderation = participant_moderation
+        self._chat_retention = chat_retention
+        self._file_retention = file_retention
         self._id_factory = id_factory
         self._action_secret = secrets.token_bytes(32)
         self._unread_message_ids: set[str] = set()
@@ -384,6 +410,10 @@ class ClassroomCollaborationWebView:
             "action_sender": action_sender,
             "action_message": action_message,
             "body": item.body,
+            "retention_label": (
+                f"{_LABELS[self._language]['retention']}: "
+                f"{_RETENTION_LABELS[self._language][item.retention]}"
+            ),
             "unread": item.message_id in self._unread_message_ids,
             "can_hide": moderator,
             "can_moderate_sender": sender_moderatable,
@@ -430,6 +460,10 @@ class ClassroomCollaborationWebView:
             "size_label": f"{labels['size']}: {self._size_label(item.size_bytes)}",
             "status_label": f"{labels['status']}: {_TRANSFER_LABELS[self._language][item.transfer_state]}",
             "scan_label": f"{labels['scan']}: {_SCAN_LABELS[self._language][item.scan_state]}",
+            "retention_label": (
+                f"{labels['retention']}: "
+                f"{_RETENTION_LABELS[self._language][item.retention]}"
+            ),
             "can_save": can_save,
             "can_open": can_open,
             "can_retry": can_retry,
@@ -644,6 +678,10 @@ class ClassroomCollaborationWebView:
                 "can_older": can_older_messages,
                 "can_newer": can_newer_messages,
                 "timestamp_label": labels["timestamp"],
+                "retention_label": labels["retention"],
+                "retention_policy_label": labels["chat_retention_policy"].format(
+                    value=_RETENTION_LABELS[self._language][self._chat_retention]
+                ),
                 "hide_label": labels["hide"],
                 "mute_sender_label": labels["mute_sender"],
                 "allow_sender_label": labels["allow_sender"],
@@ -665,6 +703,9 @@ class ClassroomCollaborationWebView:
                 "heading": labels["files"],
                 "sync_label": labels["sync_files"],
                 "choose_upload_label": labels["choose_upload"],
+                "retention_policy_label": labels["file_retention_policy"].format(
+                    value=_RETENTION_LABELS[self._language][self._file_retention]
+                ),
                 "older_label": labels["older_files"],
                 "newer_label": labels["newer_files"],
                 "page_label": (
@@ -717,6 +758,7 @@ class ClassroomCollaborationWebView:
         self._controller.send_chat(
             message_id=message_id,
             body=body,
+            retention=self._chat_retention,
         )
         self._pending_chat = None
         self._chat_page_bucket = None
@@ -897,6 +939,7 @@ class ClassroomCollaborationWebView:
             attachment_id=self._id_factory("attachment"),
             local_path=selected,
             sequence_no=sequence,
+            retention=self._file_retention,
         )
         try:
             uploaded = self._controller.upload_file(prepared)
