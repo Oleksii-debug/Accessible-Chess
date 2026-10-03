@@ -108,6 +108,44 @@ class SoundPackCatalogTests(unittest.TestCase):
                 "0" * 64,
             )
 
+    def test_manager_rejects_invalid_provider_ports_at_construction(self):
+        entry = make_entry()
+        downloader = FakeDownloader(make_download(entry))
+        storage = FakeStorage({"classic": make_manifest("classic")})
+
+        with self.assertRaisesRegex(TypeError, "downloader"):
+            SoundPackManager(object(), storage)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(TypeError, "storage"):
+            SoundPackManager(downloader, object())  # type: ignore[arg-type]
+        with self.assertRaisesRegex(TypeError, "signature_verifier"):
+            SoundPackManager(
+                downloader,
+                storage,
+                signature_verifier=object(),  # type: ignore[arg-type]
+            )
+
+    def test_downloaded_asset_keys_are_normalized_and_cannot_alias(self):
+        entry = make_entry()
+        path, digest = next(iter(entry.assets.items()))
+        windows_spelling = path.replace("/", chr(92))
+        with self.assertRaisesRegex(ValueError, "duplicate normalized"):
+            DownloadedSoundPack(
+                manifest=entry.manifest,
+                assets={path: digest, windows_spelling: digest},
+                total_bytes=digest.size_bytes * 2,
+                payload_ref=object(),
+            )
+
+        other_path = next(candidate for candidate in entry.assets if candidate != path)
+        other_digest = entry.assets[other_path]
+        with self.assertRaisesRegex(ValueError, "key must match"):
+            DownloadedSoundPack(
+                manifest=entry.manifest,
+                assets={path: other_digest},
+                total_bytes=other_digest.size_bytes,
+                payload_ref=object(),
+            )
+
     def test_catalog_and_download_digest_mappings_are_defensive_snapshots(self):
         entry = make_entry()
         source_assets = dict(entry.assets)
@@ -459,6 +497,44 @@ class SoundPackCatalogTests(unittest.TestCase):
             resolved.preference_for("move"),
             SoundEventPreference(False, 44),
         )
+
+    def test_malformed_installed_inventory_fails_closed_before_actions(self):
+        entry = make_entry()
+        downloaded = make_download(entry)
+
+        class MalformedStorage:
+            def __init__(self, raw):
+                self.raw = raw
+                self.install_calls = []
+                self.uninstall_calls = []
+
+            def installed(self):
+                return self.raw
+
+            def install_atomically(self, value):
+                self.install_calls.append(value)
+
+            def uninstall(self, pack_id):
+                self.uninstall_calls.append(pack_id)
+
+        cases = (
+            ([], "inventory"),
+            ({"soft.wood": object()}, "metadata"),
+            ({"Soft.Wood": make_manifest("soft.wood")}, "identity"),
+            ({"other.pack": make_manifest("soft.wood")}, "identity"),
+        )
+        for raw, message in cases:
+            with self.subTest(raw=repr(raw)):
+                storage = MalformedStorage(raw)
+                downloader = FakeDownloader(downloaded)
+                manager = SoundPackManager(downloader, storage)
+                with self.assertRaisesRegex(SoundPackInstallError, message):
+                    manager.resolve_usable_pack("soft.wood")
+                with self.assertRaisesRegex(SoundPackInstallError, message):
+                    manager.install(entry)
+                self.assertEqual([], downloader.calls)
+                self.assertEqual([], storage.install_calls)
+                self.assertEqual([], storage.uninstall_calls)
 
     def test_external_fallback_flag_requires_exact_boolean(self):
         with self.assertRaisesRegex(TypeError, "external_fallback_available"):
