@@ -441,28 +441,38 @@ def _preflight_text(
     return normalized
 
 
-def decode_pgn_bytes(data: object) -> str:
-    """Decode UTF-8/UTF-8-BOM PGN strictly; invalid bytes never get replaced."""
-
+def _decode_pgn_bytes_raw(
+    data: object,
+    *,
+    source_budget: PgnSourceBudget,
+) -> str:
     if type(data) is not bytes:
         raise PgnRoundTripError(
             "PGN byte input must be exact bytes",
             code=PgnRoundTripErrorCode.INVALID_BYTES,
         )
+    if not isinstance(source_budget, PgnSourceBudget):
+        raise TypeError("source_budget must be PgnSourceBudget")
     if len(data) > MAX_PGN_SOURCE_BYTES:
         _raise_limit(
             "PGN byte input exceeds the safety limit",
             PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
         )
-    source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
     source_budget.claim_source_bytes(len(data))
     try:
-        text = data.decode("utf-8-sig", errors="strict")
+        return data.decode("utf-8-sig", errors="strict")
     except UnicodeDecodeError as exc:
         raise PgnRoundTripError(
             "PGN is not valid UTF-8",
             code=PgnRoundTripErrorCode.INVALID_ENCODING,
         ) from exc
+
+
+def decode_pgn_bytes(data: object) -> str:
+    """Decode and preflight UTF-8/UTF-8-BOM PGN for standalone text use."""
+
+    source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
+    text = _decode_pgn_bytes_raw(data, source_budget=source_budget)
     return _preflight_text(text, source_budget=source_budget)
 
 
@@ -582,7 +592,13 @@ def parse_pgn_text(
 def parse_pgn_bytes(data: object, *, strict: bool = True) -> tuple[PgnGame, ...]:
     if type(strict) is not bool:
         raise TypeError("strict must be a boolean")
-    return parse_pgn_text(decode_pgn_bytes(data), strict=strict)
+    source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
+    text = _decode_pgn_bytes_raw(data, source_budget=source_budget)
+    return parse_pgn_text(
+        text,
+        strict=strict,
+        source_budget=source_budget,
+    )
 
 
 def _claim_model_chars(budget: list[int], amount: int) -> None:
