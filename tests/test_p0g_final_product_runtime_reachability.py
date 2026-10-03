@@ -253,18 +253,22 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
         workflow = P0G_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("EDUCATION_RELEASE_MEDIA_BLOB:", workflow)
         self.assertIn("EDUCATION_RELEASE_MEDIA_SDK_BLOB:", workflow)
+        self.assertIn("EDUCATION_RELEASE_MEDIA_PACKAGE_CONVERGENCE_BLOB:", workflow)
         self.assertIn("REACHABILITY_MEDIA_TEST_BLOB:", workflow)
         self.assertIn("REACHABILITY_MEDIA_SDK_TEST_BLOB:", workflow)
+        self.assertIn("REACHABILITY_MEDIA_PACKAGE_CONVERGENCE_TEST_BLOB:", workflow)
         self.assertIn('education_blob="$(git rev-parse HEAD:acs/version2_education_mutation_release.py)"', workflow)
         self.assertIn('reachability_test_blob="$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)"', workflow)
         self.assertIn(
             '"$EDUCATION_RELEASE_BLOB"|"$EDUCATION_RELEASE_MEDIA_BLOB"|'
-            '"$EDUCATION_RELEASE_MEDIA_SDK_BLOB"',
+            '"$EDUCATION_RELEASE_MEDIA_SDK_BLOB"|'
+            '"$EDUCATION_RELEASE_MEDIA_PACKAGE_CONVERGENCE_BLOB"',
             workflow,
         )
         self.assertIn(
             '"$REACHABILITY_TEST_BLOB"|"$REACHABILITY_MEDIA_TEST_BLOB"|'
-            '"$REACHABILITY_MEDIA_SDK_TEST_BLOB"',
+            '"$REACHABILITY_MEDIA_SDK_TEST_BLOB"|'
+            '"$REACHABILITY_MEDIA_PACKAGE_CONVERGENCE_TEST_BLOB"',
             workflow,
         )
 
