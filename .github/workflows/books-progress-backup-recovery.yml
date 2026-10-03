@@ -145,7 +145,7 @@ jobs:
             test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
             test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "a63fdb0875e5409e19037c9cf7cc41d7bd780f06"
-            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "8612c7a14b7b2819e015831136bde4551b3a23d6"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "719a98cd82f9d6f3e75833f908486bf5c530a632"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "25fc65ab2c66cb50f6b3e32147ffc59ef2f2e593"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "da0ebdc4fbf30c7963270a4c35f660a4044e9312"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "dd8818fed4b0123754bb7437c585bfce924a7d40"
