@@ -373,6 +373,12 @@
       lockComposer: !!(options && options.lockComposer)
     };
     applyCollaborationPendingState(wrapper, pending);
+    const pendingAnnouncement = (
+      options && typeof options.pendingAnnouncement === "string"
+        ? options.pendingAnnouncement
+        : ""
+    );
+    if (pendingAnnouncement) announce(pendingAnnouncement);
 
     function releasePendingState() {
       const current = (
@@ -545,7 +551,10 @@
         wrapper,
         announce,
         fallbackMessage,
-        { lockComposer: true }
+        {
+          lockComposer: true,
+          pendingAnnouncement: chat.send_pending_label || ""
+        }
       );
     });
     chatSection.appendChild(form);
@@ -729,7 +738,15 @@
     syncFiles.type = "button";
     syncFiles.setAttribute("data-command", "collaboration.file.sync");
     syncFiles.addEventListener("click", function () {
-      invokeCollaboration(invoke, "collaboration.file.sync", {}, wrapper, announce, fallbackMessage);
+      invokeCollaboration(
+        invoke,
+        "collaboration.file.sync",
+        {},
+        wrapper,
+        announce,
+        fallbackMessage,
+        { pendingAnnouncement: files.sync_pending_label || "" }
+      );
     });
     fileSection.appendChild(syncFiles);
     const choose = node("button", files.choose_upload_label || "Choose and send file");
@@ -738,7 +755,15 @@
     choose.disabled = !files.can_choose_upload;
     choose.setAttribute("data-command", "collaboration.file.choose_upload");
     choose.addEventListener("click", function () {
-      invokeCollaboration(invoke, "collaboration.file.choose_upload", {}, wrapper, announce, fallbackMessage);
+      invokeCollaboration(
+        invoke,
+        "collaboration.file.choose_upload",
+        {},
+        wrapper,
+        announce,
+        fallbackMessage,
+        { pendingAnnouncement: files.choose_upload_pending_label || "" }
+      );
     });
     fileSection.appendChild(choose);
     const olderFiles = node("button", files.older_label || "Older files");
@@ -808,7 +833,15 @@
           );
           save.setAttribute("data-command", "collaboration.file.save");
           save.addEventListener("click", function () {
-            invokeCollaboration(invoke, "collaboration.file.save", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
+            invokeCollaboration(
+              invoke,
+              "collaboration.file.save",
+              { file_key: file.file_key },
+              wrapper,
+              announce,
+              fallbackMessage,
+              { pendingAnnouncement: files.save_pending_label || "" }
+            );
           });
           item.appendChild(save);
         }
@@ -828,7 +861,8 @@
               { file_key: file.file_key },
               wrapper,
               announce,
-              fallbackMessage
+              fallbackMessage,
+              { pendingAnnouncement: files.open_pending_label || "" }
             );
           });
           item.appendChild(open);
@@ -843,7 +877,15 @@
           );
           retry.setAttribute("data-command", "collaboration.file.retry");
           retry.addEventListener("click", function () {
-            invokeCollaboration(invoke, "collaboration.file.retry", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
+            invokeCollaboration(
+              invoke,
+              "collaboration.file.retry",
+              { file_key: file.file_key },
+              wrapper,
+              announce,
+              fallbackMessage,
+              { pendingAnnouncement: files.retry_pending_label || "" }
+            );
           });
           item.appendChild(retry);
         }
@@ -857,7 +899,15 @@
           );
           cancel.setAttribute("data-command", "collaboration.file.cancel");
           cancel.addEventListener("click", function () {
-            invokeCollaboration(invoke, "collaboration.file.cancel", { file_key: file.file_key }, wrapper, announce, fallbackMessage);
+            invokeCollaboration(
+              invoke,
+              "collaboration.file.cancel",
+              { file_key: file.file_key },
+              wrapper,
+              announce,
+              fallbackMessage,
+              { pendingAnnouncement: files.cancel_pending_label || "" }
+            );
           });
           item.appendChild(cancel);
         }
