@@ -195,6 +195,60 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
                 b"directory-user-data",
             )
 
+    def test_foreign_hardlinked_lookalikes_are_preserved_but_writer_hardlinks_stay_derived(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+
+            outside = Path(td) / "outside-user.bin"
+            outside.write_bytes(b"user-owned-hardlink-bytes")
+            temp_lookalike = root / ".book-progress.json.abcd_123.tmp"
+            control_lookalike = root / "book-progress.json.lock"
+            os.link(outside, temp_lookalike)
+            os.link(outside, control_lookalike)
+
+            resume = root / "gametree-resume.json"
+            resume.write_bytes(b"canonical-resume")
+            resume_guard = root / "gametree-resume.json.cas-xy_98765.bak"
+            os.link(resume, resume_guard)
+
+            settings = root / "settings.json"
+            settings.write_bytes(b"canonical-settings")
+            settings_guard = root / ".settings.json.publish-guard-abcdef123456"
+            os.link(settings, settings_guard)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            self.assertIn(".book-progress.json.abcd_123.tmp", files)
+            self.assertIn("book-progress.json.lock", files)
+            self.assertIn("gametree-resume.json", files)
+            self.assertIn("settings.json", files)
+            self.assertNotIn("gametree-resume.json.cas-xy_98765.bak", files)
+            self.assertNotIn(".settings.json.publish-guard-abcdef123456", files)
+
+            backup, manifest = coordinator._create_backup(
+                "hardlink-shape-authentication"
+            )
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            self.assertIn(".book-progress.json.abcd_123.tmp", paths)
+            self.assertIn("book-progress.json.lock", paths)
+            self.assertNotIn("gametree-resume.json.cas-xy_98765.bak", paths)
+            self.assertNotIn(".settings.json.publish-guard-abcdef123456", paths)
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / ".book-progress.json.abcd_123.tmp"
+                ).read_bytes(),
+                b"user-owned-hardlink-bytes",
+            )
+            self.assertEqual(
+                (backup / "data" / "book-progress.json.lock").read_bytes(),
+                b"user-owned-hardlink-bytes",
+            )
+
     def test_casefolded_exact_generated_shapes_still_match_writer_grammar(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
