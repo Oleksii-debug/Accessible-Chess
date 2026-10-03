@@ -47,6 +47,12 @@ _WINDOWS_RESERVED_NAMES = {
     "nul",
     *(f"com{index}" for index in range(1, 10)),
     *(f"lpt{index}" for index in range(1, 10)),
+    "com¹",
+    "com²",
+    "com³",
+    "lpt¹",
+    "lpt²",
+    "lpt³",
 }
 
 # client-sdk-js@v2.22.3 upstream NOTICE. npm may omit NOTICE because its package
@@ -75,6 +81,26 @@ class LiveKitClientSdkStageError(RuntimeError):
 def _is_reparse(info: os.stat_result) -> bool:
     flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare pathname/open-handle identity plus content-relevant metadata."""
+
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
 
 
 def _snapshot_archive(
@@ -121,11 +147,7 @@ def _snapshot_archive(
                 raise LiveKitClientSdkStageError(
                     "LiveKit npm archive must remain a regular non-reparse file"
                 )
-            if (
-                opened.st_dev != metadata.st_dev
-                or opened.st_ino != metadata.st_ino
-                or opened.st_size != metadata.st_size
-            ):
+            if not _same_file_snapshot(metadata, opened):
                 raise LiveKitClientSdkStageError(
                     "LiveKit npm archive changed while it was being opened"
                 )
@@ -144,10 +166,24 @@ def _snapshot_archive(
                 digest.update(block)
                 snapshot.write(block)
 
-        if copied != metadata.st_size:
-            raise LiveKitClientSdkStageError(
-                "LiveKit npm archive changed while it was being read"
-            )
+            after_read = os.fstat(source.fileno())
+            try:
+                after_path = archive_path.lstat()
+            except OSError as exc:
+                raise LiveKitClientSdkStageError(
+                    "LiveKit npm archive changed while it was being read"
+                ) from exc
+            if (
+                stat.S_ISLNK(after_path.st_mode)
+                or _is_reparse(after_path)
+                or not stat.S_ISREG(after_path.st_mode)
+                or not _same_file_snapshot(opened, after_read)
+                or not _same_file_snapshot(after_read, after_path)
+                or copied != int(after_read.st_size)
+            ):
+                raise LiveKitClientSdkStageError(
+                    "LiveKit npm archive changed while it was being read"
+                )
         actual_integrity = (
             "sha512-" + base64.b64encode(digest.digest()).decode("ascii")
         )
@@ -254,13 +290,16 @@ def _validated_payload(
         raise LiveKitClientSdkStageError("LiveKit npm archive is invalid") from exc
 
     with snapshot, handle as archive:
-        members = archive.getmembers()
-        if not members or len(members) > _MAX_MEMBERS:
-            raise LiveKitClientSdkStageError("LiveKit npm archive member-count limit exceeded")
         by_name: dict[str, tarfile.TarInfo] = {}
         casefolded: set[str] = set()
         total = 0
-        for member in members:
+        member_count = 0
+        for member in archive:
+            member_count += 1
+            if member_count > _MAX_MEMBERS:
+                raise LiveKitClientSdkStageError(
+                    "LiveKit npm archive member-count limit exceeded"
+                )
             safe_name = _safe_member_name(member.name)
             if not (member.isfile() or member.isdir()):
                 raise LiveKitClientSdkStageError(
@@ -283,6 +322,11 @@ def _validated_payload(
                         "LiveKit npm archive exceeds the uncompressed-size limit"
                     )
                 by_name[safe_name] = member
+
+        if member_count == 0:
+            raise LiveKitClientSdkStageError(
+                "LiveKit npm archive member-count limit exceeded"
+            )
 
         for required in (_PACKAGE_JSON, _BUNDLE, _LICENSE):
             if required not in by_name:
@@ -406,6 +450,11 @@ def stage_livekit_client_sdk(
             json.dumps(provenance, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
+        if os.path.lexists(output):
+            raise LiveKitClientSdkStageError(
+                "LiveKit SDK output directory appeared during staging"
+            )
+        _reject_linked_output_ancestors(output)
         staging.rename(output)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
