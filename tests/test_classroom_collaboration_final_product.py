@@ -7,7 +7,11 @@ import unittest
 from unittest import mock
 
 from acs.classroom_collaboration import ClassroomCollaborationController
-from acs.classroom_collaboration_storage import AttachmentMetadata, ClassroomCollaborationSQLiteStore
+from acs.classroom_collaboration_storage import (
+    AttachmentMetadata,
+    ChatMessageMetadata,
+    ClassroomCollaborationSQLiteStore,
+)
 from acs.classroom_collaboration_webview import ClassroomCollaborationWebView
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_final_product_application import Version2FinalProductApplication
@@ -77,6 +81,78 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.assertIsNone(self.collaboration._pending_chat)
         self.assertEqual(set(), self.collaboration._unread_message_ids)
         self.assertEqual((), self.store.room_messages("room-1"))
+
+    def test_trusted_host_can_project_live_chat_and_file_without_browser_authority(self) -> None:
+        app = self.bare_app()
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            app.bind_classroom_collaboration(self.collaboration)
+            chat_event = app.receive_classroom_chat(
+                ChatMessageMetadata(
+                    "live-final-chat",
+                    "room-1",
+                    "student-2",
+                    0,
+                    "Live final chat",
+                    sent_at_unix_ms=1700000000000,
+                )
+            )
+            file_event = app.receive_classroom_file(
+                AttachmentMetadata(
+                    "live-final-file",
+                    "room-1",
+                    "student-2",
+                    0,
+                    "live-final.pgn",
+                    "application/x-chess-pgn",
+                    4,
+                    "0" * 64,
+                    "rooms/room-1/live-final-file",
+                    "stored",
+                    scan_state="clean",
+                )
+            )
+
+        self.assertEqual("collaboration.chat.received", chat_event["kind"])
+        self.assertEqual("Student two: Live final chat", chat_event["payload"]["announcement"])
+        self.assertEqual(
+            1,
+            chat_event["payload"]["collaboration"]["chat"]["unread_count"],
+        )
+        self.assertEqual("collaboration.file.received", file_event["kind"])
+        self.assertEqual("New file: live-final.pgn.", file_event["payload"]["announcement"])
+        self.assertEqual(
+            "live-final.pgn",
+            file_event["payload"]["collaboration"]["files"]["items"][0]["name"],
+        )
+
+    def test_trusted_live_ingress_requires_bound_collaboration(self) -> None:
+        app = self.bare_app()
+        message = ChatMessageMetadata(
+            "unbound-live-chat",
+            "room-1",
+            "student-2",
+            0,
+            "No binding",
+            sent_at_unix_ms=1700000000000,
+        )
+        attachment = AttachmentMetadata(
+            "unbound-live-file",
+            "room-1",
+            "student-2",
+            0,
+            "unbound.pgn",
+            "application/x-chess-pgn",
+            4,
+            "0" * 64,
+            "rooms/room-1/unbound-live-file",
+            "stored",
+            scan_state="clean",
+        )
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            with self.assertRaises(RuntimeError):
+                app.receive_classroom_chat(message)
+            with self.assertRaises(RuntimeError):
+                app.receive_classroom_file(attachment)
 
     def test_classes_browser_area_routes_only_collaboration_prefix_to_collaboration_boundary(self) -> None:
         app = self.bare_app()
