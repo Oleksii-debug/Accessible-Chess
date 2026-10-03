@@ -1034,7 +1034,7 @@ class FilesystemSoundPackStore:
                 "sound pack rights evidence is invalid"
             ) from exc
 
-    def _verify_version(
+    def _verify_version_metadata(
         self,
         version_dir: Path,
         *,
@@ -1045,6 +1045,8 @@ class FilesystemSoundPackStore:
         dict[str, SoundAssetDigest],
         SoundPackRightsEvidence | None,
     ]:
+        """Verify immutable metadata/topology without hashing every audio byte."""
+
         _require_real_dir(version_dir, "installed sound pack version")
         manifest = self._read_manifest(version_dir)
         if expected_pack_id is not None and manifest.pack_id != expected_pack_id:
@@ -1084,10 +1086,15 @@ class FilesystemSoundPackStore:
             raise SoundPackStoreError(
                 "sound pack rights license does not match manifest"
             )
+
         expected_assets = set(manifest.files.values())
         if set(digests) != expected_assets:
             raise SoundPackStoreError(
                 "installed integrity metadata does not cover manifest assets"
+            )
+        if sum(item.size_bytes for item in digests.values()) > self.max_bytes:
+            raise SoundPackStoreError(
+                "installed sound pack exceeds the local size limit"
             )
 
         expected_files = {
@@ -1108,34 +1115,36 @@ class FilesystemSoundPackStore:
             max_files=len(expected_files),
             max_directories=len(expected_directories),
         )
-        if (
-            files != expected_files
-            or directories != expected_directories
-        ):
+        if files != expected_files or directories != expected_directories:
             raise SoundPackStoreError(
                 "installed sound pack contains undeclared filesystem content"
             )
 
-        total = 0
-        for relative, digest in digests.items():
-            path = version_dir / relative
-            metadata = _require_regular_file(path, "installed sound asset")
-            if metadata.st_size != digest.size_bytes:
-                raise SoundPackStoreError(
-                    "installed sound asset size mismatch"
-                )
-            total += digest.size_bytes
-            if total > self.max_bytes:
-                raise SoundPackStoreError(
-                    "installed sound pack exceeds the local size limit"
-                )
-
-            _read_verified_asset_bytes(path, digest)
         verified_rights = (
             rights_evidence
             if rights_binding_supported and rights_sha256 is not None
             else None
         )
+        return manifest, digests, verified_rights
+
+    def _verify_version(
+        self,
+        version_dir: Path,
+        *,
+        expected_pack_id: str | None = None,
+        expected_version: str | None = None,
+    ) -> tuple[
+        SoundPackManifest,
+        dict[str, SoundAssetDigest],
+        SoundPackRightsEvidence | None,
+    ]:
+        manifest, digests, verified_rights = self._verify_version_metadata(
+            version_dir,
+            expected_pack_id=expected_pack_id,
+            expected_version=expected_version,
+        )
+        for relative, digest in digests.items():
+            _read_verified_asset_bytes(version_dir / relative, digest)
         return manifest, digests, verified_rights
 
     @staticmethod
