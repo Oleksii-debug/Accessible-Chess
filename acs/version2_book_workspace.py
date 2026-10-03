@@ -75,8 +75,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         self._workflow = workflow
         super().__init__(Version2BookReaderPresenter(reader, language=language), dispatch, language=language)
 
-    def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
+    def _semantic_tree_snapshot(
+        self,
+        index: int,
+        *,
+        expected_kind: str,
+    ) -> dict[str, object]:
         mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        if expected_kind not in {"game", "variation"} or mode.value != expected_kind:
+            raise _BookSemanticProjectionError("semantic GameTree kind is inconsistent")
         stack: list[tuple[object, int]] = [(game.line, 0)]
         count = 0
         while stack:
@@ -211,6 +218,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticProjectionError("semantic item kind is invalid")
             if type(item.depth) is not int or not 0 <= item.depth <= _MAX_BOOK_SEMANTIC_DEPTH:
                 raise _BookSemanticProjectionError("semantic item depth is invalid")
+            if (
+                (item.kind == "move" and item.depth % 2 != 0)
+                or (item.kind == "variation" and item.depth % 2 != 1)
+            ):
+                raise _BookSemanticProjectionError("semantic item kind/depth is inconsistent")
             if type(item.node_id) is not str or not item.node_id or item.node_id in seen:
                 raise _BookSemanticProjectionError("semantic item identity is invalid")
             if item.depth == 0:
@@ -273,8 +285,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         )
         can_open_game = isinstance(semantic, Game)
         if isinstance(semantic, (Game, VariationTree)):
+            expected_kind = "game" if isinstance(semantic, Game) else "variation"
             try:
-                snapshot["semantic_tree"] = self._semantic_tree_snapshot(block.index)
+                snapshot["semantic_tree"] = self._semantic_tree_snapshot(
+                    block.index,
+                    expected_kind=expected_kind,
+                )
             except (BookBoardWorkflowError, _BookSemanticProjectionError, AttributeError, TypeError, ValueError):
                 snapshot["semantic_tree"] = None
                 snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["unavailable"]
