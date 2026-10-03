@@ -142,6 +142,7 @@ class FakeFiles:
         self.state_updates = []
         self.state_override = None
         self.progress_samples = ()
+        self.last_progress_callback = None
 
     def _next_sequence(self, room_id):
         room_sequences = [
@@ -166,6 +167,7 @@ class FakeFiles:
 
     def upload(self, prepared, *, on_progress):
         self.upload_calls.append(prepared)
+        self.last_progress_callback = on_progress
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
         for sample in self.progress_samples:
@@ -187,6 +189,7 @@ class FakeFiles:
 
     def retry(self, prepared, *, on_progress):
         self.retry_calls.append(prepared)
+        self.last_progress_callback = on_progress
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
         for sample in self.progress_samples:
@@ -2237,6 +2240,38 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertTrue(
             all(item.total_bytes == len(payload) for item in observed)
         )
+
+    def test_late_provider_progress_cannot_regress_terminal_completion(self):
+        controller = self.controller()
+        payload = b"late-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-late",
+            local_path=self.make_file("progress-late.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress("progress-late", 4, len(payload)),
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertTrue(observed[-1].complete)
+        before = tuple(observed)
+        self.assertIsNotNone(self.files.last_progress_callback)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-late",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(before, tuple(observed))
 
     def test_zero_byte_upload_still_emits_distinct_authoritative_completion(self):
         controller = self.controller()
