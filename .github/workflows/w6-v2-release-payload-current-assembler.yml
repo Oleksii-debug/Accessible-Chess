@@ -25,7 +25,7 @@ env:
   CURRENT_PREFLIGHT_BLOB: 4f51c74d295b8bcc0053af81aebfe735ea76b586
   SOURCE_PAYLOAD_OWNER: acd277cafd5ac6f7d312e26dc79105308c6fac0b
   SOURCE_PAYLOAD_BLOB: d61d519da4fb69d2a214286b8e249b1f769d2169
-  SOURCE_TEST_BLOB: 5013cf56545ed58992b95ac53f74fb59d1d13e94
+  SOURCE_TEST_BLOB: 978157aa62d759e516a4519b6592e1c7418391a4
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:
