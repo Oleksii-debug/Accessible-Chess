@@ -76,6 +76,11 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 report = build_sound_pack(Path(td) / "input", destination)
 
             self.assertEqual(report["file_count"], 330)
+            self.assertEqual(report["license_id"], "USER_PROVIDED")
+            self.assertEqual(
+                report["creator"],
+                "User-provided legacy chess sound archive",
+            )
             self.assertEqual(
                 sum(1 for path in (destination / "library").rglob("*") if path.is_file()),
                 330,
