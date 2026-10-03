@@ -1,0 +1,101 @@
+name: One-shot repair Training focus placement
+
+on:
+  push:
+    branches:
+      - converge/training-webview-focus-transaction-20261004
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Repair exact misplaced focus hunks
+        shell: python
+        run: |
+          from pathlib import Path
+
+          runtime = Path("web/full_product_books_training.js")
+          workflow = Path(".github/workflows/zz-fix-training-focus-placement-once.yml")
+          text = runtime.read_text(encoding="utf-8")
+
+          book_start = text.index("  function renderBookSurface(")
+          reset_start = text.index("  function buildResetDialog(", book_start)
+          training_start = text.index("  function renderTrainingSurface(", reset_start)
+          exports_start = text.index("  global.AccessibleChessBookSurface", training_start)
+
+          book = text[book_start:reset_start]
+          training = text[training_start:exports_start]
+
+          misplaced_id = '      button.id = trainingActionFocusTarget(action.command);\n'
+          wrong_book_focus = '    focusTarget(root, effectiveFocus);\n'
+          training_button = '      button.type = "button";\n      button.disabled = !action.enabled;\n'
+          wrong_training_focus = '    focusTarget(root, requestedFocus || "");\n'
+
+          # If another worker already repaired the runtime, only clean up this one-shot file.
+          already_fixed = (
+              misplaced_id not in book
+              and wrong_book_focus not in book
+              and misplaced_id in training
+              and '    focusTarget(root, effectiveFocus);\n' in training
+          )
+
+          if not already_fixed:
+              assert book.count(misplaced_id) == 1, "unexpected Book Training-id placement count"
+              assert book.count(wrong_book_focus) == 1, "unexpected Book effectiveFocus placement count"
+              assert training.count(misplaced_id) == 0, "Training id already partially present"
+              assert training.count(training_button) == 1, "unexpected Training button anchor count"
+              assert training.count(wrong_training_focus) == 1, "unexpected Training requestedFocus placement count"
+
+              book = book.replace(misplaced_id, "", 1)
+              book = book.replace(
+                  wrong_book_focus,
+                  '    focusTarget(root, requestedFocus || "");\n',
+                  1,
+              )
+              training = training.replace(
+                  training_button,
+                  '      button.type = "button";\n'
+                  '      button.id = trainingActionFocusTarget(action.command);\n'
+                  '      button.disabled = !action.enabled;\n',
+                  1,
+              )
+              training = training.replace(
+                  wrong_training_focus,
+                  '    focusTarget(root, effectiveFocus);\n',
+                  1,
+              )
+
+              text = text[:book_start] + book + text[reset_start:training_start] + training + text[exports_start:]
+              runtime.write_text(text, encoding="utf-8")
+
+          repaired = runtime.read_text(encoding="utf-8")
+          book = repaired[book_start:repaired.index("  function buildResetDialog(", book_start)]
+          training_start = repaired.index("  function renderTrainingSurface(")
+          training = repaired[training_start:repaired.index("  global.AccessibleChessBookSurface", training_start)]
+          assert 'trainingActionFocusTarget(action.command)' not in book
+          assert 'focusTarget(root, effectiveFocus)' not in book
+          assert book.count('focusTarget(root, requestedFocus || "")') == 1
+          assert training.count('button.id = trainingActionFocusTarget(action.command)') == 1
+          assert training.count('focusTarget(root, effectiveFocus)') == 1
+
+          if workflow.exists():
+              workflow.unlink()
+      - name: Commit repair and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "accessible-chess-autonomous-repair"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/full_product_books_training.js .github/workflows/zz-fix-training-focus-placement-once.yml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Fix Training focus patch placement"
+          git push origin HEAD:converge/training-webview-focus-transaction-20261004
