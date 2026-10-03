@@ -408,6 +408,63 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             self.assertTrue(displaced.is_dir())
             self.assertTrue(data.is_dir())
 
+    def test_library_state_digest_rejects_same_state_inode_swap_on_connect(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "library.acsdb"
+            replacement = root / "replacement.acsdb"
+
+            for path in (source, replacement):
+                connection = sqlite3.connect(path)
+                try:
+                    connection.execute("PRAGMA user_version=31")
+                    connection.execute("CREATE TABLE sample(value TEXT NOT NULL)")
+                    connection.execute(
+                        "INSERT INTO sample(value) VALUES ('same-logical-state')"
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+
+            real_connect = upgrade_base_module.sqlite3.connect
+            injected = False
+
+            def swap_before_connect(database, *args, **kwargs):
+                nonlocal injected
+                raw = os.fspath(database)
+                if raw.startswith("file:") and not injected:
+                    os.replace(replacement, source)
+                    injected = True
+                return real_connect(database, *args, **kwargs)
+
+            def validate(connection):
+                row = connection.execute("PRAGMA user_version").fetchone()
+                return int(row[0])
+
+            with mock.patch.object(
+                upgrade_base_module.sqlite3,
+                "connect",
+                side_effect=swap_before_connect,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "library state source changed during validation",
+                ):
+                    upgrade_base_module._library_state_sha256(
+                        source,
+                        schema_validator=validate,
+                    )
+
+            self.assertTrue(injected)
+            visible = sqlite3.connect(source)
+            try:
+                self.assertEqual(
+                    [("same-logical-state",)],
+                    visible.execute("SELECT value FROM sample").fetchall(),
+                )
+            finally:
+                visible.close()
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
