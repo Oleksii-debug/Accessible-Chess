@@ -409,6 +409,49 @@ class PackagedSoundResolverTests(unittest.TestCase):
             self.assertTrue(second.is_file())
             self.assertEqual(list(cache.glob("move-v50-*.wav")), [second])
 
+    def test_scaled_cache_keeps_sibling_layers_for_same_event_and_volume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first_source = Path(tmp) / "move.wav"
+            second_source = Path(tmp) / "movehit.wav"
+            self._write_silent_wav(first_source)
+            with wave.open(str(second_source), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\x20\x00" * 8)
+
+            cache = Path(tmp) / "cache"
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=cache,
+            )
+
+            first_cache = adapter._scaled_copy(first_source, SoundEvent.MOVE, 50)
+            second_cache = adapter._scaled_copy(second_source, SoundEvent.MOVE, 50)
+
+            self.assertTrue(first_cache.is_file())
+            self.assertTrue(second_cache.is_file())
+            self.assertNotEqual(first_cache, second_cache)
+            self.assertEqual(
+                set(cache.glob("move-v50-*.wav")),
+                {first_cache, second_cache},
+            )
+
+            with wave.open(str(first_source), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\x30\x00" * 8)
+            replacement = adapter._scaled_copy(first_source, SoundEvent.MOVE, 50)
+
+            self.assertFalse(first_cache.exists())
+            self.assertTrue(replacement.is_file())
+            self.assertTrue(second_cache.is_file())
+            self.assertEqual(
+                set(cache.glob("move-v50-*.wav")),
+                {replacement, second_cache},
+            )
+
     def test_scaled_cache_prunes_legacy_unversioned_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
