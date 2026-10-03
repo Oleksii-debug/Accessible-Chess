@@ -100,6 +100,7 @@ let currentRoute = "board";
 let libraryAvailable = false;
 let booksAvailable = false;
 let trainingAvailable = false;
+let trainingCompleted = false;
 let eventQueue = [];
 let intervalCallback = null;
 let snapshotCalls = 0;
@@ -140,7 +141,9 @@ function snapshot(route) {
     pgn: null,
     library: route === "library" && libraryAvailable ? { heading: "Library" } : null,
     books: route === "books" && booksAvailable ? { block: { dom_id: "book-block-1" } } : null,
-    training: route === "training" && trainingAvailable ? { prompt: "Exercise" } : null
+    training: route === "training" && trainingAvailable
+      ? { prompt: "Exercise", focus_target: trainingCompleted ? "training-action-reset" : "training-answer" }
+      : null
   };
 }
 
@@ -218,7 +221,10 @@ const windowObject = {
     render: (root) => {
       const answer = new FakeElement("input");
       answer.id = "training-answer";
+      const reset = new FakeElement("button");
+      reset.id = "training-action-reset";
       root.replaceChildren(answer);
+      root.appendChild(reset);
     }
   }
 };
@@ -305,6 +311,16 @@ async function clickRoute(routeId) {
     documentRef.activeElement === libraryInput,
     "return from Training did not restore Library route-local focus"
   );
+  trainingCompleted = true;
+  await clickRoute("training");
+  const completedReset = documentRef.getElementById("training-action-reset");
+  check(completedReset !== null, "completed Training reset target missing");
+  check(
+    documentRef.activeElement === completedReset,
+    "completed Training did not restore canonical reset focus"
+  );
+  trainingCompleted = false;
+  await clickRoute("library");
   const beforeImportSnapshotCalls = snapshotCalls;
   eventQueue = [
     { kind: "render-import", payload: { import: {}, focus_target: "", announcement: "1 of 4" } },
