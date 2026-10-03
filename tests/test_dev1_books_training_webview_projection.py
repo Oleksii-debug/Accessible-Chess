@@ -77,6 +77,47 @@ class BookProjectionTests(unittest.TestCase):
                 replace(block, kind="Position", role="group", position_fen=None)
             )
 
+    def test_snapshot_rejects_noncanonical_scalar_types_without_coercion(self) -> None:
+        block = self.presenter.current()
+
+        class RoleSpoof:
+            def __str__(self) -> str:
+                raise AssertionError("malformed role must never be coerced")
+
+        with self.assertRaisesRegex(TypeError, "role must be text"):
+            self.projection._snapshot_from_block(
+                replace(block, role=RoleSpoof())  # type: ignore[arg-type]
+            )
+
+        for field_name in ("title", "text", "source_anchor", "warning"):
+            with self.subTest(field=field_name):
+                with self.assertRaisesRegex(TypeError, "must be text"):
+                    self.projection._snapshot_from_block(
+                        replace(block, **{field_name: None})  # type: ignore[arg-type]
+                    )
+
+        with self.assertRaisesRegex(TypeError, "position must be text"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="Position",
+                    role="group",
+                    heading_level=None,
+                    position_fen=object(),  # type: ignore[arg-type]
+                )
+            )
+
+        with self.assertRaisesRegex(ValueError, "position must not be empty"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="Position",
+                    role="group",
+                    heading_level=None,
+                    position_fen="   ",
+                )
+            )
+
     def test_snapshot_rejects_heading_and_navigation_contract_drift(self) -> None:
         paragraph = self.presenter.next_block()
         with self.assertRaisesRegex(ValueError, "non-heading"):

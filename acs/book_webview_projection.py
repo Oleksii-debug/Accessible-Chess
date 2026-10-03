@@ -266,9 +266,24 @@ class BookWebViewProjection:
             raise ValueError("book heading level is invalid")
         if type(block.kind) is not str or block.kind not in _BOOK_ROLE_BY_KIND:
             raise ValueError("book block kind is invalid")
-        role = str(block.role)
+        if type(block.role) is not str:
+            raise TypeError("book block role must be text")
+        role = block.role
         if role != _BOOK_ROLE_BY_KIND[block.kind]:
             raise ValueError("book block kind/role is inconsistent")
+        for field_name, field_value in (
+            ("title", block.title),
+            ("text", block.text),
+            ("source anchor", block.source_anchor),
+            ("warning", block.warning),
+        ):
+            if type(field_value) is not str:
+                raise TypeError(f"book block {field_name} must be text")
+        if block.position_fen is not None:
+            if type(block.position_fen) is not str:
+                raise TypeError("book block position must be text")
+            if not block.position_fen.strip():
+                raise ValueError("book block position must not be empty")
         if type(block.heading_path) is not tuple or len(block.heading_path) > _MAX_BOOK_HEADING_PATH_PARTS:
             raise ValueError("book heading path is invalid")
         if any(type(part) is not str or not part.strip() for part in block.heading_path):
