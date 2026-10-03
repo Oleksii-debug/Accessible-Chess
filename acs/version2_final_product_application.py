@@ -445,7 +445,16 @@ class Version2FinalProductApplication(Version2Application):
         result = super().snapshot()
         media_snapshot: dict[str, object] | None = None
         media_recovery_required = False
-        if self.media is not None:
+        provider_recovery_required = (
+            self.media_transactions is not None
+            and self.media_transactions.binder.recovery_status is not None
+        )
+        if provider_recovery_required:
+            # The provider execution arbiter is the global mutation gate.  Do
+            # not export a stale projection containing actionable media buttons
+            # while reconciliation is required.
+            media_recovery_required = True
+        elif self.media is not None:
             try:
                 media_snapshot = self.media.projection.snapshot()
             except Exception:
@@ -472,13 +481,7 @@ class Version2FinalProductApplication(Version2Application):
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
                     "media_binding_active": self.media is not None,
-                    "media_recovery_required": (
-                        media_recovery_required
-                        or (
-                            self.media_transactions is not None
-                            and self.media_transactions.binder.recovery_status is not None
-                        )
-                    ),
+                    "media_recovery_required": media_recovery_required,
                     # Composition is not an acceptance claim. Keep the
                     # whole-product transport gate truthful until real packaged
                     # two-client and NVDA qualification is recorded.
