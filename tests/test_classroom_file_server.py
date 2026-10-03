@@ -618,6 +618,67 @@ class ClassroomFileServerTests(unittest.TestCase):
                 limit=0,
             )
 
+    def test_upload_rejects_terminal_sequence_gap_before_object_write(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="gap-existing-a0")
+        )
+        with self.store._connect() as db, db:
+            db.execute(
+                "UPDATE classroom_file_server_attachments "
+                "SET sequence_no=5 WHERE attachment_id=?",
+                (stored.attachment_id,),
+            )
+
+        prepared = self.prepared(
+            attachment_id="gap-new-a1",
+            content=b"must not reach durable object store",
+        )
+        put_calls_before = len(self.objects.put_calls)
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "authoritative file sequence has a gap",
+        ):
+            self.student1.upload(prepared)
+
+        self.assertEqual(len(self.objects.put_calls), put_calls_before)
+        with self.store._connect() as db:
+            self.assertIsNone(
+                db.execute(
+                    "SELECT 1 FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (prepared.metadata.attachment_id,),
+                ).fetchone()
+            )
+
+    def test_cancel_rejects_state_revision_gap_without_tombstone_or_delete(self):
+        first = self.student1.upload(
+            self.prepared(attachment_id="revision-gap-a0")
+        )
+        second = self.student1.upload(
+            self.prepared(attachment_id="revision-gap-a1")
+        )
+        self.student1.cancel(attachment_id=first.attachment_id)
+        with self.store._connect() as db, db:
+            db.execute(
+                "UPDATE classroom_file_server_state_updates "
+                "SET revision=2 WHERE attachment_id=?",
+                (first.attachment_id,),
+            )
+        delete_calls_before = len(self.objects.delete_calls)
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "attachment state revision has a gap",
+        ):
+            self.student1.cancel(attachment_id=second.attachment_id)
+
+        self.assertEqual(len(self.objects.delete_calls), delete_calls_before)
+        self.assertIn(second.object_key, self.objects.objects)
+        current = self.store.attachment_for_object_key(second.object_key)
+        self.assertIsNotNone(current)
+        self.assertEqual(current.transfer_state, "stored")
+
     def test_corrupt_terminal_sequence_fails_integrity(self):
         stored = self.student1.upload(
             self.prepared(attachment_id="corrupt-a0")
