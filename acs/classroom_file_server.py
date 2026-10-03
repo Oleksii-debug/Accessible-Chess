@@ -724,6 +724,88 @@ class ClassroomFileServerSQLiteStore:
                 db.rollback()
                 raise
 
+    def recover_after_unconfirmed_finalize(
+        self,
+        metadata: AttachmentMetadata,
+    ) -> AttachmentMetadata | None:
+        """Recover authority after PUT succeeded but upload finalization did not confirm.
+
+        A concurrent provisional cancellation may delete its reservation and
+        complete object cleanup before a slow PUT returns. Recreate a durable
+        cancelled cleanup receipt before attempting to delete those late bytes.
+        If finalization actually committed and only its acknowledgement was
+        ambiguous, return the authoritative stored row instead of deleting it.
+        """
+        if type(metadata) is not AttachmentMetadata:
+            raise ClassroomFileServerError("invalid attachment metadata")
+        with closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute(
+                    "SELECT * FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (metadata.attachment_id,),
+                ).fetchone()
+                if row is None:
+                    db.execute(
+                        """
+                        INSERT INTO classroom_file_server_attachments(
+                            attachment_id, room_id, sender_id, sequence_no,
+                            display_name, mime_type, size_bytes, sha256, object_key,
+                            retention, transfer_state, scan_state, delete_completed
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0)
+                        """,
+                        (
+                            metadata.attachment_id,
+                            metadata.room_id,
+                            metadata.sender_id,
+                            None,
+                            metadata.display_name,
+                            metadata.mime_type,
+                            metadata.size_bytes,
+                            metadata.sha256,
+                            metadata.object_key,
+                            metadata.retention,
+                            "cancelled",
+                            "pending",
+                        ),
+                    )
+                    db.commit()
+                    return None
+                if self._row_immutable_tuple(row) != self._immutable_tuple(metadata):
+                    raise CollaborationConflictError(
+                        "attachment identity was reused with different payload"
+                    )
+                if row["transfer_state"] == "stored":
+                    result = self._terminal_from_row(row)
+                    db.commit()
+                    return result
+                if row["transfer_state"] == "deleted":
+                    db.execute(
+                        "UPDATE classroom_file_server_attachments "
+                        "SET delete_completed=0 WHERE attachment_id=?",
+                        (metadata.attachment_id,),
+                    )
+                    db.commit()
+                    return None
+                if row["transfer_state"] not in {"uploading", "cancelled"}:
+                    raise ClassroomFileServerError(
+                        "upload recovery found invalid reservation state"
+                    )
+                db.execute(
+                    """
+                    UPDATE classroom_file_server_attachments
+                    SET transfer_state='cancelled', delete_completed=0
+                    WHERE attachment_id=?
+                    """,
+                    (metadata.attachment_id,),
+                )
+                db.commit()
+                return None
+            except Exception:
+                db.rollback()
+                raise
+
     def cancel(
         self,
         *,
@@ -1344,11 +1426,40 @@ class ClassroomFileServerService:
                 content=content,
                 expected_sha256=metadata.sha256,
             )
-        except Exception as error:
+        except Exception:
             raise ClassroomFileServerError(
                 "durable object storage write failed"
             ) from None
-        return self._store.finalize_upload(metadata.attachment_id)
+        try:
+            return self._store.finalize_upload(metadata.attachment_id)
+        except Exception:
+            # PUT may race a provisional cancellation: cancellation can finish
+            # deleting the pre-PUT object state and remove its reservation while
+            # this slow PUT is still in flight. Re-establish durable cleanup
+            # authority before touching the late bytes. Conversely, if finalize
+            # committed and only its acknowledgement was ambiguous, preserve
+            # that authoritative stored result.
+            recovered = self._store.recover_after_unconfirmed_finalize(metadata)
+            if recovered is not None:
+                return recovered
+            try:
+                self._object_store.delete(object_key=metadata.object_key)
+            except Exception:
+                raise ClassroomFileServerError(
+                    "upload finalization failed; durable object cleanup is pending"
+                ) from None
+            try:
+                self._store.complete_deletion(metadata.attachment_id)
+            except Exception:
+                # The byte deletion already succeeded. Another idempotent
+                # cancellation/recovery worker may have consumed the same
+                # provisional cleanup receipt; never resurrect the upload.
+                raise ClassroomFileServerError(
+                    "upload finalization failed after durable object cleanup"
+                ) from None
+            raise ClassroomFileServerError(
+                "upload was cancelled before finalization"
+            ) from None
 
     def cancel(
         self,
