@@ -6,6 +6,9 @@ on:
       - ".github/workflows/classroom-file-server.yml"
       - "acs/classroom_file_server.py"
       - "tests/test_classroom_file_server.py"
+      - "acs/classroom_file_rpc.py"
+      - "tests/test_classroom_file_rpc.py"
+      - ".github/workflows/classroom-file-rpc.yml"
       - "acs/classroom_collaboration.py"
       - "acs/classroom_collaboration_storage.py"
   workflow_dispatch:
@@ -44,11 +47,21 @@ jobs:
           test "$(git merge-base "$LIVE_BASE_SHA" HEAD)" = "$LIVE_BASE_SHA"
           git diff --check "$LIVE_BASE_SHA" HEAD
           mapfile -t changed < <(git diff --name-only "$LIVE_BASE_SHA" HEAD | sort)
-          expected=(
-            ".github/workflows/classroom-file-server.yml"
-            "acs/classroom_file_server.py"
-            "tests/test_classroom_file_server.py"
-          )
+          if [[ "$EVENT_BASE_REF" == "converge/classroom-file-server-stack-20261003" ]]; then
+            expected=(
+              ".github/workflows/classroom-file-rpc.yml"
+              ".github/workflows/classroom-file-server.yml"
+              "acs/classroom_file_rpc.py"
+              "acs/classroom_file_server.py"
+              "tests/test_classroom_file_rpc.py"
+            )
+          else
+            expected=(
+              ".github/workflows/classroom-file-server.yml"
+              "acs/classroom_file_server.py"
+              "tests/test_classroom_file_server.py"
+            )
+          fi
           mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
           test "${changed[*]}" = "${expected_sorted[*]}"
 
@@ -57,7 +70,11 @@ jobs:
           python-version: "3.12"
 
       - name: Compile trusted file-server boundary
-        run: python -m py_compile acs/classroom_file_server.py tests/test_classroom_file_server.py
+        run: >-
+          python -m py_compile
+          acs/classroom_file_server.py
+          tests/test_classroom_file_server.py
+          ${{ github.event.pull_request.base.ref == 'converge/classroom-file-server-stack-20261003' && 'acs/classroom_file_rpc.py' || 'acs/classroom_file_server.py' }}
 
       - name: Run focused file-server and canonical collaboration contracts
         run: >-
