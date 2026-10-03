@@ -17,6 +17,7 @@ from acs.classroom_collaboration_storage import (
     ClassroomCollaborationSQLiteStore,
 )
 from acs.classroom_collaboration_webview import ClassroomCollaborationWebView
+from acs.classroom_domain import MAX_WIRE_INTEGER
 from acs.classroom_realtime_media import ClassroomMediaController, ClassroomRole
 from acs.full_product_ui_shell import UILanguage
 from tests.test_classroom_collaboration import FakeChat, FakeFiles, FakeFileStore, FakeRoster
@@ -2140,6 +2141,29 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         view.set_language(UILanguage.UA)
         self.assertEqual(
             stable_revision,
+            view.snapshot()["files"]["progress_revision"],
+        )
+
+    def test_language_switch_cannot_overflow_progress_revision(self) -> None:
+        self.selected_file = self.root / "revision-boundary.bin"
+        self.selected_file.write_bytes(b"x")
+        view = self.webview(language=UILanguage.EN)
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("collaboration.file.sent", uploaded.kind)
+        self.assertIsNotNone(view._file_progress)
+        view._file_progress_revision = MAX_WIRE_INTEGER
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "file progress presentation revision exhausted",
+        ):
+            view.set_language(UILanguage.UA)
+
+        self.assertEqual(UILanguage.EN, view.language)
+        self.assertEqual(MAX_WIRE_INTEGER, view._file_progress_revision)
+        self.assertEqual(
+            MAX_WIRE_INTEGER,
             view.snapshot()["files"]["progress_revision"],
         )
 
