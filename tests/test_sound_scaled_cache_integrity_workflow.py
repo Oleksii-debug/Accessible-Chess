@@ -84,7 +84,6 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
             "tests.test_sound_events",
             "tests.test_stage1_release_composition_ui",
             "tests.test_stage1_engine_play_ui",
-            "tests.test_stage1_release_composition_ui",
             "tests.test_dev3_sound_failure_isolation",
             "tests.test_sound_scaled_cache_integrity_workflow",
             "tests.test_version2_release_payload",
