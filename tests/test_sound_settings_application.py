@@ -736,6 +736,82 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertFalse(item["compatible"])
         self.assertFalse(item["installed_compatible"])
 
+    def test_same_version_rights_equivocation_is_visible_without_disabling_installed_pack(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        entry = _entry(installed)
+        stored_rights = SoundPackRightsEvidence(
+            license_id=installed.license_id,
+            source_uri="https://example.invalid/source/soft/verified-install",
+            license_uri="https://example.invalid/license/soft/verified-install",
+        )
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                stored_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("rights_conflict", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(stored_rights.source_uri, item["rights_source_uri"])
+        self.assertTrue(item["catalog_rights_auditable"])
+        self.assertEqual(
+            entry.rights_evidence.source_uri,
+            item["catalog_rights_source_uri"],
+        )
+        self.assertFalse(item["can_install"])
+        selected = app.select_pack("soft", language="en")
+        self.assertTrue(selected.ok)
+        self.assertEqual("soft", profiles.current.pack_id)
+
+    def test_same_version_missing_catalog_rights_does_not_erase_durable_installed_rights(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        audited = _entry(installed)
+        unaudited = SoundPackCatalogEntry(
+            manifest=audited.manifest,
+            assets=audited.assets,
+            total_bytes=audited.total_bytes,
+        )
+        stored_rights = audited.rights_evidence
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": unaudited},
+            installed_pack_provider=lambda: {"soft": installed},
+            installed_rights_provider=lambda pack_id: (
+                stored_rights if pack_id == "soft" else None
+            ),
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("rights_conflict", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(stored_rights.source_uri, item["rights_source_uri"])
+        self.assertFalse(item["catalog_rights_auditable"])
+        self.assertFalse(item["can_install"])
+
     def test_same_version_catalog_conflict_warns_without_replacing_verified_local_pack(self) -> None:
         classic = _manifest("classic")
         installed = _manifest("soft", "2.0.0")
