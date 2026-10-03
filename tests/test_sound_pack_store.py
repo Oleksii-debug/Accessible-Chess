@@ -31,6 +31,17 @@ def _wav(seed: bytes) -> bytes:
     return stream.getvalue()
 
 
+def _empty_wav() -> bytes:
+    stream = io.BytesIO()
+    with wave.open(stream, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(8000)
+        # Deliberately publish a syntactically valid RIFF/WAVE with zero frames.
+        writer.writeframes(b"")
+    return stream.getvalue()
+
+
 def _manifest(
     *,
     pack_id: str = "soft.wood",
@@ -1615,6 +1626,44 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual(store.active_version(first.pack_id), "1.0.0")
             self.assertEqual(store.installed()[first.pack_id], first)
             self.assertEqual(store.versions(first.pack_id), ("1.0.0",))
+
+    def test_valid_riff_header_with_zero_pcm_frames_is_rejected_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, payloads = _staged_download(root, manifest)
+            stage = Path(downloaded.payload_ref)
+            target_path = manifest.files["move"]
+            empty = _empty_wav()
+            (stage / target_path).write_bytes(empty)
+            payloads[target_path] = empty
+            assets = {
+                path: SoundAssetDigest(
+                    path=path,
+                    size_bytes=len(data),
+                    sha256=hashlib.sha256(data).hexdigest(),
+                )
+                for path, data in payloads.items()
+            }
+            malformed = DownloadedSoundPack(
+                manifest=manifest,
+                assets=assets,
+                total_bytes=sum(len(data) for data in payloads.values()),
+                payload_ref=stage,
+            )
+            store = FilesystemSoundPackStore(root / "packs")
+
+            with self.assertRaisesRegex(
+                SoundPackStoreError,
+                "unusable PCM parameters",
+            ):
+                store.install_atomically(malformed)
+
+            self.assertIsNone(store.active_version(manifest.pack_id))
+            self.assertFalse(
+                store._version_dir(manifest.pack_id, manifest.version).exists(),
+                "unusable WAV must fail while still in private staging",
+            )
 
     def test_downloaded_metadata_rejects_duplicate_normalized_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
