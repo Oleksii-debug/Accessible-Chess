@@ -133,6 +133,35 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _ensure_real_directory_chain(path: Path) -> None:
+    """Create missing profile directories without losing crash or redirect safety."""
+
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    chain = tuple(reversed(absolute.parents)) + (absolute,)
+    for directory in chain:
+        if os.path.lexists(directory):
+            _require_real_directory(
+                directory,
+                message="sound profile storage directory is redirected or invalid",
+            )
+            continue
+        parent = directory.parent
+        _require_real_directory_chain(parent)
+        try:
+            directory.mkdir(exist_ok=True)
+        except OSError as exc:
+            raise SoundProfileFileError(
+                "sound profile storage is unavailable"
+            ) from exc
+        _require_real_directory(
+            directory,
+            message="sound profile storage directory is redirected or invalid",
+        )
+        # The newly created directory is not crash-durable until its entry is
+        # flushed in the already-existing parent.
+        _fsync_directory(parent)
+
+
 class JsonSoundProfileStorage:
     """Concrete SoundProfileStoragePort backed by one atomic JSON file.
 
@@ -252,12 +281,7 @@ class JsonSoundProfileStorage:
             # be materialized outside the intended profile storage root before the
             # post-create redirect check rejects the write.
             _require_real_directory_chain(self.path.parent)
-            try:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                raise SoundProfileFileError(
-                    "sound profile storage is unavailable"
-                ) from exc
+            _ensure_real_directory_chain(self.path.parent)
             _require_real_directory_chain(self.path.parent)
             descriptor = self._open_lock_descriptor()
             acquired = False
