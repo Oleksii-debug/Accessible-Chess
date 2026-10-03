@@ -61,6 +61,82 @@ class SettingsTests(unittest.TestCase):
                     settings.set("volume", 41)
 
             self.assertFalse(path.exists())
+            self.assertEqual(
+                80,
+                settings.get("volume"),
+                "failed locked save left runtime Settings ahead of disk",
+            )
+
+    def test_reset_failure_reloads_durable_runtime_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "settings.json"
+            settings = Settings(path)
+            settings.set("volume", 31)
+
+            with _UpgradeLock(root / ".v2-upgrade.lock"):
+                with self.assertRaises(SettingsError):
+                    settings.reset("volume")
+
+            self.assertEqual(31, settings.get("volume"))
+            self.assertEqual(
+                31,
+                json.loads(path.read_text(encoding="utf-8"))["values"]["volume"],
+            )
+
+    def test_import_failure_reloads_durable_runtime_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "settings.json"
+            settings = Settings(path)
+            settings.set("volume", 32)
+            payload = json.dumps(
+                {
+                    "schema_version": SCHEMA_VERSION,
+                    "values": {"volume": 99, "language": "en"},
+                }
+            )
+
+            with _UpgradeLock(root / ".v2-upgrade.lock"):
+                with self.assertRaises(SettingsError):
+                    settings.import_json(payload)
+
+            self.assertEqual(32, settings.get("volume"))
+            self.assertEqual("uk", settings.get("language"))
+            durable = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(32, durable["values"]["volume"])
+            self.assertEqual("uk", durable["values"]["language"])
+
+    def test_postpublication_failure_reloads_what_is_actually_durable(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("volume", 33)
+
+            def publish_then_signal_failure():
+                path.write_text(settings.export_json() + "\n", encoding="utf-8")
+                raise SettingsError("simulated post-publication coordination failure")
+
+            with mock.patch.object(
+                settings,
+                "save",
+                side_effect=publish_then_signal_failure,
+            ):
+                with self.assertRaisesRegex(
+                    SettingsError,
+                    "post-publication coordination failure",
+                ):
+                    settings.set("volume", 55)
+
+            self.assertEqual(
+                55,
+                settings.get("volume"),
+                "runtime state did not resync to the durable post-publication file",
+            )
+            self.assertEqual(
+                55,
+                json.loads(path.read_text(encoding="utf-8"))["values"]["volume"],
+            )
 
     def test_save_rejects_symlink_upgrade_lock(self):
         with tempfile.TemporaryDirectory() as td:
