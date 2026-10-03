@@ -189,7 +189,12 @@ class SoundPackManager:
         if entry.signature is not None:
             if self._signature_verifier is None:
                 raise SoundPackInstallError("signed sound pack requires a signature verifier")
-            if not self._signature_verifier.verify(entry, downloaded):
+            verified = self._signature_verifier.verify(entry, downloaded)
+            if type(verified) is not bool:
+                raise SoundPackInstallError(
+                    "sound pack signature verifier returned an invalid result"
+                )
+            if not verified:
                 raise SoundPackInstallError("sound pack signature verification failed")
 
         self._storage.install_atomically(downloaded)
