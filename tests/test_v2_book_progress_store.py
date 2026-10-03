@@ -1364,6 +1364,67 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertEqual(self.path.read_bytes(), external)
 
+    def test_post_replace_same_bytes_substitution_during_sync_reports_durability_unknown(self) -> None:
+        injected = False
+
+        def sync_after_same_bytes_substitution(path: Path) -> None:
+            nonlocal injected
+            path = Path(path)
+            if path == self.path:
+                foreign = path.with_name("foreign-during-primary-sync.json")
+                foreign.write_bytes(path.read_bytes())
+                os.replace(foreign, path)
+                injected = True
+
+        with mock.patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=sync_after_same_bytes_substitution,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:same-bytes-during-primary-sync",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertTrue(self.store.has("book:same-bytes-during-primary-sync"))
+
+    def test_backup_same_bytes_substitution_during_sync_reports_durability_unknown(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:same-bytes-during-backup-sync", reader)
+        primary_before = self.path.read_bytes()
+        injected = False
+
+        def sync_after_same_bytes_substitution(path: Path) -> None:
+            nonlocal injected
+            path = Path(path)
+            if path == self.store.backup_path:
+                foreign = path.with_name("foreign-during-backup-sync.json")
+                foreign.write_bytes(path.read_bytes())
+                os.replace(foreign, path)
+                injected = True
+
+        reader.go_to(2)
+        with mock.patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=sync_after_same_bytes_substitution,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:same-bytes-during-backup-sync", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertTrue(self.store.has("book:same-bytes-during-backup-sync"))
+
     def test_primary_publication_rejects_same_bytes_temp_inode_substitution(self) -> None:
         injected = False
 
