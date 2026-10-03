@@ -118,6 +118,21 @@ class RecordingAdapter {
     return this.snapshot();
   }
 
+  loseTransport() {
+    this._snapshot = {
+      connected: false,
+      cleanup_required: false,
+      room_id: null,
+      participant_id: null,
+      microphone_enabled: false,
+      camera_enabled: false,
+      screen_share_enabled: false
+    };
+    if (typeof this.options.onTransportLost === "function") {
+      this.options.onTransportLost(this.snapshot());
+    }
+  }
+
   snapshot() {
     return Object.assign({}, this._snapshot);
   }
@@ -735,6 +750,143 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
   assert.equal(RecordingAdapter.instances.length, 1);
 }
 
+async function testTransportLossReconcilesExactlyOnce() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const transaction = "session-" + "c".repeat(32);
+  const joined = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+  const calls = [];
+
+  async function invoke(command, payload) {
+    calls.push(command);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: transaction,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: transaction } };
+    }
+    if (command === "media.provider_session_success") {
+      return { kind: "media-updated", payload: { snapshot: { connected: true } } };
+    }
+    if (command === "media.provider_transport_lost") {
+      assert.deepEqual(payload.snapshot, {
+        connected: false,
+        cleanup_required: false,
+        room_id: null,
+        participant_id: null,
+        microphone_enabled: false,
+        camera_enabled: false,
+        screen_share_enabled: false
+      });
+      return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+    }
+    throw new Error("unexpected bridge command " + command);
+  }
+
+  assert.equal((await runtime.execute(joined, invoke)).kind, "media-updated");
+  RecordingAdapter.instances[0].loseTransport();
+
+  const first = await runtime.reconcileTransport(invoke);
+  const second = await runtime.reconcileTransport(invoke);
+  assert.equal(first.kind, "media-updated");
+  assert.equal(second, null);
+  assert.equal(
+    calls.filter((command) => command === "media.provider_transport_lost").length,
+    1
+  );
+}
+
+async function testPendingTransportLossRetiresNewMutationBeforeProviderCall() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const sessionTx = "session-" + "d".repeat(32);
+  const joined = dispatch(sessionTx, {
+    transaction_id: sessionTx,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+  let joinedComplete = false;
+
+  async function joinInvoke(command, payload) {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: sessionTx,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: payload.transaction_id } };
+    }
+    if (command === "media.provider_session_success") {
+      joinedComplete = true;
+      return { kind: "media-updated", payload: { snapshot: { connected: true } } };
+    }
+    throw new Error("unexpected join command " + command);
+  }
+
+  await runtime.execute(joined, joinInvoke);
+  assert.equal(joinedComplete, true);
+  const adapter = RecordingAdapter.instances[0];
+  adapter.loseTransport();
+
+  const mutationTx = "host-" + "e".repeat(32);
+  const mutation = dispatch(mutationTx, {
+    transaction_id: mutationTx,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: true
+  }, false);
+  const calls = [];
+
+  const result = await runtime.execute(mutation, async (command, payload) => {
+    calls.push(command);
+    if (command === "media.provider_not_started") {
+      assert.equal(payload.transaction_id, mutationTx);
+      return { kind: "error", payload: { message: "retired" } };
+    }
+    if (command === "media.provider_transport_lost") {
+      assert.equal(payload.snapshot.connected, false);
+      return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+    }
+    throw new Error("unexpected reconciliation command " + command);
+  });
+
+  assert.equal(result.kind, "media-updated");
+  assert.deepEqual(calls, [
+    "media.provider_not_started",
+    "media.provider_transport_lost"
+  ]);
+  assert.equal(
+    adapter.calls.filter((item) => item[0] === "setLocalSource").length,
+    0
+  );
+}
+
 async function run() {
   await testMultiChunkMarksProviderBoundaryOnce();
   await testJoinTakesCredentialBeforeDispatchAndReturnsExactSnapshot();
@@ -747,6 +899,8 @@ async function run() {
   await testCleanProviderRebindRefreshesConfiguration();
   await testProviderRebindRejectsResidualDisconnectedState();
   await testProviderRebindCannotRetargetConnectedAdapter();
+  await testTransportLossReconcilesExactlyOnce();
+  await testPendingTransportLossRetiresNewMutationBeforeProviderCall();
   console.log("LIVEKIT_CLASSROOM_MEDIA_TRANSACTION_RUNTIME=PASS");
 }
 
