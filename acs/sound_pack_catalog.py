@@ -211,7 +211,12 @@ class DownloadedSoundPack:
                 raise TypeError(
                     "downloaded assets must contain SoundAssetDigest values"
                 )
-            snapshot[path] = digest
+            key = _safe_audio_path(path)
+            if key != digest.path:
+                raise ValueError("downloaded asset key must match digest path")
+            if key in snapshot:
+                raise ValueError("duplicate normalized downloaded asset path")
+            snapshot[key] = digest
         object.__setattr__(
             self,
             "assets",
@@ -287,6 +292,22 @@ class SoundPackManager:
             raise ValueError("max_bytes must be positive")
         if type(external_fallback_available) is not bool:
             raise TypeError("external_fallback_available must be boolean")
+        if isinstance(downloader, type) or not callable(
+            getattr(downloader, "download", None)
+        ):
+            raise TypeError("downloader must expose callable download")
+        if isinstance(storage, type) or any(
+            not callable(getattr(storage, name, None))
+            for name in ("installed", "install_atomically", "uninstall")
+        ):
+            raise TypeError(
+                "storage must expose installed, install_atomically and uninstall"
+            )
+        if signature_verifier is not None and (
+            isinstance(signature_verifier, type)
+            or not callable(getattr(signature_verifier, "verify", None))
+        ):
+            raise TypeError("signature_verifier must expose callable verify or be None")
         fallback_pack_id = SoundProfile(pack_id=fallback_pack_id).pack_id
         self._downloader = downloader
         self._storage = storage
@@ -299,6 +320,30 @@ class SoundPackManager:
     def fallback_pack_id(self) -> str:
         return self._fallback_pack_id
 
+    def _installed_manifests(self) -> dict[str, SoundPackManifest]:
+        raw = self._storage.installed()
+        if not isinstance(raw, Mapping):
+            raise SoundPackInstallError("installed sound pack inventory is invalid")
+        installed: dict[str, SoundPackManifest] = {}
+        for pack_id, manifest in raw.items():
+            if type(pack_id) is not str or not isinstance(
+                manifest, SoundPackManifest
+            ):
+                raise SoundPackInstallError(
+                    "installed sound pack metadata is invalid"
+                )
+            canonical_pack_id = SoundProfile(pack_id=pack_id).pack_id
+            if pack_id != canonical_pack_id or manifest.pack_id != pack_id:
+                raise SoundPackInstallError(
+                    "installed sound pack identity is invalid"
+                )
+            if pack_id in installed:
+                raise SoundPackInstallError(
+                    "installed sound pack inventory contains duplicate identity"
+                )
+            installed[pack_id] = manifest
+        return installed
+
     def install(self, entry: SoundPackCatalogEntry) -> SoundPackManifest:
         if not entry.compatible:
             raise SoundPackInstallError("sound pack is incompatible with this application")
@@ -308,7 +353,7 @@ class SoundPackManager:
             )
         if entry.total_bytes > self._max_bytes:
             raise SoundPackInstallError("sound pack exceeds the configured size limit")
-        current = dict(self._storage.installed()).get(entry.manifest.pack_id)
+        current = self._installed_manifests().get(entry.manifest.pack_id)
         if current is not None:
             if not isinstance(current, SoundPackManifest):
                 raise SoundPackInstallError("installed sound pack metadata is invalid")
@@ -378,7 +423,7 @@ class SoundPackManager:
         """Return the storage-verified active manifest for one installed pack."""
 
         requested = SoundProfile(pack_id=pack_id).pack_id
-        current = dict(self._storage.installed()).get(requested)
+        current = self._installed_manifests().get(requested)
         if current is not None and not isinstance(current, SoundPackManifest):
             raise SoundPackInstallError("installed sound pack metadata is invalid")
         return current
@@ -393,7 +438,7 @@ class SoundPackManager:
         """Resolve against installed packs plus an optional external fallback authority."""
 
         requested = SoundProfile(pack_id=requested_pack_id).pack_id
-        installed = dict(self._storage.installed())
+        installed = self._installed_manifests()
         if requested in installed:
             return requested
         if requested == self._fallback_pack_id and self._external_fallback_available:
@@ -417,7 +462,7 @@ class SoundPackManager:
         pack_id = SoundProfile(pack_id=pack_id).pack_id
         if pack_id == self._fallback_pack_id:
             raise SoundPackInstallError("the fallback sound pack cannot be uninstalled")
-        installed = dict(self._storage.installed())
+        installed = self._installed_manifests()
         if pack_id not in installed:
             return SoundPackUninstallPlan(
                 pack_id=pack_id,
@@ -504,6 +549,6 @@ class SoundPackManager:
         )
 
     def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
-        installed = dict(self._storage.installed())
+        installed = self._installed_manifests()
         current = installed.get(entry.manifest.pack_id)
         return self.status_for_installed_manifest(entry, current)
