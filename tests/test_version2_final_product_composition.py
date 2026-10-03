@@ -53,6 +53,31 @@ def test_final_native_menu_adds_only_safe_teacher_navigation():
     assert not any(action_id.startswith("remote.") for action_id in action_ids)
 
 
+def test_v2_launcher_keeps_media_capable_loopback_webview_origin():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "run_accessible_chess_v2.py").read_text(encoding="utf-8")
+    release_ui = (root / "acs" / "version2_release_ui.py").read_text(
+        encoding="utf-8"
+    )
+    safe_server = (root / "acs" / "webview_safe_server.py").read_text(
+        encoding="utf-8"
+    )
+
+    install_call = "install_pywebview_safe_local_server_port()"
+    main_import = "from acs.version2_upgrade_status_release import main"
+    assert install_call in launcher
+    assert main_import in launcher
+    assert launcher.index(install_call) < launcher.index(main_import)
+
+    assert 'url=str(html)' in release_ui
+    assert 'html=str(html)' not in release_ui
+    assert 'html=html' not in release_ui
+    assert 'webview_module.start(gui="edgechromium", private_mode=True)' in release_ui
+
+    assert 'probe.bind(("127.0.0.1", port))' in safe_server
+    assert 'rewritten["http_port"] = safe_port' in safe_server
+
+
 def test_final_bootstrap_is_packaged_and_remote_transport_is_absent():
     source = Path("web/version2_final_product_bootstrap.js").read_text(encoding="utf-8")
     assert '"teacher"' in source
