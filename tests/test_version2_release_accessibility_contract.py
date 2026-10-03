@@ -10,6 +10,7 @@ HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
 SHELL = (ROOT / "acs" / "full_product_ui_shell.py").read_text(encoding="utf-8")
 PGN_PROJECTION = (ROOT / "acs" / "pgn_webview_projection.py").read_text(encoding="utf-8")
 BOOK_PROJECTION = (ROOT / "acs" / "book_webview_projection.py").read_text(encoding="utf-8")
+TRAINING_SURFACE = (ROOT / "web" / "full_product_books_training.js").read_text(encoding="utf-8")
 WINDOWS_COMPOSITION = (ROOT / ".github" / "workflows" / "version2-windows-composition.yml").read_text(encoding="utf-8")
 
 
@@ -74,6 +75,15 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('return documentRef.activeElement === target;', BOOTSTRAP)
         self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
+
+    def test_training_shell_focus_names_the_real_answer_control(self) -> None:
+        self.assertIn('default_focus_id="training-answer"', SHELL)
+        self.assertNotIn('default_focus_id="training-prompt"', SHELL)
+        self.assertIn('input.id = "training-answer";', TRAINING_SURFACE)
+        self.assertIn(
+            'const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;',
+            BOOTSTRAP,
+        )
 
     def test_focus_targets_under_hidden_routes_are_never_programmatically_focused(self) -> None:
         self.assertIn('function hiddenByAncestor(target)', BOOTSTRAP)
