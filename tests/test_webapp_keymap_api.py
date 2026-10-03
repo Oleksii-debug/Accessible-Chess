@@ -189,6 +189,46 @@ def test_native_alt_menu_projects_live_history_and_edit_bindings(tmp_path: Path)
     assert "Go to move\tCtrl+G" in titles
 
 
+def test_native_new_game_menu_refreshes_then_starts_visual_sequence(tmp_path: Path) -> None:
+    api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json", lang="uk")
+    calls: list[str] = []
+
+    class FakeWindow:
+        def evaluate_js(self, code):
+            calls.append(code)
+
+    class FakeMenuAction:
+        def __init__(self, title, callback):
+            self.title = title
+            self.callback = callback
+
+    class FakeMenu:
+        def __init__(self, title, items):
+            self.title = title
+            self.items = items
+
+    class FakeSeparator:
+        pass
+
+    fake_webview = SimpleNamespace(
+        menu=SimpleNamespace(Menu=FakeMenu, MenuAction=FakeMenuAction, MenuSeparator=FakeSeparator)
+    )
+    menus = make_keymap_menu(fake_webview, api, {"window": FakeWindow()})
+    file_menu = next(menu for menu in menus if menu.title == "Файл")
+    new_action = next(
+        item
+        for item in file_menu.items
+        if isinstance(item, FakeMenuAction) and item.title.startswith("Нова стандартна позиція")
+    )
+
+    new_action.callback()
+
+    assert "\tCtrl+N" in new_action.title
+    assert calls
+    assert "refreshState().then" in calls[-1]
+    assert "startNewGameVisualSequence" in calls[-1]
+
+
 def test_settings_native_menu_entry_targets_keyboard_and_commands(tmp_path: Path) -> None:
     api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json", lang="uk")
     calls: list[str] = []
