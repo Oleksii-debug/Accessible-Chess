@@ -162,6 +162,23 @@ class ClassroomCollaborationRuntimePreflightTests(unittest.TestCase):
                     )
                 self.assert_no_persistence_or_credentials(path)
 
+    def test_invalid_store_location_fails_before_transport_or_persistence(self) -> None:
+        directory_path = self.root / "store-directory"
+        directory_path.mkdir()
+        missing_parent_path = self.root / "missing-parent" / "store.sqlite3"
+        cases = (
+            (directory_path, "store_path must reference a file"),
+            (missing_parent_path, "store_path parent directory must already exist"),
+        )
+        for path, message in cases:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.build(roster=FakeRoster(), path=path)
+                self.assertEqual(self.chat_token_calls, 0)
+                self.assertEqual(self.file_token_calls, 0)
+                if path is missing_parent_path:
+                    self.assertFalse(path.exists())
+
     def test_invalid_transport_timeout_fails_before_durable_store_creation(self) -> None:
         cases = (
             {"chat_timeout_seconds": 0},
