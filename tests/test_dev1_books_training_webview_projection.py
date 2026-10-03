@@ -569,6 +569,37 @@ class BookProjectionTests(unittest.TestCase):
         self.assertIs(before, self.projection.language)
 
 
+    def test_book_render_rejects_hostile_announcement_string_before_subclass_hooks(self) -> None:
+        class ReplaceBomb(str):
+            touched = False
+
+            def replace(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile announcement replace must never execute")
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile announcement strip must never execute")
+
+        block = self.presenter.current()
+        with self.assertRaisesRegex(TypeError, "presentation text must be text"):
+            self.projection._render(block, announcement=ReplaceBomb("saved"))
+        self.assertFalse(ReplaceBomb.touched)
+
+    def test_book_render_bounds_raw_announcement_before_sanitizer_scan(self) -> None:
+        block = self.presenter.current()
+        with (
+            patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4),
+            patch(
+                "acs.book_webview_projection.redact_local_paths",
+                side_effect=AssertionError("redaction must not scan raw over-budget announcement"),
+            ) as redact,
+        ):
+            with self.assertRaisesRegex(ValueError, "raw text budget"):
+                self.projection._render(block, announcement="xxxxx")
+        redact.assert_not_called()
+
+
 class TrainingProjectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.definition = ExerciseDefinition(
