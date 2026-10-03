@@ -184,6 +184,7 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         manager = SoundProfileManager(storage, lambda _pack: "classic")
         result = manager.load()
         self.assertTrue(result.writes_blocked)
+        self.assertFalse(result.profile.master_enabled)
         playback = _AssetPlayback()
         runtime = ProfiledSoundRuntime(playback, manager.profile_provider)
         app = SoundSettingsApplication(manager, runtime)
@@ -241,7 +242,12 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         preview = app.preview("move", language="en")
         self.assertTrue(preview.ok)
         self.assertTrue(preview.snapshot["writes_blocked"])
-        self.assertEqual(1, len(playback.requests))
+        self.assertIn("muted", preview.announcement.lower())
+        self.assertEqual(
+            [],
+            playback.requests,
+            "future-schema preview must not emit audio under unknown semantics",
+        )
 
     def test_verified_local_installed_pack_is_discoverable_and_selectable_without_remote_catalog(self) -> None:
         base = _manifest("local.wood")
