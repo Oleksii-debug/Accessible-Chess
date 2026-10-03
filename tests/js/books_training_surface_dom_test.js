@@ -272,6 +272,50 @@ async function flushPromises() {
 async function run() {
   const announcements = [];
   const announce = (message) => announcements.push(String(message));
+
+  let partialRootReplaceCalls = 0;
+  const partialRoot = {
+    replaceChildren: function () {
+      partialRootReplaceCalls += 1;
+    }
+  };
+  let partialTrainingRootRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      partialRoot,
+      trainingSnapshot(),
+      () => ({}),
+      announce,
+      "training-answer",
+      "Action failed",
+      []
+    );
+  } catch (error) {
+    partialTrainingRootRejected = true;
+  }
+  check(partialTrainingRootRejected,
+    "Training surface must reject an incomplete DOM root before rendering");
+  check(partialRootReplaceCalls === 0,
+    "Training incomplete root must fail before DOM replacement");
+
+  let partialBookRootRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      partialRoot,
+      bookSnapshot(0, "Book"),
+      () => ({}),
+      announce,
+      "book-block-0",
+      "Action failed"
+    );
+  } catch (error) {
+    partialBookRootRejected = true;
+  }
+  check(partialBookRootRejected,
+    "Book surface must reject an incomplete DOM root before rendering");
+  check(partialRootReplaceCalls === 0,
+    "Book incomplete root must fail before DOM replacement");
+
   const trainingRoot = new FakeElement("div");
   let accepted = false;
   const trainingInvoke = (command, payload) => {
