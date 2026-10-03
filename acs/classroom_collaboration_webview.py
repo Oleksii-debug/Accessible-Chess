@@ -482,6 +482,24 @@ class ClassroomCollaborationWebView:
         ).encode("utf-8") + b"\0" + token
         return hmac.new(self._action_secret, material, sha256).hexdigest()
 
+    def _file_progress_callback(self) -> Callable[[FileTransferProgress], None]:
+        """Bind progress delivery to the exact browser-session transfer attempt."""
+
+        attempt_token = self._file_progress_attempt_token
+        if attempt_token is None:
+            raise RuntimeError("file progress attempt is not active")
+
+        def publish(sample: FileTransferProgress) -> None:
+            current = self._file_progress_attempt_token
+            if current is None or not hmac.compare_digest(current, attempt_token):
+                # A retired browser session or a newer upload/retry attempt has
+                # superseded this callback. Late synchronous provider samples
+                # must not resurrect presentation state in the new session.
+                return
+            self._publish_file_progress(sample)
+
+        return publish
+
     def _attachment_for_key(self, file_key: object) -> AttachmentMetadata:
         if type(file_key) is not str or len(file_key) != 64:
             raise ValueError("invalid file action key")
@@ -1329,7 +1347,7 @@ class ClassroomCollaborationWebView:
         try:
             uploaded = self._controller.upload_file(
                 prepared,
-                on_progress=self._publish_file_progress,
+                on_progress=self._file_progress_callback(),
             )
         except Exception:
             # Progress is presentation-only. The failed command result redraws
@@ -1450,7 +1468,7 @@ class ClassroomCollaborationWebView:
         try:
             retried = self._controller.retry_file(
                 prepared,
-                on_progress=self._publish_file_progress,
+                on_progress=self._file_progress_callback(),
             )
         except Exception:
             self._clear_file_progress()

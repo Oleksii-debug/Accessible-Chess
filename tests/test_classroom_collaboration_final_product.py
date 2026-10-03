@@ -190,6 +190,49 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.assertNotIn("rooms/room-1", exposed)
         self.assertNotIn("sha256", exposed.lower())
 
+    def test_host_unbind_during_progress_stops_old_channel_without_failing_upload(self) -> None:
+        selected = Path(self.tmp.name) / "unbind-during-progress.bin"
+        selected.write_bytes(b"abcdefghij")
+        self.collaboration._file_picker = lambda: selected
+        self.files.scan_state = "clean"
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-composition-1", 4, 10),
+            FileTransferProgress("attachment-composition-1", 8, 10),
+        )
+        bridged: list[dict[str, object]] = []
+        app = self.bare_app()
+
+        def unbind_on_first_progress(event):
+            bridged.append(event)
+            app.unbind_classroom_collaboration()
+
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            app.bind_classroom_collaboration(
+                self.collaboration,
+                file_progress_event_sink=unbind_on_first_progress,
+            )
+            uploaded = app.browser_command(
+                "classes",
+                "collaboration.file.choose_upload",
+                {},
+            )
+
+        self.assertEqual("collaboration.file.sent", uploaded["kind"])
+        self.assertIsNone(app.collaboration)
+        self.assertEqual(1, len(bridged))
+        self.assertEqual(
+            0,
+            bridged[0]["payload"]["file_progress"]["transferred_bytes"],
+        )
+        self.assertIsNone(self.collaboration._file_progress_event_sink)
+        self.assertIsNone(self.collaboration._file_progress_attempt_token)
+        self.assertIsNone(self.collaboration._file_progress)
+        self.assertEqual(
+            "stored",
+            self.store.room_attachments("room-1")[0].transfer_state,
+        )
+        self.assertNotIn(str(selected), repr(uploaded))
+
     def test_binding_without_progress_sink_clears_preexisting_observer(self) -> None:
         app = self.bare_app()
         retired_events: list[ClassroomCollaborationWebViewEvent] = []

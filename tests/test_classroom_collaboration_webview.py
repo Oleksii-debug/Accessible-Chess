@@ -1387,6 +1387,100 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             retry_transfer_key,
         )
 
+    def test_retired_browser_session_ignores_remaining_old_attempt_progress(self) -> None:
+        self.selected_file = self.root / "retire-during-progress.pgn"
+        self.selected_file.write_bytes(b"0123456789")
+        self.files.scan_state = "clean"
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-ui-1", 4, 10),
+            FileTransferProgress("attachment-ui-1", 8, 10),
+        )
+        progress_events = []
+        view = self.webview()
+        original_session_key = view.snapshot()["session_key"]
+
+        def retire_on_first_progress(event):
+            progress_events.append(event)
+            view.retire_browser_session()
+
+        view.set_file_progress_event_sink(retire_on_first_progress)
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+
+        self.assertEqual("collaboration.file.sent", uploaded.kind)
+        self.assertEqual(1, len(progress_events))
+        self.assertEqual(
+            0,
+            progress_events[0].payload["file_progress"]["transferred_bytes"],
+        )
+        self.assertEqual(
+            original_session_key,
+            progress_events[0].payload["file_progress"]["session_key"],
+        )
+        current = uploaded.payload["collaboration"]
+        self.assertNotEqual(original_session_key, current["session_key"])
+        self.assertIsNone(current["files"]["transfer_progress"])
+        self.assertEqual(0, current["files"]["progress_revision"])
+        self.assertIsNone(view._file_progress)
+        self.assertIsNone(view._file_progress_attempt_token)
+        self.assertIsNone(view._file_progress_event_sink)
+        self.assertEqual(
+            "stored",
+            self.store.room_attachments("room-1")[0].transfer_state,
+        )
+
+    def test_retired_browser_session_ignores_remaining_retry_progress(self) -> None:
+        self.selected_file = self.root / "retire-during-retry.pgn"
+        self.selected_file.write_bytes(b"0123456789")
+        self.files.fail_upload = True
+        view = self.webview()
+
+        failed = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("error", failed.kind)
+        failed_item = failed.payload["collaboration"]["files"]["items"][0]
+        self.assertTrue(failed_item["can_retry"])
+        self.assertEqual(1, len(view._prepared))
+
+        self.files.fail_upload = False
+        self.files.scan_state = "clean"
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-ui-1", 5, 10),
+            FileTransferProgress("attachment-ui-1", 9, 10),
+        )
+        progress_events = []
+        original_session_key = view.snapshot()["session_key"]
+
+        def retire_on_first_progress(event):
+            progress_events.append(event)
+            view.retire_browser_session()
+
+        view.set_file_progress_event_sink(retire_on_first_progress)
+
+        retried = view.dispatch(
+            "collaboration.file.retry",
+            {"file_key": failed_item["file_key"]},
+        )
+
+        self.assertEqual("collaboration.file.retried", retried.kind)
+        self.assertEqual(1, len(progress_events))
+        self.assertEqual(
+            0,
+            progress_events[0].payload["file_progress"]["transferred_bytes"],
+        )
+        current = retried.payload["collaboration"]
+        self.assertNotEqual(original_session_key, current["session_key"])
+        self.assertIsNone(current["files"]["transfer_progress"])
+        self.assertEqual(0, current["files"]["progress_revision"])
+        self.assertEqual({}, view._prepared)
+        self.assertIsNone(view._file_progress)
+        self.assertIsNone(view._file_progress_attempt_token)
+        self.assertIsNone(view._file_progress_event_sink)
+        self.assertEqual(
+            "stored",
+            self.store.room_attachments("room-1")[0].transfer_state,
+        )
+        self.assertNotIn(str(self.selected_file), repr(retried.payload))
+
     def test_broken_file_progress_sink_cannot_turn_valid_upload_into_failure(self) -> None:
         self.selected_file = self.root / "progress-sink-failure.pgn"
         self.selected_file.write_bytes(b"abc")
