@@ -8,7 +8,7 @@ settings and fault reporting so a missing/broken sound can never mutate chess
 state or fall back to a system beep.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Iterable, Mapping, Protocol
 
 from .sound_events import MoveSoundFacts, SoundEvent, SoundEventPolicy
@@ -29,6 +29,8 @@ class SoundPlaybackPort(Protocol):
 class SoundRuntimeSettings:
     enabled: bool = True
     volume: int = 80
+    event_enabled: Mapping[SoundEvent, bool] = field(default_factory=dict)
+    event_volume: Mapping[SoundEvent, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
@@ -37,6 +39,39 @@ class SoundRuntimeSettings:
             raise TypeError("volume must be an integer")
         if not 0 <= self.volume <= 100:
             raise ValueError("volume must be in 0..100")
+        if not isinstance(self.event_enabled, Mapping):
+            raise TypeError("event_enabled must be a mapping")
+        if not isinstance(self.event_volume, Mapping):
+            raise TypeError("event_volume must be a mapping")
+        enabled_copy: dict[SoundEvent, bool] = {}
+        volume_copy: dict[SoundEvent, int] = {}
+        for event, value in self.event_enabled.items():
+            if not isinstance(event, SoundEvent):
+                raise TypeError("event_enabled keys must be SoundEvent values")
+            if type(value) is not bool:
+                raise TypeError("event_enabled values must be boolean")
+            enabled_copy[event] = value
+        for event, value in self.event_volume.items():
+            if not isinstance(event, SoundEvent):
+                raise TypeError("event_volume keys must be SoundEvent values")
+            if type(value) is not int:
+                raise TypeError("event_volume values must be integers")
+            if not 0 <= value <= 100:
+                raise ValueError("event_volume values must be in 0..100")
+            volume_copy[event] = value
+        object.__setattr__(self, "event_enabled", enabled_copy)
+        object.__setattr__(self, "event_volume", volume_copy)
+
+    def enabled_for(self, event: SoundEvent) -> bool:
+        if not isinstance(event, SoundEvent):
+            raise TypeError("event must be SoundEvent")
+        return bool(self.enabled and self.event_enabled.get(event, True))
+
+    def volume_for(self, event: SoundEvent) -> int:
+        if not isinstance(event, SoundEvent):
+            raise TypeError("event must be SoundEvent")
+        relative = self.event_volume.get(event, 100)
+        return max(0, min(100, (self.volume * relative + 50) // 100))
 
     @classmethod
     def from_mapping(cls, settings: Mapping[str, object]) -> "SoundRuntimeSettings":
@@ -44,7 +79,20 @@ class SoundRuntimeSettings:
             raise TypeError("settings must be a mapping")
         enabled = settings.get("sounds", True)
         volume = settings.get("volume", 80)
-        return cls(enabled=enabled, volume=volume)  # type: ignore[arg-type]
+        event_enabled = {
+            event: settings.get(f"sound_{event.value}_enabled", True)
+            for event in SoundEvent
+        }
+        event_volume = {
+            event: settings.get(f"sound_{event.value}_volume", 100)
+            for event in SoundEvent
+        }
+        return cls(
+            enabled=enabled,  # type: ignore[arg-type]
+            volume=volume,  # type: ignore[arg-type]
+            event_enabled=event_enabled,  # type: ignore[arg-type]
+            event_volume=event_volume,  # type: ignore[arg-type]
+        )
 
 
 @dataclass(frozen=True)
@@ -157,9 +205,14 @@ class SoundRuntime:
 
         delivered: list[SoundEvent] = []
         failures: list[SoundPlaybackFailure] = []
+        skipped = 0
         for event in requested:
+            event_volume = settings.volume_for(event)
+            if not settings.enabled_for(event) or event_volume == 0:
+                skipped += 1
+                continue
             try:
-                self._playback.play(event, volume=settings.volume)
+                self._playback.play(event, volume=event_volume)
             except Exception as exc:  # infrastructure boundary
                 message = str(exc).strip() or type(exc).__name__
                 failure = SoundPlaybackFailure(event, type(exc).__name__, message)
@@ -173,7 +226,12 @@ class SoundRuntime:
                         pass
             else:
                 delivered.append(event)
-        return SoundPlaybackReport(requested, tuple(delivered), tuple(failures))
+        return SoundPlaybackReport(
+            requested,
+            tuple(delivered),
+            tuple(failures),
+            disabled=bool(requested) and skipped == len(requested),
+        )
 
 
 class GameSoundRuntime:
