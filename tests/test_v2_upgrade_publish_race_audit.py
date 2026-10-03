@@ -413,8 +413,8 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 guard: upgrade_base_module._PublicationGuard,
             ) -> os.stat_result:
                 nonlocal require_calls
-                info = real_require(guard)
                 require_calls += 1
+                info = real_require(guard)
                 if require_calls == 4:
                     guard.path.unlink()
                 return info
