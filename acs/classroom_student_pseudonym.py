@@ -50,8 +50,6 @@ def rename_student_pseudonym(
         "expected student revision",
     )
     _revision(expected_ledger_revision, "expected education ledger revision")
-    if student.revision != expected_student_revision:
-        raise ClassroomStudentPseudonymError("stale student revision")
     if student.deleted:
         raise ClassroomStudentPseudonymError(
             "deleted student pseudonym cannot be changed"
@@ -62,6 +60,10 @@ def rename_student_pseudonym(
         )
 
     normalized = normalize_student_pseudonym(pseudonym)
+    # Match the existing D10 desired-state retry contract used by consent:
+    # once the exact desired visible state is already current, let the durable
+    # operation receipt/CAS decide whether this is an idempotent retry.  Do not
+    # reject only because the successful prior mutation advanced Student.revision.
     if normalized == student.pseudonym:
         try:
             return commit_classroom(
@@ -75,6 +77,8 @@ def rename_student_pseudonym(
                 "student pseudonym publication was rejected"
             ) from exc
 
+    if student.revision != expected_student_revision:
+        raise ClassroomStudentPseudonymError("stale student revision")
     if student.revision >= MAX_WIRE_INTEGER:
         raise ClassroomStudentPseudonymError("student revision is exhausted")
 
