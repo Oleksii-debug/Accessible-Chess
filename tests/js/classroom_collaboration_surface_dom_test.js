@@ -295,6 +295,36 @@ check(
   document.activeElement === root.querySelector("#collaboration-file-choose"),
   "progress-preserving redraw must also restore the stable keyboard focus anchor"
 );
+
+const invalidProgressSnapshot = collaboration([], 0, false, "invalid-progress-session");
+invalidProgressSnapshot.files.transfer_progress = {
+  name: "forged.pgn",
+  transferred_bytes: 1,
+  total_bytes: 2,
+  complete: false,
+  label: "File transfer progress",
+  text: "Missing transfer identity"
+};
+const invalidProgressRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  invalidProgressRoot,
+  {
+    document: { lang: "en", heading: "Classes" },
+    sections: [],
+    detail: null,
+    collaboration: invalidProgressSnapshot
+  },
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+check(
+  invalidProgressRoot.querySelector("#collaboration-file-transfer-meter") === null &&
+  invalidProgressRoot.querySelector("#collaboration-file-transfer-text") === null,
+  "snapshot progress without the session-bound opaque transfer identity must fail closed"
+);
+
 window.AccessibleChessEducationSurface.apply(
   root,
   {
