@@ -354,8 +354,11 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 stat.S_ISLNK(metadata.st_mode)
                 or bool(reparse_flag and attributes & reparse_flag)
                 or not stat.S_ISREG(metadata.st_mode)
+                or int(getattr(metadata, "st_nlink", 1)) != 1
             ):
-                raise RuntimeError("profiled sound cache lock is not a regular file")
+                raise RuntimeError(
+                    "profiled sound cache lock is not a private regular file"
+                )
 
         flags = os.O_RDWR | os.O_CREAT
         flags |= getattr(os, "O_BINARY", 0)
@@ -375,8 +378,11 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 stat.S_ISLNK(opened.st_mode)
                 or bool(reparse_flag and attributes & reparse_flag)
                 or not stat.S_ISREG(opened.st_mode)
+                or int(getattr(opened, "st_nlink", 1)) != 1
             ):
-                raise RuntimeError("profiled sound cache lock is not a regular file")
+                raise RuntimeError(
+                    "profiled sound cache lock is not a private regular file"
+                )
             if (
                 metadata is not None
                 and _regular_file_identity(opened) != _regular_file_identity(metadata)
