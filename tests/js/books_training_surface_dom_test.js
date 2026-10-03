@@ -119,7 +119,9 @@ function trainingSnapshot() {
     answer: { label: "Your move", max_length: 128, submit_label: "Check", disabled: false },
     actions: [
       { command: "training.hint", label: "Hint", enabled: true },
+      { command: "training.reveal", label: "Reveal solution", enabled: true },
       { command: "training.retry", label: "Retry", enabled: true },
+      { command: "training.continue", label: "Next exercise", enabled: false },
       { command: "training.reset.request", label: "Reset", enabled: true }
     ],
     reset_dialog: {
@@ -145,7 +147,18 @@ function bookSnapshot(index, text) {
       source_anchor: "",
       warning: ""
     },
-    actions: [{ command: "book.next", label: "Next", enabled: true }],
+    actions: [
+      { command: "book.previous", label: "Previous", enabled: index > 0 },
+      { command: "book.next", label: "Next", enabled: true },
+      { command: "book.previous_heading", label: "Previous heading", enabled: false },
+      { command: "book.next_heading", label: "Next heading", enabled: false },
+      { command: "book.previous_position", label: "Previous position", enabled: false },
+      { command: "book.next_position", label: "Next position", enabled: false },
+      { command: "book.previous_game", label: "Previous game", enabled: false },
+      { command: "book.next_game", label: "Next game", enabled: false },
+      { command: "book.open_position", label: "Open position", enabled: false },
+      { command: "book.return_from_board", label: "Return to book", enabled: true }
+    ],
     bookmark: {
       label: "Bookmark",
       value: "default",
@@ -677,6 +690,39 @@ async function run() {
   check(
     staleRejectRoot.getAttribute("aria-busy") === null,
     "stale rejected action left the Book surface busy"
+  );
+
+  const malformedActionsRoot = new FakeElement("div");
+  const malformedActionsAnnouncements = [];
+  const malformedActionsSnapshot = bookSnapshot(19, "Malformed actions");
+  malformedActionsSnapshot.actions[0] = {
+    command: "book.unknown",
+    label: "Unknown",
+    enabled: true
+  };
+  window.AccessibleChessBookSurface.render(
+    malformedActionsRoot,
+    bookSnapshot(19, "Stable before malformed actions"),
+    () => ({
+      kind: "render",
+      payload: { snapshot: malformedActionsSnapshot, focus_target: "book-block-19" }
+    }),
+    (message) => malformedActionsAnnouncements.push(String(message)),
+    "book-block-19",
+    "Book actions failed"
+  );
+  const malformedActionsBefore = malformedActionsRoot.querySelector("#book-block-19");
+  find(malformedActionsRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedActionsRoot.querySelector("#book-block-19") === malformedActionsBefore,
+    "unknown Book action schema replaced the stable render"
+  );
+  check(
+    malformedActionsAnnouncements.length === 1 &&
+      malformedActionsAnnouncements[0] === "Book actions failed",
+    "unknown Book action schema did not fail closed accessibly"
   );
 
   const inconsistentListRoot = new FakeElement("div");
