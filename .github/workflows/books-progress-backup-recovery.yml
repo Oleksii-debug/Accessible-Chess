@@ -138,13 +138,14 @@ jobs:
             '.github/workflows/books-progress-backup-recovery.yml' \
             '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/book_progress_store.py' \
+            'acs/version2_application.py' \
             'tests/test_v2_book_progress_store.py' \
             'tests/test_version2_application.py' | sort)"
           if [ "$current_delta" = "$orphan_expected" ]; then
             test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
-            test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "0546dcb2d5dfad7c378d29a1c7c680a890b3d0f9"
-            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "445ea81503fedce46a6df0d43f5312514fbd7acb"
+            test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "a63fdb0875e5409e19037c9cf7cc41d7bd780f06"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "9318c54c89878efad2902501bb4f3fb87cfff8b0"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "98b9e510b8c8a785c2bd94b2b12a46272da0b4ca"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "be647fcfbf8a4ab057680bd84295306c60bfe80d"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "31e562eae7ee64985ae9b422b654057a4f92b976"
