@@ -19,6 +19,7 @@ from acs.full_product_actions import (
 from acs.full_product_presenters import (
     BookReaderPresenter,
     LibraryPresenter,
+    PgnTreeItem,
     PgnTreePresenter,
     SurfaceStatus,
     TrainingPresenter,
@@ -154,6 +155,20 @@ class ShellDialogFocusTests(unittest.TestCase):
 
 
 class PgnPresenterTests(unittest.TestCase):
+    def test_pgn_tree_item_positional_signature_keeps_legacy_nags_slot(self):
+        item = PgnTreeItem(
+            "node",
+            "move",
+            0,
+            "1. e4 $1",
+            None,
+            "e4",
+            ("comment",),
+            ("$1",),
+        )
+        self.assertEqual(("$1",), item.nags)
+        self.assertEqual((), item.trailing_comments)
+
     def setUp(self):
         text = """[Event \"Accessible test\"]
 [White \"White\"]
