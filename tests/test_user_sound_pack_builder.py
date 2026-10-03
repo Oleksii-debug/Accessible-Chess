@@ -102,6 +102,11 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 [item["id"] for item in variants["events"]["capture"]],
                 ["1", "2", "3", "4", "5", "3d-1", "3d-2", "3d-3", "3d-4"],
             )
+            self.assertEqual(manifest["files"]["promotion"], "library/Board/MOVEHIT1.WAV")
+            self.assertEqual(
+                [item["id"] for item in variants["events"]["promotion"]],
+                ["1", "2", "3"],
+            )
 
             rebuilt = Path(td) / "rebuilt"
             with patch(
