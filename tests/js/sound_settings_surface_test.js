@@ -404,6 +404,41 @@ async function run() {
     "selected sound id must remain visible/selectable text"
   );
 
+  serverSnapshot = {
+    ...serverSnapshot,
+    events: [
+      ...serverSnapshot.events,
+      {
+        event_id: "future.alert",
+        label: "future.alert",
+        enabled: true,
+        volume_percent: 100,
+        sound_id: "future.alert",
+        sound_choices: ["future.alert"],
+        uses_classic_fallback: false,
+        effective_volume: 65
+      },
+      {
+        event_id: "future-alert",
+        label: "future-alert",
+        enabled: true,
+        volume_percent: 100,
+        sound_id: "future-alert",
+        sound_choices: ["future-alert"],
+        uses_classic_fallback: false,
+        effective_volume: 65
+      }
+    ]
+  };
+  await window.AccessibleChessSoundSettingsSurface.refresh();
+  await Promise.resolve();
+  const dottedEvent = elements.get("sound-event-future.alert-enabled");
+  const dashedEvent = elements.get("sound-event-future-alert-enabled");
+  assert.ok(dottedEvent && dashedEvent,
+    "valid dotted and dashed event IDs must both expose native controls");
+  assert.notStrictEqual(dottedEvent, dashedEvent,
+    "valid dotted and dashed event IDs must never collide in the DOM");
+
   partialFailureSnapshot = {
     ...serverSnapshot,
     active_pack_id: "classic",
