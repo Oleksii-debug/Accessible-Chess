@@ -75,6 +75,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_thinking = False
         self._engine_clock_history: list[ClockSnapshot] = []
         self._clock_sound_not_before = 0.0
+        self._low_time_warned_sides: set[str] = set()
         self._suppress_next_engine_move_sound_for_start = False
 
     def _concise_error(self, uk: str, en: str) -> dict[str, Any]:
@@ -108,6 +109,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         volume = 80
         tick_policy = "my_turn"
         tick_last_seconds = 0
+        low_time_policy = "my_turn"
+        low_time_seconds = 30
         if self._settings is not None:
             try:
                 enabled = bool(self._settings.get("sounds", True))
@@ -115,8 +118,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 volume = int(self._settings.get("volume", 80))
                 tick_policy = str(self._settings.get("tick_policy", "my_turn"))
                 tick_last_seconds = int(self._settings.get("tick_last_seconds", 0))
+                low_time_policy = str(self._settings.get("low_time_policy", "my_turn"))
+                low_time_seconds = int(self._settings.get("low_time_seconds", 30))
             except Exception:
-                enabled, newgame_animation, volume, tick_policy, tick_last_seconds = True, True, 80, "my_turn", 0
+                enabled = True
+                newgame_animation = True
+                volume = 80
+                tick_policy = "my_turn"
+                tick_last_seconds = 0
+                low_time_policy = "my_turn"
+                low_time_seconds = 30
 
         variants: dict[str, list[dict[str, str]]] = {}
         selected: dict[str, str] = {}
@@ -140,6 +151,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "volume": max(0, min(100, volume)),
             "tickPolicy": tick_policy if tick_policy in {"off", "my_turn", "both"} else "my_turn",
             "tickLastSeconds": max(0, min(3600, tick_last_seconds)),
+            "lowTimePolicy": low_time_policy if low_time_policy in {"off", "my_turn", "both"} else "my_turn",
+            "lowTimeSeconds": max(0, min(3600, low_time_seconds)),
             "events": [event.value for event in SoundEvent],
             "variants": variants,
             "selectedVariants": selected,
@@ -360,6 +373,77 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             ),
         }
 
+    def set_low_time_policy(self, policy: str) -> dict[str, Any]:
+        if policy not in {"off", "my_turn", "both"} or self._settings is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Некоректний режим попередження про малий час.",
+                    "Invalid low-time warning mode.",
+                ),
+            }
+        try:
+            self._settings.set("low_time_policy", policy)
+            if policy == "off":
+                self._low_time_warned_sides.clear()
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти режим попередження про малий час.",
+                    "Low-time warning mode could not be saved.",
+                ),
+            }
+        labels = {
+            "off": ("Попередження про малий час вимкнено.", "Low-time warning disabled."),
+            "my_turn": ("Попередження звучить лише для мого часу.", "Low-time warning sounds only for my clock."),
+            "both": ("Попередження звучить для обох сторін.", "Low-time warning sounds for both clocks."),
+        }
+        uk, en = labels[policy]
+        return {"ok": True, **self._sound_state(), "message": self._sound_message(uk, en)}
+
+    def set_low_time_seconds(self, seconds: int) -> dict[str, Any]:
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, int)
+            or not 0 <= seconds <= 3600
+            or self._settings is None
+        ):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Межа малого часу має бути від 0 до 3600 секунд.",
+                    "Low-time threshold must be from 0 to 3600 seconds.",
+                ),
+            }
+        try:
+            self._settings.set("low_time_seconds", seconds)
+            self._low_time_warned_sides.clear()
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти межу малого часу.",
+                    "Low-time threshold could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Попередження про малий час вимкнено."
+                if seconds == 0
+                else f"Попередження звучить при {seconds} секундах.",
+                "Low-time warning disabled."
+                if seconds == 0
+                else f"Low-time warning sounds at {seconds} seconds.",
+            ),
+        }
+
     def preview_sound(self, event_id: str) -> dict[str, Any]:
         try:
             event = SoundEvent(str(event_id))
@@ -438,10 +522,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         ):
             return base
         try:
-            policy = str(self._settings.get("tick_policy", "my_turn"))
-            last_seconds = int(self._settings.get("tick_last_seconds", 0))
-            if policy == "off":
-                return {**base, "disabled": True}
+            tick_policy = str(self._settings.get("tick_policy", "my_turn"))
+            tick_last_seconds = int(self._settings.get("tick_last_seconds", 0))
+            low_time_policy = str(self._settings.get("low_time_policy", "my_turn"))
+            low_time_seconds = int(self._settings.get("low_time_seconds", 30))
             snapshot = session.snapshot()
             if snapshot.config.time_control.untimed:
                 return base
@@ -452,20 +536,45 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 active_side = snapshot.config.engine_side
             else:
                 return base
-            if policy == "my_turn" and active_side != human:
-                return base
             remaining_ms = (
                 snapshot.clock.white_ms if active_side == "w" else snapshot.clock.black_ms
             )
             if remaining_ms <= 0:
                 return base
-            if last_seconds > 0 and remaining_ms > last_seconds * 1000:
+
+            if low_time_seconds <= 0 or remaining_ms > low_time_seconds * 1000:
+                self._low_time_warned_sides.discard(active_side)
+            low_time_allowed = (
+                low_time_seconds > 0
+                and low_time_policy != "off"
+                and (low_time_policy == "both" or active_side == human)
+            )
+            if (
+                low_time_allowed
+                and remaining_ms <= low_time_seconds * 1000
+                and active_side not in self._low_time_warned_sides
+            ):
+                self._low_time_warned_sides.add(active_side)
+                report = self._game_sounds.low_time()
+                return {
+                    "ok": not bool(getattr(report, "failures", ())),
+                    "played": bool(getattr(report, "delivered", ())),
+                    "disabled": bool(getattr(report, "disabled", False)),
+                    "event": "low_time",
+                }
+
+            if tick_policy == "off":
+                return {**base, "disabled": True}
+            if tick_policy == "my_turn" and active_side != human:
+                return base
+            if tick_last_seconds > 0 and remaining_ms > tick_last_seconds * 1000:
                 return base
             report = self._game_sounds.tick()
             return {
                 "ok": not bool(getattr(report, "failures", ())),
                 "played": bool(getattr(report, "delivered", ())),
                 "disabled": bool(getattr(report, "disabled", False)),
+                "event": "tick",
             }
         except Exception:
             return {"ok": False, "played": False, "disabled": False}
@@ -513,6 +622,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_takeback_unsafe = False
         self._engine_thinking = False
         self._engine_clock_history = []
+        self._low_time_warned_sides.clear()
 
     @staticmethod
     def _bounded_int(value: Any, *, low: int, high: int) -> int:
