@@ -116,6 +116,12 @@ jobs:
             test "$head_ref" = 'reconverge/sound-profiles-current-product-20260926'
             test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
             base="$CURRENT_PRODUCT_BASE"
+            git fetch --no-tags origin "refs/heads/${{ github.event.pull_request.base.ref }}"
+            live_product="$(git rev-parse FETCH_HEAD)"
+            test "$live_product" = "$CURRENT_PRODUCT_BASE" || {
+              printf 'Pinned Product is stale: pinned=%s live=%s\n' "$CURRENT_PRODUCT_BASE" "$live_product" >&2
+              exit 1
+            }
             expected="$(printf '%s\n' \
               '.github/workflows/current-sound-profiles-contract.yml' \
               '.github/workflows/profiled-windows-sound-playback.yml' \
