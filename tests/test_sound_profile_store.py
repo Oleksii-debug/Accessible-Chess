@@ -1,0 +1,361 @@
+from __future__ import annotations
+
+import unittest
+
+from acs.sound_profile_store import (
+    SoundProfileManager,
+    SoundProfileRecoveryReason,
+    SoundProfileWriteBlockedError,
+)
+from acs.sound_profiles import SoundEventPreference, SoundProfile
+
+
+class MemoryProfileStore:
+    def __init__(self, payload=None):
+        self.payload = payload
+        self.writes = []
+
+    def read_profile(self):
+        return self.payload
+
+    def write_profile_atomically(self, payload):
+        self.payload = dict(payload)
+        self.writes.append(dict(payload))
+
+
+class CommitThenRaiseProfileStore(MemoryProfileStore):
+    def __init__(self, payload=None):
+        super().__init__(payload)
+        self.raise_after_commit = False
+        self.fail_reads = False
+
+    def read_profile(self):
+        if self.fail_reads:
+            raise OSError("readback unavailable")
+        return super().read_profile()
+
+    def write_profile_atomically(self, payload):
+        super().write_profile_atomically(payload)
+        if self.raise_after_commit:
+            raise OSError("post-commit readback failed")
+
+
+class FakePackResolver:
+    def __init__(self, usable=("classic", "wood"), fallback="classic"):
+        self.usable = set(usable)
+        self.fallback = fallback
+        self.requests = []
+
+    def resolve_usable_pack(self, requested_pack_id: str) -> str:
+        self.requests.append(requested_pack_id)
+        return requested_pack_id if requested_pack_id in self.usable else self.fallback
+
+
+class SoundProfileManagerTests(unittest.TestCase):
+    def test_absent_profile_gets_canonical_default_persisted_atomically(self) -> None:
+        store = MemoryProfileStore()
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        result = manager.load()
+
+        self.assertEqual(result.profile, SoundProfile())
+        self.assertEqual(result.recovery_reasons, (SoundProfileRecoveryReason.ABSENT,))
+        self.assertTrue(result.persisted_canonical)
+        self.assertFalse(result.writes_blocked)
+        self.assertEqual(len(store.writes), 1)
+        self.assertEqual(store.writes[0], SoundProfile().to_mapping())
+
+    def test_legacy_flat_settings_migrate_and_are_written_once_as_current_schema(self) -> None:
+        store = MemoryProfileStore({"sounds": False, "volume": 31})
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        result = manager.load()
+
+        self.assertFalse(result.profile.master_enabled)
+        self.assertEqual(result.profile.master_volume_percent, 31)
+        self.assertEqual(
+            result.recovery_reasons,
+            (SoundProfileRecoveryReason.LEGACY_MIGRATED,),
+        )
+        self.assertEqual(len(store.writes), 1)
+        self.assertIn("schema_version", store.payload)
+        self.assertNotIn("sounds", store.payload)
+
+    def test_malformed_profile_recovers_to_safe_default_and_reports_recovery(self) -> None:
+        store = MemoryProfileStore({"schema_version": 1, "master_volume_percent": 999})
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        result = manager.load()
+
+        self.assertEqual(result.profile, SoundProfile())
+        self.assertIn(SoundProfileRecoveryReason.MALFORMED, result.recovery_reasons)
+        self.assertTrue(result.persisted_canonical)
+        self.assertEqual(len(store.writes), 1)
+
+    def test_current_schema_unknown_fields_recover_as_malformed_instead_of_silent_drop(self) -> None:
+        payload = SoundProfile().to_mapping()
+        payload["unknown_current_field"] = {"must": "not be silently ignored"}
+        store = MemoryProfileStore(payload)
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        result = manager.load()
+
+        self.assertIn(SoundProfileRecoveryReason.MALFORMED, result.recovery_reasons)
+        self.assertTrue(result.persisted_canonical)
+        self.assertEqual(SoundProfile(), result.profile)
+        self.assertEqual(SoundProfile().to_mapping(), store.payload)
+
+    def test_future_schema_is_not_overwritten_on_downgrade(self) -> None:
+        raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
+        store = MemoryProfileStore(raw)
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        result = manager.load()
+
+        self.assertEqual(result.profile, SoundProfile())
+        self.assertEqual(
+            result.recovery_reasons,
+            (SoundProfileRecoveryReason.FUTURE_SCHEMA,),
+        )
+        self.assertFalse(result.persisted_canonical)
+        self.assertTrue(result.writes_blocked)
+        self.assertTrue(manager.writes_blocked)
+        self.assertEqual(store.writes, [])
+        self.assertEqual(store.payload, raw)
+
+    def test_future_schema_blocks_all_ordinary_mutations_without_touching_payload(self) -> None:
+        raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
+        store = MemoryProfileStore(raw)
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        mutations = (
+            lambda: manager.set_master(enabled=False),
+            lambda: manager.set_pack("wood"),
+            lambda: manager.set_event("move", SoundEventPreference(False, 44, "soft.move")),
+            lambda: manager.reset_event("move"),
+            lambda: manager.save(SoundProfile(master_volume_percent=12)),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(SoundProfileWriteBlockedError):
+                    mutation()
+
+        self.assertTrue(manager.writes_blocked)
+        self.assertEqual(store.writes, [])
+        self.assertEqual(store.payload, raw)
+
+    def test_explicit_future_profile_replacement_is_the_only_unlock_path(self) -> None:
+        raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
+        store = MemoryProfileStore(raw)
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        replacement = SoundProfile(
+            pack_id="wood",
+            master_enabled=False,
+            master_volume_percent=37,
+            events={"check": SoundEventPreference(True, 70, "soft.check")},
+        )
+        saved = manager.replace_future_profile(replacement)
+
+        self.assertEqual(saved, replacement)
+        self.assertFalse(manager.writes_blocked)
+        self.assertEqual(store.writes, [replacement.to_mapping()])
+        self.assertEqual(store.payload, replacement.to_mapping())
+
+        edited = manager.set_master(volume_percent=21)
+        self.assertEqual(edited.master_volume_percent, 21)
+        self.assertEqual(len(store.writes), 2)
+
+    def test_explicit_replacement_fails_when_no_future_schema_is_protected(self) -> None:
+        store = MemoryProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        with self.assertRaises(SoundProfileWriteBlockedError):
+            manager.replace_future_profile(SoundProfile(master_volume_percent=12))
+
+        self.assertEqual(store.writes, [])
+
+    def test_missing_pack_falls_back_without_carrying_pack_relative_sound_id(self) -> None:
+        profile = SoundProfile(
+            pack_id="missing",
+            master_enabled=False,
+            master_volume_percent=47,
+            events={"capture": SoundEventPreference(False, 23, "quiet.capture")},
+        )
+        store = MemoryProfileStore(profile.to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        result = manager.load()
+
+        self.assertEqual(result.profile.pack_id, "classic")
+        self.assertFalse(result.profile.master_enabled)
+        self.assertEqual(result.profile.master_volume_percent, 47)
+        self.assertEqual(
+            result.profile.preference_for("capture"),
+            SoundEventPreference(False, 23),
+        )
+        self.assertEqual(
+            result.recovery_reasons,
+            (SoundProfileRecoveryReason.PACK_FALLBACK,),
+        )
+        self.assertTrue(result.persisted_canonical)
+
+    def test_set_pack_resolves_unavailable_pack_before_persisting(self) -> None:
+        store = MemoryProfileStore(SoundProfile(pack_id="wood").to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.writes.clear()
+
+        updated = manager.set_pack("unavailable")
+
+        self.assertEqual(updated.pack_id, "classic")
+        self.assertEqual(store.writes[-1]["pack_id"], "classic")
+
+    def test_event_edits_are_immutable_and_persisted_through_single_manager(self) -> None:
+        store = MemoryProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        original = manager.load().profile
+
+        updated = manager.set_event("move", SoundEventPreference(False, 55, "soft.move"))
+
+        self.assertNotEqual(updated, original)
+        self.assertEqual(original.preference_for("move"), SoundEventPreference())
+        self.assertEqual(
+            updated.preference_for("move"),
+            SoundEventPreference(False, 55, "soft.move"),
+        )
+        self.assertEqual(manager.profile_provider(), updated)
+        self.assertEqual(store.writes[-1], updated.to_mapping())
+
+    def test_reset_event_restores_default_without_touching_other_events(self) -> None:
+        profile = SoundProfile(
+            events={
+                "move": SoundEventPreference(False, 50, "soft.move"),
+                "check": SoundEventPreference(True, 40, "soft.check"),
+            }
+        )
+        store = MemoryProfileStore(profile.to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        updated = manager.reset_event("move")
+
+        self.assertEqual(updated.preference_for("move"), SoundEventPreference())
+        self.assertEqual(
+            updated.preference_for("check"),
+            SoundEventPreference(True, 40, "soft.check"),
+        )
+
+    def test_master_edits_keep_pack_and_event_preferences(self) -> None:
+        profile = SoundProfile(
+            pack_id="wood",
+            events={"tick": SoundEventPreference(False, 20, "soft.tick")},
+        )
+        store = MemoryProfileStore(profile.to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+
+        updated = manager.set_master(enabled=False, volume_percent=12)
+
+        self.assertEqual(updated.pack_id, "wood")
+        self.assertFalse(updated.master_enabled)
+        self.assertEqual(updated.master_volume_percent, 12)
+        self.assertEqual(
+            updated.preference_for("tick"),
+            SoundEventPreference(False, 20, "soft.tick"),
+        )
+
+    def test_post_commit_failure_refreshes_manager_to_durable_winner(self) -> None:
+        store = CommitThenRaiseProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.set_master(volume_percent=31)
+
+        self.assertEqual(31, manager.current.master_volume_percent)
+        self.assertEqual(31, store.payload["master_volume_percent"])
+
+    def test_failed_refresh_invalidates_stale_manager_state_until_readable(self) -> None:
+        store = CommitThenRaiseProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+        store.fail_reads = True
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.set_master(volume_percent=31)
+
+        with self.assertRaisesRegex(OSError, "readback unavailable"):
+            _ = manager.current
+
+        store.fail_reads = False
+        store.raise_after_commit = False
+        self.assertEqual(31, manager.current.master_volume_percent)
+
+    def test_initial_recovery_post_commit_failure_requires_reload_before_direct_save(self) -> None:
+        store = CommitThenRaiseProfileStore()
+        store.raise_after_commit = True
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.load()
+
+        self.assertEqual(SoundProfile().to_mapping(), store.payload)
+        store.raise_after_commit = False
+        saved = manager.save(SoundProfile(master_volume_percent=26))
+        self.assertEqual(26, saved.master_volume_percent)
+        self.assertEqual(26, store.payload["master_volume_percent"])
+
+    def test_direct_save_cannot_bypass_required_refresh_after_failed_readback(self) -> None:
+        store = CommitThenRaiseProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+        store.fail_reads = True
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.set_master(volume_percent=31)
+
+        writes_before = len(store.writes)
+        with self.assertRaisesRegex(OSError, "readback unavailable"):
+            manager.save(SoundProfile(master_volume_percent=22))
+        self.assertEqual(writes_before, len(store.writes))
+        self.assertEqual(31, store.payload["master_volume_percent"])
+
+        store.fail_reads = False
+        store.raise_after_commit = False
+        saved = manager.save(SoundProfile(master_volume_percent=22))
+        self.assertEqual(22, saved.master_volume_percent)
+
+    def test_future_replacement_post_commit_failure_refreshes_write_block_state(self) -> None:
+        raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
+        store = CommitThenRaiseProfileStore(raw)
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+        replacement = SoundProfile(master_volume_percent=29)
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.replace_future_profile(replacement)
+
+        self.assertFalse(manager.writes_blocked)
+        self.assertEqual(replacement, manager.current)
+        self.assertEqual(replacement.to_mapping(), store.payload)
+
+    def test_bad_resolver_result_fails_before_persistence(self) -> None:
+        store = MemoryProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, lambda _pack: "")
+
+        with self.assertRaises(ValueError):
+            manager.load()
+
+        self.assertEqual(store.writes, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
