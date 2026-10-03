@@ -92,6 +92,10 @@ class RecordingAdapter {
 
   async disconnect() {
     this.calls.push(["disconnect"]);
+    if (this.failDisconnectOnce === true) {
+      this.failDisconnectOnce = false;
+      throw new Error("provider cleanup failed");
+    }
     this._snapshot = {
       connected: false,
       cleanup_required: false,
@@ -122,6 +126,21 @@ class RecordingAdapter {
     this._snapshot = {
       connected: false,
       cleanup_required: false,
+      room_id: null,
+      participant_id: null,
+      microphone_enabled: false,
+      camera_enabled: false,
+      screen_share_enabled: false
+    };
+    if (typeof this.options.onTransportLost === "function") {
+      this.options.onTransportLost(this.snapshot());
+    }
+  }
+
+  moveTransport() {
+    this._snapshot = {
+      connected: false,
+      cleanup_required: true,
       room_id: null,
       participant_id: null,
       microphone_enabled: false,
@@ -1128,6 +1147,73 @@ async function testTransportLossBridgeReplyLossRetriesSameSnapshot() {
   assert.equal(snapshots[0], snapshots[1]);
 }
 
+async function testMovedRoomCleanupRetriesBeforePythonTransportLoss() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const sessionTx = "session-" + "1".repeat(32);
+  const joined = dispatch(sessionTx, {
+    transaction_id: sessionTx,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+
+  await runtime.execute(joined, async (command, payload) => {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: sessionTx,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: payload.transaction_id } };
+    }
+    if (command === "media.provider_session_success") {
+      return { kind: "media-updated", payload: { snapshot: { connected: true } } };
+    }
+    throw new Error("unexpected join command " + command);
+  });
+
+  const adapter = RecordingAdapter.instances[0];
+  adapter.moveTransport();
+  adapter.failDisconnectOnce = true;
+  let pythonCalls = 0;
+
+  const first = await runtime.reconcileTransport(async () => {
+    pythonCalls += 1;
+    throw new Error("Python must not see unclean provider move");
+  });
+  assert.equal(first, null);
+  assert.equal(pythonCalls, 0);
+  assert.equal(adapter.snapshot().cleanup_required, true);
+  assert.equal(
+    adapter.calls.filter((item) => item[0] === "disconnect").length,
+    1
+  );
+
+  const second = await runtime.reconcileTransport(async (command, payload) => {
+    pythonCalls += 1;
+    assert.equal(command, "media.provider_transport_lost");
+    assert.equal(payload.snapshot.connected, false);
+    assert.equal(payload.snapshot.cleanup_required, false);
+    return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+  });
+  assert.equal(second.kind, "media-updated");
+  assert.equal(pythonCalls, 1);
+  assert.equal(
+    adapter.calls.filter((item) => item[0] === "disconnect").length,
+    2
+  );
+}
+
 async function run() {
   await testMultiChunkMarksProviderBoundaryOnce();
   await testJoinTakesCredentialBeforeDispatchAndReturnsExactSnapshot();
@@ -1147,6 +1233,7 @@ async function run() {
   await testTransportLossReconcilesExactlyOnce();
   await testPendingTransportLossRetiresNewMutationBeforeProviderCall();
   await testTransportLossBridgeReplyLossRetriesSameSnapshot();
+  await testMovedRoomCleanupRetriesBeforePythonTransportLoss();
   console.log("LIVEKIT_CLASSROOM_MEDIA_TRANSACTION_RUNTIME=PASS");
 }
 
