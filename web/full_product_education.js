@@ -1,6 +1,8 @@
 (function (global) {
   "use strict";
 
+  let collaborationInvocationSerial = 0;
+
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
     return value;
@@ -111,6 +113,9 @@
     if (!command) return null;
     return {
       command: command,
+      invocationId: String(
+        wrapper.getAttribute("data-pending-invocation") || ""
+      ),
       lockComposer: wrapper.getAttribute("data-pending-lock-composer") === "true",
       exposeProgress: wrapper.getAttribute("data-pending-expose-progress") === "true",
       focusControlId: String(
@@ -123,6 +128,10 @@
     if (!wrapper || !pending) return;
     wrapper.setAttribute("aria-busy", pending.exposeProgress ? "false" : "true");
     wrapper.setAttribute("data-pending-command", String(pending.command || ""));
+    wrapper.setAttribute(
+      "data-pending-invocation",
+      String(pending.invocationId || "")
+    );
     wrapper.setAttribute(
       "data-pending-lock-composer",
       pending.lockComposer ? "true" : "false"
@@ -162,6 +171,7 @@
     const lockComposer = wrapper.getAttribute("data-pending-lock-composer") === "true";
     wrapper.setAttribute("aria-busy", "false");
     wrapper.removeAttribute("data-pending-command");
+    wrapper.removeAttribute("data-pending-invocation");
     wrapper.removeAttribute("data-pending-lock-composer");
     wrapper.removeAttribute("data-pending-expose-progress");
     wrapper.removeAttribute("data-pending-focus-control");
@@ -629,8 +639,13 @@
       wrapper.getAttribute("data-collaboration-session") || ""
     );
     const active = document.activeElement;
+    collaborationInvocationSerial += 1;
+    if (collaborationInvocationSerial > 2147483647) {
+      collaborationInvocationSerial = 1;
+    }
     const pending = {
       command: String(command || ""),
+      invocationId: String(collaborationInvocationSerial),
       lockComposer: !!(options && options.lockComposer),
       exposeProgress: !!(options && options.exposeProgress),
       focusControlId: (
@@ -662,6 +677,7 @@
           candidate &&
           values.indexOf(candidate) === index &&
           candidate.getAttribute("data-pending-command") === pending.command &&
+          candidate.getAttribute("data-pending-invocation") === pending.invocationId &&
           (
             !sessionKey ||
             candidate.getAttribute("data-collaboration-session") === sessionKey
@@ -702,6 +718,12 @@
       ) {
         return;
       }
+      const currentInvocation = current
+        ? String(current.getAttribute("data-pending-invocation") || "")
+        : "";
+      if (currentInvocation && currentInvocation !== pending.invocationId) {
+        return;
+      }
       applyEducationEvent(
         root,
         result,
@@ -724,6 +746,12 @@
           current.getAttribute("data-collaboration-session") !== sessionKey
         )
       ) {
+        return false;
+      }
+      const currentInvocation = current
+        ? String(current.getAttribute("data-pending-invocation") || "")
+        : "";
+      if (currentInvocation && currentInvocation !== pending.invocationId) {
         return false;
       }
       releasePendingState();
