@@ -25,6 +25,7 @@ from acs.starter_books_training_release import (
     starter_release_manifest,
 )
 from acs.starter_books_training_runtime import build_training_ready_starter_course
+from acs.training_progress_store import TrainingProgressConflictError
 from acs.version2_starter_content_application import Version2StarterContentApplication
 from acs.version2_training_workspace import Version2BookTrainingWorkspace
 
@@ -387,15 +388,30 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
             durable = store.path.read_bytes()
             self.assertEqual(workspace.session.snapshot(), workspace._persisted_snapshot)
 
-            with patch.object(
-                store,
-                "save",
-                side_effect=AssertionError("identical durable snapshot must not be rewritten"),
-            ) as save:
+            with patch(
+                "acs.training_progress_store.tempfile.mkstemp",
+                side_effect=AssertionError(
+                    "identical durable snapshot must not allocate a publication temp"
+                ),
+            ) as mkstemp:
                 second_revision = workspace.save()
-            save.assert_not_called()
+            mkstemp.assert_not_called()
             self.assertEqual(first_revision, second_revision)
             self.assertEqual(durable, store.path.read_bytes())
+
+            # Cached in-memory equality is not durability evidence. External
+            # replacement or deletion must still be detected by the no-op path.
+            store.path.write_bytes(durable + b" ")
+            with self.assertRaises(TrainingProgressConflictError):
+                workspace.save()
+            self.assertEqual(durable + b" ", store.path.read_bytes())
+
+            store.path.write_bytes(durable)
+            store.path.unlink()
+            with self.assertRaises(TrainingProgressConflictError):
+                workspace.save()
+            self.assertFalse(store.path.exists())
+            store.path.write_bytes(durable)
 
             workspace.session.submit("d4")
             with patch.object(store, "save", wraps=store.save) as save:
@@ -438,16 +454,15 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
             durable_before = origin_store.path.read_bytes()
             origin_revision = workspace._revision
 
-            with patch.object(
-                origin_store,
-                "save",
+            with patch(
+                "acs.training_progress_store.tempfile.mkstemp",
                 side_effect=AssertionError(
-                    "already committed completed origin must not be rewritten"
+                    "already committed completed origin must not allocate a rewrite temp"
                 ),
-            ) as save:
+            ) as mkstemp:
                 continued = workspace.continue_next()
 
-            save.assert_not_called()
+            mkstemp.assert_not_called()
             self.assertEqual("render", continued.kind)
             self.assertEqual(1, workspace.reader.index)
             self.assertFalse(workspace.session.completed)
