@@ -346,7 +346,7 @@ class Version2ApplicationTests(unittest.TestCase):
             result = self.app.browser_command("books", "book.open_position")
 
         self.assertEqual(result["kind"], "error")
-        rollback.assert_not_called()
+        rollback.assert_called_once()
         self.assertIsNotNone(self.app.reader)
         self.assertIsNotNone(self.app.books)
         self.assertIsNotNone(self.app.book_workflow)
