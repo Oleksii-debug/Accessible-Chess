@@ -245,10 +245,19 @@ const windowObject = {
     }
   },
   AccessibleChessTrainingSurface: {
-    render: (root) => {
+    render: (root, trainingSnapshot) => {
       if (failNextTrainingRender) {
         failNextTrainingRender = false;
         throw new TypeError("malformed Training product snapshot");
+      }
+      if (trainingSnapshot && trainingSnapshot.answer &&
+          trainingSnapshot.answer.disabled === true) {
+        const continueAction = new FakeElement("button");
+        continueAction.id = "training-action-continue";
+        const resetAction = new FakeElement("button");
+        resetAction.id = "training-action-reset";
+        root.replaceChildren(continueAction, resetAction);
+        return;
       }
       const answer = new FakeElement("input");
       answer.id = "training-answer";
@@ -372,6 +381,35 @@ async function clickRoute(routeId) {
   check(
     documentRef.activeElement === moveInput,
     "Board focus recovery after malformed Training failed"
+  );
+
+  trainingAvailable = true;
+  const completedTraining = snapshot("training");
+  completedTraining.screen.focus_target = "training-answer";
+  completedTraining.training = {
+    answer: { disabled: true },
+    actions: [
+      { command: "training.hint", enabled: false },
+      { command: "training.reveal", enabled: false },
+      { command: "training.retry", enabled: false },
+      { command: "training.continue", enabled: true },
+      { command: "training.reset.request", enabled: true }
+    ]
+  };
+  nextSnapshotOverride = completedTraining;
+  await clickRoute("training");
+  const committedContinue = documentRef.getElementById("training-action-continue");
+  check(committedContinue !== null, "completed Training Continue target missing");
+  check(
+    documentRef.activeElement === committedContinue,
+    "Board-to-completed-Training commit did not restore canonical Continue focus"
+  );
+
+  await clickRoute("board");
+  trainingAvailable = false;
+  check(
+    documentRef.activeElement === moveInput,
+    "Board focus recovery after completed Training failed"
   );
 
   await clickRoute("pgn");
