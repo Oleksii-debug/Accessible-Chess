@@ -17,7 +17,7 @@ reconciliation rather than being treated as a clean rollback.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import re
 import secrets
@@ -298,6 +298,7 @@ class ClassroomMediaSessionHostTransactions:
         host_transactions: ClassroomMediaHostTransactions,
         *,
         transaction_id_factory: SessionTransactionIdFactory | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if not isinstance(controller, ClassroomMediaController):
             raise TypeError("controller must be ClassroomMediaController")
@@ -320,6 +321,8 @@ class ClassroomMediaSessionHostTransactions:
             )
         if transaction_id_factory is not None and not callable(transaction_id_factory):
             raise TypeError("session transaction id factory must be callable")
+        if clock is not None and not callable(clock):
+            raise TypeError("session transaction clock must be callable")
 
         nonce = secrets.token_hex(8) if transaction_id_factory is None else ""
         self._controller = controller
@@ -328,6 +331,7 @@ class ClassroomMediaSessionHostTransactions:
         self._host_transactions = host_transactions
         self._activity_gate = host_transactions.activity_gate
         self._transaction_id_factory = transaction_id_factory
+        self._now = clock or (lambda: datetime.now(timezone.utc))
         self._transaction_nonce = nonce
         self._transaction_counter = 0
         self._injected_transaction_ids: set[str] = set()
@@ -483,6 +487,23 @@ class ClassroomMediaSessionHostTransactions:
                 raise MediaHostTransactionError(
                     "media session credential is unavailable"
                 )
+            try:
+                current = self._now()
+            except Exception:
+                self._pending = None
+                self._activity_gate.release(self)
+                raise MediaHostTransactionError(
+                    "media session credential clock failed"
+                ) from None
+            try:
+                credential.assert_usable(current)
+            except Exception:
+                # No secret has crossed the provider boundary yet. Retire this
+                # already-exposed transaction id, drop the private credential and
+                # allow the trusted host to request a fresh short-lived token.
+                self._pending = None
+                self._activity_gate.release(self)
+                raise
             self._pending = replace(pending, credential_handed_off=True)
             return {
                 "room_id": credential.room_id,
