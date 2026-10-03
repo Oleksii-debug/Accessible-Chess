@@ -220,6 +220,14 @@ def _stored_integer(
     return value
 
 
+def _stored_snapshot_revision(value: object) -> int:
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
+        raise CollaborationStorageError(
+            "stored attachment snapshot watermark is invalid"
+        )
+    return value
+
+
 def _safe_object_key(value: object) -> str:
     if type(value) is not str or not value or len(value) > MAX_OBJECT_KEY_CHARS:
         raise ValueError("object_key must be a bounded relative storage key")
@@ -1262,10 +1270,7 @@ class ClassroomCollaborationSQLiteStore:
                             (attachment.attachment_id,),
                         ).fetchone()
                         if watermark is not None:
-                            stored_revision = _stored_integer(
-                                watermark["revision"],
-                                "attachment snapshot watermark",
-                            )
+                            stored_revision = _stored_snapshot_revision(watermark["revision"])
                             if (
                                 snapshot_state_revision is None
                                 or watermark["room_id"] != room_id
@@ -1332,10 +1337,7 @@ class ClassroomCollaborationSQLiteStore:
                             raise CollaborationStorageError(
                                 "stored attachment snapshot watermark crossed room boundary"
                             )
-                        watermark_revision = _stored_integer(
-                            watermark["revision"],
-                            "attachment snapshot watermark",
-                        )
+                        watermark_revision = _stored_snapshot_revision(watermark["revision"])
                     covered_by_snapshot = (
                         watermark_revision is not None
                         and watermark["room_id"] == room_id
@@ -1523,10 +1525,7 @@ class ClassroomCollaborationSQLiteStore:
             raise CollaborationStorageError(
                 "stored attachment snapshot watermark crossed room boundary"
             )
-        return _stored_integer(
-            row["revision"],
-            "attachment snapshot watermark",
-        )
+        return _stored_snapshot_revision(row["revision"])
 
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
