@@ -168,6 +168,25 @@ class SoundSettingsApplicationTests(unittest.TestCase):
 
         self.assertIn("mate", classic_ids)
         self.assertIn("draw", classic_ids)
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ):
+            changed = classic.set_event(
+                "mate",
+                enabled=False,
+                volume_percent=41,
+                language="en",
+            )
+        mate = next(
+            item
+            for item in changed.snapshot["events"]
+            if item["event_id"] == "mate"
+        )
+        self.assertFalse(mate["enabled"])
+        self.assertEqual(41, mate["volume_percent"])
+        self.assertEqual("mate", mate["sound_id"])
+        self.assertFalse(manager.current.preference_for("mate").enabled)
 
         base = _manifest("local.owner")
         files = dict(base.files)
@@ -215,6 +234,11 @@ class SoundSettingsApplicationTests(unittest.TestCase):
 
         self.assertIn("mate", custom_ids)
         self.assertNotIn("draw", custom_ids)
+        with mock.patch(
+            "acs.sound_settings_application.SoundEvent",
+            owner_events,
+        ), self.assertRaisesRegex(ValueError, "unknown sound event"):
+            custom.set_event("draw", enabled=False, language="en")
 
     def test_master_and_per_event_edits_persist_through_single_profile_manager(self) -> None:
         storage, manager, _playback, runtime = self._profile_runtime()
