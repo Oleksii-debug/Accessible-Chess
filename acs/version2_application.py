@@ -457,11 +457,9 @@ class Version2Application:
             # The canonical BookBoard delegate owns board-opening publication.
             return self.books.dispatch(command_id, payload)
         if command_id == "book.return_from_board":
-            # The canonical Book Board RETURNED_TO_BOOK event performs the one
-            # required durable Book-progress commit inside _book_event(). A
-            # second outer save would turn an already committed return into a
-            # false browser failure if storage becomes unavailable immediately
-            # afterwards.
+            # Board review is read-only with respect to BookReader progress.
+            # Open already committed the exact origin before Board publication,
+            # so Return must not perform a redundant durable write.
             return self.books.dispatch(command_id, payload)
         if command_id in self._BOOK_PROGRESS_COMMANDS:
             # Native menu actions are globally reachable even though the keymap
@@ -523,12 +521,12 @@ class Version2Application:
         # Board-open/update success becomes authoritative only after the application
         # has projected the canonical BookBoard FEN into the real release board.
         if event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
+            # BookBoardWorkflow guarantees that read-only Board review and exact
+            # Return preserve the BookReader snapshot. The origin was durably
+            # committed before Board publication, so Return has no new progress
+            # generation to write and must remain available during transient I/O
+            # failure.
             self.shell.open_route("books")
-            try:
-                self.save_book_progress()
-            except Exception:
-                self._book_persistence_event_failed = True
-                raise
         elif event.kind is BookBoardUiEventKind.FAILED:
             self._events.append(self._error())
 
