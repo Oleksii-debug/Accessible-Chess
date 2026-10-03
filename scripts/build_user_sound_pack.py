@@ -256,7 +256,7 @@ def _validate_event_paths(destination: Path) -> None:
         if options[0][1] != default_file:
             raise SoundPackBuildError(f"variant 1 must be the default sound for {event}")
         for _variant_id, file_name, _uk, _en in options:
-            path = destination / Path(file_name)
+            path = staging / Path(file_name)
             if not path.is_file():
                 raise SoundPackBuildError(f"missing sound variant: {file_name}")
             info = _wave_info(path)
@@ -293,17 +293,24 @@ def _build_sound_pack_unchecked(
             report = _build_sound_pack_unchecked(extracted, destination)
             report["source_archive_sha256"] = archive_sha256
             report["source_archive_bytes"] = source.stat().st_size
-            (destination / "inventory.json").write_text(
+            (staging / "inventory.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
             return report
 
     sounds = _locate_sounds(source)
+    destination = Path(destination)
     if destination.exists():
         raise SoundPackBuildError("destination already exists")
-    destination.mkdir(parents=True)
-    library = destination / "library"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.building-",
+            dir=str(destination.parent),
+        )
+    )
+    library = staging / "library"
     library.mkdir()
 
     inventory: list[dict[str, object]] = []
@@ -367,7 +374,7 @@ def _build_sound_pack_unchecked(
                     f"sound layer does not start with selected variant: {event}/{variant_id}"
                 )
             for file_name in sequence:
-                layer_path = destination / Path(file_name)
+                layer_path = staging / Path(file_name)
                 if not layer_path.is_file():
                     raise SoundPackBuildError(f"missing layered sound asset: {file_name}")
                 info = _wave_info(layer_path)
@@ -410,7 +417,7 @@ def _build_sound_pack_unchecked(
         "events": {
             event: {
                 "file": file_name,
-                "sha256": _sha256(destination / Path(file_name)),
+                "sha256": _sha256(staging / Path(file_name)),
                 "license_id": PROVENANCE_LICENSE,
                 "source": PROVENANCE_SOURCE,
                 "creator": PROVENANCE_CREATOR,
@@ -428,27 +435,27 @@ def _build_sound_pack_unchecked(
         "files": inventory,
     }
 
-    (destination / "manifest.json").write_text(
+    (staging / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (destination / "variants.json").write_text(
+    (staging / "variants.json").write_text(
         json.dumps(variants, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (destination / "layers.json").write_text(
+    (staging / "layers.json").write_text(
         json.dumps(layers, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (destination / "provenance.json").write_text(
+    (staging / "provenance.json").write_text(
         json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (destination / "inventory.json").write_text(
+    (staging / "inventory.json").write_text(
         json.dumps(inventory_doc, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (destination / "newgame_impacts.json").write_text(
+    (staging / "newgame_impacts.json").write_text(
         json.dumps(
             {
                 "schema_version": 2,
@@ -481,7 +488,7 @@ def _build_sound_pack_unchecked(
         ) + "\n",
         encoding="utf-8",
     )
-    (destination / "README.txt").write_text(
+    (staging / "README.txt").write_text(
         "Accessible Chess user-supplied sound pack\n"
         "All 330 WAV files from the supplied archive are retained under library/.\n"
         "Runtime defaults and selectable variants are declared in manifest.json and variants.json.\n"
@@ -491,6 +498,11 @@ def _build_sound_pack_unchecked(
         "Redistribution rights are not inferred by this builder; provenance records the pack as user-provided.\n",
         encoding="utf-8",
     )
+    try:
+        staging.replace(destination)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return inventory_doc
 
 
