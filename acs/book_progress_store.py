@@ -329,6 +329,7 @@ class BookProgressStore:
             raise TypeError("book progress store path must be path-like")
         self._path = Path(path)
         self._process_lock = _process_lock_for(self._path)
+        self._active_storage_directory_identity: os.stat_result | None = None
 
     @property
     def path(self) -> Path:
@@ -442,6 +443,9 @@ class BookProgressStore:
         then the opened descriptor and a post-open path snapshot must identify
         the same regular file.  Reads never reopen the path after validation.
         """
+        active_directory = self._active_storage_directory_identity
+        if active_directory is not None:
+            self._require_storage_directory_unlocked(active_directory)
         try:
             before = os.lstat(path)
         except FileNotFoundError:
@@ -548,6 +552,8 @@ class BookProgressStore:
                     "book progress storage changed while being read",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            if active_directory is not None:
+                self._require_storage_directory_unlocked(active_directory)
             return raw
         except BookProgressStoreError:
             raise
@@ -712,7 +718,13 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
 
-    def _open_lock_descriptor(self) -> int:
+    def _open_lock_descriptor(
+        self,
+        *,
+        expected_directory_identity: os.stat_result | None = None,
+    ) -> int:
+        if expected_directory_identity is not None:
+            self._require_storage_directory_unlocked(expected_directory_identity)
         try:
             existing = os.lstat(self._lock_path)
         except FileNotFoundError:
@@ -856,6 +868,10 @@ class BookProgressStore:
                     "book progress storage lock changed while being initialized",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            if expected_directory_identity is not None:
+                self._require_storage_directory_unlocked(
+                    expected_directory_identity
+                )
             return descriptor
         except BaseException as error:
             # Preserve the validation/initialization failure as the public
@@ -879,8 +895,11 @@ class BookProgressStore:
                 ) from None
             raise
 
-    def _require_storage_directory_unlocked(self) -> None:
-        """Require the configured storage parent to be a real local directory."""
+    def _require_storage_directory_unlocked(
+        self,
+        expected_identity: os.stat_result | None = None,
+    ) -> os.stat_result:
+        """Require and optionally identity-bind the configured storage parent."""
         try:
             metadata = os.lstat(self._path.parent)
         except OSError:
@@ -897,6 +916,15 @@ class BookProgressStore:
                 "book progress storage directory is not a regular directory",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
+        if (
+            expected_identity is not None
+            and not self._same_file_identity(expected_identity, metadata)
+        ):
+            raise BookProgressStoreError(
+                "book progress storage directory changed during the transaction",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+        return metadata
 
     def _cleanup_stale_temps_unlocked(self) -> None:
         """Leave crash-left temp pathnames untouched.
@@ -920,16 +948,22 @@ class BookProgressStore:
                     "book progress storage is unavailable",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
-            self._require_storage_directory_unlocked()
-            descriptor = self._open_lock_descriptor()
+            directory_identity = self._require_storage_directory_unlocked()
+            descriptor = self._open_lock_descriptor(
+                expected_directory_identity=directory_identity
+            )
             acquired = False
+            previous_directory_identity = self._active_storage_directory_identity
             try:
                 self._lock_file_descriptor(descriptor)
                 acquired = True
                 self._require_lock_descriptor_current(descriptor)
+                self._require_storage_directory_unlocked(directory_identity)
+                self._active_storage_directory_identity = directory_identity
                 self._cleanup_stale_temps_unlocked()
                 yield
             finally:
+                self._active_storage_directory_identity = previous_directory_identity
                 # The protected body is the transaction authority. A save can
                 # already have atomically published primary progress bytes when
                 # lock-release cleanup runs. Cleanup failure cannot undo that
@@ -1001,6 +1035,10 @@ class BookProgressStore:
         else:
             publication_base_raw = expected_target_raw
 
+        active_directory = self._active_storage_directory_identity
+        if active_directory is not None:
+            self._require_storage_directory_unlocked(active_directory)
+
         temp_path: Path | None = None
         temp_identity: os.stat_result | None = None
         try:
@@ -1010,6 +1048,8 @@ class BookProgressStore:
                 dir=target.parent,
             )
             temp_path = Path(temp_name)
+            if active_directory is not None:
+                self._require_storage_directory_unlocked(active_directory)
             created_identity = os.fstat(descriptor)
             temp_identity = created_identity
             self._require_private_temp_metadata(created_identity)
@@ -1066,9 +1106,13 @@ class BookProgressStore:
                     "book progress changed during publication preparation",
                     code=BookProgressStoreErrorCode.STALE_WRITE,
                 )
+            if active_directory is not None:
+                self._require_storage_directory_unlocked(active_directory)
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
+                if active_directory is not None:
+                    self._require_storage_directory_unlocked(active_directory)
                 _sync_published_path(target)
                 visible = self._read_raw_file_unlocked(target, missing_ok=False)
             except (OSError, BookProgressStoreError):
