@@ -80,7 +80,14 @@
   }
 
   function safeInvoke(invoke, command, payload, onResult, announce, fallbackMessage) {
-    Promise.resolve(invoke(command, payload || {})).then(onResult).catch(function () {
+    let result;
+    try {
+      result = invoke(command, payload || {});
+    } catch (error) {
+      if (fallbackMessage) announce(String(fallbackMessage));
+      return;
+    }
+    Promise.resolve(result).then(onResult).catch(function () {
       if (fallbackMessage) announce(String(fallbackMessage));
     });
   }
@@ -1093,8 +1100,8 @@
 
     confirm.addEventListener("click", function () {
       safeInvoke(invoke, "training.reset", { confirmed: true }, function (result) {
-        if (dialog.open) dialog.close();
         applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
+        if (dialog.open) dialog.close();
       }, announce, fallbackMessage);
     });
     cancel.addEventListener("click", closeAndRestore);
