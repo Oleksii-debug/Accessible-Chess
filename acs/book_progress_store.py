@@ -47,6 +47,9 @@ _READER_SNAPSHOT_FIELDS = frozenset(
 
 _PROCESS_LOCKS_GUARD = threading.Lock()
 _PROCESS_LOCKS: dict[str, threading.RLock] = {}
+_TEMPFILE_TOKEN_CHARACTERS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz0123456789_"
+)
 
 
 class BookProgressStoreErrorCode(str, Enum):
@@ -307,6 +310,17 @@ def _revision(raw: bytes | None) -> str | None:
     if raw is None:
         return None
     return hashlib.sha256(raw).hexdigest()
+
+
+def _is_owned_temp_name(name: str, target_name: str) -> bool:
+    """Return whether one exact-root name can be emitted by tempfile.mkstemp."""
+    prefix = f".{target_name}."
+    if not name.startswith(prefix) or not name.endswith(".tmp"):
+        return False
+    token = name[len(prefix) : -len(".tmp")]
+    return bool(token) and all(
+        character in _TEMPFILE_TOKEN_CHARACTERS for character in token
+    )
 
 
 class BookProgressStore:
@@ -680,18 +694,25 @@ class BookProgressStore:
 
     def _cleanup_stale_temps_unlocked(self) -> None:
         parent = self._path.parent
-        prefixes = (f".{self._path.name}.", f".{self.backup_path.name}.")
+        target_names = (self._path.name, self.backup_path.name)
         try:
             candidates = list(parent.iterdir())
         except OSError:
             return
         for candidate in candidates:
             name = candidate.name
-            if not name.endswith(".tmp") or not any(name.startswith(prefix) for prefix in prefixes):
+            if not any(
+                _is_owned_temp_name(name, target_name)
+                for target_name in target_names
+            ):
                 continue
             try:
                 metadata = os.lstat(candidate)
-                if stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode) and not _is_reparse_point(metadata):
+                if (
+                    stat.S_ISREG(metadata.st_mode)
+                    and not stat.S_ISLNK(metadata.st_mode)
+                    and not _is_reparse_point(metadata)
+                ):
                     candidate.unlink(missing_ok=True)
             except OSError:
                 pass
