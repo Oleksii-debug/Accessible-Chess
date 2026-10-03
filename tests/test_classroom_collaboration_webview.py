@@ -120,6 +120,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
 
         self.assertEqual("error", failed.kind)
+        self.assertEqual(
+            "Message send was not confirmed. Retry or refresh chat.",
+            failed.payload["message"],
+        )
+        self.assertEqual("collaboration-chat-input", failed.payload["focus_target"])
         self.assertEqual("collaboration.chat.sent", retried.kind)
         self.assertEqual(
             calls,
@@ -157,6 +162,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
 
         self.assertEqual("error", failed.kind)
+        self.assertEqual(
+            "Message send was not confirmed. Retry or refresh chat.",
+            failed.payload["message"],
+        )
         self.assertEqual("collaboration.chat.sent", changed.kind)
         self.assertEqual(
             calls,
@@ -284,6 +293,20 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             "Message 50",
             middle_again.payload["collaboration"]["chat"]["messages"][0]["body"],
         )
+
+    def test_chat_sync_failure_is_contextual_without_exposing_transport_details(self) -> None:
+        view = self.webview()
+        with mock.patch.object(
+            self.controller,
+            "sync_chat",
+            side_effect=RuntimeError("wss://secret.example/room-1"),
+        ):
+            event = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual("error", event.kind)
+        self.assertEqual("Chat refresh failed.", event.payload["message"])
+        self.assertEqual("collaboration-chat-sync", event.payload["focus_target"])
+        self.assertNotIn("secret.example", repr(event.payload))
 
     def test_sync_marks_only_new_remote_messages_unread_and_announcement_has_no_focus_request(self) -> None:
         view = self.webview()
@@ -1256,11 +1279,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             view.snapshot()["files"]["choose_upload_pending_label"],
         )
         self.assertEqual(
-            "Зберігання нових повідомлень: до завершення сесії",
+            "Зберігання нових повідомлень: session (сесійне)",
             view.snapshot()["chat"]["retention_policy_label"],
         )
         self.assertEqual(
-            "Зберігання нових файлів: до завершення сесії",
+            "Зберігання нових файлів: session (сесійне)",
             view.snapshot()["files"]["retention_policy_label"],
         )
 
