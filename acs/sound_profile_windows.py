@@ -48,6 +48,15 @@ def _is_reparse_point(metadata: os.stat_result) -> bool:
     return bool(flag and attributes & flag)
 
 
+def _regular_file_identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
+    return (
+        int(getattr(metadata, "st_dev", 0)),
+        int(getattr(metadata, "st_ino", 0)),
+        int(metadata.st_size),
+        int(getattr(metadata, "st_mtime_ns", 0)),
+    )
+
+
 def _require_real_cache_directory(path: Path) -> None:
     try:
         metadata = os.lstat(path)
@@ -259,6 +268,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
         flags |= getattr(os, "O_NOINHERIT", 0)
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
         try:
             descriptor = os.open(path, flags, 0o600)
         except OSError as exc:
@@ -273,6 +283,13 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 or not stat.S_ISREG(opened.st_mode)
             ):
                 raise RuntimeError("profiled sound cache lock is not a regular file")
+            if (
+                metadata is not None
+                and _regular_file_identity(opened) != _regular_file_identity(metadata)
+            ):
+                raise RuntimeError(
+                    "profiled sound cache lock changed before secure open"
+                )
             if opened.st_size == 0:
                 os.write(descriptor, b"\0")
                 os.fsync(descriptor)
