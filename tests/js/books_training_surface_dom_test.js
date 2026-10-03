@@ -1547,12 +1547,24 @@ async function run() {
   delete missingPositionFlag.block.has_position;
   expectBookRenderRejected(missingPositionFlag, "Book block without position flag");
 
-  const forgedOpenPosition = bookSnapshot(3, "Forged open position");
-  forgedOpenPosition.actions[8].enabled = true;
-  expectBookRenderRejected(
-    forgedOpenPosition,
-    "enabled Book open-position action without canonical position"
+  const semanticBoardCapabilityRoot = new FakeElement("div");
+  const semanticBoardCapability = semanticGameSnapshot();
+  semanticBoardCapability.actions[8].enabled = true;
+  window.AccessibleChessBookSurface.render(
+    semanticBoardCapabilityRoot,
+    semanticBoardCapability,
+    () => ({}),
+    announce,
+    "book-block-5",
+    "Action failed"
   );
+  check(semanticBoardCapability.block.has_position === false,
+    "semantic Game fixture must distinguish board capability from direct FEN presence");
+  const semanticBoardOpen = find(
+    semanticBoardCapabilityRoot, "BUTTON", "Open on board"
+  );
+  check(semanticBoardOpen !== null && !semanticBoardOpen.disabled,
+    "semantic Game board capability must remain usable without direct FEN exposure");
 
   const emptyParagraph = bookSnapshot(3, "Paragraph");
   emptyParagraph.block.text = "   ";
