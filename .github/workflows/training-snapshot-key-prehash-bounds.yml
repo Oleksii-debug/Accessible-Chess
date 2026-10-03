@@ -63,8 +63,8 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
-          test "$(git rev-parse HEAD:acs/training.py)" = "3c8a581cba62b7611a0b1327b9342000666b13f3"
-          test "$(git rev-parse HEAD:tests/test_training.py)" = "965d623ff50a7801c170f6a37f71aac4232dd4e0"
+          test "$(git rev-parse HEAD:acs/training.py)" = "bdc6e3da18a9804b3b022a3dd435e8519f5e3c97"
+          test "$(git rev-parse HEAD:tests/test_training.py)" = "266462d3f09b6a722cad01b700d1bfd306bded2c"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
