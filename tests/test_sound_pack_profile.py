@@ -43,6 +43,7 @@ class PackStorage:
         self.fail_install = False
         self.commit_then_fail_install = False
         self.fail_uninstall = False
+        self.commit_then_fail_uninstall = False
 
     def installed(self):
         return dict(self.items)
@@ -60,6 +61,8 @@ class PackStorage:
         if self.fail_uninstall:
             raise OSError("pack uninstall failed")
         self.items.pop(pack_id, None)
+        if self.commit_then_fail_uninstall:
+            raise OSError("pack uninstall failed after removal")
 
 
 class Downloader:
@@ -431,6 +434,27 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
         self.assertEqual(profile_storage.raw["pack_id"], "classic")
         self.assertIn("soft.wood", pack_storage.items)
         self.assertEqual(coordinator.current_profile.pack_id, "classic")
+
+    def test_uncertain_uninstall_commit_never_restores_profile_to_removed_pack(self):
+        operations = []
+        coordinator, _, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood", operations=operations
+        )
+        pack_storage.commit_then_fail_uninstall = True
+
+        with self.assertRaisesRegex(
+            OSError,
+            "pack uninstall failed after removal",
+        ):
+            coordinator.uninstall("soft.wood")
+
+        self.assertEqual("classic", profile_storage.raw["pack_id"])
+        self.assertEqual("classic", coordinator.current_profile.pack_id)
+        self.assertNotIn("soft.wood", pack_storage.items)
+        self.assertEqual(
+            operations,
+            [("profile.write", "classic"), ("pack.uninstall", "soft.wood")],
+        )
 
     def test_inactive_uninstall_does_not_rewrite_current_profile(self):
         operations = []
