@@ -46,8 +46,10 @@ jobs:
       FOCUS_RECOVERY_STORE_BLOB: b7ad9899f614c42589b9f53fddbebe59dee2b9c7
       FOCUS_RECOVERY_BASE_TEST_BLOB: 81d5eb59a0b4b8f292480d2dd4c1f82fa4a36b7a
       FOCUS_RECOVERY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
-      FOCUS_RECOVERY_APPLICATION_BLOB: 1a3b313226c0202cebf85f15593a957e05580132
-      FOCUS_RECOVERY_APPLICATION_TEST_BLOB: 7017a8bb8616d8cf7723407d46284bd27c0873c9
+      FOCUS_RECOVERY_APPLICATION_BLOB: c18e49f72d57a598c7e2c47794ce254ddc788101
+      FOCUS_RECOVERY_APPLICATION_TEST_BLOB: 240bb41b0e99c45c0c1ad64ae8b91dbd057f6f69
+      SEMANTIC_DURABLE_APPLICATION_BLOB: 9f4722a1898f9f1bc17daa62737606d8cb847a2d
+      SEMANTIC_DURABLE_APPLICATION_TEST_BLOB: 043d8efd1be94b425d9ed153ce7f25e8b9057fed
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -145,6 +147,30 @@ jobs:
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_TEST_BLOB"
             focus_recovery_successor=true
+          fi
+
+          semantic_durable_convergence=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "$PR_BASE_REF" = "fix/books-semantic-rendered-text-budget-20261003" ] \
+             && [ "${{ github.event.pull_request.head.ref }}" = "converge/books-semantic-durable-board-20261003" ]; then
+            semantic_ref="refs/remotes/origin/$PR_BASE_REF"
+            durable_branch="fix/delegated-focus-roundtrip-ci-recovery-20261003"
+            durable_ref="refs/remotes/origin/$durable_branch"
+            git fetch --no-tags origin \
+              "+refs/heads/$PR_BASE_REF:$semantic_ref" \
+              "+refs/heads/$durable_branch:$durable_ref"
+            semantic_head="$(git rev-parse "$semantic_ref")"
+            durable_head="$(git rev-parse "$durable_ref")"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$semantic_head"
+            git merge-base --is-ancestor "$semantic_head" HEAD
+            git merge-base --is-ancestor "$durable_head" HEAD
+            test "$(git merge-base "$semantic_head" HEAD)" = "$semantic_head"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$SEMANTIC_DURABLE_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$SEMANTIC_DURABLE_APPLICATION_TEST_BLOB"
+            semantic_durable_convergence=true
           fi
 
           bounded_feature=false
@@ -250,7 +276,10 @@ jobs:
             full_product_composition=true
           fi
 
-          if [ "$focus_recovery_successor" = true ]; then
+          if [ "$semantic_durable_convergence" = true ]; then
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=SEMANTIC_DURABLE_CONVERGENCE'
+          elif [ "$focus_recovery_successor" = true ]; then
             git diff --check "$upstream" HEAD
             echo 'BOOK_PROGRESS_TOPOLOGY=FOCUS_RECOVERY_SUCCESSOR'
           elif [ "$delegated_focus_successor" = true ]; then
@@ -326,10 +355,18 @@ jobs:
           # Every accepted topology must retain an explicitly reviewed
           # BookProgress authority. Focus recovery composes its reviewed durable
           # store/application blobs on the current delegated-focus parent.
-          if [ "$delegated_focus_successor" != true ] && [ "$focus_recovery_successor" != true ]; then
+          if [ "$delegated_focus_successor" != true ] \
+             && [ "$focus_recovery_successor" != true ] \
+             && [ "$semantic_durable_convergence" != true ]; then
             git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
           fi
-          if [ "$focus_recovery_successor" = true ]; then
+          if [ "$semantic_durable_convergence" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$SEMANTIC_DURABLE_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$SEMANTIC_DURABLE_APPLICATION_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+          elif [ "$focus_recovery_successor" = true ]; then
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$FOCUS_RECOVERY_APPLICATION_TEST_BLOB"
