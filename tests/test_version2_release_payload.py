@@ -28,6 +28,7 @@ _REQUIRED_WEB_FILES = (
     "full_product_teacher.js",
     "full_product_education.js",
     "livekit_classroom_media.js",
+    "classroom_media_host_executor.js",
     "vendor/livekit/livekit-client.umd.js",
     "vendor/livekit/LICENSE",
     "vendor/livekit/NOTICE",
