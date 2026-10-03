@@ -39,21 +39,27 @@ class FakeAuthorization:
         self.reject_send = False
         self.reject_history = False
         self.reject_moderation = False
+        self.send_result = None
+        self.history_result = None
+        self.moderation_result = None
 
     def authorize_chat_send(self, *, room_id, caller_identity, sender_id):
         self.send_calls.append((room_id, caller_identity, sender_id))
         if self.reject_send:
             raise RuntimeError("sensitive membership detail")
+        return self.send_result
 
     def authorize_chat_history(self, *, room_id, caller_identity):
         self.history_calls.append((room_id, caller_identity))
         if self.reject_history:
             raise RuntimeError("sensitive history detail")
+        return self.history_result
 
     def authorize_chat_moderation(self, *, room_id, caller_identity, commands):
         self.moderation_calls.append((room_id, caller_identity, commands))
         if self.reject_moderation:
             raise RuntimeError("sensitive role detail")
+        return self.moderation_result
 
 
 class BoundChatTransport:
@@ -1048,6 +1054,64 @@ class ClassroomChatServerTests(unittest.TestCase):
                 limit=10,
             )
         self.assertIsNone(history_error.exception.__cause__)
+
+    def test_authorization_ports_reject_boolean_denial_results_fail_closed(self) -> None:
+        self.auth.send_result = False
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "chat send is not authorized",
+        ):
+            self.send(self.draft("false-send-authorization"))
+        self.assertEqual(0, self.clock.calls)
+
+        self.auth.send_result = None
+        self.auth.history_result = False
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "chat history is not authorized",
+        ):
+            self.service.history_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "chat state history is not authorized",
+        ):
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=None,
+                limit=10,
+            )
+
+        self.auth.history_result = None
+        self.auth.moderation_result = False
+        command = self.moderation(
+            "false-moderation-authorization",
+            allowed=False,
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "chat moderation is not authorized",
+        ):
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(command,),
+            )
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_moderation_ops
+                    WHERE room_id=? AND operation_id=?
+                    """,
+                    (ROOM, command.operation_id),
+                ).fetchone()
+            )
 
     def test_server_permission_lock_is_enforced_even_without_client_local_state(self) -> None:
         lock = self.moderation("lock-student", allowed=False)

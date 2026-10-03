@@ -931,11 +931,13 @@ class ClassroomChatServerService:
                 "chat sender does not match trusted caller identity"
             )
         try:
-            self._authorization.authorize_chat_send(
+            authorization_result = self._authorization.authorize_chat_send(
                 room_id=draft.room_id,
                 caller_identity=caller,
                 sender_id=draft.sender_id,
             )
+            if authorization_result is not None:
+                raise RuntimeError("authorization port returned an invalid result")
         except Exception:
             raise ClassroomChatServerError("chat send is not authorized") from None
         existing = self._store.existing_for_draft(draft)
@@ -969,10 +971,12 @@ class ClassroomChatServerService:
         after = _nonnegative_sequence(after_sequence)
         bounded = _history_limit(limit)
         try:
-            self._authorization.authorize_chat_history(
+            authorization_result = self._authorization.authorize_chat_history(
                 room_id=room,
                 caller_identity=caller,
             )
+            if authorization_result is not None:
+                raise RuntimeError("authorization port returned an invalid result")
         except Exception:
             raise ClassroomChatServerError("chat history is not authorized") from None
         return self._store.history_after(
@@ -998,10 +1002,12 @@ class ClassroomChatServerService:
             raise ClassroomChatServerError("state revision is invalid")
         bounded = _history_limit(limit)
         try:
-            self._authorization.authorize_chat_history(
+            authorization_result = self._authorization.authorize_chat_history(
                 room_id=room,
                 caller_identity=caller,
             )
+            if authorization_result is not None:
+                raise RuntimeError("authorization port returned an invalid result")
         except Exception:
             raise ClassroomChatServerError(
                 "chat state history is not authorized"
@@ -1034,11 +1040,13 @@ class ClassroomChatServerService:
                 "moderation actor does not match trusted caller identity"
             )
         try:
-            self._authorization.authorize_chat_moderation(
+            authorization_result = self._authorization.authorize_chat_moderation(
                 room_id=room,
                 caller_identity=caller,
                 commands=commands,
             )
+            if authorization_result is not None:
+                raise RuntimeError("authorization port returned an invalid result")
         except Exception:
             raise ClassroomChatServerError(
                 "chat moderation is not authorized"
