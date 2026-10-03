@@ -460,6 +460,52 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             )
         self.assertEqual(self.store.room_attachments("room"), (current,))
 
+    def test_corrupt_snapshot_watermark_room_binding_fails_closed(self) -> None:
+        current = AttachmentMetadata(
+            "snapshot-room", "room", "teacher", 0, "snapshot.bin", None, 1,
+            "1" * 64, "rooms/room/snapshot-room", "stored", "persistent", "clean"
+        )
+        self.store.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(current,),
+            updates=(),
+            snapshot_state_revision=1,
+        )
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                """
+                UPDATE collaboration_attachment_snapshot_watermarks
+                SET room_id='other-room'
+                WHERE attachment_id=?
+                """,
+                (current.attachment_id,),
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "watermark crossed room boundary",
+        ):
+            self.store.attachment_snapshot_state_revision(current.attachment_id)
+
+        update = AttachmentStateUpdate(
+            "room",
+            current.attachment_id,
+            0,
+            "stored",
+            "clean",
+        )
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "watermark crossed room boundary",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(),
+                updates=(update,),
+            )
+        self.assertIsNone(self.store.attachment_state_revision("room"))
+        self.assertEqual(self.store.room_attachments("room"), (current,))
+
     def test_attachment_snapshot_watermark_rejects_invalid_revision_atomically(self) -> None:
         current = AttachmentMetadata(
             "snapshot-invalid", "room", "teacher", 0, "snapshot.bin", None, 1,
