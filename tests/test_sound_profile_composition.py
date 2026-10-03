@@ -17,6 +17,7 @@ from acs.sound_pack_catalog import (
 )
 from acs.sound_pack_store import FilesystemSoundPackStore
 from acs.sound_profile_composition import (
+    _InjectedClassicPlaybackBridge,
     _installed_pack_inventory,
     _local_pack_resolver,
     _playable_installed_packs,
@@ -313,6 +314,39 @@ class LocalSoundCompositionTests(unittest.TestCase):
             self.assertEqual(1, len(playback.calls))
             event, _volume = playback.calls[0]
             self.assertEqual("tick", event.value)
+
+    def test_legacy_injection_uses_canonical_low_time_when_owner_event_exists(self) -> None:
+        playback = _LegacyPlayback()
+        bridge = _InjectedClassicPlaybackBridge(playback)
+
+        class FutureSoundEvent:
+            TICK = type("Tick", (), {"value": "tick"})()
+
+            def __new__(cls, value):
+                if value == "low_time":
+                    return type("LowTime", (), {"value": "low_time"})()
+                if value == "tick":
+                    return cls.TICK
+                raise ValueError(value)
+
+        with mock.patch(
+            "acs.sound_profile_composition.SoundEvent",
+            FutureSoundEvent,
+        ):
+            bridge.play_sound(
+                SoundAssetRequest(
+                    pack_id="classic",
+                    event_id="low_time",
+                    sound_id="low_time",
+                    volume=67,
+                    preview=False,
+                )
+            )
+
+        self.assertEqual(1, len(playback.calls))
+        event, volume = playback.calls[0]
+        self.assertEqual("low_time", event.value)
+        self.assertEqual(67, volume)
 
     def test_missing_selected_custom_pack_recovers_to_classic_on_load(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-fallback-") as raw:
