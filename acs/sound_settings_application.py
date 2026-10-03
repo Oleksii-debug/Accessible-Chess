@@ -319,21 +319,13 @@ class SoundSettingsApplication:
                     if installed_manifest is None
                     else stored_rights
                 )
-                if (
-                    rights is None
-                    and installed_manifest is not None
-                    and installed_manifest == manifest
-                ):
-                    rights = entry.rights_evidence
                 catalog_rights = entry.rights_evidence
                 projected_state = status.state.value
-                if (
-                    installed_manifest is not None
-                    and installed_manifest == manifest
-                    and stored_rights is not None
-                    and stored_rights != catalog_rights
-                ):
-                    projected_state = "rights_conflict"
+                if installed_manifest is not None and installed_manifest == manifest:
+                    if stored_rights is None:
+                        projected_state = "rights_unverified"
+                    elif stored_rights != catalog_rights:
+                        projected_state = "rights_conflict"
                 represented.add(manifest.pack_id)
                 packs.append(
                     {
