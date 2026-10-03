@@ -18,7 +18,7 @@ from .classroom_collaboration_chat_server import (
     ClassroomChatServerSQLiteStore,
 )
 from .classroom_chat_rpc import ClassroomChatRpcService
-from .classroom_file_rpc import ClassroomFileRpcService
+from .classroom_file_rpc import MAX_RPC_UPLOAD_BYTES, ClassroomFileRpcService
 from .classroom_file_server import (
     ClassroomFileAuthorizationPort,
     ClassroomFileObjectStorePort,
@@ -59,6 +59,12 @@ def _database_path(value: str | Path, label: str) -> str:
     result = str(value)
     if not result or result == ":memory:":
         raise ValueError(f"{label} must be a durable filesystem path")
+    target = Path(result)
+    parent = target.parent
+    if not parent.exists() or not parent.is_dir():
+        raise ValueError(f"{label} parent directory must already exist")
+    if target.exists() and target.is_dir():
+        raise ValueError(f"{label} must identify a database file")
     return result
 
 
@@ -106,12 +112,17 @@ def build_classroom_collaboration_http_server_runtime(
         raise TypeError("chat_retention_policy must be callable or None")
     if type(file_quota) is not FileQuotaPolicy:
         raise TypeError("file_quota must be FileQuotaPolicy")
+    if file_quota.max_file_bytes > MAX_RPC_UPLOAD_BYTES:
+        raise ValueError("file_quota exceeds authenticated RPC upload limit")
     if type(allow_insecure_loopback) is not bool:
         raise TypeError("allow_insecure_loopback must be bool")
 
     chat_path = _database_path(chat_database_path, "chat_database_path")
     file_path = _database_path(file_database_path, "file_database_path")
-    if Path(chat_path).absolute() == Path(file_path).absolute():
+    if (
+        Path(chat_path).resolve(strict=False)
+        == Path(file_path).resolve(strict=False)
+    ):
         raise ValueError("chat and file databases must use distinct paths")
 
     chat_store = ClassroomChatServerSQLiteStore(chat_path)
