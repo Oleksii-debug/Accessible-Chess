@@ -213,10 +213,14 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertGreater(len(imported.warnings), 0)
         self.app.open_book_dialog = lambda: book
 
-        result = self.app.browser_command("shell", "book.open")
+        command = self.app.adapter.activate_action(
+            "book.open",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual(command.kind, "delegated")
+        self.app.native_command(command)
         events = self.app.drain_events()
 
-        self.assertEqual(result["kind"], "delegated")
         status = [
             event
             for event in events
@@ -224,7 +228,16 @@ class Version2ApplicationTests(unittest.TestCase):
             and isinstance(event.get("payload"), dict)
             and event["payload"].get("announcement")
         ]
+        delegated = [
+            event
+            for event in events
+            if event.get("kind") == "delegated"
+            and isinstance(event.get("payload"), dict)
+            and event["payload"].get("action_id") == "book.open"
+        ]
         self.assertEqual(len(status), 1)
+        self.assertEqual(len(delegated), 1)
+        self.assertLess(events.index(status[0]), events.index(delegated[0]))
         announcement = status[0]["payload"]["announcement"]
         self.assertEqual(
             announcement,
