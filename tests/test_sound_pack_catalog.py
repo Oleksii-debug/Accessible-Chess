@@ -325,6 +325,8 @@ class SoundPackCatalogTests(unittest.TestCase):
             "signed\nextra",
             "signed\tshadow",
             "signed\u2028second-line",
+            "signed\u202evisual-reversal",
+            "signed\u200bhidden-separator",
             " signed",
             "signed ",
         ):
