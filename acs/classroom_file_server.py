@@ -683,10 +683,16 @@ class ClassroomFileServerSQLiteStore:
         query += "ORDER BY sequence_no LIMIT ?"
         args.append(count)
         with closing(self._connect()) as db:
-            return tuple(
-                self._terminal_from_row(row)
-                for row in db.execute(query, tuple(args))
-            )
+            rows = db.execute(query, tuple(args)).fetchall()
+        items = tuple(self._terminal_from_row(row) for row in rows)
+        expected_sequence = 0 if after is None else after + 1
+        for item in items:
+            if item.sequence_no != expected_sequence:
+                raise ClassroomFileServerError(
+                    "authoritative file history has a sequence gap"
+                )
+            expected_sequence += 1
+        return items
 
     def state_updates_after(
         self,
@@ -709,10 +715,16 @@ class ClassroomFileServerSQLiteStore:
         query += "ORDER BY revision LIMIT ?"
         args.append(count)
         with closing(self._connect()) as db:
-            return tuple(
-                self._state_from_row(row)
-                for row in db.execute(query, tuple(args))
-            )
+            rows = db.execute(query, tuple(args)).fetchall()
+        items = tuple(self._state_from_row(row) for row in rows)
+        expected_revision = 0 if after is None else after + 1
+        for item in items:
+            if item.revision != expected_revision:
+                raise ClassroomFileServerError(
+                    "authoritative attachment state has a revision gap"
+                )
+            expected_revision += 1
+        return items
 
     def attachment_for_object_key(
         self,
