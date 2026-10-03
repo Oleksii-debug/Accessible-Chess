@@ -209,8 +209,13 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 store.install_atomically(downloaded)
 
             versions_dir = root / "packs" / manifest.pack_id / "versions"
-            self.assertEqual(("sync", versions_dir), order[0])
-            self.assertEqual(("active", versions_dir.parent), order[1])
+            version_sync_index = order.index(("sync", versions_dir))
+            active_index = order.index(("active", versions_dir.parent))
+            self.assertLess(
+                version_sync_index,
+                active_index,
+                "version directory must be durable before active pointer publication",
+            )
 
     def test_directory_sync_failure_never_advances_active_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
