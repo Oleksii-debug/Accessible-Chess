@@ -100,6 +100,8 @@ _LABELS = {
         "blocked": "Учасника видалено й заблоковано.",
         "muted_all": "Чат для учнів вимкнено.",
         "allowed_all": "Чат для учнів увімкнено.",
+        "file_selection_cancelled": "Вибір файла скасовано.",
+        "file_selection_failed": "Не вдалося вибрати файл.",
         "file_sent": "Файл надіслано: {name}.",
         "file_saved": "Файл передано до безпечного збереження: {name}.",
         "file_opened": "Файл передано до явного відкриття: {name}.",
@@ -176,6 +178,8 @@ _LABELS = {
         "blocked": "Participant removed and blocked.",
         "muted_all": "Student chat disabled.",
         "allowed_all": "Student chat enabled.",
+        "file_selection_cancelled": "File selection cancelled.",
+        "file_selection_failed": "Could not choose file.",
         "file_sent": "File sent: {name}.",
         "file_saved": "File passed to safe save: {name}.",
         "file_opened": "File passed to explicit open: {name}.",
@@ -1035,9 +1039,19 @@ class ClassroomCollaborationWebView:
     def _choose_upload(self) -> ClassroomCollaborationWebViewEvent:
         if self._file_picker is None:
             raise RuntimeError("file picker is unavailable")
-        selected = self._file_picker()
+        try:
+            selected = self._file_picker()
+        except Exception:
+            return self._error(
+                message=_LABELS[self._language]["file_selection_failed"],
+                focus_target="collaboration-file-choose",
+            )
         if selected is None:
-            return self._event("collaboration.file.cancelled")
+            return self._event(
+                "collaboration.file.selection_cancelled",
+                announcement=_LABELS[self._language]["file_selection_cancelled"],
+                focus_target="collaboration-file-choose",
+            )
         if not isinstance(selected, Path):
             raise TypeError("file picker must return pathlib.Path or None")
         attachments = self._store.room_attachments(self._controller.room_id)
