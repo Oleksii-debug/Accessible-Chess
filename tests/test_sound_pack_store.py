@@ -9,7 +9,11 @@ import unittest
 from unittest import mock
 import wave
 
-from acs.sound_pack_catalog import DownloadedSoundPack, SoundAssetDigest
+from acs.sound_pack_catalog import (
+    DownloadedSoundPack,
+    SoundAssetDigest,
+    SoundPackRightsEvidence,
+)
 from acs.sound_pack_store import FilesystemSoundPackStore, SoundPackStoreError
 from acs.sound_profiles import CORE_SOUND_EVENTS, SoundPackManifest
 
@@ -83,7 +87,91 @@ def _staged_download(
     )
 
 
+def _with_rights(
+    downloaded: DownloadedSoundPack,
+    *,
+    source_suffix: str = "primary",
+) -> DownloadedSoundPack:
+    manifest = downloaded.manifest
+    return DownloadedSoundPack(
+        manifest=manifest,
+        assets=downloaded.assets,
+        total_bytes=downloaded.total_bytes,
+        payload_ref=downloaded.payload_ref,
+        rights_evidence=SoundPackRightsEvidence(
+            license_id=manifest.license_id,
+            source_uri=(
+                f"https://example.invalid/source/{manifest.pack_id}/"
+                f"{manifest.version}/{source_suffix}"
+            ),
+            license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        ),
+    )
+
+
 class FilesystemSoundPackStoreTests(unittest.TestCase):
+    def test_rights_evidence_is_version_bound_and_survives_store_reopen(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store_root = root / "packs"
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            downloaded = _with_rights(downloaded)
+
+            store = FilesystemSoundPackStore(store_root)
+            store.install_atomically(downloaded)
+
+            self.assertEqual(downloaded.rights_evidence, store.rights_evidence(manifest.pack_id))
+            reopened = FilesystemSoundPackStore(store_root)
+            self.assertEqual(manifest, reopened.installed()[manifest.pack_id])
+            self.assertEqual(
+                downloaded.rights_evidence,
+                reopened.rights_evidence(manifest.pack_id),
+            )
+
+    def test_same_version_cannot_equivocate_durable_rights_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            first = _with_rights(downloaded, source_suffix="first")
+            conflicting = _with_rights(downloaded, source_suffix="conflicting")
+            store.install_atomically(first)
+
+            with self.assertRaisesRegex(
+                SoundPackStoreError,
+                "already exists with different content",
+            ):
+                store.install_atomically(conflicting)
+
+            self.assertEqual(first.rights_evidence, store.rights_evidence(manifest.pack_id))
+
+    def test_tampered_rights_evidence_invalidates_installed_pack_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            downloaded = _with_rights(downloaded)
+            store.install_atomically(downloaded)
+
+            rights_path = (
+                store.root
+                / manifest.pack_id
+                / "versions"
+                / manifest.version
+                / "rights.json"
+            )
+            rights_path.write_text(
+                '{"license_id":"MIT","license_uri":"https://example.invalid/license",'
+                '"source_uri":"https://example.invalid/source"}\n',
+                encoding="utf-8",
+            )
+
+            self.assertNotIn(manifest.pack_id, store.installed())
+            self.assertIsNone(store.rights_evidence(manifest.pack_id))
+
     def test_new_pack_directory_chain_is_durably_linked_parent_first(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
