@@ -143,6 +143,19 @@ class BookProjectionTests(unittest.TestCase):
                 )
             )
 
+        for malformed in ("8/8/8\x00secret", "x" * 4097):
+            with self.subTest(position=repr(malformed[:24])):
+                with self.assertRaisesRegex(ValueError, "board-position token"):
+                    self.projection._snapshot_from_block(
+                        replace(
+                            block,
+                            kind="Position",
+                            role="group",
+                            heading_level=None,
+                            position_fen=malformed,
+                        )
+                    )
+
     def test_snapshot_rejects_heading_and_navigation_contract_drift(self) -> None:
         paragraph = self.presenter.next_block()
         with self.assertRaisesRegex(ValueError, "non-heading"):
