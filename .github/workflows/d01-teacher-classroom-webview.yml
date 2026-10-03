@@ -70,8 +70,8 @@ jobs:
           fi
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           d01_owner="ce5379cbdd4380fbe38d676efea5a24cec2e5825"
-          classroom_surface_successor="040657ff7feb0ae2e28abbf33a301750aa908d24"
-          classroom_dom_successor="8075af36490fbb2118cb817d1fc6bdfe51ed6f25"
+          classroom_surface_successor="c4a90ee7886cfc7214d92376652c3fa41a7e3a5f"
+          classroom_dom_successor="e642f8de01728ac99b52dfb58e57f029a3ad72b5"
           git cat-file -e "${d01_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$d01_owner" HEAD
