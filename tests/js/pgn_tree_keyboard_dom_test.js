@@ -334,9 +334,11 @@ async function runUnavailableRecoveryRegression() {
     return { kind: "error", payload: { message: "unexpected" } };
   };
 
+  const previouslyLeased = snapshot();
+  previouslyLeased.presentation_token = "c".repeat(64);
   window.AccessibleChessPgnSurface.render(
     root,
-    snapshot(),
+    previouslyLeased,
     invoke,
     (message) => announcements.push(String(message)),
     "pgn-root"
@@ -372,6 +374,10 @@ async function runUnavailableRecoveryRegression() {
   await flush();
   check(calls.length === 1, "refresh control dispatched more than one command");
   check(calls[0][0] === "pgn.refresh", "refresh control bypassed the read-only PGN refresh command");
+  check(
+    Object.keys(calls[0][1]).length === 0,
+    "recovery refresh inherited a lease from the discarded stale PGN tree"
+  );
   const recovered = root.querySelectorAll('[role="treeitem"]');
   check(recovered.length === 4, "refresh did not restore canonical PGN tree");
   check(
