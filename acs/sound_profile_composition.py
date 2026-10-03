@@ -198,7 +198,9 @@ def _provider_catalog(
     if len(catalog) > MAX_SOUND_PACK_CATALOG_ENTRIES:
         raise ValueError("sound pack catalog exceeds the resource limit")
     normalized: dict[str, SoundPackCatalogEntry] = {}
-    for pack_id, entry in catalog.items():
+    for index, (pack_id, entry) in enumerate(catalog.items(), start=1):
+        if index > MAX_SOUND_PACK_CATALOG_ENTRIES:
+            raise ValueError("sound pack catalog exceeds the resource limit")
         if type(pack_id) is not str or not isinstance(entry, SoundPackCatalogEntry):
             raise TypeError(
                 "sound pack catalog must map text ids to SoundPackCatalogEntry"
