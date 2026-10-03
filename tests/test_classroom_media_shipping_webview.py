@@ -677,6 +677,57 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
                         "moderation-service",
                     )
 
+    def test_application_queues_trusted_recovery_resolution_refresh(self):
+        controller, roster, _host, _sessions, binder, _projection, _transactions, _bridge = composition()
+        application = object.__new__(Version2FinalProductApplication)
+        application.shell = SimpleNamespace(language=UILanguage.EN)
+        application.media = None
+        application.media_transactions = None
+        application._assert_thread = lambda: None
+        application._events = deque()
+        labels = {
+            participant_id: participant_id.replace("-", " ").title()
+            for participant_id in roster.participant_ids()
+        }
+        application.bind_classroom_media(
+            controller,
+            lambda: dict(labels),
+            provider_binder=binder,
+            provider_config=ClassroomMediaBrowserProviderConfig(
+                "wss://media.example.test",
+                "moderation-service",
+            ),
+        )
+        connect(controller, roster, application.media_transactions)
+
+        pending = application.browser_command(
+            "media",
+            "media.local_source",
+            {"source": "microphone", "enabled": True},
+        )
+        transaction_id = pending["payload"]["transaction_id"]
+        application.browser_command(
+            "media",
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+        latched = application.browser_command(
+            "media",
+            "media.provider_outcome_unknown",
+            {"transaction_id": transaction_id},
+        )
+        self.assertTrue(latched["payload"]["recovery_required"])
+        self.assertIsNotNone(binder.recovery_status)
+
+        resolved = (
+            application.resolve_classroom_media_recovery_after_authoritative_reconciliation(
+                transaction_id
+            )
+        )
+        self.assertEqual(resolved["kind"], "media-updated")
+        self.assertIsNone(binder.recovery_status)
+        self.assertEqual(application.drain_events(), [resolved])
+
     def test_application_transactional_binding_queues_trusted_join(self):
         controller, roster, _host, _sessions, binder, _projection, _transactions, _bridge = composition()
         application = object.__new__(Version2FinalProductApplication)
