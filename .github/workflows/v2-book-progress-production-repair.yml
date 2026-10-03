@@ -285,9 +285,15 @@ jobs:
             exit 1
           fi
 
-          # Every accepted topology must retain the current BookProgress owner
-          # and exact current owned blobs.
-          git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
+          # Every accepted topology must retain the exact current BookProgress
+          # owned blobs. The delegated-focus successor is based on the current
+          # Training lineage, which legitimately diverged before
+          # CURRENT_PROGRESS_OWNER; its exact PR-base ancestry, bounded delta and
+          # byte-identical store/test blobs above are the authority instead of a
+          # false global ancestry requirement.
+          if [ "$delegated_focus_successor" != true ]; then
+            git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
+          fi
           test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
           if [ "$current_books_recovery" = true ]; then
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
