@@ -499,6 +499,23 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual(manifest, record.manifest)
             self.assertIsNone(record.rights_evidence)
 
+    def test_hardlinked_mutation_lock_never_writes_external_inode(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            external = root / "external.lock"
+            external.write_bytes(b"")
+            store._mutation_lock_path.parent.mkdir(parents=True, exist_ok=True)
+            os.link(external, store._mutation_lock_path)
+
+            with self.assertRaisesRegex(
+                SoundPackStoreError,
+                "hard-linked",
+            ):
+                store.uninstall("soft.wood")
+
+            self.assertEqual(b"", external.read_bytes())
+
     def test_uninstall_flushes_sound_pack_root_after_top_level_removal(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
