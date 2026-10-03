@@ -527,6 +527,92 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         presenter.assert_not_called()
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_noncanonical_presenter_view_falls_back_before_attribute_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileView:
+            @property
+            def game_index(self):
+                raise AssertionError("noncanonical presenter view must not be inspected")
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=HostileView(),
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_noncanonical_presenter_item_falls_back_before_field_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileItem:
+            @property
+            def kind(self):
+                raise AssertionError("noncanonical presenter item must not be inspected")
+
+        malformed_view = self.presenter_view(HostileItem())
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=malformed_view,
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_presenter_items_tuple_subclass_is_rejected_before_len(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileItems(tuple):
+            def __len__(self):
+                raise AssertionError("noncanonical items tuple must not be measured")
+
+        malformed_view = PgnGameView(
+            game_index=0,
+            title="",
+            result="*",
+            tags=(),
+            warnings=(),
+            items=HostileItems(),
+            selected_node_id=None,
+        )
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=malformed_view,
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_presenter_game_index_subclass_is_rejected_before_comparison(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
