@@ -586,6 +586,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         uploaded = view.dispatch("collaboration.file.choose_upload", {})
         self.assertEqual("collaboration.file.sent", uploaded.kind)
+        self.assertEqual(
+            "File sent: lesson notes.txt.",
+            uploaded.payload["announcement"],
+        )
         file_item = uploaded.payload["collaboration"]["files"]["items"][0]
         self.assertEqual("lesson notes.txt", file_item["name"])
         self.assertTrue(file_item["can_save"])
@@ -602,6 +606,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("collaboration.file.saved", saved.kind)
         self.assertEqual(
+            "File passed to safe save: lesson notes.txt.",
+            saved.payload["announcement"],
+        )
+        self.assertEqual(
             [("short-lived-read-token", "lesson notes.txt")],
             self.save_calls,
         )
@@ -612,6 +620,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             {"file_key": file_item["file_key"]},
         )
         self.assertEqual("collaboration.file.opened", opened.kind)
+        self.assertEqual(
+            "File passed to explicit open: lesson notes.txt.",
+            opened.payload["announcement"],
+        )
         self.assertEqual(
             [("short-lived-read-token", "lesson notes.txt")],
             self.open_calls,
@@ -631,6 +643,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             event = view.dispatch("collaboration.file.choose_upload", {})
 
         self.assertEqual("error", event.kind)
+        self.assertEqual(
+            "File transfer failed: nonretriable.pgn.",
+            event.payload["message"],
+        )
         self.assertEqual({}, view._prepared)
         self.assertEqual((), self.store.room_attachments("room-1"))
         self.assertNotIn(str(self.selected_file), repr(event.payload))
@@ -942,6 +958,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         failed = view.dispatch("collaboration.file.choose_upload", {})
         self.assertEqual("error", failed.kind)
+        self.assertEqual(
+            "File transfer failed: retry.pgn.",
+            failed.payload["message"],
+        )
         item = failed.payload["collaboration"]["files"]["items"][0]
         self.assertTrue(item["can_retry"])
         self.assertNotIn(str(self.selected_file), repr(failed.payload))
@@ -949,6 +969,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.files.fail_upload = False
         retried = view.dispatch("collaboration.file.retry", {"file_key": item["file_key"]})
         self.assertEqual("collaboration.file.retried", retried.kind)
+        self.assertEqual(
+            "File retry completed: retry.pgn.",
+            retried.payload["announcement"],
+        )
         self.assertFalse(retried.payload["collaboration"]["files"]["items"][0]["can_retry"])
         self.assertEqual("collaboration-file-choose", retried.payload["focus_target"])
         self.assertEqual(1, len(self.files.retry_calls))
@@ -967,6 +991,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             {"file_key": cancel_item["file_key"]},
         )
         self.assertEqual("collaboration.file.cancelled", cancelled.kind)
+        self.assertEqual(
+            "File transfer cancelled: cancel.pgn.",
+            cancelled.payload["announcement"],
+        )
         self.assertEqual("collaboration-file-choose", cancelled.payload["focus_target"])
 
     def test_remote_failed_file_never_exposes_cancel_action(self) -> None:
@@ -1039,6 +1067,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             uploaded = view.dispatch("collaboration.file.choose_upload", {})
 
         self.assertEqual("error", uploaded.kind)
+        self.assertEqual(
+            "File transfer failed: terminal-failure.pgn.",
+            uploaded.payload["message"],
+        )
         self.assertNotIn("announcement", uploaded.payload)
         failed_item = uploaded.payload["collaboration"]["files"]["items"][0]
         self.assertTrue(failed_item["can_retry"])
@@ -1051,6 +1083,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
 
         self.assertEqual("error", retried.kind)
+        self.assertEqual(
+            "File retry failed: terminal-failure.pgn.",
+            retried.payload["message"],
+        )
         self.assertNotIn("announcement", retried.payload)
         self.assertTrue(
             retried.payload["collaboration"]["files"]["items"][0]["can_retry"]
@@ -1081,6 +1117,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
 
         self.assertEqual("error", retried.kind)
+        self.assertEqual(
+            "File retry failed: blocked-after-retry.pgn.",
+            retried.payload["message"],
+        )
         self.assertEqual({}, view._prepared)
         self.assertFalse(
             retried.payload["collaboration"]["files"]["items"][0]["can_retry"]
