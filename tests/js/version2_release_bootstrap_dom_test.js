@@ -105,6 +105,8 @@ let intervalCallback = null;
 let snapshotCalls = 0;
 let nextSnapshotOverride = null;
 let libraryApplyCalls = 0;
+let failNextBookRender = false;
+let failNextTrainingRender = false;
 let stage1RefreshCalls = 0;
 let drainCalls = 0;
 let holdNextDrain = false;
@@ -233,6 +235,10 @@ const windowObject = {
   },
   AccessibleChessBookSurface: {
     render: (root) => {
+      if (failNextBookRender) {
+        failNextBookRender = false;
+        throw new TypeError("malformed Book product snapshot");
+      }
       const block = new FakeElement("section");
       block.id = "book-block-1";
       root.replaceChildren(block);
@@ -240,6 +246,10 @@ const windowObject = {
   },
   AccessibleChessTrainingSurface: {
     render: (root) => {
+      if (failNextTrainingRender) {
+        failNextTrainingRender = false;
+        throw new TypeError("malformed Training product snapshot");
+      }
       const answer = new FakeElement("input");
       answer.id = "training-answer";
       root.replaceChildren(answer);
@@ -277,6 +287,92 @@ async function clickRoute(routeId) {
   check(workspace.hidden === true, "V2 workspace should be hidden on initial Board route");
   check(originalMain.hidden === false, "Stage 1 main should remain visible on Board route");
   check(documentRef.activeElement === moveInput, "initial V2 snapshot did not focus the move input");
+
+  const boardNavBeforeMalformedProduct = documentRef.getElementById("v2-nav-board");
+  check(
+    boardNavBeforeMalformedProduct !== null &&
+      boardNavBeforeMalformedProduct.attributes["aria-current"] === "page",
+    "initial Board navigation state is not canonical"
+  );
+  booksAvailable = true;
+  failNextBookRender = true;
+  await clickRoute("books");
+  check(
+    originalMain.hidden === false,
+    "malformed Books render hid the usable Stage 1 main before commit"
+  );
+  check(
+    workspace.hidden === true,
+    "malformed Books render exposed an uncommitted product workspace"
+  );
+  check(
+    documentRef.getElementById("v2-nav-board") === boardNavBeforeMalformedProduct,
+    "malformed Books render replaced committed navigation"
+  );
+  check(
+    boardNavBeforeMalformedProduct.attributes["aria-current"] === "page",
+    "malformed Books render advanced aria-current away from Board"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "malformed Books render disturbed canonical Board focus"
+  );
+  check(
+    live.textContent === "Could not open the section.",
+    "malformed Books render did not announce route failure"
+  );
+
+  // Recover canonical host route through the still-usable committed navigation.
+  await clickRoute("board");
+  check(originalMain.hidden === false, "Board recovery after malformed Books failed");
+  check(documentRef.activeElement === moveInput, "Board recovery focus after malformed Books failed");
+
+  await clickRoute("books");
+  const committedBookBlock = documentRef.getElementById("book-block-1");
+  const committedBooksNav = documentRef.getElementById("v2-nav-books");
+  check(committedBookBlock !== null, "valid Books route did not render a reading block");
+  check(
+    documentRef.activeElement === committedBookBlock,
+    "valid Books route did not focus its canonical reading block"
+  );
+  check(
+    committedBooksNav !== null &&
+      committedBooksNav.attributes["aria-current"] === "page",
+    "valid Books route did not commit Books navigation"
+  );
+
+  trainingAvailable = true;
+  failNextTrainingRender = true;
+  await clickRoute("training");
+  check(
+    originalMain.hidden === true && workspace.hidden === false,
+    "malformed Training render changed committed Books visibility"
+  );
+  check(
+    documentRef.getElementById("book-block-1") === committedBookBlock,
+    "malformed Training render replaced the committed Book DOM"
+  );
+  check(
+    documentRef.getElementById("v2-nav-books") === committedBooksNav &&
+      committedBooksNav.attributes["aria-current"] === "page",
+    "malformed Training render advanced navigation away from committed Books"
+  );
+  check(
+    documentRef.activeElement === committedBookBlock,
+    "malformed Training render stranded keyboard focus away from the Book block"
+  );
+
+  await clickRoute("board");
+  booksAvailable = false;
+  trainingAvailable = false;
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "Board recovery after malformed Training failed"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "Board focus recovery after malformed Training failed"
+  );
 
   await clickRoute("pgn");
   const pgnStatus = documentRef.getElementById("v2-pgn-empty-status");
