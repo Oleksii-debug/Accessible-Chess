@@ -14,6 +14,8 @@
   const MAX_STARTER_BOOKLETS = 24;
   const MAX_TRAINING_SOLUTION_MOVES = 64;
   const MAX_TRAINING_SOLUTION_TEXT = 128;
+  const MAX_PUBLIC_FALLBACK_TEXT = 1200;
+  const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
 
   function renderEpoch(root) {
     return renderEpochs.get(root) || 0;
@@ -45,7 +47,15 @@
 
   function node(tag, text) {
     const element = document.createElement(tag);
-    if (text !== undefined && text !== null) element.textContent = String(text);
+    if (text !== undefined && text !== null) {
+      if (typeof text === "string") {
+        element.textContent = text;
+      } else if (typeof text === "number" && Number.isFinite(text)) {
+        element.textContent = String(text);
+      } else {
+        throw new TypeError("DOM text must be primitive text or a finite number");
+      }
+    }
     return element;
   }
 
@@ -138,7 +148,7 @@
 
     function fail() {
       if (!isCurrent()) return;
-      if (fallbackMessage) announce(String(fallbackMessage));
+      if (fallbackMessage) announce(fallbackMessage);
       if (typeof onFailure === "function") onFailure();
     }
 
@@ -213,6 +223,44 @@
       throw new TypeError(label + " exceeds its canonical text contract");
     }
     return text;
+  }
+
+  function requireRenderFocus(value, surface) {
+    if (value === undefined || value === null || value === "") return "";
+    requireBoundedText(value, surface + " requested focus", false, 160);
+    if (!FOCUS_ID_PATTERN.test(value)) {
+      throw new TypeError(surface + " requested focus is invalid");
+    }
+    return value;
+  }
+
+  function requireFallbackMessage(value, surface) {
+    if (value === undefined || value === null) return "";
+    return requireBoundedText(
+      value,
+      surface + " fallback message",
+      true,
+      MAX_PUBLIC_FALLBACK_TEXT
+    );
+  }
+
+  function requireTrainingSolutionArgument(solution) {
+    if (solution === undefined || solution === null) return [];
+    if (!Array.isArray(solution) || solution.length > MAX_TRAINING_SOLUTION_MOVES) {
+      throw new TypeError("Training solution argument is invalid");
+    }
+    for (let index = 0; index < solution.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(solution, index)) {
+        throw new TypeError("Training solution argument must be dense");
+      }
+      requireBoundedText(
+        solution[index],
+        "Training solution move",
+        false,
+        MAX_TRAINING_SOLUTION_TEXT
+      );
+    }
+    return solution;
   }
 
   function requireActions(actions, commands, surface) {
@@ -949,7 +997,11 @@
     }
     requireFunction(invoke, "Book invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Book announce");
-    if (!snapshot || typeof snapshot !== "object") throw new TypeError("Book snapshot is required");
+    requestedFocus = requireRenderFocus(requestedFocus, "Book");
+    fallbackMessage = requireFallbackMessage(fallbackMessage, "Book");
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new TypeError("Book snapshot is required");
+    }
     requireBookSnapshot(snapshot);
 
     const fragment = document.createDocumentFragment();
@@ -1149,7 +1201,12 @@
     }
     requireFunction(invoke, "Training invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
-    if (!snapshot || typeof snapshot !== "object") throw new TypeError("Training snapshot is required");
+    requestedFocus = requireRenderFocus(requestedFocus, "Training");
+    fallbackMessage = requireFallbackMessage(fallbackMessage, "Training");
+    solution = requireTrainingSolutionArgument(solution);
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new TypeError("Training snapshot is required");
+    }
     requireTrainingSnapshot(snapshot);
 
     const fragment = document.createDocumentFragment();
