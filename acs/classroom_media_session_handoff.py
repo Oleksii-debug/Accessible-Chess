@@ -11,7 +11,9 @@ The credential is retained in process memory only while one transaction is
 pending. It is never included in repr, summaries, recovery metadata, snapshots or
 durable state. The browser payload containing the token can be claimed exactly once.
 Provider effects other than connect/reconnect/disconnect remain owned by the
-separate media-effect transaction boundary.
+separate media-effect transaction boundary. The eventual shipping binder must
+serialize this coordinator with that media-effect coordinator behind one shared
+provider-execution owner; two independent pending provider calls are not safe.
 """
 
 from collections.abc import Callable, Mapping
@@ -481,6 +483,47 @@ class ClassroomMediaSessionHandoffs:
                 )
                 raise MediaSessionRecoveryRequired(
                     "claimed session credential requires recovery before reuse"
+                )
+            self._pending = None
+
+    def provider_connection_failed_clean(
+        self,
+        transaction_id: str,
+        *,
+        connected: bool,
+        cleanup_required: bool,
+    ) -> None:
+        """Retire a failed connect/reconnect after the adapter proves clean teardown.
+
+        This is intentionally narrower than provider_failed(). The shipping binder
+        may call it only after the awaited LiveKit connect/reconnect promise has
+        settled and adapter.snapshot() reports connected=false and
+        cleanup_required=false. A disconnect failure cannot use this shortcut,
+        because canonical state still says connected until exact disconnect
+        success is committed.
+        """
+
+        self._assert_owner_thread()
+        if type(connected) is not bool or type(cleanup_required) is not bool:
+            raise MediaSessionHandoffError(
+                "media session adapter cleanup flags must be boolean"
+            )
+        with self._lock:
+            pending = self._require_pending(transaction_id)
+            if pending.effect.operation not in {
+                MediaSessionOperation.CONNECT,
+                MediaSessionOperation.RECONNECT,
+            }:
+                raise MediaSessionHandoffError(
+                    "verified clean failure applies only to connect or reconnect"
+                )
+            if not pending.credential_exposed:
+                raise MediaSessionHandoffError(
+                    "verified clean failure requires a claimed browser credential"
+                )
+            if connected or cleanup_required:
+                raise MediaSessionHandoffError(
+                    "media session adapter has not proven clean teardown"
                 )
             self._pending = None
 
