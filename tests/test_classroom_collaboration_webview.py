@@ -328,6 +328,62 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("collaboration.chat.sent", sent_again.kind)
         self.assertEqual(next_calls, ["message-ui-2"])
 
+    def test_chat_sync_announces_recovered_send_with_new_remote_message(self) -> None:
+        view = self.webview()
+        calls: list[str] = []
+
+        def failed_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append(message_id)
+            raise RuntimeError("ambiguous chat transport")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=failed_send,
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Recovered while reply arrived"},
+            )
+        self.assertEqual("error", failed.kind)
+        pending_id = calls[0]
+
+        accepted = ChatMessageMetadata(
+            pending_id,
+            "room-1",
+            "student-1",
+            0,
+            "Recovered while reply arrived",
+            sent_at_unix_ms=1700000000000,
+        )
+        remote = ChatMessageMetadata(
+            "remote-after-recovery",
+            "room-1",
+            "student-2",
+            1,
+            "New reply",
+            sent_at_unix_ms=1700000001000,
+        )
+        self.chat.messages = {
+            accepted.message_id: accepted,
+            remote.message_id: remote,
+        }
+        self.chat.ordered = [accepted, remote]
+
+        synced = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual("collaboration.chat.synced", synced.kind)
+        self.assertEqual(
+            f"Message sent. {self.labels['student-2']}: New reply",
+            synced.payload["announcement"],
+        )
+        self.assertIs(synced.payload["clear_chat_draft"], True)
+        self.assertEqual({}, view._pending_chat)
+        self.assertEqual(
+            1,
+            synced.payload["collaboration"]["chat"]["unread_count"],
+        )
+
     def test_chat_sync_does_not_confirm_mutated_pending_identity(self) -> None:
         view = self.webview()
         calls: list[str] = []
