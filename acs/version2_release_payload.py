@@ -393,7 +393,7 @@ def _json_no_duplicates(text: str, *, label: str = "sound manifest") -> object:
 
 
 def _sound_inventory_token(value: object) -> str:
-    if not isinstance(value, str) or not value or "\\x00" in value or "\\\\" in value:
+    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
         raise Version2ReleasePayloadError("sound inventory file path is invalid")
     token = PurePosixPath(value)
     if (
@@ -473,7 +473,8 @@ def _validate_sound_inventory(
     keys = set(raw)
     if not required_root.issubset(keys) or not keys.issubset(required_root | optional_archive):
         raise Version2ReleasePayloadError("sound inventory root contract is invalid")
-    if (keys & optional_archive) not in {set(), optional_archive}:
+    archive_keys = keys & optional_archive
+    if archive_keys and archive_keys != optional_archive:
         raise Version2ReleasePayloadError("sound inventory archive identity is incomplete")
     if type(raw.get("schema_version")) is not int or raw.get("schema_version") != _SOUND_INVENTORY_SCHEMA_VERSION:
         raise Version2ReleasePayloadError("sound inventory schema is invalid")
@@ -683,7 +684,7 @@ def _validate_sound_pack(product_dir: Path) -> dict[str, object] | None:
 
     for event in SoundEvent:
         value = mapping.get(event.value)
-        if not isinstance(value, str) or not value.strip() or "\\" in value or "\\x00" in value:
+        if not isinstance(value, str) or not value.strip() or "\\" in value or "\x00" in value:
             raise Version2ReleasePayloadError(f"sound manifest entry is invalid: {event.value}")
         token = PurePosixPath(value)
         if token.is_absolute() or ".." in token.parts or token.as_posix() != value:
