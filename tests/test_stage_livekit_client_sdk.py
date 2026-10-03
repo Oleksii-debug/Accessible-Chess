@@ -171,6 +171,19 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 expected_integrity=self._integrity(),
             )
 
+    def test_canonical_integrity_path_requires_pinned_bundle_sha256(self) -> None:
+        with patch.object(
+            sdk,
+            "LIVEKIT_CLIENT_NPM_INTEGRITY",
+            self._integrity(),
+        ):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "bundle SHA-256 does not match the pinned release",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
+
     def test_integrity_mismatch_is_fail_closed(self) -> None:
         with self.assertRaisesRegex(
             sdk.LiveKitClientSdkStageError,
