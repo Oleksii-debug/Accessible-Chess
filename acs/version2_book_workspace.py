@@ -29,7 +29,9 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
 _MAX_BOOK_SEMANTIC_DEPTH = 256
+_MAX_BOOK_SEMANTIC_DETAILS = 4_096
 _MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
+_BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
@@ -374,6 +376,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 for comment in (safe(raw) for raw in item.trailing_comments)
                 if comment
             )
+            result = ""
+            if item.result is not None:
+                if item.kind != "variation":
+                    raise _BookSemanticTreeError(
+                        "book semantic move unexpectedly carries a line result"
+                    )
+                result = safe(item.result)
+                if result not in _BOOK_SEMANTIC_RESULTS:
+                    raise _BookSemanticTreeError(
+                        "book semantic variation result is invalid"
+                    )
             rendered_items.append(
                 {
                     "kind": item.kind,
@@ -383,6 +396,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     "comments": comments,
                     "comments_before": comments_before,
                     "comments_after": comments_after,
+                    "result": result,
                     "trailing_comments": trailing_comments,
                 }
             )
@@ -412,29 +426,50 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if players == "? — ?":
             players = ""
 
+        if len(view.tags) > _MAX_BOOK_SEMANTIC_DETAILS:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree exceeds the metadata detail limit"
+            )
+        localized_detail_labels = {
+            "Event": ("event", labels["event"]),
+            "Site": ("site", labels["site"]),
+            "Date": ("date", labels["date"]),
+            "Round": ("round", labels["round"]),
+        }
         details: list[dict[str, str]] = []
-        for tag_name, label_key in (
-            ("Event", "event"),
-            ("Site", "site"),
-            ("Date", "date"),
-            ("Round", "round"),
-        ):
-            raw_value = game.tags.get(tag_name)
-            if raw_value is None:
+        seen_detail_kinds: set[str] = set()
+        for tag_name, raw_value in view.tags:
+            if tag_name in {"White", "Black", "Result"}:
                 continue
-            value = safe(raw_value)
-            if not value or value == "?":
-                continue
+            if type(tag_name) is not str or not tag_name.strip():
+                raise _BookSemanticTreeError(
+                    "book semantic metadata tag name is invalid"
+                )
+            localized = localized_detail_labels.get(tag_name)
+            if localized is None:
+                detail_label = safe(tag_name)
+                if not detail_label.strip():
+                    raise _BookSemanticTreeError(
+                        "book semantic metadata tag label is empty"
+                    )
+                detail_kind = f"custom:{detail_label}"
+            else:
+                detail_kind, detail_label = localized
+            if detail_kind in seen_detail_kinds:
+                raise _BookSemanticTreeError(
+                    "book semantic metadata identity is duplicated"
+                )
+            seen_detail_kinds.add(detail_kind)
             details.append(
                 {
-                    "kind": label_key,
-                    "label": labels[label_key],
-                    "value": value,
+                    "kind": detail_kind,
+                    "label": detail_label,
+                    "value": safe(raw_value),
                 }
             )
 
         result = safe(view.result)
-        if result not in {"1-0", "0-1", "1/2-1/2", "*"}:
+        if result not in _BOOK_SEMANTIC_RESULTS:
             raise _BookSemanticTreeError("book semantic GameTree result is invalid")
 
         return {
