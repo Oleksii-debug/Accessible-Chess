@@ -311,6 +311,7 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
                 "line_path",
                 "move_index",
                 "expected_record_digest",
+                "expected_content_digest",
                 "content_revision",
             },
             set(next_payload),
@@ -319,6 +320,7 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual((), next_payload["line_path"])
         self.assertIsNone(next_payload["move_index"])
         self.assertEqual("a" * 64, next_payload["expected_record_digest"])
+        self.assertEqual("b" * 64, next_payload["expected_content_digest"])
         self.assertEqual(7, next_payload["content_revision"])
 
         back = self.bridge.dispatch("pgn.previous_game", {})
@@ -333,6 +335,7 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         )
         self.assertNotIn("content_revision", repr(back.payload))
         self.assertNotIn("expected_record_digest", repr(back.payload))
+        self.assertNotIn("expected_content_digest", repr(back.payload))
 
     def test_committed_navigation_refresh_failure_replaces_stale_view_and_recovers(self) -> None:
         before = self.projection.snapshot()
