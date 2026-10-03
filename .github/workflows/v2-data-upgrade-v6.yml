@@ -81,6 +81,7 @@ jobs:
             tests/test_v2_upgrade_tracked_writer_conflict.py \
             tests/test_v2_upgrade_v6_successor.py \
             tests/test_v2_upgrade_schema0_integration.py \
+            tests/test_v2_upgrade_sound_artifact_control.py \
             tests/test_version2_upgrade.py \
             tests/test_version2_upgrade_recovery_integrity.py \
             tests/test_version2_upgrade_stale_writer.py
