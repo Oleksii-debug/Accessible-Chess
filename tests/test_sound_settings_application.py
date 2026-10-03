@@ -7,6 +7,7 @@ from acs.sound_pack_catalog import (
     DownloadedSoundPack,
     SoundAssetDigest,
     SoundPackCatalogEntry,
+    SoundPackInstalledAudit,
     SoundPackManager,
     SoundPackRightsEvidence,
 )
@@ -421,6 +422,60 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             "license must match installed manifest",
         ):
             app.snapshot(language="en")
+
+    def test_coherent_installed_audit_never_mixes_manifest_rights_and_newer_storage_status(self) -> None:
+        classic = _manifest("classic")
+        v1 = _manifest("soft", "1.0.0")
+        v2 = _manifest("soft", "2.0.0")
+        entry = _entry(v1)
+        self.assertIsNotNone(entry.rights_evidence)
+        pack_storage = _PackStorage([classic, v2])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        record = SoundPackInstalledAudit(v1, entry.rights_evidence)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_audit_provider=lambda: {"soft": record},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        # The live storage authority has already advanced, simulating an update
+        # between an old manifest read and a later status/rights read.
+        self.assertEqual("2.0.0", manager.status(entry).installed_version)
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("1.0.0", item["installed_version"])
+        self.assertEqual("1.0.0", item["version"])
+        self.assertEqual("current", item["state"])
+        self.assertTrue(item["rights_auditable"])
+        self.assertEqual(
+            entry.rights_evidence.source_uri,
+            item["rights_source_uri"],
+        )
+
+    def test_coherent_audit_provider_cannot_be_combined_with_split_installed_providers(self) -> None:
+        classic = _manifest("classic")
+        manager = SoundPackManager(_Downloader(), _PackStorage([classic]))
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+
+        with self.assertRaisesRegex(ValueError, "cannot be combined"):
+            SoundSettingsApplication(
+                profiles,
+                runtime,
+                pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+                installed_pack_provider=lambda: {},
+                installed_audit_provider=lambda: {},
+            )
 
     def test_catalog_projection_and_install_use_closed_world_entry(self) -> None:
         classic = _manifest("classic")
