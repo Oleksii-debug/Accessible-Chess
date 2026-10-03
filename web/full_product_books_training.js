@@ -730,6 +730,42 @@
     }
   }
 
+  function trainingActionFocusTarget(command) {
+    const targets = {
+      "training.hint": "training-action-hint",
+      "training.reveal": "training-action-reveal",
+      "training.retry": "training-action-retry",
+      "training.continue": "training-action-continue",
+      "training.reset.request": "training-action-reset"
+    };
+    return Object.prototype.hasOwnProperty.call(targets, command) ? targets[command] : "";
+  }
+
+  function canonicalTrainingFocusTarget(snapshot) {
+    if (!snapshot.answer.disabled) return "training-answer";
+    if (snapshot.actions[3].enabled) return "training-action-continue";
+    return "training-action-reset";
+  }
+
+  function requireTrainingFocusTarget(snapshot, target, solution) {
+    if (typeof target !== "string") {
+      throw new TypeError("Training render focus target is invalid");
+    }
+    const allowed = new Set([""]);
+    if (!snapshot.answer.disabled) allowed.add("training-answer");
+    snapshot.actions.forEach(function (action) {
+      if (!action.enabled) return;
+      const actionTarget = trainingActionFocusTarget(action.command);
+      if (actionTarget) allowed.add(actionTarget);
+    });
+    if (Array.isArray(solution) && solution.length) {
+      allowed.add("training-solution");
+    }
+    if (!allowed.has(target)) {
+      throw new TypeError("Training render focus target is invalid");
+    }
+  }
+
   function appendSemanticComments(host, comments) {
     comments.forEach(function (comment) {
       host.appendChild(node("p", comment));
@@ -968,6 +1004,7 @@
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
       button.type = "button";
+      button.id = trainingActionFocusTarget(action.command);
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
         safeInvoke(root, invoke, String(action.command || ""), {}, function (result) {
@@ -1009,10 +1046,16 @@
     });
     main.appendChild(form);
 
+    let effectiveFocus = requestedFocus || canonicalTrainingFocusTarget(snapshot);
+    if (effectiveFocus === "training-answer" && answerSpec.disabled) {
+      effectiveFocus = canonicalTrainingFocusTarget(snapshot);
+    }
+    requireTrainingFocusTarget(snapshot, effectiveFocus, solution || []);
+
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     markRendered(root);
-    focusTarget(root, requestedFocus || "");
+    focusTarget(root, effectiveFocus);
   }
 
   function buildResetDialog(root, spec, invoke, announce, fallbackMessage) {
@@ -1105,10 +1148,6 @@
     if (prior && typeof prior.value === "string") priorAnswer = prior.value;
     if (result.kind === "render") {
       requireTrainingSnapshot(payload.snapshot);
-      if (typeof payload.focus_target !== "string" ||
-          (payload.focus_target && payload.focus_target !== "training-answer")) {
-        throw new TypeError("Training render focus target is invalid");
-      }
       if (payload.clear_answer !== undefined && typeof payload.clear_answer !== "boolean") {
         throw new TypeError("Training clear-answer flag is invalid");
       }
@@ -1123,6 +1162,11 @@
            }))) {
         throw new TypeError("Training solution payload is invalid");
       }
+      requireTrainingFocusTarget(
+        payload.snapshot,
+        payload.focus_target,
+        payload.solution || []
+      );
       renderTrainingSurface(
         root,
         payload.snapshot,
@@ -1204,6 +1248,8 @@
 
     if (Array.isArray(solution) && solution.length) {
       const solutionSection = node("section");
+      solutionSection.id = "training-solution";
+      solutionSection.tabIndex = -1;
       solutionSection.appendChild(node("h3", snapshot.solution_label || ""));
       const list = node("ul");
       solution.forEach(function (move) { list.appendChild(node("li", move)); });
