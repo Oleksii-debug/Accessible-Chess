@@ -104,6 +104,25 @@ NEW_GAME_DURATION_SECONDS_BY_VARIANT = {
     "3d": 8.270045,
 }
 
+SOUND_LAYERS = {
+    "move": {
+        "1": ("library/Board/MOVE.WAV", "library/Board/MOVEHIT1.WAV"),
+        "2": ("library/Board/MOVE2.WAV", "library/Board/MOVEHIT2.WAV"),
+        "3": ("library/Board/MOVE3.WAV", "library/Board/MOVEHIT3.WAV"),
+        "3d-1": ("library/Board3d/MOVE.WAV", "library/Board3d/MOVEHIT1.WAV"),
+        "3d-2": ("library/Board3d/MOVE2.WAV", "library/Board3d/MOVEHIT2.WAV"),
+        "3d-3": ("library/Board3d/MOVE3.WAV", "library/Board3d/MOVEHIT3.WAV"),
+    },
+    "capture": {
+        "1": ("library/Board/CAPTURE.WAV", "library/Board/CAPHIT1.WAV"),
+        "2": ("library/Board/CAPTURE2.WAV", "library/Board/CAPHIT2.WAV"),
+        "3": ("library/Board/CAPTURE3.WAV", "library/Board/CAPHIT3.WAV"),
+        "3d-1": ("library/Board3d/CAPTURE.WAV", "library/Board3d/CAPHIT1.WAV"),
+        "3d-2": ("library/Board3d/CAPTURE2.WAV", "library/Board3d/CAPHIT2.WAV"),
+        "3d-3": ("library/Board3d/CAPTURE3.WAV", "library/Board3d/CAPHIT3.WAV"),
+    },
+}
+
 
 class SoundPackBuildError(RuntimeError):
     pass
@@ -239,6 +258,29 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
         )
 
     _validate_event_paths(destination)
+    for event, by_variant in SOUND_LAYERS.items():
+        variants_for_event = {
+            variant_id: file_name
+            for variant_id, file_name, _uk, _en in EVENT_VARIANTS[event]
+        }
+        for variant_id, sequence in by_variant.items():
+            if variant_id not in variants_for_event:
+                raise SoundPackBuildError(
+                    f"sound layer references unknown variant: {event}/{variant_id}"
+                )
+            if sequence[0] != variants_for_event[variant_id]:
+                raise SoundPackBuildError(
+                    f"sound layer does not start with selected variant: {event}/{variant_id}"
+                )
+            for file_name in sequence:
+                layer_path = destination / Path(file_name)
+                if not layer_path.is_file():
+                    raise SoundPackBuildError(f"missing layered sound asset: {file_name}")
+                info = _wave_info(layer_path)
+                if info["compression"] != "NONE" or info["sample_width_bytes"] != 2:
+                    raise SoundPackBuildError(
+                        f"layered runtime sound must be 16-bit PCM: {file_name}"
+                    )
 
     manifest = {
         "schema_version": 1,
@@ -257,6 +299,16 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
                 for variant_id, file_name, label_uk, label_en in options
             ]
             for event, options in EVENT_VARIANTS.items()
+        },
+    }
+    layers = {
+        "schema_version": 1,
+        "events": {
+            event: {
+                variant_id: list(sequence)
+                for variant_id, sequence in by_variant.items()
+            }
+            for event, by_variant in SOUND_LAYERS.items()
         },
     }
     provenance = {
@@ -286,6 +338,10 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
     )
     (destination / "variants.json").write_text(
         json.dumps(variants, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (destination / "layers.json").write_text(
+        json.dumps(layers, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (destination / "provenance.json").write_text(
@@ -333,6 +389,7 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
         "Accessible Chess user-supplied sound pack\n"
         "All 330 WAV files from the supplied archive are retained under library/.\n"
         "Runtime defaults and selectable variants are declared in manifest.json and variants.json.\n"
+        "Original MOVEHIT/CAPHIT landing layers are declared in layers.json.\n"
         "NEWGAME impact timing for the visual placement sequence is declared in newgame_impacts.json.\n"
         "Variant 1 is the default for every event.\n"
         "Redistribution rights are not inferred by this builder; provenance records the pack as user-provided.\n",
