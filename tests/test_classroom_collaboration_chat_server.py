@@ -1021,6 +1021,45 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_current_schema_rejects_persistent_authority_table_trigger(self) -> None:
+        path = Path(self.tmp.name) / "schema-trigger.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                CREATE TRIGGER mutate_chat_body_after_insert
+                AFTER INSERT ON classroom_chat_server_messages
+                BEGIN
+                    UPDATE classroom_chat_server_messages
+                    SET body='tampered by trigger'
+                    WHERE message_id=NEW.message_id;
+                END
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema contains unsupported trigger",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertIsNotNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='trigger'
+                      AND name='mutate_chat_body_after_insert'
+                    """
+                ).fetchone()
+            )
+            self.assertEqual(
+                0,
+                db.execute(
+                    "SELECT COUNT(*) FROM classroom_chat_server_messages"
+                ).fetchone()[0],
+            )
+
     def test_current_schema_rejects_wrong_permission_primary_key(self) -> None:
         path = Path(self.tmp.name) / "schema-wrong-permission-key.sqlite3"
         ClassroomChatServerSQLiteStore(path)
