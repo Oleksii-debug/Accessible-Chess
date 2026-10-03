@@ -461,6 +461,36 @@ async function run() {
     "rejected mutation rerender must restore keyboard focus");
   commandMode = "success";
 
+  const savedSnapshotBridge = api.sound_settings_snapshot;
+  const staleSnapshot = JSON.parse(JSON.stringify(serverSnapshot));
+  let settleStaleRefresh = null;
+  api.sound_settings_snapshot = function () {
+    return new Promise(resolve => {
+      settleStaleRefresh = resolve;
+    });
+  };
+  const staleRefreshPromise = window.AccessibleChessSoundSettingsSurface.refresh();
+  await Promise.resolve();
+  assert.ok(settleStaleRefresh,
+    "race regression must hold one older refresh response open");
+
+  let raceMaster = elements.get("sound-master-enabled");
+  raceMaster.focus();
+  raceMaster.checked = false;
+  raceMaster.dispatch("change");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.strictEqual(elements.get("sound-master-enabled").checked, false,
+    "newer durable mutation must render before the older refresh completes");
+
+  settleStaleRefresh({ok: true, snapshot: staleSnapshot, message: ""});
+  await staleRefreshPromise;
+  await Promise.resolve();
+  assert.strictEqual(elements.get("sound-master-enabled").checked, false,
+    "older refresh response must not overwrite a confirmed user mutation");
+  api.sound_settings_snapshot = savedSnapshotBridge;
+
   serverSnapshot = {
     ...initial,
     writes_blocked: true,
