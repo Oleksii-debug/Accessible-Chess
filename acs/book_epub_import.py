@@ -464,6 +464,7 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     output: dict[str, _ManifestItem] = {}
+    resource_owners: dict[str, str] = {}
     for element in manifest:
         if _local_name(element.tag) != "item":
             continue
@@ -481,9 +482,17 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
                 "EPUB manifest contains duplicate item identifiers",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        entry_name = _resolve_package_href(opf_dir, href)
+        previous_item_id = resource_owners.get(entry_name)
+        if previous_item_id is not None:
+            raise _error(
+                "EPUB manifest resolves multiple item identifiers to the same package resource",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        resource_owners[entry_name] = item_id
         output[item_id] = _ManifestItem(
             item_id=item_id,
-            entry_name=_resolve_package_href(opf_dir, href),
+            entry_name=entry_name,
             media_type=media_type,
             fallback=fallback,
         )
