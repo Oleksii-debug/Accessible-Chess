@@ -243,12 +243,58 @@ async function main() {
   resolveNavigation(null);
   await flushPromises();
   await flushPromises();
+  check(
+    deferredCalls.length === 1,
+    "stale ArrowDown repeat escaped the in-flight gate after first settlement"
+  );
 
   const afterSettlementDown = keyEvent("ArrowDown");
   deferredOptions[0].listeners.keydown(afterSettlementDown.event);
   check(
     deferredCalls.length === 2,
     "listbox navigation lock did not release after command/render settlement"
+  );
+  resolveNavigation(null);
+  await flushPromises();
+  await flushPromises();
+
+  const openCalls = [];
+  let resolveOpen = null;
+  const openInvoke = (command, payload) => {
+    openCalls.push({ command, payload: Object.assign({}, payload) });
+    return new Promise((resolve) => { resolveOpen = resolve; });
+  };
+  const openRoot = new FakeElement("div");
+  window.AccessibleChessLibrarySurface.render(
+    openRoot,
+    snapshot,
+    openInvoke,
+    announce,
+    "library-game-first"
+  );
+  const openOptions = openRoot.querySelectorAll('[role="option"]');
+  const firstPendingEnter = keyEvent("Enter");
+  openOptions[0].listeners.keydown(firstPendingEnter.event);
+  const repeatedPendingEnter = keyEvent("Enter");
+  openOptions[0].listeners.keydown(repeatedPendingEnter.event);
+  check(firstPendingEnter.state.prevented, "first in-flight Enter did not prevent activation");
+  check(repeatedPendingEnter.state.prevented, "repeated in-flight Enter did not prevent activation");
+  check(openCalls.length === 1, "stale Enter repeat entered the backend before settlement");
+  check(openCalls[0].command === "library.open_game", "in-flight Enter dispatched wrong command");
+
+  resolveOpen(null);
+  await flushPromises();
+  await flushPromises();
+  check(
+    openCalls.length === 1,
+    "stale Enter repeat escaped the in-flight gate after first settlement"
+  );
+
+  const afterSettlementEnter = keyEvent("Enter");
+  openOptions[0].listeners.keydown(afterSettlementEnter.event);
+  check(
+    openCalls.length === 2,
+    "listbox key-command lock did not release for Enter after settlement"
   );
 
   console.log("Library keyboard boundary DOM contract PASS");
