@@ -104,6 +104,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             or len(game.warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
         ):
             raise _BookSemanticProjectionError("semantic GameTree metadata is invalid")
+        # An exact dict can still contain hostile key/value subclasses. Validate
+        # the detached tag table by iteration before any named lookup can invoke
+        # user-defined hashing/equality behavior through a malformed DTO.
+        for tag_name, tag_value in game.tags.items():
+            if type(tag_name) is not str or type(tag_value) is not str:
+                raise _BookSemanticProjectionError("semantic GameTree tag is invalid")
 
         # PgnTreePresenter normalizes comments, joins NAGs and constructs labels.
         # Bound every raw scalar and collection it will scan before constructing
