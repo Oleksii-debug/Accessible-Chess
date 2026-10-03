@@ -44,6 +44,12 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
           test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
+          git fetch --no-tags origin "refs/heads/${{ github.event.pull_request.base.ref }}"
+          live_product="$(git rev-parse FETCH_HEAD)"
+          test "$live_product" = "$CURRENT_PRODUCT_BASE" || {
+            printf 'Pinned Product is stale: pinned=%s live=%s\n' "$CURRENT_PRODUCT_BASE" "$live_product" >&2
+            exit 1
+          }
           git cat-file -e "$CURRENT_PRODUCT_BASE^{commit}"
           git merge-base --is-ancestor "$CURRENT_PRODUCT_BASE" HEAD
           test "$(git merge-base "$CURRENT_PRODUCT_BASE" HEAD)" = "$CURRENT_PRODUCT_BASE"
