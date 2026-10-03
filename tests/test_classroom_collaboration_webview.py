@@ -308,6 +308,106 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             middle_again.payload["collaboration"]["chat"]["messages"][0]["body"],
         )
 
+    def test_trusted_live_chat_push_is_unread_and_duplicate_is_not_reannounced(self) -> None:
+        view = self.webview()
+        message = ChatMessageMetadata(
+            "live-remote-message",
+            "room-1",
+            "student-2",
+            0,
+            "Live answer",
+            sent_at_unix_ms=1700000000000,
+        )
+
+        received = view.receive_chat(message)
+        self.assertEqual("collaboration.chat.received", received.kind)
+        self.assertEqual(
+            "Student two: Live answer",
+            received.payload["announcement"],
+        )
+        self.assertEqual(
+            1,
+            received.payload["collaboration"]["chat"]["unread_count"],
+        )
+
+        duplicate = view.receive_chat(message)
+        self.assertEqual("collaboration.chat.received", duplicate.kind)
+        self.assertNotIn("announcement", duplicate.payload)
+        self.assertEqual(
+            1,
+            duplicate.payload["collaboration"]["chat"]["unread_count"],
+        )
+        self.assertEqual(1, len(self.store.room_messages("room-1")))
+
+    def test_trusted_live_chat_echo_recovers_pending_send_without_unread(self) -> None:
+        view = self.webview()
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=RuntimeError("ambiguous provider send"),
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Pending live echo"},
+            )
+        self.assertEqual("error", failed.kind)
+        self.assertIsNotNone(view._pending_chat)
+        pending_id = view._pending_chat[0]
+
+        recovered = view.receive_chat(
+            ChatMessageMetadata(
+                pending_id,
+                "room-1",
+                "student-1",
+                0,
+                "Pending live echo",
+                retention="session",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        self.assertEqual("collaboration.chat.received", recovered.kind)
+        self.assertEqual("Message sent.", recovered.payload["announcement"])
+        self.assertIsNone(view._pending_chat)
+        self.assertEqual(
+            0,
+            recovered.payload["collaboration"]["chat"]["unread_count"],
+        )
+        self.assertEqual(1, len(self.store.room_messages("room-1")))
+
+    def test_trusted_live_file_push_is_visible_without_manual_refresh(self) -> None:
+        view = self.webview()
+        attachment = AttachmentMetadata(
+            "live-remote-file",
+            "room-1",
+            "student-2",
+            0,
+            "live.pgn",
+            "application/x-chess-pgn",
+            4,
+            "0" * 64,
+            "rooms/room-1/live-remote-file",
+            "stored",
+            retention="session",
+            scan_state="clean",
+        )
+
+        received = view.receive_file(attachment)
+        self.assertEqual("collaboration.file.received", received.kind)
+        self.assertEqual(
+            "New file: live.pgn.",
+            received.payload["announcement"],
+        )
+        items = received.payload["collaboration"]["files"]["items"]
+        self.assertEqual(["live.pgn"], [item["name"] for item in items])
+
+        duplicate = view.receive_file(attachment)
+        self.assertEqual("collaboration.file.received", duplicate.kind)
+        self.assertNotIn("announcement", duplicate.payload)
+        self.assertEqual(
+            1,
+            len(self.store.room_attachments("room-1")),
+        )
+
     def test_chat_sync_failure_is_contextual_without_exposing_transport_details(self) -> None:
         view = self.webview()
         with mock.patch.object(
