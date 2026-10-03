@@ -294,10 +294,13 @@ class Version2FinalProductApplication(Version2Application):
         if self.collaboration is not None:
             raise RuntimeError("Classroom collaboration is already bound")
         collaboration.set_language(self.shell.language)
-        if file_progress_event_sink is not None:
-            collaboration.set_file_progress_event_sink(
-                lambda event: file_progress_event_sink(asdict(event))
-            )
+        # Binding owns the trusted host observer. Explicitly clear any observer
+        # left on a WebView assembled by another host instead of inheriting it.
+        collaboration.set_file_progress_event_sink(
+            None
+            if file_progress_event_sink is None
+            else lambda event: file_progress_event_sink(asdict(event))
+        )
         self.collaboration = collaboration
 
     def unbind_classroom_collaboration(self) -> None:
