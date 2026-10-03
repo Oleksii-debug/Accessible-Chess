@@ -117,7 +117,7 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
             controller,
             outer_port,
             session_port,
-            activity_gate=gate,
+            nonsecret,
             transaction_id_factory=session_id or next_session_id,
         )
         return controller, roster, gate, nonsecret, sessions
@@ -501,6 +501,57 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
         self.assertIsInstance(errors[0], MediaHostTransactionError)
         self.assertIn("owner thread", str(errors[0]))
         self.assertIsNone(sessions.pending_effect)
+
+    def test_session_coordinator_requires_exact_nonsecret_host_owner(self):
+        roster = FakeRoster()
+
+        session_a = ClassroomMediaSessionTransactionPort()
+        outer_a = ClassroomMediaHostTransactionPort(session_port=session_a)
+        controller_a = ClassroomMediaController(
+            local_participant_id="student-1",
+            roster=roster,
+            media=outer_a,
+        )
+        host_a = ClassroomMediaHostTransactions(
+            controller_a,
+            outer_a,
+            transaction_id_factory=lambda: "host-" + "1" * 32,
+        )
+
+        session_b = ClassroomMediaSessionTransactionPort()
+        outer_b = ClassroomMediaHostTransactionPort(session_port=session_b)
+        controller_b = ClassroomMediaController(
+            local_participant_id="student-1",
+            roster=roster,
+            media=outer_b,
+        )
+        host_b = ClassroomMediaHostTransactions(
+            controller_b,
+            outer_b,
+            transaction_id_factory=lambda: "host-" + "2" * 32,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "share the exact non-secret host owner",
+        ):
+            ClassroomMediaSessionHostTransactions(
+                controller_a,
+                outer_a,
+                session_a,
+                host_b,
+                transaction_id_factory=lambda: "session-" + "e" * 32,
+            )
+
+        sessions = ClassroomMediaSessionHostTransactions(
+            controller_a,
+            outer_a,
+            session_a,
+            host_a,
+            transaction_id_factory=lambda: "session-" + "f" * 32,
+        )
+        self.assertIsNone(sessions.pending_effect)
+        self.assertIs(sessions._activity_gate, host_a.activity_gate)
 
     def test_provider_success_ack_is_single_use(self):
         controller, _roster, _gate, _nonsecret, sessions = self.make_composition()
