@@ -1,6 +1,7 @@
 import hashlib
 import json
 import unittest
+from collections.abc import Mapping
 
 from acs.chesscore import Board
 from acs.training import (
@@ -228,6 +229,43 @@ class ExerciseSessionTests(unittest.TestCase):
         after = session.snapshot()
         self.assertEqual(before["definition_digest"], after["definition_digest"])
         self.assertEqual(before, ExerciseSession.restore(definition, before).snapshot())
+
+    def test_definition_metadata_is_snapshotted_once_before_validation(self):
+        class OneGoodReadThenBad(Mapping):
+            def __init__(self):
+                self.reads = 0
+
+            def __iter__(self):
+                return iter(("difficulty",))
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, key):
+                if key != "difficulty":
+                    raise KeyError(key)
+                self.reads += 1
+                return "starter" if self.reads == 1 else 7
+
+        source = OneGoodReadThenBad()
+        base = self.make_definition()
+        definition = ExerciseDefinition(
+            base.exercise_id,
+            base.start_fen,
+            base.steps,
+            title=base.title,
+            tags=base.tags,
+            source_id=base.source_id,
+            metadata=source,
+        )
+
+        self.assertEqual({"difficulty": "starter"}, dict(definition.metadata))
+        self.assertEqual(1, source.reads)
+        snapshot = ExerciseSession(definition).snapshot()
+        self.assertEqual(
+            snapshot,
+            ExerciseSession.restore(definition, snapshot).snapshot(),
+        )
 
     def test_schema_v3_snapshot_remains_readable_and_upgrades_to_v4(self):
         definition = self.make_definition()
