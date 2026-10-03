@@ -1175,13 +1175,28 @@ def _validate_required_runtime_resources(
             min_bytes=45,
         )
         try:
-            with wave.open(str(sound_path), "rb") as reader:
-                if (
-                    reader.getsampwidth() != 2
-                    or reader.getframerate() <= 0
-                    or reader.getnframes() <= 0
-                ):
-                    _fail(f"packaged sound asset is not usable 16-bit PCM: {event.value}")
+            sound_snapshot, _ = _snapshot_regular_file(
+                sound_path,
+                label=f"packaged sound asset {event.value}",
+                max_bytes=limits.max_member_bytes,
+            )
+            with sound_snapshot:
+                with wave.open(sound_snapshot, "rb") as reader:
+                    channels = reader.getnchannels()
+                    frame_count = reader.getnframes()
+                    if (
+                        reader.getcomptype() != "NONE"
+                        or reader.getsampwidth() != 2
+                        or channels <= 0
+                        or reader.getframerate() <= 0
+                        or frame_count <= 0
+                    ):
+                        _fail(
+                            f"packaged sound asset is not usable 16-bit PCM: {event.value}"
+                        )
+                    frames = reader.readframes(frame_count)
+                    if len(frames) != frame_count * channels * 2:
+                        _fail(f"packaged sound asset is truncated: {event.value}")
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
