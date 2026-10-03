@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_presenters import LibraryPresenter, SurfaceStatus
 from acs.full_product_ui_shell import UILanguage
@@ -307,6 +308,28 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             [row["dom_id"] for row in en["rows"]],
         )
         self.assertEqual(ua["focus_target"], en["focus_target"])
+
+    def test_failed_language_render_rolls_back_library_presenter_and_import_language(self) -> None:
+        _service, presenter, projection, _bridge, _calls = self.build(
+            language=UILanguage.EN
+        )
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_render_event",
+            side_effect=RuntimeError("simulated render failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "render failure"):
+                projection.set_language(UILanguage.UA)
+
+        after = projection.snapshot()
+        self.assertEqual(UILanguage.EN, projection.language)
+        self.assertEqual(UILanguage.EN, presenter._language)
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["filters"], after["filters"])
+        self.assertEqual(before["import"]["heading"], after["import"]["heading"])
 
     def test_snapshot_does_not_mix_live_selection_changed_after_immutable_view_capture(self) -> None:
         service = FakeSearchService()
