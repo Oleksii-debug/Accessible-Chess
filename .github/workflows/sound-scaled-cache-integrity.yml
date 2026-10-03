@@ -30,10 +30,12 @@ on:
       - 'tests/test_dev3_sound_failure_isolation.py'
       - 'tests/test_sound_scaled_cache_integrity_workflow.py'
       - 'tests/test_version2_release_payload.py'
+      - 'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
       - '.github/workflows/sound-scaled-cache-integrity.yml'
       - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
       - '.github/workflows/version2-windows-composition.yml'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
 
 permissions:
   contents: read
@@ -84,7 +86,7 @@ jobs:
             git merge-base --is-ancestor "$BASE_SHA" HEAD
             test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
             git diff --check "$BASE_SHA" HEAD
-            unexpected="$(git diff --name-only "$BASE_SHA" HEAD | grep -Ev '^(acs/(sound\.py|sound_windows\.py|settings\.py|keybindings\.py|ui_keymap_adapter\.py|webapp_keymap_core\.py|release_app\.py|stage1_release_ui_core\.py|stage1_release_ui\.py|ui_native_menu\.py|version2_release_payload\.py)|web/(stage1_release_bootstrap\.js|keybindings\.json)|scripts/build_user_sound_pack\.py|docs/USER_SOUND_PACK_CURRENT\.md|tests/(test_settings\.py|test_keybindings\.py|test_ui_keymap_adapter\.py|test_webapp_keymap_api\.py|test_stage1_release_composition_ui\.py|test_stage1_saturation_refactor_contract\.py|test_user_sound_pack_builder\.py|test_sound_runtime\.py|test_sound_scaled_cache_integrity_workflow\.py|test_version2_release_payload\.py)|\.github/workflows/(sound-scaled-cache-integrity|w6-v2-release-payload-current-assembler|version2-windows-composition|d01-pgn-workspace-webview)\.yml)$' || true)"
+            unexpected="$(git diff --name-only "$BASE_SHA" HEAD | grep -Ev '^(acs/(sound\.py|sound_windows\.py|settings\.py|keybindings\.py|ui_keymap_adapter\.py|webapp_keymap_core\.py|release_app\.py|stage1_release_ui_core\.py|stage1_release_ui\.py|ui_native_menu\.py|version2_release_payload\.py)|web/(stage1_release_bootstrap\.js|keybindings\.json)|scripts/build_user_sound_pack\.py|docs/USER_SOUND_PACK_CURRENT\.md|tests/(test_settings\.py|test_keybindings\.py|test_ui_keymap_adapter\.py|test_webapp_keymap_api\.py|test_stage1_release_composition_ui\.py|test_stage1_saturation_refactor_contract\.py|test_user_sound_pack_builder\.py|test_sound_runtime\.py|test_sound_scaled_cache_integrity_workflow\.py|test_version2_release_payload\.py|test_w4_v2_p0_fresh_candidate_workflow\.py)|\.github/workflows/(sound-scaled-cache-integrity|w6-v2-release-payload-current-assembler|version2-windows-composition|d01-pgn-workspace-webview|w4-v2-p0-fresh-windows-candidate)\.yml)$' || true)"
             if [ -n "$unexpected" ]; then
               printf 'Unexpected sound-cache scope:\n%s\n' "$unexpected" >&2
               exit 1
@@ -120,6 +122,7 @@ jobs:
           tests/test_dev3_sound_failure_isolation.py
           tests/test_sound_scaled_cache_integrity_workflow.py
           tests/test_version2_release_payload.py
+          tests/test_w4_v2_p0_fresh_candidate_workflow.py
 
       - name: Validate WebView script and fallback keymap syntax
         shell: bash
@@ -143,6 +146,7 @@ jobs:
           tests.test_dev3_sound_failure_isolation
           tests.test_sound_scaled_cache_integrity_workflow
           tests.test_version2_release_payload
+          tests.test_w4_v2_p0_fresh_candidate_workflow
 
       - name: Run remappable Ctrl+N pytest contracts
         run: >-
