@@ -374,6 +374,68 @@ class ClassroomMediaTransactionalWebView:
         except Exception:
             return self._mutation_error(focus_target=focus_target)
 
+    def report_transport_lost(
+        self,
+        provider_snapshot: Mapping[str, object],
+        *,
+        focus_target: str = "classroom-media-heading",
+    ) -> ClassroomMediaWebViewEvent:
+        """Reconcile one provider-final disconnect without inventing policy."""
+
+        _clean_disconnected_snapshot(provider_snapshot)
+
+        recovery = self._binder.recovery_status
+        if recovery is not None and recovery.lease.transaction_id is not None:
+            return self._recovery_event(
+                recovery.lease.transaction_id,
+                focus_target=focus_target,
+            )
+
+        active = self._binder.active_lease
+        if active is not None and active.transaction_id is not None:
+            transaction_id = active.transaction_id
+            try:
+                if active.provider_boundary_crossed:
+                    self._binder.provider_outcome_unknown(transaction_id)
+                    return self._recovery_event(
+                        transaction_id,
+                        focus_target=focus_target,
+                    )
+                self._binder.provider_not_started(transaction_id)
+            except MediaHostRecoveryRequired:
+                return self._recovery_event(
+                    transaction_id,
+                    focus_target=focus_target,
+                )
+            except Exception:
+                status = self._binder.recovery_status
+                if (
+                    status is not None
+                    and status.lease.transaction_id == transaction_id
+                ):
+                    return self._recovery_event(
+                        transaction_id,
+                        focus_target=focus_target,
+                    )
+                return self._safe_error(
+                    transaction_id,
+                    focus_target=focus_target,
+                )
+            self._forget(transaction_id)
+
+        try:
+            self._projection.controller.mark_transport_lost()
+        except Exception:
+            # An already-retired/no-session notification is harmless but must
+            # not manufacture a new room identity or provider state.
+            state = self._projection.controller.state
+            if state.room_id is None:
+                return self._projection.updated_event(
+                    focus_target=focus_target,
+                )
+            return self._safe_error(focus_target=focus_target)
+        return self._projection.updated_event(focus_target=focus_target)
+
     # Trusted Python session entrypoints.  Browser payloads never accept a token.
 
     def prepare_join(
@@ -421,6 +483,12 @@ class ClassroomMediaTransactionalWebView:
                 return ClassroomMediaWebViewEvent(
                     "provider-config",
                     {"config": self._provider_config.browser_payload()},
+                )
+
+            if command_id == "media.provider_transport_lost":
+                _exact(data, {"snapshot"})
+                return self.report_transport_lost(
+                    _clean_disconnected_snapshot(data["snapshot"])
                 )
 
             if command_id == "media.provider_take_credential":
@@ -593,6 +661,24 @@ def _snapshot(value: object) -> dict[str, object]:
     }
     if set(result) != expected:
         raise ValueError("media provider snapshot fields are invalid")
+    return result
+
+
+def _clean_disconnected_snapshot(value: object) -> dict[str, object]:
+    result = _snapshot(value)
+    expected = {
+        "connected": False,
+        "cleanup_required": False,
+        "room_id": None,
+        "participant_id": None,
+        "microphone_enabled": False,
+        "camera_enabled": False,
+        "screen_share_enabled": False,
+    }
+    if result != expected:
+        raise ValueError(
+            "media provider transport-loss snapshot is not cleanly disconnected"
+        )
     return result
 
 
