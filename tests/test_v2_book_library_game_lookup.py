@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from pathlib import Path
 import unittest
 
@@ -126,6 +127,7 @@ class BookLibraryGameLookupTests(unittest.TestCase):
             "{",
             '{"warning":"not-a-list"}',
             '["text", 7]',
+            '["\\ud800"]',
             "null",
         )
         with AcsDatabase() as database:
@@ -145,7 +147,9 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                         str(caught.exception),
                         "stored book game warnings are invalid",
                     )
-                    self.assertNotIn(payload, str(caught.exception))
+                    self.assertIsNone(caught.exception.__cause__)
+                    rendered = "".join(traceback.format_exception(caught.exception))
+                    self.assertNotIn(payload, rendered)
 
     def test_each_load_returns_a_fresh_canonical_graph(self) -> None:
         with AcsDatabase() as database:
@@ -211,6 +215,26 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                 lookup.load_book_game(game_id)
             self.assertEqual(str(empty.exception), "stored book game is not canonical")
 
+    def test_corrupt_stored_pgn_parser_failure_has_no_internal_cause(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET pgn_text=? WHERE id=?",
+                    ("[Event \"unterminated", game_id),
+                )
+
+            with self.assertRaises(BookLibraryGameLookupError) as caught:
+                AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(
+                str(caught.exception),
+                "stored book game is not canonical",
+            )
+            self.assertIsNone(caught.exception.__cause__)
+            rendered = "".join(traceback.format_exception(caught.exception))
+            self.assertNotIn("unterminated", rendered)
+
     def test_database_failure_is_sanitized_and_book_boundary_stays_public(self) -> None:
         database = AcsDatabase()
         game_id = self._stored_game(database)
@@ -220,8 +244,10 @@ class BookLibraryGameLookupTests(unittest.TestCase):
         with self.assertRaises(BookLibraryGameLookupError) as direct:
             lookup.load_book_game(game_id)
         self.assertEqual(str(direct.exception), "book game lookup failed")
-        self.assertNotIn("closed database", str(direct.exception).lower())
-        self.assertNotIn("sqlite", str(direct.exception).lower())
+        self.assertIsNone(direct.exception.__cause__)
+        rendered = "".join(traceback.format_exception(direct.exception)).lower()
+        self.assertNotIn("closed database", rendered)
+        self.assertNotIn("sqlite", rendered)
 
         with self.assertRaises(BookGameContentError) as public:
             resolve_book_game(Game(game_id=game_id), lookup=lookup)
