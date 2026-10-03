@@ -66,7 +66,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "9bd7bccecc6a57ca27b5dc82e89d19e05f26160c"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "8f77410aa9a84ccd112646896e22f17ee455be86"
           test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "26bfb36adcaf6737775a27ae2449baebaf34e9af"
-          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "3912bb84280d757ebbe9b515c2d4c8e99624804f"
+          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "89570314efc730482bfcce2907178e58e4bfa59e"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "fda78ad9dac9446abd0cf7f5256650292cd57705"
 
       - name: Validate browser depth semantics
