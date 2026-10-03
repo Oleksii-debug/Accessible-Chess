@@ -307,7 +307,7 @@ class BookProgressStore:
             before = os.lstat(path)
         except FileNotFoundError:
             before = None
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
@@ -338,11 +338,11 @@ class BookProgressStore:
                 "book progress recovery data is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage could not be read",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
 
         try:
             opened = os.fstat(descriptor)
@@ -494,11 +494,11 @@ class BookProgressStore:
                 import fcntl
 
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage is busy",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
 
     @staticmethod
     def _unlock_file_descriptor(descriptor: int) -> None:
@@ -520,11 +520,11 @@ class BookProgressStore:
         try:
             metadata = os.fstat(descriptor)
             current_path = os.lstat(self._lock_path)
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage lock changed while being acquired",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
         self._require_regular_metadata(
             metadata,
             message="book progress storage lock is not a regular file",
@@ -544,7 +544,7 @@ class BookProgressStore:
             existing = os.lstat(self._lock_path)
         except FileNotFoundError:
             existing = None
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage lock is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
@@ -562,11 +562,11 @@ class BookProgressStore:
         flags |= getattr(os, "O_NOFOLLOW", 0)
         try:
             descriptor = os.open(self._lock_path, flags, 0o600)
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage lock is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
         try:
             metadata = os.fstat(descriptor)
             self._require_regular_metadata(
@@ -680,7 +680,7 @@ class BookProgressStore:
             existing = os.lstat(target)
         except FileNotFoundError:
             existing = None
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
@@ -705,11 +705,11 @@ class BookProgressStore:
                 os.fsync(stream.fileno())
             os.replace(temp_path, target)
             temp_path = None
-        except OSError as exc:
+        except OSError:
             raise BookProgressStoreError(
                 "book progress storage could not be updated",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from exc
+            ) from None
         finally:
             if temp_path is not None:
                 try:
