@@ -99,9 +99,6 @@
     let candidateCount = 0;
     while (match >= 0) {
       candidateCount += 1;
-      // Relocation is recovery, not an unbounded search primitive. Exact-offset
-      // direct matches are handled by the caller and remain usable if this
-      // recovery budget is exhausted.
       if (candidateCount > 4096) return -1;
       const score = contextMatchScore(fullText, selectedText, match, before, after);
       if (score > bestScore) {
@@ -169,10 +166,6 @@
       const fullText = String(root.textContent || "");
       let start = Math.max(0, Math.min(Number(snapshot.start) || 0, fullText.length));
       let end = Math.max(start, Math.min(Number(snapshot.end) || 0, fullText.length));
-      const directMatch = fullText.slice(start, end) === snapshot.text;
-      const directScore = directMatch
-        ? contextMatchScore(fullText, snapshot.text, start, snapshot.before, snapshot.after)
-        : -1;
       const candidateStart = nearestSelectionStart(
         fullText,
         snapshot.text,
@@ -180,20 +173,9 @@
         snapshot.before,
         snapshot.after
       );
-      if (candidateStart < 0 && !directMatch) return false;
-      if (candidateStart >= 0) {
-        const candidateScore = contextMatchScore(
-          fullText,
-          snapshot.text,
-          candidateStart,
-          snapshot.before,
-          snapshot.after
-        );
-        if (!directMatch || candidateScore > directScore) {
-          start = candidateStart;
-          end = Math.min(fullText.length, start + snapshot.text.length);
-        }
-      }
+      if (candidateStart < 0) return false;
+      start = candidateStart;
+      end = Math.min(fullText.length, start + snapshot.text.length);
       const startPoint = textPoint(root, start);
       const endPoint = textPoint(root, end);
       const range = documentRef.createRange();
