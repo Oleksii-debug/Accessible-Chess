@@ -2078,6 +2078,62 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ((0, "deleted"), (1, "stored")),
         )
 
+    def test_durable_delete_prevalidates_entire_batch_before_provider(self):
+        controller = self.controller("teacher-1")
+        first = AttachmentMetadata(
+            "cleanup-a-valid",
+            "room-1",
+            "student-1",
+            0,
+            "cleanup-a-valid.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room-1/cleanup-a-valid",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        later = AttachmentMetadata(
+            "cleanup-z-tampered",
+            "room-1",
+            "student-1",
+            1,
+            "cleanup-z-tampered.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room-1/cleanup-z-tampered",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(first)
+        self.store.register_attachment(later)
+        tampered_key = "rooms/room-1/not-cleanup-z-tampered"
+        with closing(sqlite3.connect(self.store.path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_attachments SET object_key=? WHERE attachment_id=?",
+                (tampered_key, later.attachment_id),
+            )
+            db.execute(
+                "UPDATE collaboration_attachment_deletions SET object_key=? WHERE attachment_id=?",
+                (tampered_key, later.attachment_id),
+            )
+        self.files.history_override = ()
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "canonical attachment namespace",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.file_store.delete_calls, [])
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room-1"),
+            (first.object_key, tampered_key),
+        )
+
     def test_file_tombstone_deletes_durable_bytes_once(self):
         controller = self.controller("teacher-1")
         tombstone = AttachmentMetadata(
@@ -2824,6 +2880,35 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             self.store.room_attachments("room-1"),
             (foreign,),
         )
+
+    def test_download_token_rejects_tampered_safe_noncanonical_persisted_key_before_provider(self):
+        controller = self.controller("student-1")
+        self.files.scan_state = "clean"
+        stored = controller.upload_file(
+            controller.prepare_file(
+                attachment_id="tampered-download-key",
+                local_path=self.make_file("tampered-download-key.bin", b"opaque"),
+                sequence_no=0,
+                retention="persistent",
+            )
+        )
+        tampered_key = "rooms/room-1/not-the-stored-attachment"
+        with closing(sqlite3.connect(self.store.path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_attachments SET object_key=? WHERE attachment_id=?",
+                (tampered_key, stored.attachment_id),
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "canonical attachment namespace",
+        ):
+            controller.issue_download_token(
+                attachment_id=stored.attachment_id,
+                ttl_seconds=60,
+            )
+
+        self.assertEqual(self.file_store.read_calls, [])
 
     def test_download_token_requires_durable_stored_and_clean_scan(self):
         controller = self.controller()

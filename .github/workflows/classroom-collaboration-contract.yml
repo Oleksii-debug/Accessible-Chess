@@ -13,114 +13,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: classroom-collaboration-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply-object-key-hardening:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12.10'
-
-      - name: Apply guarded deterministic object-key hardening
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          source_path = Path('acs/classroom_collaboration.py')
-          source = source_path.read_text(encoding='utf-8')
-
-          replacements = [
-              (
-                  '''        try:\n            pending = self._store.pending_attachment_deletions(self.room_id)\n        except CollaborationStorageError as error:\n            raise CollaborationError(\n                "durable file deletion state is invalid"\n            ) from error\n        for object_key in pending:\n''',
-                  '''        try:\n            pending = self._store.pending_attachment_deletions(self.room_id)\n            tombstones = tuple(\n                attachment\n                for attachment in self._store.room_attachments(self.room_id)\n                if attachment.transfer_state == "deleted"\n            )\n        except CollaborationStorageError as error:\n            raise CollaborationError(\n                "durable file deletion state is invalid"\n            ) from error\n\n        # Validate the entire provider-input batch before the first remote delete.\n        # A later corrupt intent must not allow an earlier valid key to cause a\n        # partial external side effect. Storage remains the transactional intent\n        # authority; the controller re-proves the deterministic namespace at the\n        # provider-consumption boundary.\n        tombstones_by_key: dict[str, AttachmentMetadata] = {}\n        for tombstone in tombstones:\n            if tombstone.object_key in tombstones_by_key:\n                raise CollaborationError("durable file deletion state is ambiguous")\n            tombstones_by_key[tombstone.object_key] = tombstone\n        for object_key in pending:\n            tombstone = tombstones_by_key.get(object_key)\n            if tombstone is None:\n                raise CollaborationError("durable file deletion state is invalid")\n            self._require_canonical_attachment_object_key(\n                tombstone,\n                label="durable file deletion object key",\n            )\n\n        for object_key in pending:\n''',
-              ),
-              (
-                  '''        if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 3600:\n            raise CollaborationError("download token TTL must be from 1 to 3600 seconds")\n        token = self._file_store.issue_read_token(\n''',
-                  '''        if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 3600:\n            raise CollaborationError("download token TTL must be from 1 to 3600 seconds")\n        self._require_canonical_attachment_object_key(\n            attachment,\n            label="download attachment object key",\n        )\n        token = self._file_store.issue_read_token(\n''',
-              ),
-              (
-                  '''        if metadata.object_key != _canonical_object_key(\n            self.room_id,\n            metadata.attachment_id,\n        ):\n            raise CollaborationError("prepared file object key is outside canonical namespace")\n''',
-                  '''        self._require_canonical_attachment_object_key(\n            metadata,\n            label="prepared file object key",\n        )\n''',
-              ),
-              (
-                  '''        canonical_key = (\n            f"rooms/{_storage_key_segment(self.room_id)}/"\n            f"{_storage_key_segment(attachment.attachment_id)}"\n        )\n        if attachment.object_key != canonical_key:\n            raise CollaborationError(\n                "file history crossed canonical attachment namespace"\n            )\n''',
-                  '''        self._require_canonical_attachment_object_key(\n            attachment,\n            label="file history object key",\n        )\n''',
-              ),
-          ]
-          for old, new in replacements:
-              count = source.count(old)
-              if count != 1:
-                  raise SystemExit(f'guarded source replacement expected once, found {count}')
-              source = source.replace(old, new, 1)
-
-          helper_marker = '''    @staticmethod\n    def _validate_recovered_message(\n'''
-          helper = '''    def _require_canonical_attachment_object_key(\n        self,\n        attachment: AttachmentMetadata,\n        *,\n        label: str,\n    ) -> None:\n        if (\n            type(attachment) is not AttachmentMetadata\n            or attachment.room_id != self.room_id\n            or attachment.object_key\n            != _canonical_object_key(self.room_id, attachment.attachment_id)\n        ):\n            raise CollaborationError(\n                f"{label} is outside canonical attachment namespace"\n            )\n\n'''
-          if source.count(helper_marker) != 1:
-              raise SystemExit('helper insertion marker is not unique')
-          source = source.replace(helper_marker, helper + helper_marker, 1)
-          source_path.write_text(source, encoding='utf-8')
-
-          test_path = Path('tests/test_classroom_collaboration.py')
-          tests = test_path.read_text(encoding='utf-8')
-
-          download_marker = '''    def test_download_token_requires_durable_stored_and_clean_scan(self):\n'''
-          download_test = '''    def test_download_token_rejects_tampered_safe_noncanonical_persisted_key_before_provider(self):\n        controller = self.controller("student-1")\n        self.files.scan_state = "clean"\n        stored = controller.upload_file(\n            controller.prepare_file(\n                attachment_id="tampered-download-key",\n                local_path=self.make_file("tampered-download-key.bin", b"opaque"),\n                sequence_no=0,\n                retention="persistent",\n            )\n        )\n        tampered_key = "rooms/room-1/not-the-stored-attachment"\n        with closing(sqlite3.connect(self.store.path)) as db, db:\n            db.execute(\n                "UPDATE collaboration_attachments SET object_key=? WHERE attachment_id=?",\n                (tampered_key, stored.attachment_id),\n            )\n\n        with self.assertRaisesRegex(\n            CollaborationError,\n            "canonical attachment namespace",\n        ):\n            controller.issue_download_token(\n                attachment_id=stored.attachment_id,\n                ttl_seconds=60,\n            )\n\n        self.assertEqual(self.file_store.read_calls, [])\n\n'''
-          if tests.count(download_marker) != 1:
-              raise SystemExit('download regression insertion marker is not unique')
-          tests = tests.replace(download_marker, download_test + download_marker, 1)
-
-          deletion_marker = '''    def test_file_tombstone_deletes_durable_bytes_once(self):\n'''
-          deletion_test = '''    def test_durable_delete_prevalidates_entire_batch_before_provider(self):\n        controller = self.controller("teacher-1")\n        first = AttachmentMetadata(\n            "cleanup-a-valid",\n            "room-1",\n            "student-1",\n            0,\n            "cleanup-a-valid.bin",\n            None,\n            1,\n            "a" * 64,\n            "rooms/room-1/cleanup-a-valid",\n            "deleted",\n            "persistent",\n            "clean",\n        )\n        later = AttachmentMetadata(\n            "cleanup-z-tampered",\n            "room-1",\n            "student-1",\n            1,\n            "cleanup-z-tampered.bin",\n            None,\n            1,\n            "b" * 64,\n            "rooms/room-1/cleanup-z-tampered",\n            "deleted",\n            "persistent",\n            "clean",\n        )\n        self.store.register_attachment(first)\n        self.store.register_attachment(later)\n        tampered_key = "rooms/room-1/not-cleanup-z-tampered"\n        with closing(sqlite3.connect(self.store.path)) as db, db:\n            db.execute(\n                "UPDATE collaboration_attachments SET object_key=? WHERE attachment_id=?",\n                (tampered_key, later.attachment_id),\n            )\n            db.execute(\n                "UPDATE collaboration_attachment_deletions SET object_key=? WHERE attachment_id=?",\n                (tampered_key, later.attachment_id),\n            )\n        self.files.history_override = ()\n\n        with self.assertRaisesRegex(\n            CollaborationError,\n            "canonical attachment namespace",\n        ):\n            controller.sync_files()\n\n        self.assertEqual(self.file_store.delete_calls, [])\n        self.assertEqual(\n            self.store.pending_attachment_deletions("room-1"),\n            (first.object_key, tampered_key),\n        )\n\n'''
-          if tests.count(deletion_marker) != 1:
-              raise SystemExit('deletion regression insertion marker is not unique')
-          tests = tests.replace(deletion_marker, deletion_test + deletion_marker, 1)
-          test_path.write_text(tests, encoding='utf-8')
-          PY
-
-      - name: Qualify patched collaboration boundaries
-        run: >-
-          python -m py_compile
-          acs/classroom_collaboration.py
-          acs/classroom_collaboration_storage.py
-          tests/test_classroom_collaboration.py
-          tests/test_classroom_collaboration_storage.py
-      - run: >-
-          python -m unittest -v
-          tests.test_classroom_collaboration
-          tests.test_classroom_collaboration_storage
-          tests.test_classroom_realtime_media
-      - run: python -m acs.selftest
-
-      - name: Commit same-lineage hardening and restore canonical workflow
-        shell: bash
-        run: |
-          set -euo pipefail
-          git show 9d38fd0edc16ae3fe8eea3320b8e37d2c81d099a:.github/workflows/classroom-collaboration-contract.yml > .github/workflows/classroom-collaboration-contract.yml
-          git diff --check
-          git diff --exit-code 9d38fd0edc16ae3fe8eea3320b8e37d2c81d099a -- .github/workflows/classroom-collaboration-contract.yml
-          git config user.name "Accessible Chess primary implementer"
-          git config user.email "actions@users.noreply.github.com"
-          git add acs/classroom_collaboration.py tests/test_classroom_collaboration.py .github/workflows/classroom-collaboration-contract.yml
-          git commit -m "Harden collaboration object-key provider boundaries"
-          git push origin HEAD:feature/classroom-collaboration-contract-20260926
-
   contract:
-    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:

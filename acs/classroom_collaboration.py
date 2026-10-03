@@ -942,10 +942,35 @@ class ClassroomCollaborationController:
             return
         try:
             pending = self._store.pending_attachment_deletions(self.room_id)
+            tombstones = tuple(
+                attachment
+                for attachment in self._store.room_attachments(self.room_id)
+                if attachment.transfer_state == "deleted"
+            )
         except CollaborationStorageError as error:
             raise CollaborationError(
                 "durable file deletion state is invalid"
             ) from error
+
+        # Validate the entire provider-input batch before the first remote delete.
+        # A later corrupt intent must not allow an earlier valid key to cause a
+        # partial external side effect. Storage remains the transactional intent
+        # authority; the controller re-proves the deterministic namespace at the
+        # provider-consumption boundary.
+        tombstones_by_key: dict[str, AttachmentMetadata] = {}
+        for tombstone in tombstones:
+            if tombstone.object_key in tombstones_by_key:
+                raise CollaborationError("durable file deletion state is ambiguous")
+            tombstones_by_key[tombstone.object_key] = tombstone
+        for object_key in pending:
+            tombstone = tombstones_by_key.get(object_key)
+            if tombstone is None:
+                raise CollaborationError("durable file deletion state is invalid")
+            self._require_canonical_attachment_object_key(
+                tombstone,
+                label="durable file deletion object key",
+            )
+
         for object_key in pending:
             try:
                 self._file_store.delete(object_key=object_key)
@@ -999,6 +1024,10 @@ class ClassroomCollaborationController:
             raise CollaborationError("attachment is not cleared for download")
         if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 3600:
             raise CollaborationError("download token TTL must be from 1 to 3600 seconds")
+        self._require_canonical_attachment_object_key(
+            attachment,
+            label="download attachment object key",
+        )
         token = self._file_store.issue_read_token(
             object_key=attachment.object_key,
             participant_id=self.local_participant_id,
@@ -1060,11 +1089,10 @@ class ClassroomCollaborationController:
         mime_type, _encoding = mimetypes.guess_type(display_name)
         if metadata.mime_type != mime_type:
             raise CollaborationError("prepared file MIME type does not match selected file")
-        if metadata.object_key != _canonical_object_key(
-            self.room_id,
-            metadata.attachment_id,
-        ):
-            raise CollaborationError("prepared file object key is outside canonical namespace")
+        self._require_canonical_attachment_object_key(
+            metadata,
+            label="prepared file object key",
+        )
         if path.stat().st_size != metadata.size_bytes:
             raise CollaborationError("prepared file size changed before upload")
         if _sha256_path(path) != metadata.sha256:
@@ -1166,18 +1194,30 @@ class ClassroomCollaborationController:
             # still requires current membership, while replay trusts the
             # room-scoped authoritative transport and validates sender identity.
             _id(attachment.sender_id, "sender id")
-        canonical_key = (
-            f"rooms/{_storage_key_segment(self.room_id)}/"
-            f"{_storage_key_segment(attachment.attachment_id)}"
+        self._require_canonical_attachment_object_key(
+            attachment,
+            label="file history object key",
         )
-        if attachment.object_key != canonical_key:
-            raise CollaborationError(
-                "file history crossed canonical attachment namespace"
-            )
         allowed_states = {"stored", "deleted"} if allow_tombstone else {"stored"}
         if attachment.transfer_state not in allowed_states:
             raise CollaborationError(
                 "file history contains non-durable attachment state"
+            )
+
+    def _require_canonical_attachment_object_key(
+        self,
+        attachment: AttachmentMetadata,
+        *,
+        label: str,
+    ) -> None:
+        if (
+            type(attachment) is not AttachmentMetadata
+            or attachment.room_id != self.room_id
+            or attachment.object_key
+            != _canonical_object_key(self.room_id, attachment.attachment_id)
+        ):
+            raise CollaborationError(
+                f"{label} is outside canonical attachment namespace"
             )
 
     @staticmethod
