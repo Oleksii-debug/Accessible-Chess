@@ -128,6 +128,52 @@ class BookProjectionTests(unittest.TestCase):
                 )
             )
 
+    def test_failed_navigation_render_restores_exact_semantic_cursor(self) -> None:
+        document = BookDocument(
+            title="Navigation transaction",
+            blocks=[
+                Heading(text="Chapter 1", level=1, block_id="tx-h1"),
+                Paragraph(text="First paragraph.", block_id="tx-p1"),
+                Diagram(fen=FEN, caption="First position", block_id="tx-d1"),
+                Game(pgn='[Result "*"]\n\n1. e4 *', title="First game", block_id="tx-g1"),
+                Heading(text="Chapter 2", level=1, block_id="tx-h2"),
+                Diagram(fen=FEN, caption="Second position", block_id="tx-d2"),
+                Game(pgn='[Result "*"]\n\n1. d4 *', title="Second game", block_id="tx-g2"),
+            ],
+        )
+        cases = (
+            ("next", 0),
+            ("next_heading", 0),
+            ("next_position", 0),
+            ("next_game", 0),
+            ("previous", 6),
+            ("previous_heading", 6),
+            ("previous_position", 6),
+            ("previous_game", 6),
+        )
+
+        for method_name, start_index in cases:
+            with self.subTest(method=method_name):
+                reader = BookReader(document)
+                reader.go_to(start_index)
+                presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+                projection = BookWebViewProjection(
+                    presenter,
+                    lambda _action, _payload: None,
+                    language=UILanguage.EN,
+                )
+                before = presenter.current()
+                with patch.object(
+                    projection,
+                    "_render",
+                    side_effect=ValueError("simulated WebView render failure"),
+                ):
+                    with self.assertRaisesRegex(ValueError, "simulated WebView"):
+                        getattr(projection, method_name)()
+
+                self.assertEqual(start_index, presenter.cursor_index)
+                self.assertEqual(before, presenter.current())
+
     def test_open_position_keeps_fen_inside_python_dispatch_boundary(self) -> None:
         self.projection.next_position()
         event = self.projection.open_position()

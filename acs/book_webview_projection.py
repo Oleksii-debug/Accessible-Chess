@@ -349,29 +349,38 @@ class BookWebViewProjection:
             },
         )
 
+    def _navigate(self, operation: Callable[[], BookBlockView]) -> BookWebViewEvent:
+        before_index = self._presenter.cursor_index
+        try:
+            return self._render(operation())
+        except Exception:
+            if self._presenter.cursor_index != before_index:
+                self._presenter.restore_cursor(before_index)
+            raise
+
     def previous(self) -> BookWebViewEvent:
-        return self._render(self._presenter.previous_block())
+        return self._navigate(self._presenter.previous_block)
 
     def next(self) -> BookWebViewEvent:
-        return self._render(self._presenter.next_block())
+        return self._navigate(self._presenter.next_block)
 
     def previous_heading(self) -> BookWebViewEvent:
-        return self._render(self._presenter.previous_heading())
+        return self._navigate(self._presenter.previous_heading)
 
     def next_heading(self) -> BookWebViewEvent:
-        return self._render(self._presenter.next_heading())
+        return self._navigate(self._presenter.next_heading)
 
     def next_position(self) -> BookWebViewEvent:
-        return self._render(self._presenter.next_position())
+        return self._navigate(self._presenter.next_position)
 
     def previous_position(self) -> BookWebViewEvent:
-        return self._render(self._presenter.previous_position())
+        return self._navigate(self._presenter.previous_position)
 
     def next_game(self) -> BookWebViewEvent:
-        return self._render(self._presenter.next_game())
+        return self._navigate(self._presenter.next_game)
 
     def previous_game(self) -> BookWebViewEvent:
-        return self._render(self._presenter.previous_game())
+        return self._navigate(self._presenter.previous_game)
 
     def save_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
