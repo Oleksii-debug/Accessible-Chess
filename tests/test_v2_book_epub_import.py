@@ -142,6 +142,65 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(len({block.block_id for block in result.document.blocks}), len(result.document.blocks))
         self.assertEqual(result.document.validate_structure(), list(result.warnings))
 
+    def test_duplicate_direct_manifest_sections_fail_closed(self) -> None:
+        opf = b'''<?xml version="1.0" encoding="UTF-8"?>
+<package version="3.0"
+ xmlns="http://www.idpf.org/2007/opf"
+ xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:title>Ambiguous manifest</dc:title></metadata>
+  <manifest>
+    <item id="c1" href="Text/one.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <manifest>
+    <item id="c2" href="Text/two.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>'''
+        raw = _epub(
+            opf=opf,
+            entries={
+                "OEBPS/Text/one.xhtml": b"<html><body><p>One</p></body></html>",
+                "OEBPS/Text/two.xhtml": b"<html><body><p>Two</p></body></html>",
+            },
+        )
+
+        with self.assertRaises(BookEpubImportError) as caught:
+            import_epub_book(raw, source_name="duplicate-manifest.epub")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_duplicate_direct_spine_sections_fail_closed(self) -> None:
+        opf = b'''<?xml version="1.0" encoding="UTF-8"?>
+<package version="3.0"
+ xmlns="http://www.idpf.org/2007/opf"
+ xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:title>Ambiguous spine</dc:title></metadata>
+  <manifest>
+    <item id="c1" href="Text/one.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c2" href="Text/two.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/></spine>
+  <spine><itemref idref="c2"/></spine>
+</package>'''
+        raw = _epub(
+            opf=opf,
+            entries={
+                "OEBPS/Text/one.xhtml": b"<html><body><p>One</p></body></html>",
+                "OEBPS/Text/two.xhtml": b"<html><body><p>Two</p></body></html>",
+            },
+        )
+
+        with self.assertRaises(BookEpubImportError) as caught:
+            import_epub_book(raw, source_name="duplicate-spine.epub")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     def test_unmarked_valid_pgn_in_spine_stays_readable_text(self) -> None:
         chapter = b'''<html><body><h1>Quoted game</h1><pre>[Event "Quoted"]
 [White "A"]
