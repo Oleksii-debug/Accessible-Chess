@@ -115,6 +115,13 @@ class PreparedPositionDeploymentBatch:
             raise PreparedPositionDeploymentError("deployment assignment ids must be unique")
         if len(set(student_ids)) != len(student_ids):
             raise PreparedPositionDeploymentError("a student may receive only one position per batch")
+        if (
+            self.target.kind is DeploymentTargetKind.SELECTED
+            and student_ids != self.target.student_ids
+        ):
+            raise PreparedPositionDeploymentError(
+                "selected deployment assignments must exactly match target student order"
+            )
         for item in self.assignments:
             if item.assignment_id != _assignment_id(self.batch_id, item.student_id):
                 raise PreparedPositionDeploymentError("deployment assignment id is not stable for batch/student")
