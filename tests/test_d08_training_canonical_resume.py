@@ -249,29 +249,24 @@ class DeterministicResumeTests(unittest.TestCase):
 
 
 class MalformedAndResourceBoundaryTests(unittest.TestCase):
-    def test_constructor_requires_exact_containers_before_hooks(self):
+    def test_constructor_keeps_exact_move_set_and_canonicalizes_definition_containers(self):
         with self.assertRaisesRegex(TypeError, "exact frozenset"):
             ExerciseStep(_BombFrozenSet({"e4"}))
 
         step = ExerciseStep(frozenset({"e4"}))
-        with self.assertRaisesRegex(TypeError, "exact tuple"):
-            ExerciseDefinition("steps", Board.START, _BombTuple((step,)))
-
-        with self.assertRaisesRegex(TypeError, "exact tuple"):
-            ExerciseDefinition(
-                "tags",
-                Board.START,
-                (step,),
-                tags=_BombTuple(("opening",)),
-            )
-
-        with self.assertRaisesRegex(TypeError, "exact dict"):
-            ExerciseDefinition(
-                "metadata",
-                Board.START,
-                (step,),
-                metadata=_BombDict({"kind": "test"}),
-            )
+        definition = ExerciseDefinition(
+            "compatible-containers",
+            Board.START,
+            [step],  # type: ignore[arg-type]
+            tags=(tag for tag in ("Opening", "Calculation")),  # type: ignore[arg-type]
+            metadata={"kind": "test"},
+        )
+        self.assertIs(type(definition.steps), tuple)
+        self.assertEqual((step,), definition.steps)
+        self.assertIs(type(definition.tags), tuple)
+        self.assertEqual(("opening", "calculation"), definition.tags)
+        self.assertIs(type(definition.metadata), dict)
+        self.assertEqual({"kind": "test"}, definition.metadata)
 
     def test_session_retains_exact_definition_authority(self):
         subclass = _DefinitionSubclass(
@@ -435,15 +430,17 @@ class MalformedAndResourceBoundaryTests(unittest.TestCase):
                 tags=tuple(f"tag-{index}" for index in range(257)),
             )
 
-    def test_snapshot_requires_exact_dict_before_hooks(self):
+    def test_snapshot_dict_subclass_hooks_are_bypassed_during_restore(self):
         definition = ExerciseDefinition(
             "snapshot-container",
             Board.START,
             (ExerciseStep(frozenset({"e4"})),),
         )
-        snapshot = _BombDict(ExerciseSession(definition).snapshot())
-        with self.assertRaisesRegex(TypeError, "exact dict"):
-            ExerciseSession.restore(definition, snapshot)
+        session = ExerciseSession(definition)
+        session.submit("e4")
+        snapshot = session.snapshot()
+        restored = ExerciseSession.restore(definition, _BombDict(snapshot))
+        self.assertEqual(snapshot, restored.snapshot())
 
     def test_snapshot_scalar_resources_are_bounded_before_replay(self):
         definition = ExerciseDefinition(
