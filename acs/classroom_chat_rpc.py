@@ -506,6 +506,7 @@ def _message_to_wire(message: ChatMessageMetadata) -> dict[str, object]:
         "body": message.body,
         "retention": message.retention,
         "hidden": message.hidden,
+        "redacted": message.redacted,
         "sent_at_unix_ms": message.sent_at_unix_ms,
     }
 
@@ -523,12 +524,15 @@ def _message_from_wire(value: object) -> ChatMessageMetadata:
             "body",
             "retention",
             "hidden",
+            "redacted",
             "sent_at_unix_ms",
         },
         "chat message response",
     )
     if type(value["hidden"]) is not bool:
         raise ClassroomChatRpcError("chat hidden flag must be boolean")
+    if type(value["redacted"]) is not bool:
+        raise ClassroomChatRpcError("chat redacted flag must be boolean")
     try:
         message = ChatMessageMetadata(
             message_id=value["message_id"],
@@ -539,6 +543,7 @@ def _message_from_wire(value: object) -> ChatMessageMetadata:
             retention=value["retention"],
             hidden=value["hidden"],
             sent_at_unix_ms=value["sent_at_unix_ms"],
+            redacted=value["redacted"],
         )
     except Exception:
         raise ClassroomChatRpcError("chat message response is invalid") from None
@@ -555,6 +560,7 @@ def _state_update_to_wire(update: ChatMessageStateUpdate) -> dict[str, object]:
         "message_id": update.message_id,
         "revision": update.revision,
         "hidden": update.hidden,
+        "redacted": update.redacted,
     }
 
 
@@ -563,7 +569,7 @@ def _state_update_from_wire(value: object) -> ChatMessageStateUpdate:
         raise ClassroomChatRpcError("chat state update must be an object")
     _exact_keys(
         value,
-        {"room_id", "message_id", "revision", "hidden"},
+        {"room_id", "message_id", "revision", "hidden", "redacted"},
         "chat state update",
     )
     try:
@@ -572,6 +578,7 @@ def _state_update_from_wire(value: object) -> ChatMessageStateUpdate:
             message_id=value["message_id"],
             revision=value["revision"],
             hidden=value["hidden"],
+            redacted=value["redacted"],
         )
     except Exception:
         raise ClassroomChatRpcError("chat state update is invalid") from None
