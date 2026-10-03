@@ -727,6 +727,88 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_browser_route_chain_never_reuses_previous_route_focus_token(self):
+        _book, _origin = self._open_book_game()
+        book_focus = f"book-block-{self.app.reader.index}"
+        self.app.record_focus(book_focus)
+
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library["kind"], "route")
+        self.assertEqual(
+            library["payload"]["focus_target"],
+            "library-search-player",
+        )
+
+        books = self.app.browser_command("shell", "screen.books")
+        self.assertEqual(books["kind"], "route")
+        self.assertEqual(books["payload"]["focus_target"], book_focus)
+
+        library_again = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library_again["kind"], "route")
+        self.assertEqual(
+            library_again["payload"]["focus_target"],
+            "library-search-player",
+            "stale Books focus polluted Library route-local focus history",
+        )
+
+    def test_native_route_event_rebinds_application_focus_before_next_command(self):
+        _book, _origin = self._open_book_game()
+        book_focus = f"book-block-{self.app.reader.index}"
+        self.app.record_focus(book_focus)
+
+        routed = self.app.adapter.activate_action(
+            "screen.library",
+            current_focus_id=book_focus,
+        )
+        self.assertEqual(routed.kind, "route")
+        self.assertTrue(self.app.native_command(routed))
+        self.assertEqual(self.app._focus, "library-search-player")
+
+        books = self.app.browser_command("shell", "screen.books")
+        self.assertEqual(books["kind"], "route")
+        self.assertEqual(books["payload"]["focus_target"], book_focus)
+
+        library_again = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(
+            library_again["payload"]["focus_target"],
+            "library-search-player",
+        )
+
+    def test_book_board_transition_focus_is_bound_before_webview_focusin(self):
+        _book, origin = self._open_book_game()
+        book_focus = f"book-block-{self.app.reader.index}"
+        self.app.record_focus(book_focus)
+
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app._focus, "board-launcher")
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "board-launcher",
+        )
+
+        # Exercise the race window before any browser focusin callback: an
+        # immediate route away/back must retain Board-local focus rather than
+        # recording the old Book block under the Board route.
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library["kind"], "route")
+        board = self.app.browser_command("shell", "screen.board")
+        self.assertEqual(board["kind"], "route")
+        self.assertEqual(board["payload"]["focus_target"], "board-launcher")
+
+        returned = self.app.browser_command(
+            "books",
+            "book.return_from_board",
+        )
+        self.assertEqual(returned["kind"], "render")
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(self.app._focus, book_focus)
+        self.assertEqual(self.app.shell.restore_focus_target(), book_focus)
+
     def test_book_board_open_durability_unknown_keeps_canonical_reload_authority(self):
         _book, _origin = self._open_book_game()
         store = self.app.progress_store
@@ -861,6 +943,7 @@ class Version2ApplicationTests(unittest.TestCase):
         opened = self.app.browser_command("books", "book.open_position")
         self.assertEqual(opened["kind"], "delegated")
         self.assertTrue(self.app.book_workflow.active)
+        self.app.drain_events()
         store = self.app.progress_store
         key = self.app.book_key
 
@@ -878,6 +961,14 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
         self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(
+            [
+                event
+                for event in self.app.drain_events()
+                if event.get("kind") == "route"
+            ],
+            [{"kind": "route", "payload": {"route_id": "books"}}],
+        )
         persisted = store.restore(key, self.app.reader.document)
         self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
 
@@ -889,6 +980,7 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertEqual(opened.kind, "delegated")
         self.assertTrue(self.app.book_workflow.active)
+        self.app.drain_events()
         store = self.app.progress_store
 
         def fail_primary_sync(path):
@@ -909,6 +1001,14 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
         self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(
+            [
+                event
+                for event in self.app.drain_events()
+                if event.get("kind") == "route"
+            ],
+            [{"kind": "route", "payload": {"route_id": "books"}}],
+        )
 
     def test_book_keymap_native_ingress_queues_accessible_open_and_return_results(self):
         _book, origin = self._open_book_game()
@@ -941,6 +1041,10 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(returned.kind, "delegated")
         self.app.native_command(returned)
         return_events = self.app.drain_events()
+        self.assertIn(
+            {"kind": "route", "payload": {"route_id": "books"}},
+            return_events,
+        )
         return_result = next(
             event
             for event in return_events
@@ -1274,6 +1378,7 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertTrue(self.app.book_workflow.active)
         self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.app.drain_events()
 
         self.app._board_position_projector = lambda _fen: {"ok": False}
         with patch.object(
@@ -1290,6 +1395,14 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual("books", self.app.shell.current_route.route_id)
         self.assertEqual(origin, self.app.reader.location())
+        self.assertEqual(
+            [
+                event
+                for event in self.app.drain_events()
+                if event.get("kind") == "route"
+            ],
+            [{"kind": "route", "payload": {"route_id": "books"}}],
+        )
 
     def test_browser_path_payload_rejected_before_native_picker(self):
         self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
