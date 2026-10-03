@@ -8,6 +8,7 @@ from acs.sound_pack_catalog import (
     SoundAssetDigest,
     SoundPackCatalogEntry,
     SoundPackManager,
+    SoundPackRightsEvidence,
 )
 from acs.sound_pack_profile import SoundPackProfileCoordinator
 from acs.sound_profile_store import SoundProfileManager
@@ -90,6 +91,11 @@ def entry_for(item):
         manifest=item,
         assets=assets,
         total_bytes=sum(asset.size_bytes for asset in assets.values()),
+        rights_evidence=SoundPackRightsEvidence(
+            license_id=item.license_id,
+            source_uri=f"https://example.invalid/source/{item.pack_id}/{item.version}",
+            license_uri="https://creativecommons.org/publicdomain/zero/1.0/",
+        ),
     )
     return entry, DownloadedSoundPack(
         manifest=item,
