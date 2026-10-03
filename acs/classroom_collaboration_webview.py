@@ -1310,7 +1310,6 @@ class ClassroomCollaborationWebView:
             )
         self._prepared.pop(uploaded.attachment_id, None)
         self._file_page_bucket = None
-        self._file_progress = None
         return self._event(
             "collaboration.file.sent",
             announcement=self._file_announcement("file_sent", uploaded.display_name),
@@ -1410,7 +1409,6 @@ class ClassroomCollaborationWebView:
                 )
             )
         self._prepared.pop(retried.attachment_id, None)
-        self._file_progress = None
         return self._event(
             "collaboration.file.retried",
             announcement=self._file_announcement("file_retried", retried.display_name),
