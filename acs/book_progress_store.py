@@ -77,7 +77,14 @@ def _book_key(value: object) -> str:
             "book progress key must be non-empty canonical text",
             code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
         )
-    if len(value) > MAX_BOOK_KEY_CHARS or any(ord(character) < 32 for character in value):
+    if (
+        len(value) > MAX_BOOK_KEY_CHARS
+        or any(
+            ord(character) < 32
+            or 0xD800 <= ord(character) <= 0xDFFF
+            for character in value
+        )
+    ):
         raise BookProgressStoreError(
             "book progress key is outside the supported bounds",
             code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
@@ -106,11 +113,11 @@ def _canonical_json_bytes(value: object) -> bytes:
             separators=(",", ":"),
             allow_nan=False,
         ).encode("utf-8")
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError):
         raise BookProgressStoreError(
             "book progress data is not valid JSON data",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
-        ) from exc
+        ) from None
 
 
 def _snapshot_copy(value: object) -> dict[str, object]:
