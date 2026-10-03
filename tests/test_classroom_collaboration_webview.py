@@ -601,6 +601,106 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("error", event.kind)
         self.assertEqual([], self.files.ordered)
 
+    def test_file_sync_failure_is_contextual_without_provider_detail(self) -> None:
+        view = self.webview()
+        with mock.patch.object(
+            self.controller,
+            "sync_files",
+            side_effect=RuntimeError("https://provider.example/secret-room"),
+        ):
+            event = view.dispatch("collaboration.file.sync", {})
+
+        self.assertEqual("error", event.kind)
+        self.assertEqual("File refresh failed.", event.payload["message"])
+        self.assertEqual("collaboration-file-sync", event.payload["focus_target"])
+        self.assertNotIn("provider.example", repr(event.payload))
+
+    def test_file_save_open_and_cancel_failures_keep_sensitive_details_out_of_browser(self) -> None:
+        self.selected_file = self.root / "safe-actions.pgn"
+        self.selected_file.write_text(
+            '[Event "Safe actions"]\n\n1. e4 e5 *\n',
+            encoding="utf-8",
+        )
+        self.files.scan_state = "clean"
+
+        def fail_save(token: str, name: str) -> None:
+            raise RuntimeError(f"C:/private/save/{token}/{name}")
+
+        def fail_open(token: str, name: str) -> None:
+            raise RuntimeError(f"shell://private/{token}/{name}")
+
+        view = ClassroomCollaborationWebView(
+            self.controller,
+            self.store,
+            lambda participant_id: self.labels[participant_id],
+            language=UILanguage.EN,
+            file_picker=lambda: self.selected_file,
+            file_saver=fail_save,
+            file_opener=fail_open,
+            id_factory=self.next_id,
+        )
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+        item = uploaded.payload["collaboration"]["files"]["items"][0]
+
+        saved = view.dispatch(
+            "collaboration.file.save",
+            {"file_key": item["file_key"]},
+        )
+        self.assertEqual("error", saved.kind)
+        self.assertEqual(
+            "Could not prepare safe file save: safe-actions.pgn.",
+            saved.payload["message"],
+        )
+        self.assertNotIn("short-lived-read-token", repr(saved.payload))
+        self.assertNotIn("C:/private", repr(saved.payload))
+
+        opened = view.dispatch(
+            "collaboration.file.open",
+            {"file_key": item["file_key"]},
+        )
+        self.assertEqual("error", opened.kind)
+        self.assertEqual(
+            "Could not prepare file open: safe-actions.pgn.",
+            opened.payload["message"],
+        )
+        self.assertNotIn("short-lived-read-token", repr(opened.payload))
+        self.assertNotIn("shell://private", repr(opened.payload))
+
+        self.selected_file = self.root / "cancel-fail.pgn"
+        self.selected_file.write_text(
+            '[Event "Cancel failure"]\n\n1. d4 d5 *\n',
+            encoding="utf-8",
+        )
+        self.files.fail_upload = True
+        failed = view.dispatch("collaboration.file.choose_upload", {})
+        cancel_item = next(
+            file_item
+            for file_item in failed.payload["collaboration"]["files"]["items"]
+            if file_item["name"] == "cancel-fail.pgn"
+        )
+        with mock.patch.object(
+            self.controller,
+            "cancel_file",
+            side_effect=RuntimeError("provider cancellation secret"),
+        ):
+            cancelled = view.dispatch(
+                "collaboration.file.cancel",
+                {"file_key": cancel_item["file_key"]},
+            )
+        self.assertEqual("error", cancelled.kind)
+        self.assertEqual(
+            "Could not cancel file transfer: cancel-fail.pgn.",
+            cancelled.payload["message"],
+        )
+        self.assertNotIn("provider cancellation secret", repr(cancelled.payload))
+        self.assertTrue(
+            next(
+                file_item
+                for file_item in cancelled.payload["collaboration"]["files"]["items"]
+                if file_item["name"] == "cancel-fail.pgn"
+            )["can_cancel"]
+        )
+
     def test_file_upload_and_save_keep_local_path_object_key_hash_and_token_out_of_browser(self) -> None:
         self.selected_file = self.root / "lesson notes.txt"
         self.selected_file.write_text("accessible classroom file", encoding="utf-8")
