@@ -549,6 +549,21 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.room_messages("room"), ())
         self.assertEqual(self.store.room_messages("room", include_hidden=True), (hidden,))
 
+    def test_hidden_message_cannot_be_unhidden_outside_moderation_stream(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
+        )
+        hidden = self.store.set_message_hidden("m1", True)
+        self.assertTrue(hidden.hidden)
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.set_message_hidden("m1", False)
+
+        self.assertEqual(
+            self.store.room_messages("room", include_hidden=True),
+            (hidden,),
+        )
+
     def test_hidden_state_requires_strict_boolean(self) -> None:
         self.store.append_message(
             ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
