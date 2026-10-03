@@ -478,7 +478,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 self._assert_no_publication(output)
             path.write_bytes(original)
 
-    def test_sound_manifest_must_be_exact_nine_and_distinct(self) -> None:
+    def test_sound_manifest_event_set_is_closed_world_and_shared_assets_are_allowed(self) -> None:
         manifest_path = self.sounds / "manifest.json"
         original = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -486,7 +486,10 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         missing["files"].pop(next(iter(SoundEvent)).value)
         manifest_path.write_text(json.dumps(missing), encoding="utf-8")
         output = self.root / "payload-missing"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "exactly all semantic sound events",
+        ):
             self._prepare(output)
         self._assert_no_publication(output)
 
@@ -495,21 +498,44 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._write_wav(self.sounds / "extra.wav", sample=1)
         manifest_path.write_text(json.dumps(extra), encoding="utf-8")
         output = self.root / "payload-extra"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "exactly all semantic sound events",
+        ):
             self._prepare(output)
         self._assert_no_publication(output)
         (self.sounds / "extra.wav").unlink()
 
         aliased = json.loads(json.dumps(original))
         events = list(SoundEvent)
-        aliased["files"][events[1].value] = aliased["files"][events[0].value]
-        manifest_path.write_text(json.dumps(aliased), encoding="utf-8")
-        output = self.root / "payload-alias"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "distinct WAV"):
-            self._prepare(output)
-        self._assert_no_publication(output)
+        first = events[0].value
+        second = events[1].value
+        aliased["files"][second] = aliased["files"][first]
+        manifest_path.write_text(json.dumps(aliased, sort_keys=True), encoding="utf-8")
+        self._write_sound_provenance()
 
-        manifest_path.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
+        result = self._prepare(self.root / "payload-shared")
+        packaged_manifest = json.loads(
+            (result.product_dir / "assets" / "sounds" / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            packaged_manifest["files"][first],
+            packaged_manifest["files"][second],
+        )
+        provenance = json.loads(
+            (result.notices_dir / "SOUND_PROVENANCE.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            provenance["events"][first]["file"],
+            provenance["events"][second]["file"],
+        )
+        self.assertEqual(
+            provenance["events"][first]["sha256"],
+            provenance["events"][second]["sha256"],
+        )
+
 
     def test_sound_provenance_is_required_and_bound_to_every_asset(self) -> None:
         original = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
@@ -546,7 +572,10 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         missing["events"].pop(next(iter(SoundEvent)).value)
         self.sound_provenance.write_text(json.dumps(missing), encoding="utf-8")
         output = self.root / "payload-provenance-event-missing"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "exactly all semantic sound events",
+        ):
             self._prepare(output)
         self._assert_no_publication(output)
         self.sound_provenance.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
