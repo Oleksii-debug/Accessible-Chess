@@ -42,17 +42,41 @@ _VALID_WINFORMS_CONFIG = (
 )
 
 
+def _livekit_fixture_bundle() -> bytes:
+    return (
+        b"/* fixture */ LivekitClient Room "
+        + b"".join(
+            hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
+            for index in range(4000)
+        )
+    )
+
+
+_LIVEKIT_FIXTURE_BUNDLE_SHA256 = hashlib.sha256(
+    _livekit_fixture_bundle()
+).hexdigest()
+
 
 def _validate_tree(root, **kwargs):
-    return validate_version2_package_tree(
-        root, expected_integration_sha=_SHA, **kwargs
-    )
+    with patch.object(
+        package_preflight,
+        "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+        _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+    ):
+        return validate_version2_package_tree(
+            root, expected_integration_sha=_SHA, **kwargs
+        )
 
 
 def _validate_zip(archive, **kwargs):
-    return validate_version2_package_zip(
-        archive, expected_integration_sha=_SHA, **kwargs
-    )
+    with patch.object(
+        package_preflight,
+        "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+        _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+    ):
+        return validate_version2_package_zip(
+            archive, expected_integration_sha=_SHA, **kwargs
+        )
 
 
 def _sha256(path: Path) -> str:
@@ -117,13 +141,7 @@ def _make_tree(root: Path) -> None:
 
     livekit = web / "vendor" / "livekit"
     livekit.mkdir(parents=True)
-    livekit_bundle = (
-        b"/* fixture */ LivekitClient Room "
-        + b"".join(
-            hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
-            for index in range(4000)
-        )
-    )
+    livekit_bundle = _livekit_fixture_bundle()
     livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
     livekit_notice = (
         b"Copyright 2021 LiveKit, Inc.\n"
