@@ -226,12 +226,17 @@ class PgnDocumentSession:
         non-standard starts publish SetUp/FEN atomically as one pair.
         """
 
-        game, _metadata_workspace = _validated_new_game(tags)
-        if not isinstance(position, PositionState):
+        # This is an authority boundary, not a structural/protocol check:
+        # subclasses may override methods such as to_fen() and therefore are not
+        # canonical PositionState values. Reject the position before touching
+        # caller-supplied metadata so invalid-position classification remains
+        # deterministic and no unrelated mapping code executes first.
+        if type(position) is not PositionState:
             raise _error(
                 "PGN start position must be canonical PositionState",
                 PgnDocumentErrorCode.INVALID_POSITION,
             )
+        game, _metadata_workspace = _validated_new_game(tags)
 
         try:
             canonical_fen = Board(position.to_fen()).fen()
