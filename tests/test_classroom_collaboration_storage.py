@@ -535,6 +535,64 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             (first, second, third),
         )
 
+    def test_live_append_rejects_sequence_after_existing_local_gap(self) -> None:
+        first = ChatMessageMetadata("m0", "room", "teacher", 0, "First")
+        self.store.append_message(first)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    "m2-corrupt",
+                    "room",
+                    "teacher",
+                    2,
+                    "Corrupt tail",
+                    "session",
+                    0,
+                    1700000000002,
+                ),
+            )
+
+        with self.assertRaises(CollaborationSequenceGapError):
+            self.store.append_message(
+                ChatMessageMetadata(
+                    "m3",
+                    "room",
+                    "teacher",
+                    3,
+                    "Must wait for recovery",
+                    sent_at_unix_ms=1700000000003,
+                )
+            )
+
+        second = ChatMessageMetadata(
+            "m1",
+            "room",
+            "student",
+            1,
+            "Recovered gap",
+            sent_at_unix_ms=1700000000001,
+        )
+        self.store.append_message(second)
+        third = ChatMessageMetadata(
+            "m3",
+            "room",
+            "teacher",
+            3,
+            "Now contiguous",
+            sent_at_unix_ms=1700000000003,
+        )
+        self.store.append_message(third)
+        self.assertEqual(
+            tuple(message.sequence_no for message in self.store.room_messages("room")),
+            (0, 1, 2, 3),
+        )
+
     def test_message_identity_and_room_sequence_cannot_overwrite(self) -> None:
         self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Hello"))
         with self.assertRaises(CollaborationConflictError):
