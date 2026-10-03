@@ -348,10 +348,7 @@ class BookWebViewProjection:
         )
 
     def open_game(self) -> BookWebViewEvent:
-        current = self._presenter.current()
-        if current.kind != "Game":
-            raise LookupError("Current book block is not a game")
-        self._dispatch("book.open_game", {})
+        self._presenter.open_current_game(self._dispatch)
         return BookWebViewEvent(
             "delegated",
             {"action": "book.open_game", "announcement": self._result_announcement("game_opened")},
