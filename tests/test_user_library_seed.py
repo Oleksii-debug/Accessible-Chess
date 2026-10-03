@@ -61,6 +61,15 @@ class UserLibrarySeedTests(unittest.TestCase):
         )
         return root
 
+    def _manifest(self, root: Path) -> dict[str, object]:
+        return json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+
+    def _write_manifest(self, root: Path, manifest: dict[str, object]) -> None:
+        (root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+
     def test_verified_private_seed_imports_and_reuses_without_duplicates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._seed(
@@ -90,11 +99,34 @@ class UserLibrarySeedTests(unittest.TestCase):
     def test_manifest_explicitly_proves_no_network_or_ai_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._seed(Path(directory) / "seed", {"book.pgn": PGN_ONE})
-            manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            manifest = self._manifest(root)
             self.assertIs(manifest["runtime_network_required"], False)
             self.assertIs(manifest["ai_required"], False)
             loaded = load_user_library_seed(root)
             self.assertEqual(len(loaded.entries), 1)
+
+    def test_boolean_schema_version_is_not_accepted_as_integer_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._seed(Path(directory) / "seed", {"book.pgn": PGN_ONE})
+            manifest = self._manifest(root)
+            manifest["schema_version"] = True
+            self._write_manifest(root, manifest)
+
+            with self.assertRaises(UserLibrarySeedError):
+                load_user_library_seed(root)
+
+    def test_manifest_filename_is_not_silently_whitespace_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._seed(Path(directory) / "seed", {"book.pgn": PGN_ONE})
+            manifest = self._manifest(root)
+            files = manifest["files"]
+            assert isinstance(files, list)
+            assert isinstance(files[0], dict)
+            files[0]["file"] = " book.pgn"
+            self._write_manifest(root, manifest)
+
+            with self.assertRaises(UserLibrarySeedError):
+                load_user_library_seed(root)
 
     def test_byte_tampering_fails_before_library_publication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -149,10 +181,7 @@ class UserLibrarySeedTests(unittest.TestCase):
                     "sha256": hashlib.sha256(payload).hexdigest(),
                 }],
             }
-            (root / "manifest.json").write_text(
-                json.dumps(manifest),
-                encoding="utf-8",
-            )
+            self._write_manifest(root, manifest)
             loaded = load_user_library_seed(root)
             with AcsDatabase(":memory:") as database:
                 with self.assertRaises(UserLibrarySeedError):
