@@ -434,8 +434,27 @@ class ExerciseSession:
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
+        max_fields = len(_TRAINING_SNAPSHOT_V4_FIELDS)
         try:
-            snapshot_data = dict(snapshot)
+            snapshot_count = len(snapshot)
+        except Exception as exc:
+            raise TypeError("exercise snapshot must be a stable mapping") from exc
+        if snapshot_count > max_fields:
+            raise ValueError("exercise snapshot has too many fields")
+        try:
+            snapshot_keys = tuple(islice(iter(snapshot), max_fields + 1))
+        except Exception as exc:
+            raise TypeError("exercise snapshot must be a stable mapping") from exc
+        if len(snapshot_keys) != snapshot_count:
+            raise ValueError("exercise snapshot changed while being read")
+        if any(type(key) is not str for key in snapshot_keys):
+            raise TypeError("exercise snapshot field names must be strings")
+        if len(set(snapshot_keys)) != len(snapshot_keys):
+            raise ValueError("exercise snapshot contains duplicate fields")
+        snapshot_data: dict[str, object] = {}
+        try:
+            for key in snapshot_keys:
+                snapshot_data[key] = snapshot[key]
         except Exception as exc:
             raise TypeError("exercise snapshot must be a stable mapping") from exc
         if "schema_version" not in snapshot_data:
