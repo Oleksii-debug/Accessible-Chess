@@ -369,6 +369,13 @@ def _safe_stat(path: Path, label: str) -> os.stat_result:
     return info
 
 
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    try:
+        return os.path.samestat(first, second)
+    except (AttributeError, OSError):
+        return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
 def _dir_chain(
     root: Path,
     directory: Path,
@@ -422,17 +429,73 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
     fd, raw = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
     )
-    temp = Path(raw)
+    temp: Path | None = Path(raw)
+    temp_identity: os.stat_result | None = None
     try:
+        created = os.fstat(fd)
+        if (
+            not stat.S_ISREG(created.st_mode)
+            or int(getattr(created, "st_nlink", 1)) != 1
+        ):
+            raise Version2UpgradeError(
+                "atomic write temporary file must be private"
+            )
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+            prepared = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(prepared.st_mode)
+                or int(getattr(prepared, "st_nlink", 1)) != 1
+                or not _same_file_identity(created, prepared)
+            ):
+                raise Version2UpgradeError(
+                    "atomic write temporary file changed while being prepared"
+                )
+            temp_identity = prepared
+
+        assert temp is not None
+        try:
+            current = os.lstat(temp)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "atomic write temporary file changed before publication"
+            ) from exc
+        if (
+            stat.S_ISLNK(current.st_mode)
+            or _reparse(current)
+            or not stat.S_ISREG(current.st_mode)
+            or int(getattr(current, "st_nlink", 1)) != 1
+            or temp_identity is None
+            or not _same_file_identity(temp_identity, current)
+        ):
+            raise Version2UpgradeError(
+                "atomic write temporary file changed before publication"
+            )
         os.replace(temp, path)
+        temp = None
         _fsync_dir(path.parent)
     finally:
-        if temp.exists():
-            temp.unlink()
+        # Never unlink an object merely because it occupies our old temporary
+        # pathname. Remove only the exact private inode created by this writer.
+        if temp is not None and temp_identity is not None:
+            try:
+                current = os.lstat(temp)
+            except OSError:
+                current = None
+            if (
+                current is not None
+                and stat.S_ISREG(current.st_mode)
+                and not stat.S_ISLNK(current.st_mode)
+                and not _reparse(current)
+                and int(getattr(current, "st_nlink", 1)) == 1
+                and _same_file_identity(temp_identity, current)
+            ):
+                try:
+                    temp.unlink()
+                except OSError:
+                    pass
 
 
 def _publication_guard(path: Path) -> Path:
