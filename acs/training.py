@@ -615,8 +615,11 @@ def _require_snapshot_fields(
 ) -> None:
     if type(snapshot) is not dict:
         raise TypeError("exercise snapshot must be an exact dict")
-    if len(snapshot) > len(expected):
+    if len(snapshot) > 32:
         raise ValueError("invalid exercise snapshot fields (too many fields)")
+    for field_name in snapshot:
+        if type(field_name) is not str:
+            raise TypeError("exercise snapshot field names must be strings")
     fields = set(snapshot)
     if fields == expected:
         return
