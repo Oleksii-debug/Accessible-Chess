@@ -18,19 +18,24 @@
     "1/2-1/2": true,
     "*": true
   });
-  const BOOK_ACTION_IDS = Object.freeze({
-    "book.previous": true,
-    "book.next": true,
-    "book.previous_heading": true,
-    "book.next_heading": true,
-    "book.previous_position": true,
-    "book.next_position": true,
-    "book.previous_game": true,
-    "book.next_game": true,
-    "book.open_position": true,
-    "book.return_from_board": true
-  });
-  const MAX_BOOK_ACTIONS = 10;
+  const BOOK_ACTION_ORDER = Object.freeze([
+    "book.previous",
+    "book.next",
+    "book.previous_heading",
+    "book.next_heading",
+    "book.previous_position",
+    "book.next_position",
+    "book.previous_game",
+    "book.next_game",
+    "book.open_position",
+    "book.return_from_board"
+  ]);
+  const BOOK_ACTION_IDS = Object.freeze(
+    BOOK_ACTION_ORDER.reduce(function (out, command) {
+      out[command] = true;
+      return out;
+    }, Object.create(null))
+  );
   const MAX_STARTER_MATERIALS = 64;
   const MAX_STARTER_TEXT = 360;
   const BOOKMARK_MAX_LENGTH = 80;
@@ -167,10 +172,9 @@
   }
 
   function validateBookActions(value) {
-    if (!Array.isArray(value) || value.length < 1 || value.length > MAX_BOOK_ACTIONS) {
-      throw new TypeError("book actions must be a bounded non-empty array");
+    if (!Array.isArray(value) || value.length !== BOOK_ACTION_ORDER.length) {
+      throw new TypeError("book actions must contain the canonical command set");
     }
-    const seen = Object.create(null);
     return value.map(function (action, index) {
       if (!Object.prototype.hasOwnProperty.call(value, index)) {
         throw new TypeError("book actions must be dense");
@@ -180,13 +184,11 @@
       }
       const command = action.command;
       if (
-        typeof command !== "string" ||
+        command !== BOOK_ACTION_ORDER[index] ||
         !Object.prototype.hasOwnProperty.call(BOOK_ACTION_IDS, command)
       ) {
-        throw new TypeError("book action command is invalid");
+        throw new TypeError("book action order/identity is invalid");
       }
-      if (seen[command]) throw new TypeError("book action command is duplicated");
-      seen[command] = true;
       if (typeof action.enabled !== "boolean") {
         throw new TypeError("book action enabled flag is invalid");
       }
