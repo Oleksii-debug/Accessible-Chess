@@ -1137,14 +1137,101 @@ async function testTransportLossBridgeReplyLossRetriesSameSnapshot() {
   });
   assert.equal(first, null);
 
-  const second = await runtime.reconcileTransport(async (command, payload) => {
+  let earlyRetryCalls = 0;
+  const second = await runtime.reconcileTransport(async () => {
+    earlyRetryCalls += 1;
+    throw new Error("transport retry cooldown was bypassed");
+  });
+  assert.equal(second, null);
+  assert.equal(earlyRetryCalls, 0);
+
+  // Advance only the runtime's retry gate; the provider snapshot must remain
+  // exactly the same until Python gives a terminal acknowledgement.
+  runtime._transportRetryAt = 0;
+  const third = await runtime.reconcileTransport(async (command, payload) => {
     assert.equal(command, "media.provider_transport_lost");
     snapshots.push(JSON.stringify(payload.snapshot));
     return { kind: "media-updated", payload: { snapshot: { connected: false } } };
   });
-  assert.equal(second.kind, "media-updated");
+  assert.equal(third.kind, "media-updated");
   assert.equal(snapshots.length, 2);
   assert.equal(snapshots[0], snapshots[1]);
+}
+
+async function testTransportLossGenericErrorIsNotTerminal() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const sessionTx = "session-" + "2".repeat(32);
+  const joined = dispatch(sessionTx, {
+    transaction_id: sessionTx,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  }, false);
+
+  await runtime.execute(joined, async (command, payload) => {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_take_credential") {
+      return {
+        kind: "provider-credential",
+        payload: {
+          transaction_id: sessionTx,
+          credential: {
+            room_id: "room-1",
+            participant_id: "student-1",
+            token: "one-shot-secret"
+          }
+        }
+      };
+    }
+    if (command === "media.provider_dispatched") {
+      return { kind: "provider-ready", payload: { transaction_id: payload.transaction_id } };
+    }
+    if (command === "media.provider_session_success") {
+      return { kind: "media-updated", payload: { snapshot: { connected: true } } };
+    }
+    throw new Error("unexpected join command " + command);
+  });
+
+  RecordingAdapter.instances[0].loseTransport();
+  let transportCalls = 0;
+  const first = await runtime.reconcileTransport(async (command) => {
+    assert.equal(command, "media.provider_transport_lost");
+    transportCalls += 1;
+    return { kind: "error", payload: { message: "temporary bridge failure" } };
+  });
+  assert.equal(first.kind, "error");
+  assert.equal(transportCalls, 1);
+
+  const blockedRetry = await runtime.reconcileTransport(async () => {
+    transportCalls += 1;
+    throw new Error("generic error incorrectly cleared retry cooldown");
+  });
+  assert.equal(blockedRetry, null);
+  assert.equal(transportCalls, 1);
+
+  runtime._transportRetryAt = 0;
+  const terminal = await runtime.reconcileTransport(async (command) => {
+    assert.equal(command, "media.provider_transport_lost");
+    transportCalls += 1;
+    return {
+      kind: "error",
+      payload: {
+        recovery_required: true,
+        transaction_id: "session-" + "3".repeat(32)
+      }
+    };
+  });
+  assert.equal(terminal.kind, "error");
+  assert.equal(terminal.payload.recovery_required, true);
+  assert.equal(transportCalls, 2);
+
+  const afterTerminal = await runtime.reconcileTransport(async () => {
+    transportCalls += 1;
+    throw new Error("terminal recovery acknowledgement did not clear loss");
+  });
+  assert.equal(afterTerminal, null);
+  assert.equal(transportCalls, 2);
 }
 
 async function testMovedRoomCleanupRetriesBeforePythonTransportLoss() {
@@ -1199,14 +1286,26 @@ async function testMovedRoomCleanupRetriesBeforePythonTransportLoss() {
     1
   );
 
-  const second = await runtime.reconcileTransport(async (command, payload) => {
+  const second = await runtime.reconcileTransport(async () => {
+    pythonCalls += 1;
+    throw new Error("cleanup retry cooldown was bypassed");
+  });
+  assert.equal(second, null);
+  assert.equal(pythonCalls, 0);
+  assert.equal(
+    adapter.calls.filter((item) => item[0] === "disconnect").length,
+    1
+  );
+
+  runtime._transportRetryAt = 0;
+  const third = await runtime.reconcileTransport(async (command, payload) => {
     pythonCalls += 1;
     assert.equal(command, "media.provider_transport_lost");
     assert.equal(payload.snapshot.connected, false);
     assert.equal(payload.snapshot.cleanup_required, false);
     return { kind: "media-updated", payload: { snapshot: { connected: false } } };
   });
-  assert.equal(second.kind, "media-updated");
+  assert.equal(third.kind, "media-updated");
   assert.equal(pythonCalls, 1);
   assert.equal(
     adapter.calls.filter((item) => item[0] === "disconnect").length,
@@ -1233,6 +1332,7 @@ async function run() {
   await testTransportLossReconcilesExactlyOnce();
   await testPendingTransportLossRetiresNewMutationBeforeProviderCall();
   await testTransportLossBridgeReplyLossRetriesSameSnapshot();
+  await testTransportLossGenericErrorIsNotTerminal();
   await testMovedRoomCleanupRetriesBeforePythonTransportLoss();
   console.log("LIVEKIT_CLASSROOM_MEDIA_TRANSACTION_RUNTIME=PASS");
 }
