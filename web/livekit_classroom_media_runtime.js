@@ -432,8 +432,7 @@
       // immediately so microphone/camera capture is not stranded behind the
       // recovery surface.
       try {
-        await adapter.disconnect();
-        snapshot = adapter.snapshot();
+        snapshot = await adapter.disconnect();
       } catch (_error) {
         try {
           snapshot = adapter.snapshot();
@@ -616,8 +615,7 @@
           return null;
         }
         try {
-          await this._adapter.disconnect();
-          snapshot = this._adapter.snapshot();
+          snapshot = await this._adapter.disconnect();
           this._transportLossSnapshot = snapshot;
           this._cleanupRetryPending = !isCleanDisconnectedSnapshot(snapshot);
           this._transportRetryAt = 0;
