@@ -10,6 +10,8 @@ large in-process regression suites and tooling legitimately use both profiles.
 """
 
 from contextlib import contextmanager
+import os
+import stat
 from typing import Any, Callable, Iterator
 
 from . import version2_release_app as _release_app
@@ -22,11 +24,120 @@ from .version2_final_product_profile import (
 )
 
 
+_MAX_FINAL_RESOURCE_BYTES = 16 * 1024 * 1024
+
+
+def _resource_reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_resource_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
+def _read_resource_text(path: Any, *, label: str) -> str:
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise RuntimeError(f"{label} not found in packaged resources.") from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or _resource_reparse(before)
+        or not stat.S_ISREG(before.st_mode)
+    ):
+        raise RuntimeError(f"{label} resource is invalid.")
+    if before.st_size <= 0 or before.st_size > _MAX_FINAL_RESOURCE_BYTES:
+        raise RuntimeError(f"{label} resource size is invalid.")
+
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _resource_reparse(opened)
+            or not _same_resource_snapshot(before, opened)
+        ):
+            raise RuntimeError(f"{label} changed while being opened.")
+        data = source.read(_MAX_FINAL_RESOURCE_BYTES + 1)
+        after_read = os.fstat(source.fileno())
+        after_path = path.lstat()
+        if (
+            len(data) > _MAX_FINAL_RESOURCE_BYTES
+            or len(data) != int(after_read.st_size)
+            or stat.S_ISLNK(after_path.st_mode)
+            or _resource_reparse(after_path)
+            or not stat.S_ISREG(after_path.st_mode)
+            or not _same_resource_snapshot(opened, after_read)
+            or not _same_resource_snapshot(after_read, after_path)
+        ):
+            raise RuntimeError(f"{label} changed while being read.")
+        try:
+            return data.decode("utf-8")
+        except UnicodeError as exc:
+            raise RuntimeError(f"{label} resource is not UTF-8.") from exc
+    except RuntimeError:
+        raise
+    except OSError as exc:
+        raise RuntimeError(f"{label} resource cannot be read safely.") from exc
+    finally:
+        if source is not None:
+            source.close()
+
+
+def _is_link_like_resource(path: Any) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        info = path.lstat()
+    except OSError:
+        return True
+    return _resource_reparse(info)
+
+
 def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
+    livekit_root = root / "vendor" / "livekit"
+    livekit_resources: tuple[tuple[str, Any], ...] = ()
+    if os.path.lexists(livekit_root):
+        if _is_link_like_resource(livekit_root) or not livekit_root.is_dir():
+            raise RuntimeError("LiveKit browser SDK resource root is invalid.")
+        livekit_evidence = (
+            ("LiveKit browser SDK", livekit_root / "livekit-client.umd.js"),
+            ("LiveKit browser SDK license", livekit_root / "LICENSE"),
+            ("LiveKit browser SDK notice", livekit_root / "NOTICE"),
+            ("LiveKit browser SDK provenance", livekit_root / "provenance.json"),
+            ("Classroom LiveKit media adapter", root / "livekit_classroom_media.js"),
+        )
+        for label, path in livekit_evidence:
+            if not os.path.lexists(path):
+                raise RuntimeError(f"{label} not found in packaged resources.")
+            if _is_link_like_resource(path) or not path.is_file():
+                raise RuntimeError(f"{label} resource is invalid.")
+        livekit_resources = (
+            livekit_evidence[0],
+            livekit_evidence[-1],
+        )
+
     resources = (
         ("Stage 1 WebView bootstrap", root / "stage1_release_bootstrap.js"),
         ("Stage 1 board action bridge", root / "stage1_board_actions.js"),
+        *livekit_resources,
         ("V2 PGN surface", root / "full_product_pgn.js"),
         ("V2 Library surface", root / "full_product_library.js"),
         ("V2 Books surface", root / "full_product_books_training.js"),
@@ -43,8 +154,14 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     for label, path in resources:
         if not path.exists():
             raise RuntimeError(f"{label} not found in packaged resources.")
-        output.append((label, path.read_text(encoding="utf-8")))
+        output.append((label, _read_resource_text(path, label=label)))
     return tuple(output)
+
+
+def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
+    """Return the canonical final-product WebView resource sequence."""
+
+    return _final_product_resource_sources()
 
 
 def _composed_language_sync(
@@ -128,4 +245,8 @@ def main() -> None:
         _release_app.main()
 
 
-__all__ = ["create_version2_release_application", "main"]
+__all__ = [
+    "create_version2_release_application",
+    "final_product_resource_sources",
+    "main",
+]

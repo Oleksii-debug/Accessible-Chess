@@ -41,6 +41,14 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 "THIRD_PARTY_NOTICES/Stockfish-18-source.zip",
                 report.inventory,
             )
+            self.assertIn(
+                "AccessibleChess/web/vendor/livekit/livekit-client.umd.js",
+                report.inventory,
+            )
+            self.assertIn(
+                "THIRD_PARTY_NOTICES/LIVEKIT_CLIENT_PROVENANCE.json",
+                report.inventory,
+            )
 
     def test_preflight_rejects_package_without_release_critical_runtime_resources(self):
         removals = (
@@ -60,10 +68,18 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
     def test_preflight_rejects_each_missing_required_file_family(self):
         removals = (
             "AccessibleChess/web/version2_release_bootstrap.js",
+            "AccessibleChess/web/livekit_classroom_media.js",
+            "AccessibleChess/web/vendor/livekit/livekit-client.umd.js",
+            "AccessibleChess/web/vendor/livekit/LICENSE",
+            "AccessibleChess/web/vendor/livekit/NOTICE",
+            "AccessibleChess/web/vendor/livekit/provenance.json",
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "AccessibleChess/assets/sounds/manifest.json",
             "AccessibleChess/assets/sounds/move.wav",
             "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json",
+            "THIRD_PARTY_NOTICES/LiveKit-client-LICENSE.txt",
+            "THIRD_PARTY_NOTICES/LiveKit-client-NOTICE.txt",
+            "THIRD_PARTY_NOTICES/LIVEKIT_CLIENT_PROVENANCE.json",
             "THIRD_PARTY_NOTICES/Stockfish-18-source.zip",
             "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt",
         )

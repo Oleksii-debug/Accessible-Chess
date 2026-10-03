@@ -32,8 +32,11 @@ env:
   CURRENT_PREFLIGHT_OWNER: 44aa0dbb6340e0d85aa7a2b439a72bb2f450c6d9
   CURRENT_PREFLIGHT_BLOB: 4f51c74d295b8bcc0053af81aebfe735ea76b586
   CURRENT_TEST_BLOB: 398ba2eab964be4496a2f76c99b88bba3c3778c9
+  CURRENT_PREFLIGHT_LIVEKIT_BLOB: 2107875f013424c962af9534f75acb45142d3539
+  CURRENT_TEST_LIVEKIT_BLOB: 649960b12e32efc4cf2a2423b3eefa69a7da9f1e
   CURRENT_HARDENING_BLOB: 967764ce30024d9c4649f2c84b14af9207bb923f
   CURRENT_REQUIRED_RESOURCES_BLOB: 37636b3dc0721fb5d3c81f1b5acfb9b28260a91d
+  CURRENT_REQUIRED_RESOURCES_LIVEKIT_BLOB: fd287541e4ee46ca2e658741843c0b631b2354d7
   CURRENT_ZIP_TOPOLOGY_BLOB: 2a849e00e192d8d91118d7f2edd5274ff576c5ed
   CURRENT_STOCKFISH_SOURCE_BLOB: 7b772885f8bdb68bbf2c8a65a1e776d0da0f630e
 
@@ -83,10 +86,20 @@ jobs:
             # accepted descendants of the historical preflight owner. Keep the
             # gate fail-closed on the exact canonical security-sensitive files.
             git merge-base --is-ancestor "$CURRENT_PREFLIGHT_OWNER" HEAD
-            test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$CURRENT_PREFLIGHT_BLOB"
-            test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$CURRENT_TEST_BLOB"
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            test_blob="$(git rev-parse HEAD:tests/test_version2_package_preflight.py)"
+            required_blob="$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)"
+            if [ "$preflight_blob" = "$CURRENT_PREFLIGHT_LIVEKIT_BLOB" ]; then
+              test "$test_blob" = "$CURRENT_TEST_LIVEKIT_BLOB"
+              test "$required_blob" = "$CURRENT_REQUIRED_RESOURCES_LIVEKIT_BLOB"
+              echo 'W6_PREFLIGHT_IDENTITY=LIVEKIT_PACKAGE_SUCCESSOR'
+            else
+              test "$preflight_blob" = "$CURRENT_PREFLIGHT_BLOB"
+              test "$test_blob" = "$CURRENT_TEST_BLOB"
+              test "$required_blob" = "$CURRENT_REQUIRED_RESOURCES_BLOB"
+              echo 'W6_PREFLIGHT_IDENTITY=PRE_LIVEKIT_BASELINE'
+            fi
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
-            test "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" = "$CURRENT_REQUIRED_RESOURCES_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_package_zip_topology_preflight.py)" = "$CURRENT_ZIP_TOPOLOGY_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_stockfish_source_archive_preflight.py)" = "$CURRENT_STOCKFISH_SOURCE_BLOB"
             echo 'W6_PREFLIGHT_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'

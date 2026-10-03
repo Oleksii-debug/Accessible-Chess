@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import stat
 import struct
@@ -27,6 +28,11 @@ _REQUIRED_WEB_FILES = (
     "full_product_books_training.js",
     "full_product_teacher.js",
     "full_product_education.js",
+    "livekit_classroom_media.js",
+    "vendor/livekit/livekit-client.umd.js",
+    "vendor/livekit/LICENSE",
+    "vendor/livekit/NOTICE",
+    "vendor/livekit/provenance.json",
     "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
 )
@@ -55,10 +61,63 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         for name in _REQUIRED_WEB_FILES:
-            (self.standalone / "web" / name).write_text(
-                f"/* {name} */\n" if name.endswith(".js") else "<main>Accessible Chess</main>\n",
+            resource = self.standalone / "web" / name
+            resource.parent.mkdir(parents=True, exist_ok=True)
+            resource.write_text(
+                f"/* {name} */ LivekitClient Room\n"
+                if name.endswith(".js")
+                else "<main>Accessible Chess</main>\n",
                 encoding="utf-8",
             )
+
+        livekit_root = self.standalone / "web" / "vendor" / "livekit"
+        livekit_bundle = (
+            b"/* packaged LiveKit fixture */ LivekitClient Room\n"
+            + b"".join(
+                hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
+                for index in range(4000)
+            )
+        )
+        livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
+        livekit_notice = (
+            b"Copyright 2021 LiveKit, Inc.\n"
+            b"Apache License, Version 2.0\n"
+            b"fixture redistribution notice\n"
+            b"Distributed on an AS IS basis without warranties or conditions.\n"
+        )
+        (livekit_root / "livekit-client.umd.js").write_bytes(livekit_bundle)
+        (livekit_root / "LICENSE").write_bytes(livekit_license)
+        (livekit_root / "NOTICE").write_bytes(livekit_notice)
+        livekit_provenance = {
+            "schema_version": 1,
+            "component": "livekit-client",
+            "version": payload._LIVEKIT_CLIENT_VERSION,
+            "license_id": payload._LIVEKIT_CLIENT_LICENSE_ID,
+            "source": payload._LIVEKIT_CLIENT_NPM_TARBALL_URL,
+            "upstream_tag": f"v{payload._LIVEKIT_CLIENT_VERSION}",
+            "npm_integrity": payload._LIVEKIT_CLIENT_NPM_INTEGRITY,
+            "bundle_sha256": hashlib.sha256(livekit_bundle).hexdigest(),
+            "license_sha256": hashlib.sha256(livekit_license).hexdigest(),
+            "notice_sha256": hashlib.sha256(livekit_notice).hexdigest(),
+        }
+        (livekit_root / "provenance.json").write_text(
+            json.dumps(livekit_provenance, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        bundle_pin = patch.object(
+            payload,
+            "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+            hashlib.sha256(livekit_bundle).hexdigest(),
+        )
+        notice_pin = patch.object(
+            payload,
+            "_LIVEKIT_CLIENT_NOTICE_SHA256",
+            hashlib.sha256(livekit_notice).hexdigest(),
+        )
+        bundle_pin.start()
+        notice_pin.start()
+        self.addCleanup(notice_pin.stop)
+        self.addCleanup(bundle_pin.stop)
 
         self.sounds = self.root / "sounds"
         self.sounds.mkdir()
@@ -162,6 +221,263 @@ class Version2ReleasePayloadTests(unittest.TestCase):
     def _assert_no_publication(self, output: Path) -> None:
         self.assertFalse(output.exists(), f"unexpected published payload at {output}")
 
+    def test_release_sha256_rejects_pathname_replacement(self) -> None:
+        target = self.root / "release-file.bin"
+        replacement = self.root / "release-file-replacement.bin"
+        target.write_bytes(b"qualified bytes")
+        replacement.write_bytes(b"replacement bytes")
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "release payload file changed while being opened",
+            ):
+                payload._sha256(target)
+        self.assertTrue(swapped)
+
+    def test_livekit_notice_publication_rejects_pathname_replacement(self) -> None:
+        notices = self.root / "notices"
+        notices.mkdir()
+        target = self.standalone / "web" / "vendor" / "livekit" / "LICENSE"
+        replacement = self.root / "replacement-license"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "LiveKit client license changed while being opened",
+            ):
+                payload._publish_livekit_client_notices(self.standalone, notices)
+        self.assertTrue(swapped)
+        self.assertEqual(list(notices.iterdir()), [])
+
+    def test_livekit_notices_are_published_from_validated_bytes(self) -> None:
+        notices = self.root / "notices"
+        notices.mkdir()
+        livekit = self.standalone / "web" / "vendor" / "livekit"
+        expected_license = (livekit / "LICENSE").read_bytes()
+        expected_notice = (livekit / "NOTICE").read_bytes()
+        expected_provenance = (livekit / "provenance.json").read_bytes()
+
+        with patch.object(payload.shutil, "copyfile") as copyfile:
+            payload._publish_livekit_client_notices(self.standalone, notices)
+
+        copyfile.assert_not_called()
+        self.assertEqual(
+            (notices / payload._LIVEKIT_LICENSE_NOTICE).read_bytes(),
+            expected_license,
+        )
+        self.assertEqual(
+            (notices / payload._LIVEKIT_TEXT_NOTICE).read_bytes(),
+            expected_notice,
+        )
+        self.assertEqual(
+            (notices / payload._LIVEKIT_PROVENANCE_NOTICE).read_bytes(),
+            expected_provenance,
+        )
+
+    def test_release_sound_manifest_rejects_pathname_replacement(self) -> None:
+        product = self.root / "sound-product-manifest"
+        sound_root = product / payload.DEFAULT_SOUND_RELATIVE_DIR
+        sound_root.parent.mkdir(parents=True)
+        payload.shutil.copytree(self.sounds, sound_root)
+        target = sound_root / "manifest.json"
+        replacement = self.root / "replacement-sound-manifest.json"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "sound manifest changed while being opened",
+            ):
+                payload._validate_sound_pack(product)
+        self.assertTrue(swapped)
+
+    def test_release_sound_wav_rejects_pathname_replacement(self) -> None:
+        product = self.root / "sound-product-wav"
+        sound_root = product / payload.DEFAULT_SOUND_RELATIVE_DIR
+        sound_root.parent.mkdir(parents=True)
+        payload.shutil.copytree(self.sounds, sound_root)
+        event = next(iter(SoundEvent))
+        target = sound_root / f"{event.value}.wav"
+        replacement = self.root / "replacement-sound.wav"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "release sound WAV changed while being opened",
+            ):
+                payload._validate_sound_pack(product)
+        self.assertTrue(swapped)
+
+    def test_release_sound_provenance_rejects_pathname_replacement(self) -> None:
+        product = self.root / "sound-product-provenance"
+        sound_root = product / payload.DEFAULT_SOUND_RELATIVE_DIR
+        sound_root.parent.mkdir(parents=True)
+        payload.shutil.copytree(self.sounds, sound_root)
+        notices = self.root / "sound-notices"
+        notices.mkdir()
+        target = sound_root / payload._SOUND_PROVENANCE_SOURCE
+        replacement = self.root / "replacement-sound-provenance.json"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "sound provenance changed while being opened",
+            ):
+                payload._publish_sound_provenance(product, notices)
+        self.assertTrue(swapped)
+        self.assertEqual(list(notices.iterdir()), [])
+
+    def test_tree_copy_never_dereferences_links_and_revalidates_destination(self) -> None:
+        output = self.root / "payload-copy-boundary"
+        with (
+            patch.object(
+                payload.shutil,
+                "copytree",
+                wraps=payload.shutil.copytree,
+            ) as copytree,
+            patch.object(
+                payload,
+                "_require_clean_source_tree",
+                wraps=payload._require_clean_source_tree,
+            ) as validate_tree,
+        ):
+            self._prepare(output)
+
+        top_level_copies = [
+            call
+            for call in copytree.call_args_list
+            if call.args
+            and Path(call.args[0]) in {self.standalone, self.sounds}
+        ]
+        self.assertEqual(len(top_level_copies), 2)
+        self.assertEqual(
+            {Path(call.args[0]) for call in top_level_copies},
+            {self.standalone, self.sounds},
+        )
+        self.assertTrue(
+            all(call.kwargs.get("symlinks") is True for call in top_level_copies)
+        )
+        copied_labels = [
+            call.kwargs.get("label")
+            for call in validate_tree.call_args_list
+            if call.kwargs.get("label") == "copied source"
+        ]
+        self.assertEqual(copied_labels, ["copied source", "copied source"])
+
+    def test_pinned_livekit_archive_verifies_copied_tree_twice(self) -> None:
+        output = self.root / "payload-livekit-archive-bound"
+        livekit_archive = self.root / "livekit-client.tgz"
+        livekit_archive.write_bytes(b"fixture archive boundary")
+        with (
+            patch.object(
+                payload,
+                "OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256",
+                self._digest(self.stockfish),
+            ),
+            patch.object(
+                payload,
+                "_verify_livekit_tree_against_pinned_archive",
+            ) as verify,
+        ):
+            prepared = payload.prepare_version2_release_payload(
+                self.standalone,
+                self.stockfish,
+                self.sounds,
+                output,
+                livekit_client_archive=livekit_archive,
+            )
+
+        self.assertEqual(prepared.root, output)
+        self.assertEqual(verify.call_count, 2)
+        for call in verify.call_args_list:
+            self.assertEqual(call.args[0], livekit_archive)
+            self.assertEqual(call.args[1].name, "prepared-product")
+            self.assertTrue(str(call.args[1]).startswith(str(output.parent)))
+
+    def test_pinned_livekit_archive_verification_failure_is_atomic(self) -> None:
+        output = self.root / "payload-livekit-archive-rejected"
+        livekit_archive = self.root / "livekit-client.tgz"
+        livekit_archive.write_bytes(b"fixture archive boundary")
+        with (
+            patch.object(
+                payload,
+                "OFFICIAL_STOCKFISH_18_WINDOWS_X64_SHA256",
+                self._digest(self.stockfish),
+            ),
+            patch.object(
+                payload,
+                "_verify_livekit_tree_against_pinned_archive",
+                side_effect=payload.Version2ReleasePayloadError(
+                    "LiveKit packaged resources do not match the pinned npm archive"
+                ),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "do not match the pinned npm archive",
+            ):
+                payload.prepare_version2_release_payload(
+                    self.standalone,
+                    self.stockfish,
+                    self.sounds,
+                    output,
+                    livekit_client_archive=livekit_archive,
+                )
+        self._assert_no_publication(output)
+        self.assertEqual(
+            list(output.parent.glob(f".{output.name}.payload-*")),
+            [],
+        )
+
     def test_missing_winforms_accessibility_app_config_fails_without_output(self) -> None:
         (self.standalone / "AccessibleChess.exe.config").unlink()
         output = self.root / "payload"
@@ -237,6 +553,15 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self.assertFalse((manifest.root / "provenance.json").exists())
 
         notices = result.notices_dir
+        self.assertEqual(
+            (notices / payload._LIVEKIT_LICENSE_NOTICE).read_bytes(),
+            (result.product_dir / "web" / "vendor" / "livekit" / "LICENSE").read_bytes(),
+        )
+        self.assertEqual(
+            (notices / payload._LIVEKIT_TEXT_NOTICE).read_bytes(),
+            (result.product_dir / "web" / "vendor" / "livekit" / "NOTICE").read_bytes(),
+        )
+        self.assertTrue((notices / payload._LIVEKIT_PROVENANCE_NOTICE).is_file())
         sound_provenance = json.loads(
             (notices / "SOUND_PROVENANCE.json").read_text(encoding="utf-8")
         )
@@ -354,6 +679,8 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 "duplicate member names",
             ),
             ("device", (("stockfish/src/CON.txt", b"no"),), "Windows device path"),
+            ("superscript-device", (("stockfish/src/COM¹.txt", b"no"),), "Windows device path"),
+            ("console-device", (("stockfish/src/CONOUT$.txt", b"no"),), "Windows device path"),
         )
         for label, members, expected in cases:
             with self.subTest(label=label):
@@ -462,6 +789,33 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 )
         self._assert_no_publication(output)
 
+    def test_livekit_bundle_digest_tamper_fails_without_output(self) -> None:
+        bundle = self.standalone / "web" / "vendor" / "livekit" / "livekit-client.umd.js"
+        bundle.write_bytes(bundle.read_bytes() + b"tampered")
+        output = self.root / "payload-livekit-tampered"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "LiveKit client packaged resource digest mismatch",
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_livekit_provenance_identity_tamper_fails_without_output(self) -> None:
+        provenance_path = self.standalone / "web" / "vendor" / "livekit" / "provenance.json"
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        provenance["version"] = "0.0.0"
+        provenance_path.write_text(
+            json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        output = self.root / "payload-livekit-provenance-tampered"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "does not match the pinned release",
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
     def test_every_required_web_resource_is_fail_closed(self) -> None:
         for name in _REQUIRED_WEB_FILES:
             path = self.standalone / "web" / name
@@ -550,6 +904,25 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._assert_no_publication(output)
         self.sound_provenance.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
 
+    def test_livekit_bundle_and_provenance_coordinated_substitution_fails_pin(self) -> None:
+        livekit_root = self.standalone / "web" / "vendor" / "livekit"
+        bundle = livekit_root / "livekit-client.umd.js"
+        bundle.write_bytes(bundle.read_bytes() + b"coordinated-substitution")
+        provenance_path = livekit_root / "provenance.json"
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        provenance["bundle_sha256"] = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        provenance_path.write_text(
+            json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        output = self.root / "payload-livekit-coordinated-substitution"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "bundle_sha256 does not match the pinned release",
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
     def test_non_pcm_empty_or_truncated_wav_fails_without_output(self) -> None:
         target = self.sounds / f"{next(iter(SoundEvent)).value}.wav"
         for label, bytes_value in (
@@ -601,6 +974,113 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             self._prepare(output)
         self._assert_no_publication(output)
         self.assertFalse((self.standalone / "nested").exists())
+
+    def test_link_like_source_root_is_rejected_before_copy(self) -> None:
+        original = payload._is_link_like
+
+        for source, label in (
+            (self.standalone, "standalone"),
+            (self.sounds, "sound pack"),
+        ):
+            output = self.root / f"payload-{label.replace(' ', '-')}-link"
+            with self.subTest(label=label):
+                def fake_is_link_like(path: Path, *, source: Path = source) -> bool:
+                    if path == source:
+                        return True
+                    return original(path)
+
+                with patch.object(
+                    payload,
+                    "_is_link_like",
+                    side_effect=fake_is_link_like,
+                ):
+                    with self.assertRaisesRegex(
+                        payload.Version2ReleasePayloadError,
+                        rf"{label} contains a symlink or junction",
+                    ):
+                        self._prepare(output)
+                self._assert_no_publication(output)
+
+    def test_broken_output_entry_is_rejected_before_staging(self) -> None:
+        output = self.root / "payload-broken-entry"
+        original_lexists = payload.os.path.lexists
+
+        def fake_lexists(path: object) -> bool:
+            if Path(path) == output:
+                return True
+            return original_lexists(path)
+
+        with patch.object(payload.os.path, "lexists", side_effect=fake_lexists):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload root already exists",
+            ):
+                self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_link_like_output_parent_is_rejected(self) -> None:
+        parent = self.root / "publication-parent"
+        output = parent / "payload"
+        original = payload._is_link_like
+
+        def fake_is_link_like(path: Path) -> bool:
+            if path == parent:
+                return True
+            return original(path)
+
+        with patch.object(payload, "_is_link_like", side_effect=fake_is_link_like):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload parent must be a real directory",
+            ):
+                self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_link_like_output_grandparent_is_rejected(self) -> None:
+        grandparent = self.root / "publication-root"
+        grandparent.mkdir()
+        parent = grandparent / "nested"
+        output = parent / "payload"
+        original = payload._is_link_like
+
+        def fake_is_link_like(path: Path) -> bool:
+            if path == grandparent:
+                return True
+            return original(path)
+
+        with patch.object(payload, "_is_link_like", side_effect=fake_is_link_like):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload parent must be a real directory",
+            ):
+                self._prepare(output)
+        self._assert_no_publication(output)
+        self.assertFalse(parent.exists())
+
+    def test_output_appearing_during_release_staging_is_not_overwritten(self) -> None:
+        output = self.root / "payload-race"
+        original_lexists = payload.os.path.lexists
+        output_checks = 0
+
+        def fake_lexists(path: object) -> bool:
+            nonlocal output_checks
+            if Path(path) == output:
+                output_checks += 1
+                return output_checks >= 2
+            return original_lexists(path)
+
+        with patch.object(payload.os.path, "lexists", side_effect=fake_lexists):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "output payload root appeared during staging",
+            ):
+                self._prepare(output)
+
+        self._assert_no_publication(output)
+        self.assertEqual(
+            list(output.parent.glob(f".{output.name}.payload-*")),
+            [],
+        )
 
     def test_existing_output_is_never_overwritten(self) -> None:
         output = self.root / "payload"

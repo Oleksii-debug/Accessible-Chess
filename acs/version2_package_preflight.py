@@ -53,6 +53,7 @@ _WIN_RESERVED = {
     *(f"LPT{i}" for i in range(1, 10)),
     "COM¹", "COM²", "COM³",
     "LPT¹", "LPT²", "LPT³",
+    "CONIN$", "CONOUT$",
 }
 _FORBIDDEN_COMPONENTS = {
     ".git", ".pytest_cache", "__pycache__", "build", "build_parts10k",
@@ -117,6 +118,31 @@ _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "n
 _REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
 _REQUIRED_WINFORMS_APPCONFIG = "AccessibleChess/AccessibleChess.exe.config"
+_LIVEKIT_CLIENT_VERSION = "2.22.3"
+_LIVEKIT_CLIENT_LICENSE_ID = "Apache-2.0"
+_LIVEKIT_CLIENT_SOURCE = (
+    "https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz"
+)
+_LIVEKIT_CLIENT_INTEGRITY = (
+    "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMgZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
+)
+_LIVEKIT_CLIENT_BUNDLE_SHA256 = (
+    "7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d"
+)
+_LIVEKIT_CLIENT_NOTICE_SHA256 = (
+    "8838e252d2ca1151ac60c9742c2c110ccf85b46f7dbf1ad59fa841c43bf9fe27"
+)
+_REQUIRED_LIVEKIT_BUNDLE = "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
+_REQUIRED_LIVEKIT_LICENSE = "AccessibleChess/web/vendor/livekit/LICENSE"
+_REQUIRED_LIVEKIT_NOTICE = "AccessibleChess/web/vendor/livekit/NOTICE"
+_REQUIRED_LIVEKIT_PROVENANCE = "AccessibleChess/web/vendor/livekit/provenance.json"
+_REQUIRED_LIVEKIT_LICENSE_NOTICE = "THIRD_PARTY_NOTICES/LiveKit-client-LICENSE.txt"
+_REQUIRED_LIVEKIT_TEXT_NOTICE = "THIRD_PARTY_NOTICES/LiveKit-client-NOTICE.txt"
+_REQUIRED_LIVEKIT_PROVENANCE_NOTICE = "THIRD_PARTY_NOTICES/LIVEKIT_CLIENT_PROVENANCE.json"
+_MAX_LIVEKIT_BUNDLE_BYTES = 8 * 1024 * 1024
+_MAX_LIVEKIT_LICENSE_BYTES = 128 * 1024
+_MAX_LIVEKIT_NOTICE_BYTES = 256 * 1024
+_MAX_LIVEKIT_PROVENANCE_BYTES = 64 * 1024
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -126,6 +152,11 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_books_training.js",
     "AccessibleChess/web/full_product_teacher.js",
     "AccessibleChess/web/full_product_education.js",
+    "AccessibleChess/web/livekit_classroom_media.js",
+    _REQUIRED_LIVEKIT_BUNDLE,
+    _REQUIRED_LIVEKIT_LICENSE,
+    _REQUIRED_LIVEKIT_NOTICE,
+    _REQUIRED_LIVEKIT_PROVENANCE,
     "AccessibleChess/web/version2_final_product_bootstrap.js",
     "AccessibleChess/web/version2_release_bootstrap.js",
 )
@@ -227,13 +258,45 @@ def _safe_lstat(path: Path, *, label: str) -> os.stat_result:
 
 
 def _sha256(path: Path) -> str:
+    """Hash one stable regular-file identity without following pathname swaps."""
+
+    before = _safe_lstat(path, label="package file")
+    if not stat.S_ISREG(before.st_mode):
+        _fail("package file must be a regular file")
+
     digest = hashlib.sha256()
+    source = None
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail("package file must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail("package file changed while being opened")
+
+        copied = 0
+        while True:
+            block = source.read(1024 * 1024)
+            if not block:
+                break
+            copied += len(block)
+            digest.update(block)
+
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label="package file")
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+            or copied != int(after_read.st_size)
+        ):
+            _fail("package file changed while being hashed")
+    except Version2PackagePreflightError:
+        raise
     except OSError as exc:
-        _fail(f"package file cannot be read: {type(exc).__name__}")
+        _fail(f"package file cannot be read safely: {type(exc).__name__}")
+    finally:
+        if source is not None:
+            source.close()
     return digest.hexdigest()
 
 
@@ -491,37 +554,66 @@ def _require_package_file(
     return path
 
 
+def _has_windows_pe_structure_handle(handle) -> bool:
+    """Recognize the bounded PE structure from one already-open file identity."""
+
+    handle.seek(0)
+    dos_header = handle.read(64)
+    if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+        return False
+    pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+    handle.seek(0, os.SEEK_END)
+    file_size = handle.tell()
+    if pe_offset < 0x40 or pe_offset > file_size - 24:
+        return False
+    handle.seek(pe_offset)
+    pe_header = handle.read(24)
+    if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
+        return False
+
+    machine = int.from_bytes(pe_header[4:6], "little")
+    section_count = int.from_bytes(pe_header[6:8], "little")
+    optional_header_size = int.from_bytes(pe_header[20:22], "little")
+    characteristics = int.from_bytes(pe_header[22:24], "little")
+    if (
+        machine == 0
+        or section_count == 0
+        or optional_header_size < 2
+        or not characteristics & 0x0002
+        or pe_offset + 24 + optional_header_size > file_size
+    ):
+        return False
+
+    optional_magic = handle.read(2)
+    return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
+
+
 def _has_windows_pe_structure(path: Path) -> bool:
-    """Recognize the bounded PE structure used by package validation and hygiene."""
-    with path.open("rb") as handle:
-        dos_header = handle.read(64)
-        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
-            return False
-        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-        handle.seek(0, os.SEEK_END)
-        file_size = handle.tell()
-        if pe_offset < 0x40 or pe_offset > file_size - 24:
-            return False
-        handle.seek(pe_offset)
-        pe_header = handle.read(24)
-        if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
-            return False
+    """Recognize PE structure while rejecting pathname identity changes."""
 
-        machine = int.from_bytes(pe_header[4:6], "little")
-        section_count = int.from_bytes(pe_header[6:8], "little")
-        optional_header_size = int.from_bytes(pe_header[20:22], "little")
-        characteristics = int.from_bytes(pe_header[22:24], "little")
+    before = _safe_lstat(path, label="Windows PE candidate")
+    if not stat.S_ISREG(before.st_mode):
+        _fail("Windows PE candidate must be a regular file")
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail("Windows PE candidate must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail("Windows PE candidate changed while being opened")
+        result = _has_windows_pe_structure_handle(source)
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label="Windows PE candidate")
         if (
-            machine == 0
-            or section_count == 0
-            or optional_header_size < 2
-            or not characteristics & 0x0002
-            or pe_offset + 24 + optional_header_size > file_size
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
         ):
-            return False
-
-        optional_magic = handle.read(2)
-        return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
+            _fail("Windows PE candidate changed while being inspected")
+        return result
+    finally:
+        if source is not None:
+            source.close()
 
 
 def _validate_windows_pe_executable(path: Path, *, label: str) -> None:
@@ -559,10 +651,11 @@ def _validate_sound_provenance(
         _REQUIRED_SOUND_PROVENANCE,
         label="sound provenance notice",
     )
-    try:
-        text = provenance_path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
-        _fail(f"sound provenance notice is unreadable: {type(exc).__name__}")
+    text = _read_stable_text_file(
+        provenance_path,
+        label="sound provenance notice",
+        max_bytes=1024 * 1024,
+    )
     provenance = _json_no_duplicates(text, label="sound provenance notice")
     if set(provenance) != {"schema_version", "events"}:
         _fail("sound provenance root contract is invalid")
@@ -720,10 +813,13 @@ def _validate_stockfish_source_archive(
 def validate_winforms_accessibility_app_config(path: Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
-    try:
-        payload = path.read_bytes()
-    except OSError as exc:
-        _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="WinForms accessibility app-config",
+        max_bytes=_MAX_APPCONFIG_BYTES,
+    )
+    with snapshot:
+        payload = snapshot.read(_MAX_APPCONFIG_BYTES + 1)
     if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
         _fail("WinForms accessibility app-config size is invalid")
     try:
@@ -811,6 +907,198 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
         _fail("WinForms accessibility app-config must disable all legacy accessibility switches")
 
 
+def _read_stable_text_file(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+    encoding: str = "utf-8-sig",
+) -> str:
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    with snapshot:
+        payload = snapshot.read(max_bytes + 1)
+    if not payload or len(payload) > max_bytes:
+        _fail(f"{label} size is invalid")
+    try:
+        return payload.decode(encoding)
+    except UnicodeError as exc:
+        _fail(f"{label} is unreadable: {type(exc).__name__}")
+
+
+def _read_bounded_livekit_file(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> tuple[bytes, str]:
+    snapshot, digest = _snapshot_regular_file(
+        path,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    with snapshot:
+        data = snapshot.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        _fail(f"{label} exceeds archive byte limit")
+    return data, digest
+
+
+def _validate_livekit_client_package(
+    root: Path,
+    inventory: tuple[str, ...],
+) -> None:
+    bundle_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_BUNDLE,
+        label="packaged LiveKit browser SDK",
+        min_bytes=100_000,
+    )
+    license_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_LICENSE,
+        label="packaged LiveKit license",
+        min_bytes=5_000,
+    )
+    notice_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_NOTICE,
+        label="packaged LiveKit NOTICE",
+        min_bytes=100,
+    )
+    provenance_path = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_PROVENANCE,
+        label="packaged LiveKit provenance",
+    )
+    central_license = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_LICENSE_NOTICE,
+        label="central LiveKit license notice",
+        min_bytes=5_000,
+    )
+    central_notice = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_TEXT_NOTICE,
+        label="central LiveKit NOTICE",
+        min_bytes=100,
+    )
+    central_provenance = _require_package_file(
+        root,
+        inventory,
+        _REQUIRED_LIVEKIT_PROVENANCE_NOTICE,
+        label="central LiveKit provenance notice",
+    )
+
+    try:
+        bundle, bundle_digest = _read_bounded_livekit_file(
+            bundle_path,
+            label="packaged LiveKit browser SDK",
+            max_bytes=_MAX_LIVEKIT_BUNDLE_BYTES,
+        )
+        license_bytes, license_digest = _read_bounded_livekit_file(
+            license_path,
+            label="packaged LiveKit license",
+            max_bytes=_MAX_LIVEKIT_LICENSE_BYTES,
+        )
+        notice_bytes, notice_digest = _read_bounded_livekit_file(
+            notice_path,
+            label="packaged LiveKit NOTICE",
+            max_bytes=_MAX_LIVEKIT_NOTICE_BYTES,
+        )
+        provenance_bytes, _ = _read_bounded_livekit_file(
+            provenance_path,
+            label="packaged LiveKit provenance",
+            max_bytes=_MAX_LIVEKIT_PROVENANCE_BYTES,
+        )
+        central_license_bytes, _ = _read_bounded_livekit_file(
+            central_license,
+            label="central LiveKit license notice",
+            max_bytes=_MAX_LIVEKIT_LICENSE_BYTES,
+        )
+        central_notice_bytes, _ = _read_bounded_livekit_file(
+            central_notice,
+            label="central LiveKit NOTICE",
+            max_bytes=_MAX_LIVEKIT_NOTICE_BYTES,
+        )
+        central_provenance_bytes, _ = _read_bounded_livekit_file(
+            central_provenance,
+            label="central LiveKit provenance notice",
+            max_bytes=_MAX_LIVEKIT_PROVENANCE_BYTES,
+        )
+        if central_license_bytes != license_bytes:
+            _fail("central LiveKit license does not match packaged SDK license")
+        if central_notice_bytes != notice_bytes:
+            _fail("central LiveKit NOTICE does not match packaged SDK NOTICE")
+        if central_provenance_bytes != provenance_bytes:
+            _fail("central LiveKit provenance does not match packaged SDK provenance")
+        provenance_text = provenance_bytes.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"LiveKit package evidence is unreadable: {type(exc).__name__}")
+
+    if b"LivekitClient" not in bundle or b"Room" not in bundle:
+        _fail("packaged LiveKit browser SDK markers are invalid")
+    if b"Apache License" not in license_bytes or b"Version 2.0" not in license_bytes:
+        _fail("packaged LiveKit license payload is invalid")
+    if b"LiveKit" not in notice_bytes or b"Apache License" not in notice_bytes:
+        _fail("packaged LiveKit NOTICE payload is invalid")
+
+    provenance = _json_no_duplicates(
+        provenance_text,
+        label="LiveKit client provenance",
+    )
+    required = {
+        "schema_version",
+        "component",
+        "version",
+        "license_id",
+        "source",
+        "upstream_tag",
+        "npm_integrity",
+        "bundle_sha256",
+        "license_sha256",
+        "notice_sha256",
+    }
+    if set(provenance) != required:
+        _fail("LiveKit client provenance contract is invalid")
+    expected = {
+        "schema_version": 1,
+        "component": "livekit-client",
+        "version": _LIVEKIT_CLIENT_VERSION,
+        "license_id": _LIVEKIT_CLIENT_LICENSE_ID,
+        "source": _LIVEKIT_CLIENT_SOURCE,
+        "upstream_tag": f"v{_LIVEKIT_CLIENT_VERSION}",
+        "npm_integrity": _LIVEKIT_CLIENT_INTEGRITY,
+    }
+    for name, value in expected.items():
+        if provenance.get(name) != value:
+            _fail(f"LiveKit client provenance {name} does not match pinned release")
+    if provenance.get("bundle_sha256") != _LIVEKIT_CLIENT_BUNDLE_SHA256:
+        _fail("LiveKit client provenance bundle_sha256 does not match pinned release")
+    if provenance.get("notice_sha256") != _LIVEKIT_CLIENT_NOTICE_SHA256:
+        _fail("LiveKit client provenance notice_sha256 does not match pinned release")
+
+    for name, actual_digest in (
+        ("bundle_sha256", bundle_digest),
+        ("license_sha256", license_digest),
+        ("notice_sha256", notice_digest),
+    ):
+        digest = provenance.get(name)
+        if type(digest) is not str or _SHA256_RE.fullmatch(digest) is None:
+            _fail(f"LiveKit client provenance {name} is invalid")
+        if actual_digest != digest:
+            _fail(f"LiveKit client provenance digest mismatch: {name}")
+
+
 def _validate_required_runtime_resources(
     root: Path,
     inventory: tuple[str, ...],
@@ -830,6 +1118,7 @@ def _validate_required_runtime_resources(
             relative,
             label="packaged Version 2 web resource",
         )
+    _validate_livekit_client_package(root, inventory)
 
     stockfish = _require_package_file(
         root,
@@ -849,10 +1138,11 @@ def _validate_required_runtime_resources(
         _REQUIRED_SOUND_MANIFEST,
         label="packaged sound manifest",
     )
-    try:
-        manifest_text = manifest_path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
-        _fail(f"packaged sound manifest is unreadable: {type(exc).__name__}")
+    manifest_text = _read_stable_text_file(
+        manifest_path,
+        label="packaged sound manifest",
+        max_bytes=256 * 1024,
+    )
     manifest = _json_no_duplicates(manifest_text, label="packaged sound manifest")
     schema = manifest.get("schema_version")
     if type(schema) is not int or schema != SOUND_MANIFEST_SCHEMA_VERSION:
@@ -885,13 +1175,28 @@ def _validate_required_runtime_resources(
             min_bytes=45,
         )
         try:
-            with wave.open(str(sound_path), "rb") as reader:
-                if (
-                    reader.getsampwidth() != 2
-                    or reader.getframerate() <= 0
-                    or reader.getnframes() <= 0
-                ):
-                    _fail(f"packaged sound asset is not usable 16-bit PCM: {event.value}")
+            sound_snapshot, _ = _snapshot_regular_file(
+                sound_path,
+                label=f"packaged sound asset {event.value}",
+                max_bytes=limits.max_member_bytes,
+            )
+            with sound_snapshot:
+                with wave.open(sound_snapshot, "rb") as reader:
+                    channels = reader.getnchannels()
+                    frame_count = reader.getnframes()
+                    if (
+                        reader.getcomptype() != "NONE"
+                        or reader.getsampwidth() != 2
+                        or channels <= 0
+                        or reader.getframerate() <= 0
+                        or frame_count <= 0
+                    ):
+                        _fail(
+                            f"packaged sound asset is not usable 16-bit PCM: {event.value}"
+                        )
+                    frames = reader.readframes(frame_count)
+                    if len(frames) != frame_count * channels * 2:
+                        _fail(f"packaged sound asset is truncated: {event.value}")
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -913,10 +1218,11 @@ def _validate_required_runtime_resources(
         _REQUIRED_STOCKFISH_NOTICE,
         label="Stockfish GPL notice",
     )
-    try:
-        notice = notice_path.read_text(encoding="utf-8-sig").casefold()
-    except (OSError, UnicodeError) as exc:
-        _fail(f"Stockfish GPL notice is unreadable: {type(exc).__name__}")
+    notice = _read_stable_text_file(
+        notice_path,
+        label="Stockfish GPL notice",
+        max_bytes=256 * 1024,
+    ).casefold()
     if (
         "stockfish 18" not in notice
         or "gpl" not in notice
@@ -930,9 +1236,16 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
     info = _safe_lstat(path, label="release manifest")
     if not stat.S_ISREG(info.st_mode):
         _fail("release manifest must be a file")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="release manifest",
+        max_bytes=max(1, int(info.st_size)),
+    )
     try:
-        text = path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
+        with snapshot:
+            payload = snapshot.read(int(info.st_size) + 1)
+        text = payload.decode("utf-8-sig")
+    except UnicodeError as exc:
         _fail(f"release manifest is unreadable: {type(exc).__name__}")
     data = _json_no_duplicates(text, label="release manifest")
 
@@ -968,9 +1281,16 @@ def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
     info = _safe_lstat(path, label="checksum inventory")
     if not stat.S_ISREG(info.st_mode):
         _fail("checksum inventory must be a file")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="checksum inventory",
+        max_bytes=max(1, int(info.st_size)),
+    )
     try:
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
-    except (OSError, UnicodeError) as exc:
+        with snapshot:
+            payload = snapshot.read(int(info.st_size) + 1)
+        lines = payload.decode("utf-8-sig").splitlines()
+    except UnicodeError as exc:
         _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
 
     result: dict[str, str] = {}
@@ -1005,38 +1325,58 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         tail = b""
+        source = None
         try:
-            # A PE image can legitimately contain compiler/debug build paths.  Do
-            # not classify those embedded binary strings as package text merely
-            # because UTF-8 error-ignoring happens to expose them.  This is
-            # structure-based, not suffix-only: text renamed to .dll/.exe still
-            # follows the normal path-leak gate.  Credential signatures remain
-            # scanned even inside recognized PE images.
+            before = _safe_lstat(path, label=f"package hygiene file: {relative}")
+            if not stat.S_ISREG(before.st_mode):
+                _fail(f"package hygiene file must be regular: {relative}")
+            source = path.open("rb")
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                _fail(f"package hygiene file must remain regular: {relative}")
+            if not _same_file_snapshot(before, opened):
+                _fail(f"package hygiene file changed while being opened: {relative}")
+
+            # Classify and scan the exact same open identity.  A PE image can
+            # legitimately contain compiler/debug build paths, but credential
+            # signatures remain scanned even inside recognized PE images.
             is_pe_binary = (
                 PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
-                and _has_windows_pe_structure(path)
+                and _has_windows_pe_structure_handle(source)
             )
-            with path.open("rb") as handle:
-                while True:
-                    block = handle.read(chunk_size)
-                    if not block:
-                        break
-                    window = tail + block
-                    # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
-                    # without treating a large file as a scan exemption.
-                    text = window.decode("utf-8", errors="ignore")
-                    if (
-                        not is_pe_binary
-                        and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
-                    ):
-                        _fail(f"private local path leaked into package text: {relative}")
-                    if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
-                        _fail(f"secret-like credential leaked into package text: {relative}")
-                    tail = window[-overlap_bytes:]
+            source.seek(0)
+            scanned = 0
+            while True:
+                block = source.read(chunk_size)
+                if not block:
+                    break
+                scanned += len(block)
+                window = tail + block
+                text = window.decode("utf-8", errors="ignore")
+                if (
+                    not is_pe_binary
+                    and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
+                ):
+                    _fail(f"private local path leaked into package text: {relative}")
+                if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
+                    _fail(f"secret-like credential leaked into package text: {relative}")
+                tail = window[-overlap_bytes:]
+
+            after_read = os.fstat(source.fileno())
+            after_path = _safe_lstat(path, label=f"package hygiene file: {relative}")
+            if (
+                not _same_file_snapshot(opened, after_read)
+                or not _same_file_snapshot(after_read, after_path)
+                or scanned != int(after_read.st_size)
+            ):
+                _fail(f"package hygiene file changed while being scanned: {relative}")
         except Version2PackagePreflightError:
             raise
         except OSError as exc:
             _fail(f"package hygiene scan failed: {type(exc).__name__}")
+        finally:
+            if source is not None:
+                source.close()
 
 
 def _normalize_expected_integration_sha(value: str) -> str:
@@ -1063,6 +1403,9 @@ def validate_version2_package_tree(
         _fail("release manifest integration_sha does not match expected integration authority")
     checksums = _checksums(root, inventory)
     _scan_text_hygiene(root, inventory, limits)
+    final_checksums = _checksums(root, inventory)
+    if final_checksums != checksums:
+        _fail("package checksum authority changed during final validation")
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
         inventory=inventory,

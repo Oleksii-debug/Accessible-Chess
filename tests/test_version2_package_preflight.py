@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import stat
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import patch
 import wave
 import zipfile
 
+from acs import version2_package_preflight as package_preflight
 from acs.acsdb import ACSDB_SCHEMA_VERSION
 from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 from acs.sound_events import SoundEvent
@@ -41,17 +43,69 @@ _VALID_WINFORMS_CONFIG = (
 )
 
 
+def _livekit_fixture_bundle() -> bytes:
+    return (
+        b"/* fixture */ LivekitClient Room "
+        + b"".join(
+            hashlib.sha256(f"livekit-fixture-{index}".encode("ascii")).digest()
+            for index in range(4000)
+        )
+    )
+
+
+_LIVEKIT_FIXTURE_BUNDLE_SHA256 = hashlib.sha256(
+    _livekit_fixture_bundle()
+).hexdigest()
+
+
+def _livekit_fixture_notice() -> bytes:
+    return (
+        b"Copyright 2021 LiveKit, Inc.\n"
+        b"Apache License, Version 2.0\n"
+        b"fixture redistribution notice\n"
+        b"Distributed on an AS IS basis without warranties or conditions.\n"
+    )
+
+
+_LIVEKIT_FIXTURE_NOTICE_SHA256 = hashlib.sha256(
+    _livekit_fixture_notice()
+).hexdigest()
+
 
 def _validate_tree(root, **kwargs):
-    return validate_version2_package_tree(
-        root, expected_integration_sha=_SHA, **kwargs
-    )
+    with (
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+            _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+        ),
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_NOTICE_SHA256",
+            _LIVEKIT_FIXTURE_NOTICE_SHA256,
+        ),
+    ):
+        return validate_version2_package_tree(
+            root, expected_integration_sha=_SHA, **kwargs
+        )
 
 
 def _validate_zip(archive, **kwargs):
-    return validate_version2_package_zip(
-        archive, expected_integration_sha=_SHA, **kwargs
-    )
+    with (
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_BUNDLE_SHA256",
+            _LIVEKIT_FIXTURE_BUNDLE_SHA256,
+        ),
+        patch.object(
+            package_preflight,
+            "_LIVEKIT_CLIENT_NOTICE_SHA256",
+            _LIVEKIT_FIXTURE_NOTICE_SHA256,
+        ),
+    ):
+        return validate_version2_package_zip(
+            archive, expected_integration_sha=_SHA, **kwargs
+        )
 
 
 def _sha256(path: Path) -> str:
@@ -107,11 +161,40 @@ def _make_tree(root: Path) -> None:
         "full_product_books_training.js",
         "full_product_teacher.js",
         "full_product_education.js",
+        "livekit_classroom_media.js",
         "version2_final_product_bootstrap.js",
         "version2_release_bootstrap.js",
     )
     for name in web_files:
         (web / name).write_text(f"// fixture {name}\n", encoding="utf-8")
+
+    livekit = web / "vendor" / "livekit"
+    livekit.mkdir(parents=True)
+    livekit_bundle = _livekit_fixture_bundle()
+    livekit_license = b"Apache License\nVersion 2.0\n" + (b"license fixture\n" * 400)
+    livekit_notice = _livekit_fixture_notice()
+    (livekit / "livekit-client.umd.js").write_bytes(livekit_bundle)
+    (livekit / "LICENSE").write_bytes(livekit_license)
+    (livekit / "NOTICE").write_bytes(livekit_notice)
+    livekit_provenance = {
+        "schema_version": 1,
+        "component": "livekit-client",
+        "version": "2.22.3",
+        "license_id": "Apache-2.0",
+        "source": "https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz",
+        "upstream_tag": "v2.22.3",
+        "npm_integrity": (
+            "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMg"
+            "ZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
+        ),
+        "bundle_sha256": hashlib.sha256(livekit_bundle).hexdigest(),
+        "license_sha256": hashlib.sha256(livekit_license).hexdigest(),
+        "notice_sha256": hashlib.sha256(livekit_notice).hexdigest(),
+    }
+    livekit_provenance_bytes = (
+        json.dumps(livekit_provenance, sort_keys=True, indent=2) + "\n"
+    ).encode("utf-8")
+    (livekit / "provenance.json").write_bytes(livekit_provenance_bytes)
 
     assets = product / "assets"
     assets.mkdir()
@@ -156,6 +239,11 @@ def _make_tree(root: Path) -> None:
         json.dumps(sound_provenance, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    (notices / "LiveKit-client-LICENSE.txt").write_bytes(livekit_license)
+    (notices / "LiveKit-client-NOTICE.txt").write_bytes(livekit_notice)
+    (notices / "LIVEKIT_CLIENT_PROVENANCE.json").write_bytes(
+        livekit_provenance_bytes
+    )
     source_archive = notices / "Stockfish-18-source.zip"
     with zipfile.ZipFile(source_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("Stockfish-sf_18/src/main.cpp", "// source fixture\n")
@@ -195,6 +283,278 @@ def _zip_tree(root: Path, destination: Path) -> None:
 
 
 class Version2PackagePreflightTests(unittest.TestCase):
+    def test_sha256_rejects_pathname_replacement_between_lstat_and_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            target = base / "payload.bin"
+            replacement = base / "replacement.bin"
+            target.write_bytes(b"original package bytes")
+            replacement.write_bytes(b"replacement package bytes")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being opened",
+                ):
+                    package_preflight._sha256(target)
+            self.assertTrue(swapped)
+
+    def test_manifest_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            manifest = root / MANIFEST_NAME
+            replacement = root / "manifest-replacement.tmp"
+            replacement.write_bytes(manifest.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == manifest and not swapped:
+                    swapped = True
+                    os.replace(replacement, manifest)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "release manifest changed while being opened",
+                ):
+                    package_preflight._manifest(root)
+            self.assertTrue(swapped)
+
+    def test_checksum_inventory_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            payload = root / "payload.txt"
+            payload.write_bytes(b"payload")
+            checksum = root / CHECKSUMS_NAME
+            digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+            checksum.write_text(f"{digest}  payload.txt\n", encoding="utf-8")
+            replacement = root / "checksum-replacement.tmp"
+            replacement.write_bytes(checksum.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == checksum and not swapped:
+                    swapped = True
+                    os.replace(replacement, checksum)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed while being opened",
+                ):
+                    package_preflight._checksums(
+                        root,
+                        (CHECKSUMS_NAME, "payload.txt"),
+                    )
+            self.assertTrue(swapped)
+
+    def test_tree_rechecks_checksums_after_hygiene_phase(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            target = root / "AccessibleChess" / "assets" / "content.dat"
+
+            def mutate_after_first_checksum(*_args, **_kwargs):
+                target.write_bytes(b"late mutation after initial checksum validation")
+
+            with patch.object(
+                package_preflight,
+                "_scan_text_hygiene",
+                side_effect=mutate_after_first_checksum,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package checksum mismatch: AccessibleChess/assets/content.dat",
+                ):
+                    _validate_tree(root)
+
+    def test_winforms_accessibility_config_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            config = base / "AccessibleChess.exe.config"
+            config.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+            replacement = base / "replacement.config"
+            replacement.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == config and not swapped:
+                    swapped = True
+                    os.replace(replacement, config)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "WinForms accessibility app-config changed while being opened",
+                ):
+                    validate_winforms_accessibility_app_config(config)
+            self.assertTrue(swapped)
+
+    def test_semantic_text_authorities_reject_pathname_replacement(self):
+        cases = (
+            (
+                Path("AccessibleChess/assets/sounds/manifest.json"),
+                "packaged sound manifest changed while being opened",
+            ),
+            (
+                Path("THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"),
+                "sound provenance notice changed while being opened",
+            ),
+            (
+                Path("THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"),
+                "Stockfish GPL notice changed while being opened",
+            ),
+        )
+        for relative, expected in cases:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                root = base / "package"
+                root.mkdir()
+                _make_tree(root)
+                target = root / relative
+                replacement = base / "replacement.tmp"
+                replacement.write_bytes(target.read_bytes())
+                original_open = Path.open
+                swapped = False
+
+                def replacing_open(path_self, *args, **kwargs):
+                    nonlocal swapped
+                    if path_self == target and not swapped:
+                        swapped = True
+                        os.replace(replacement, target)
+                    return original_open(path_self, *args, **kwargs)
+
+                with patch.object(Path, "open", new=replacing_open):
+                    with self.assertRaisesRegex(
+                        Version2PackagePreflightError,
+                        expected,
+                    ):
+                        _validate_tree(root)
+                self.assertTrue(swapped)
+
+    def test_pe_structure_check_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            target = base / "AccessibleChess.exe"
+            target.write_bytes(_minimal_windows_pe())
+            replacement = base / "replacement.exe"
+            replacement.write_bytes(_minimal_windows_pe())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "Windows PE candidate changed while being opened",
+                ):
+                    package_preflight._has_windows_pe_structure(target)
+            self.assertTrue(swapped)
+
+    def test_hygiene_scan_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            target = root / "payload.txt"
+            target.write_bytes(b"clean package text")
+            replacement = base / "replacement.txt"
+            replacement.write_bytes(b"replacement package text")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being opened: payload.txt",
+                ):
+                    package_preflight._scan_text_hygiene(
+                        root,
+                        ("payload.txt",),
+                        PackageLimits(),
+                    )
+            self.assertTrue(swapped)
+
+    def test_sound_asset_snapshot_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            event = next(iter(SoundEvent))
+            target = root / "AccessibleChess" / "assets" / "sounds" / f"{event.value}.wav"
+            replacement = base / "replacement.wav"
+            replacement.write_bytes(target.read_bytes())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    f"packaged sound asset {event.value} changed while being opened",
+                ):
+                    _validate_tree(root)
+            self.assertTrue(swapped)
+
+    def test_truncated_declared_sound_frames_are_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            event = next(iter(SoundEvent))
+            target = root / "AccessibleChess" / "assets" / "sounds" / f"{event.value}.wav"
+            payload = target.read_bytes()
+            target.write_bytes(payload[:-2])
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                f"packaged sound asset is truncated: {event.value}",
+            ):
+                _validate_tree(root)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
@@ -366,6 +726,11 @@ class Version2PackagePreflightTests(unittest.TestCase):
         required = (
             "full_product_teacher.js",
             "full_product_education.js",
+            "livekit_classroom_media.js",
+            "vendor/livekit/livekit-client.umd.js",
+            "vendor/livekit/LICENSE",
+            "vendor/livekit/NOTICE",
+            "vendor/livekit/provenance.json",
             "version2_final_product_bootstrap.js",
         )
         for missing in required:
@@ -379,6 +744,89 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     Version2PackagePreflightError, "web resource is missing"
                 ):
                     _validate_tree(root)
+
+    def test_livekit_bundle_digest_tamper_fails_independent_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            bundle = root / "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
+            bundle.write_bytes(bundle.read_bytes() + b"tampered")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "LiveKit client provenance digest mismatch",
+            ):
+                _validate_tree(root)
+
+    def test_oversized_livekit_bundle_is_rejected_before_memory_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            bundle = root / "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
+            with bundle.open("r+b") as handle:
+                handle.truncate(package_preflight._MAX_LIVEKIT_BUNDLE_BYTES + 1)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "packaged LiveKit browser SDK exceeds archive byte limit",
+            ):
+                _validate_tree(root)
+
+    def test_oversized_livekit_provenance_is_rejected_before_json_decode(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            provenance = root / "AccessibleChess/web/vendor/livekit/provenance.json"
+            with provenance.open("r+b") as handle:
+                handle.truncate(package_preflight._MAX_LIVEKIT_PROVENANCE_BYTES + 1)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "packaged LiveKit provenance exceeds archive byte limit",
+            ):
+                _validate_tree(root)
+
+    def test_livekit_bundle_and_provenance_coordinated_substitution_fails_pin(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            vendor = root / "AccessibleChess/web/vendor/livekit"
+            bundle = vendor / "livekit-client.umd.js"
+            bundle.write_bytes(bundle.read_bytes() + b"coordinated-substitution")
+            provenance_path = vendor / "provenance.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["bundle_sha256"] = hashlib.sha256(bundle.read_bytes()).hexdigest()
+            provenance_bytes = (
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n"
+            ).encode("utf-8")
+            provenance_path.write_bytes(provenance_bytes)
+            (
+                root / "THIRD_PARTY_NOTICES/LIVEKIT_CLIENT_PROVENANCE.json"
+            ).write_bytes(provenance_bytes)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "bundle_sha256 does not match pinned release",
+            ):
+                _validate_tree(root)
+
+    def test_livekit_central_notice_divergence_fails_independent_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            notice = root / "THIRD_PARTY_NOTICES/LiveKit-client-NOTICE.txt"
+            notice.write_bytes(notice.read_bytes() + b"tampered")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "central LiveKit NOTICE does not match",
+            ):
+                _validate_tree(root)
 
     def test_final_zip_and_nested_zip_use_snapshot_handles(self):
         with tempfile.TemporaryDirectory() as td:
@@ -630,6 +1078,8 @@ class Version2PackagePreflightTests(unittest.TestCase):
             "LPT¹.txt",
             "lpt².bin",
             "Lpt³.dat",
+            "CONIN$.txt",
+            "conout$.bin",
         )
         for name in reserved:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as td:

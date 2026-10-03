@@ -45,11 +45,143 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
     def test_build_reuses_qualified_nuitka_and_v2_release_authorities(self) -> None:
         self.assertIn("NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29", self.text)
         self.assertIn("python -m nuitka --standalone", self.text)
+        self.assertIn(
+            "--include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config",
+            self.text,
+        )
+        self.assertIn("test -f product-source/packaging/AccessibleChess.exe.config", self.text)
+        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING", self.text)
+        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
+        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
+        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=", self.text)
+        self.assertIn("WINFORMS_CONFIG_SHA256=", self.text)
+        self.assertIn("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS", self.text)
         self.assertIn("run_accessible_chess_v2.py", self.text)
         self.assertIn("prepare_version2_release_payload", self.text)
         self.assertIn("assemble_version2_package_tree", self.text)
         self.assertIn("write_version2_package_zip", self.text)
         self.assertIn("validate_version2_package_tree", self.text)
+
+    def test_winforms_accessibility_config_is_bound_before_payload_preparation(self) -> None:
+        source = self.text.index("test -f product-source/packaging/AccessibleChess.exe.config")
+        include = self.text.index(
+            "--include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config"
+        )
+        byte_proof = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
+        prepare = self.text.index("Prepare release payload and inject qualified P0-F package content")
+        self.assertLess(source, include)
+        self.assertLess(include, byte_proof)
+        self.assertLess(byte_proof, prepare)
+
+    def test_winforms_accessibility_config_authority_is_bound_before_product_code_runs(self) -> None:
+        qualify = self.text.index("Qualify exact Product source before compilation")
+        diff = self.text.index("git diff --exit-code -- packaging/AccessibleChess.exe.config")
+        bind = self.text.index("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=")
+        semantic = self.text.index("validate_winforms_accessibility_app_config")
+        semantic_pass = self.text.index("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
+        diagnostic = self.text.index("python run_accessible_chess_v2.py --diagnostic")
+        self.assertLess(qualify, diff)
+        self.assertLess(diff, bind)
+        self.assertLess(bind, semantic)
+        self.assertLess(semantic, semantic_pass)
+        self.assertLess(semantic_pass, diagnostic)
+        self.assertIn("PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT", self.text)
+        self.assertIn("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS_FAILURE", self.text)
+
+    def test_packaged_probe_powershell_automatic_variable_guard_precedes_product_code(self) -> None:
+        qualify = self.text.index("Qualify exact Product source before compilation")
+        config_semantics = self.text.index("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
+        guard = self.text.index("SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY=PASS")
+        diagnostic = self.text.index("python run_accessible_chess_v2.py --diagnostic")
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        self.assertLess(qualify, config_semantics)
+        self.assertLess(config_semantics, guard)
+        self.assertLess(guard, diagnostic)
+        self.assertLess(diagnostic, build)
+        self.assertIn("scripts/p0_packaged_document_copy_probe.ps1", self.text)
+        self.assertIn("scripts/p0g_packaged_hotkey_result_probe.ps1", self.text)
+        self.assertIn(r"\$matches\s*", self.text)
+        self.assertIn(
+            "SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY_FAILURE",
+            self.text,
+        )
+
+    def test_winforms_accessibility_config_bytes_survive_fresh_package_readback(self) -> None:
+        standalone = self.text.index("STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
+        extracted = self.text.index("FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG=PASS")
+        metadata = self.text.index("W4_RUN_METADATA_WINFORMS_CONFIG_SHA256=")
+        upload = self.text.index(UPLOAD_ARTIFACT_V462)
+        self.assertLess(standalone, extracted)
+        self.assertLess(extracted, metadata)
+        self.assertLess(metadata, upload)
+        self.assertIn("WINFORMS_ACCESSIBILITY_CONFIG_AUTHORITY_HASH_INVALID", self.text)
+        self.assertIn("FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH", self.text)
+        self.assertIn('"winforms_accessibility_config_sha256": config_sha', self.text)
+
+    def test_pinned_livekit_sdk_is_staged_and_read_back_before_build(self) -> None:
+        source = self.text.index("Qualify exact Product source before compilation")
+        stage = self.text.index("Materialize pinned LiveKit browser SDK")
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        self.assertLess(source, stage)
+        self.assertLess(stage, build)
+        self.assertIn(
+            "python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_release_payload",
+            self.text,
+        )
+        self.assertIn("scripts/stage_livekit_client_sdk.py --print-tarball-url", self.text)
+        self.assertIn(
+            "scripts/stage_livekit_client_sdk.py 'release-inputs\\livekit-client.tgz' 'web\\vendor\\livekit'",
+            self.text,
+        )
+        self.assertIn("PINNED_LIVEKIT_CLIENT_SDK=PASS", self.text)
+        self.assertIn("PACKAGED_LIVEKIT_CLIENT_SDK_MISSING", self.text)
+        for name in ("livekit-client.umd.js", "LICENSE", "NOTICE", "provenance.json"):
+            self.assertIn(name, self.text)
+
+    def test_pinned_livekit_standalone_bytes_are_reverified_before_payload(self) -> None:
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        verified = self.text.index("PACKAGED_PINNED_LIVEKIT_CLIENT_SDK=PASS")
+        prepare = self.text.index(
+            "Prepare release payload and inject qualified P0-F package content"
+        )
+        self.assertLess(build, verified)
+        self.assertLess(verified, prepare)
+        self.assertIn(
+            "scripts/stage_livekit_client_sdk.py 'release-inputs\\livekit-client.tgz' "
+            "'run_accessible_chess_v2.dist\\web\\vendor\\livekit' --verify-existing",
+            self.text,
+        )
+        self.assertIn(
+            "PACKAGED_PINNED_LIVEKIT_CLIENT_SDK_VERIFY_FAILURE",
+            self.text,
+        )
+
+    def test_pinned_livekit_is_reverified_immediately_before_payload_copy(self) -> None:
+        prepare_step = self.text.index(
+            "Prepare release payload and inject qualified P0-F package content"
+        )
+        verify = self.text.index(
+            "PREPARED_INPUT_PINNED_LIVEKIT_CLIENT_SDK=PASS",
+            prepare_step,
+        )
+        prepare_call = self.text.index("prepared = prepare_version2_release_payload(", prepare_step)
+        self.assertLess(verify, prepare_call)
+        between = self.text[prepare_step:prepare_call]
+        self.assertIn("--verify-existing", between)
+        self.assertIn(
+            "PREPARED_INPUT_PINNED_LIVEKIT_CLIENT_SDK_VERIFY_FAILURE",
+            between,
+        )
+        payload_call = self.text[
+            prepare_call:self.text.index(
+                "destination = prepared.product_dir",
+                prepare_call,
+            )
+        ]
+        self.assertIn(
+            "livekit_client_archive=Path('release-inputs/livekit-client.tgz')",
+            payload_call,
+        )
 
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
@@ -121,6 +253,7 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             "tests.test_verify_p0_packaged_document_copy_evidence_hardening",
             "tests.test_verify_p0_packaged_document_copy_cli",
             "tests.test_p0_packaged_acceptance_orchestrator",
+            "tests.test_p0g_packaged_hotkey_result_probe",
             "tests.test_verify_p0g_packaged_hotkey_result_evidence",
             "tests.test_verify_p0g_packaged_hotkey_result_cli",
             "tests.test_w3_p0f_starter_books_training_content",
@@ -185,6 +318,8 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(metadata_pass, upload)
         self.assertIn('"product_sha": product_sha', self.text)
         self.assertIn('"workflow_sha": workflow_sha', self.text)
+        self.assertIn('"winforms_accessibility_config_sha256": config_sha', self.text)
+        self.assertIn("RUN_METADATA_WINFORMS_CONFIG_SHA_INVALID", self.text)
         self.assertIn('"pre_upload_product_freshness": True', self.text)
         self.assertIn('"pre_upload_workflow_freshness": True', self.text)
         self.assertIn('"human_tested": False', self.text)

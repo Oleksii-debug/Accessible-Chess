@@ -11,6 +11,8 @@ on:
       - 'acs/version2_package_assembler.py'
       - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_v2_package_required_resources.py'
 
 permissions:
   contents: read
@@ -23,9 +25,12 @@ env:
   CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
   CURRENT_ASSEMBLER_BLOB: 5224ed4516fb1a09d9ac6465b6d72d6ff575a229
   CURRENT_PREFLIGHT_BLOB: 4f51c74d295b8bcc0053af81aebfe735ea76b586
+  CURRENT_PREFLIGHT_LIVEKIT_BLOB: 2107875f013424c962af9534f75acb45142d3539
   SOURCE_PAYLOAD_OWNER: acd277cafd5ac6f7d312e26dc79105308c6fac0b
   SOURCE_PAYLOAD_BLOB: 05d659e6036ede602b06511cb4d1f796f77440f2
   SOURCE_TEST_BLOB: fdb7ce3ab838606b95bdf5e17d9afa3fd4c8de57
+  SOURCE_PAYLOAD_LIVEKIT_BLOB: 86c96549864209d194aa100308ebd6a78b88c93b
+  SOURCE_TEST_LIVEKIT_BLOB: 44f03fc561048ef2d09794c8176de2fc27a77ac1
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:
@@ -68,12 +73,34 @@ jobs:
             # components themselves instead of requiring the whole runtime to
             # remain byte-identical to the historical assembler parent.
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
-            test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$CURRENT_PREFLIGHT_BLOB"
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            case "$preflight_blob" in
+              "$CURRENT_PREFLIGHT_BLOB"|"$CURRENT_PREFLIGHT_LIVEKIT_BLOB") ;;
+              *) echo "Unreviewed V2 package-preflight identity: $preflight_blob" >&2; exit 1 ;;
+            esac
             echo 'W6_PAYLOAD_TOPOLOGY=CURRENT_RUNTIME_COMPOSITION'
           fi
 
-          test "$(git rev-parse HEAD:acs/version2_release_payload.py)" = "$SOURCE_PAYLOAD_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_release_payload.py)" = "$SOURCE_TEST_BLOB"
+          payload_blob="$(git rev-parse HEAD:acs/version2_release_payload.py)"
+          test_blob="$(git rev-parse HEAD:tests/test_version2_release_payload.py)"
+          case "$payload_blob" in
+            "$SOURCE_PAYLOAD_BLOB"|"$SOURCE_PAYLOAD_LIVEKIT_BLOB") ;;
+            *) echo "Unreviewed V2 release-payload identity: $payload_blob" >&2; exit 1 ;;
+          esac
+          case "$test_blob" in
+            "$SOURCE_TEST_BLOB"|"$SOURCE_TEST_LIVEKIT_BLOB") ;;
+            *) echo "Unreviewed V2 release-payload test identity: $test_blob" >&2; exit 1 ;;
+          esac
+          preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+          if [ "$payload_blob" = "$SOURCE_PAYLOAD_LIVEKIT_BLOB" ]; then
+            test "$test_blob" = "$SOURCE_TEST_LIVEKIT_BLOB"
+            test "$preflight_blob" = "$CURRENT_PREFLIGHT_LIVEKIT_BLOB"
+            echo 'W6_PAYLOAD_IDENTITY=LIVEKIT_PACKAGE_SUCCESSOR'
+          else
+            test "$test_blob" = "$SOURCE_TEST_BLOB"
+            test "$preflight_blob" = "$CURRENT_PREFLIGHT_BLOB"
+            echo 'W6_PAYLOAD_IDENTITY=PRE_LIVEKIT_BASELINE'
+          fi
 
       - name: Compile bounded release payload boundary
         run: >-

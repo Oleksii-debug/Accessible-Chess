@@ -12,6 +12,7 @@ one immutable product/notices pair for the existing Version 2 package assembler.
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -54,6 +55,31 @@ _STOCKFISH_PROVENANCE = "STOCKFISH_PROVENANCE.json"
 _SOUND_PROVENANCE_SOURCE = "provenance.json"
 _SOUND_PROVENANCE_NOTICE = "SOUND_PROVENANCE.json"
 _SOUND_PROVENANCE_SCHEMA_VERSION = 1
+_MAX_SOUND_MANIFEST_BYTES = 256 * 1024
+_MAX_SOUND_PROVENANCE_BYTES = 1024 * 1024
+_MAX_SOUND_WAV_BYTES = 64 * 1024 * 1024
+_LIVEKIT_CLIENT_VERSION = "2.22.3"
+_LIVEKIT_CLIENT_LICENSE_ID = "Apache-2.0"
+_LIVEKIT_CLIENT_NPM_TARBALL_URL = (
+    "https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz"
+)
+_LIVEKIT_CLIENT_NPM_INTEGRITY = (
+    "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMgZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
+)
+_LIVEKIT_CLIENT_BUNDLE_SHA256 = (
+    "7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d"
+)
+_LIVEKIT_CLIENT_NOTICE_SHA256 = (
+    "8838e252d2ca1151ac60c9742c2c110ccf85b46f7dbf1ad59fa841c43bf9fe27"
+)
+_LIVEKIT_VENDOR_ROOT = Path("web") / "vendor" / "livekit"
+_LIVEKIT_LICENSE_NOTICE = "LiveKit-client-LICENSE.txt"
+_LIVEKIT_TEXT_NOTICE = "LiveKit-client-NOTICE.txt"
+_LIVEKIT_PROVENANCE_NOTICE = "LIVEKIT_CLIENT_PROVENANCE.json"
+_MAX_LIVEKIT_BUNDLE_BYTES = 8 * 1024 * 1024
+_MAX_LIVEKIT_LICENSE_BYTES = 128 * 1024
+_MAX_LIVEKIT_NOTICE_BYTES = 256 * 1024
+_MAX_LIVEKIT_PROVENANCE_BYTES = 64 * 1024
 _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _MAX_STOCKFISH_ARCHIVE_FILES = 8192
 _MAX_STOCKFISH_ARCHIVE_UNCOMPRESSED = 2 * 1024 * 1024 * 1024
@@ -79,6 +105,11 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "full_product_books_training.js",
     Path("web") / "full_product_teacher.js",
     Path("web") / "full_product_education.js",
+    Path("web") / "livekit_classroom_media.js",
+    Path("web") / "vendor" / "livekit" / "livekit-client.umd.js",
+    Path("web") / "vendor" / "livekit" / "LICENSE",
+    Path("web") / "vendor" / "livekit" / "NOTICE",
+    Path("web") / "vendor" / "livekit" / "provenance.json",
     Path("web") / "version2_final_product_bootstrap.js",
     Path("web") / "version2_release_bootstrap.js",
 )
@@ -89,6 +120,14 @@ _WINDOWS_RESERVED_NAMES = {
     "nul",
     *(f"com{index}" for index in range(1, 10)),
     *(f"lpt{index}" for index in range(1, 10)),
+    "com¹",
+    "com²",
+    "com³",
+    "lpt¹",
+    "lpt²",
+    "lpt³",
+    "conin$",
+    "conout$",
 }
 
 
@@ -111,25 +150,161 @@ class _StockfishArchiveContents:
     source_members: tuple[zipfile.ZipInfo, ...]
 
 
+def _reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
+def _stable_regular_metadata(path: Path, *, label: str) -> os.stat_result:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise Version2ReleasePayloadError(f"{label} is missing or unreadable") from exc
+    if stat.S_ISLNK(info.st_mode) or _reparse(info) or not stat.S_ISREG(info.st_mode):
+        raise Version2ReleasePayloadError(
+            f"{label} must be a regular non-reparse file"
+        )
+    return info
+
+
 def _sha256(path: Path) -> str:
+    before = _stable_regular_metadata(path, label="release payload file")
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _reparse(opened)
+            or not _same_file_snapshot(before, opened)
+        ):
+            raise Version2ReleasePayloadError(
+                "release payload file changed while being opened"
+            )
+        copied = 0
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            copied += len(chunk)
             digest.update(chunk)
+        after_read = os.fstat(source.fileno())
+        after_path = _stable_regular_metadata(path, label="release payload file")
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+            or copied != int(after_read.st_size)
+        ):
+            raise Version2ReleasePayloadError(
+                "release payload file changed while being hashed"
+            )
+    except Version2ReleasePayloadError:
+        raise
+    except OSError as exc:
+        raise Version2ReleasePayloadError(
+            "release payload file cannot be read safely"
+        ) from exc
+    finally:
+        if source is not None:
+            source.close()
     return digest.hexdigest()
 
 
+def _read_stable_regular_bytes(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> bytes:
+    before = _stable_regular_metadata(path, label=label)
+    if before.st_size <= 0 or before.st_size > max_bytes:
+        raise Version2ReleasePayloadError(f"{label} has an unsafe size")
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _reparse(opened)
+            or not _same_file_snapshot(before, opened)
+        ):
+            raise Version2ReleasePayloadError(f"{label} changed while being opened")
+        data = source.read(max_bytes + 1)
+        after_read = os.fstat(source.fileno())
+        after_path = _stable_regular_metadata(path, label=label)
+        if (
+            len(data) > max_bytes
+            or len(data) != int(after_read.st_size)
+            or not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+        ):
+            raise Version2ReleasePayloadError(f"{label} changed while being read")
+        return data
+    except Version2ReleasePayloadError:
+        raise
+    except OSError as exc:
+        raise Version2ReleasePayloadError(f"{label} cannot be read safely") from exc
+    finally:
+        if source is not None:
+            source.close()
+
+
+def _is_link_like(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return bool(stat.S_ISLNK(info.st_mode) or _reparse(info))
+
+
+def _reject_linked_output_ancestors(output: Path) -> None:
+    for ancestor in (output.parent, *output.parent.parents):
+        if not os.path.lexists(ancestor):
+            continue
+        if _is_link_like(ancestor) or not ancestor.is_dir():
+            raise Version2ReleasePayloadError(
+                "output payload parent must be a real directory"
+            )
+
+
 def _require_clean_source_tree(root: Path, *, label: str) -> None:
+    if _is_link_like(root):
+        raise Version2ReleasePayloadError(f"{label} contains a symlink or junction")
     if not root.is_dir():
         raise Version2ReleasePayloadError(f"{label} directory is missing")
     for path in root.rglob("*"):
-        if path.is_symlink():
-            raise Version2ReleasePayloadError(f"{label} contains a symlink")
+        if _is_link_like(path):
+            raise Version2ReleasePayloadError(f"{label} contains a symlink or junction")
 
 
 def _copy_tree_without_links(source: Path, destination: Path) -> None:
     _require_clean_source_tree(source, label="source")
-    shutil.copytree(source, destination, symlinks=False)
+    # Never dereference a link that appears after the source pre-scan. Preserve
+    # such an entry so the destination post-scan can fail closed instead of
+    # silently importing bytes from outside the qualified source tree.
+    shutil.copytree(source, destination, symlinks=True)
+    _require_clean_source_tree(destination, label="copied source")
 
 
 def _safe_zip_name(info: zipfile.ZipInfo) -> PurePosixPath:
@@ -377,11 +552,148 @@ def _json_no_duplicates(text: str, *, label: str = "sound manifest") -> object:
         raise Version2ReleasePayloadError(f"{label} is invalid JSON") from exc
 
 
+def _publish_livekit_client_notices(product_dir: Path, notices_dir: Path) -> None:
+    root = product_dir / _LIVEKIT_VENDOR_ROOT
+    bundle = root / "livekit-client.umd.js"
+    license_path = root / "LICENSE"
+    notice_path = root / "NOTICE"
+    provenance_path = root / "provenance.json"
+    provenance_bytes = _read_stable_regular_bytes(
+        provenance_path,
+        label="LiveKit client provenance",
+        max_bytes=_MAX_LIVEKIT_PROVENANCE_BYTES,
+    )
+    try:
+        provenance_text = provenance_bytes.decode("utf-8")
+    except UnicodeError as exc:
+        raise Version2ReleasePayloadError(
+            "LiveKit client provenance is missing or unreadable"
+        ) from exc
+    raw = _json_no_duplicates(
+        provenance_text,
+        label="LiveKit client provenance",
+    )
+    if type(raw) is not dict:
+        raise Version2ReleasePayloadError("LiveKit client provenance root must be an object")
+    required_keys = {
+        "schema_version",
+        "component",
+        "version",
+        "license_id",
+        "source",
+        "upstream_tag",
+        "npm_integrity",
+        "bundle_sha256",
+        "license_sha256",
+        "notice_sha256",
+    }
+    if set(raw) != required_keys:
+        raise Version2ReleasePayloadError("LiveKit client provenance schema is invalid")
+    expected_identity = {
+        "schema_version": 1,
+        "component": "livekit-client",
+        "version": _LIVEKIT_CLIENT_VERSION,
+        "license_id": _LIVEKIT_CLIENT_LICENSE_ID,
+        "source": _LIVEKIT_CLIENT_NPM_TARBALL_URL,
+        "upstream_tag": f"v{_LIVEKIT_CLIENT_VERSION}",
+        "npm_integrity": _LIVEKIT_CLIENT_NPM_INTEGRITY,
+    }
+    for key, expected in expected_identity.items():
+        if raw.get(key) != expected:
+            raise Version2ReleasePayloadError(
+                f"LiveKit client provenance {key} does not match the pinned release"
+            )
+    if raw.get("bundle_sha256") != _LIVEKIT_CLIENT_BUNDLE_SHA256:
+        raise Version2ReleasePayloadError(
+            "LiveKit client provenance bundle_sha256 does not match the pinned release"
+        )
+    if raw.get("notice_sha256") != _LIVEKIT_CLIENT_NOTICE_SHA256:
+        raise Version2ReleasePayloadError(
+            "LiveKit client provenance notice_sha256 does not match the pinned release"
+        )
+    resource_bytes = {
+        bundle: _read_stable_regular_bytes(
+            bundle,
+            label="LiveKit client browser SDK",
+            max_bytes=_MAX_LIVEKIT_BUNDLE_BYTES,
+        ),
+        license_path: _read_stable_regular_bytes(
+            license_path,
+            label="LiveKit client license",
+            max_bytes=_MAX_LIVEKIT_LICENSE_BYTES,
+        ),
+        notice_path: _read_stable_regular_bytes(
+            notice_path,
+            label="LiveKit client NOTICE",
+            max_bytes=_MAX_LIVEKIT_NOTICE_BYTES,
+        ),
+    }
+    for path, key in (
+        (bundle, "bundle_sha256"),
+        (license_path, "license_sha256"),
+        (notice_path, "notice_sha256"),
+    ):
+        expected_digest = raw.get(key)
+        if (
+            type(expected_digest) is not str
+            or len(expected_digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in expected_digest)
+        ):
+            raise Version2ReleasePayloadError(
+                f"LiveKit client provenance {key} is invalid"
+            )
+        actual_digest = hashlib.sha256(resource_bytes[path]).hexdigest()
+        if actual_digest != expected_digest:
+            raise Version2ReleasePayloadError(
+                f"LiveKit client packaged resource digest mismatch: {path.name}"
+            )
+    license_bytes = resource_bytes[license_path]
+    notice_bytes = resource_bytes[notice_path]
+    if b"Apache License" not in license_bytes or b"Version 2.0" not in license_bytes:
+        raise Version2ReleasePayloadError("LiveKit client license payload is invalid")
+    if b"LiveKit" not in notice_bytes or b"Apache License" not in notice_bytes:
+        raise Version2ReleasePayloadError("LiveKit client NOTICE payload is invalid")
+
+    (notices_dir / _LIVEKIT_LICENSE_NOTICE).write_bytes(license_bytes)
+    (notices_dir / _LIVEKIT_TEXT_NOTICE).write_bytes(notice_bytes)
+    (notices_dir / _LIVEKIT_PROVENANCE_NOTICE).write_bytes(provenance_bytes)
+
+
+def _verify_livekit_tree_against_pinned_archive(
+    archive: Path,
+    product_dir: Path,
+) -> None:
+    try:
+        from scripts.stage_livekit_client_sdk import (
+            LiveKitClientSdkStageError,
+            verify_staged_livekit_client_sdk,
+        )
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise Version2ReleasePayloadError(
+            "LiveKit pinned-archive verifier is unavailable"
+        ) from exc
+
+    try:
+        verify_staged_livekit_client_sdk(
+            archive,
+            product_dir / _LIVEKIT_VENDOR_ROOT,
+        )
+    except LiveKitClientSdkStageError as exc:
+        raise Version2ReleasePayloadError(
+            "LiveKit packaged resources do not match the pinned npm archive"
+        ) from exc
+
+
 def _validate_sound_pack(product_dir: Path) -> None:
     manifest_path = product_dir / DEFAULT_SOUND_RELATIVE_DIR / DEFAULT_SOUND_MANIFEST
+    manifest_bytes = _read_stable_regular_bytes(
+        manifest_path,
+        label="sound manifest",
+        max_bytes=_MAX_SOUND_MANIFEST_BYTES,
+    )
     try:
-        raw = _json_no_duplicates(manifest_path.read_text(encoding="utf-8-sig"))
-    except OSError as exc:
+        raw = _json_no_duplicates(manifest_bytes.decode("utf-8-sig"))
+    except UnicodeError as exc:
         raise Version2ReleasePayloadError("sound manifest is unreadable") from exc
     if not isinstance(raw, dict):
         raise Version2ReleasePayloadError("sound manifest root must be an object")
@@ -424,16 +736,27 @@ def _validate_sound_pack(product_dir: Path) -> None:
 
     for path in manifest.files.values():
         try:
-            with wave.open(str(path), "rb") as reader:
-                channels = reader.getnchannels()
-                frame_count = reader.getnframes()
-                if reader.getcomptype() != "NONE" or reader.getsampwidth() != 2:
-                    raise Version2ReleasePayloadError("release sounds must be 16-bit PCM WAV")
-                if channels <= 0 or frame_count <= 0 or reader.getframerate() <= 0:
-                    raise Version2ReleasePayloadError("release sound WAV is empty or invalid")
-                frames = reader.readframes(frame_count)
-                if len(frames) != frame_count * channels * 2:
-                    raise Version2ReleasePayloadError("release sound WAV is truncated")
+            wav_bytes = _read_stable_regular_bytes(
+                path,
+                label="release sound WAV",
+                max_bytes=_MAX_SOUND_WAV_BYTES,
+            )
+            with tempfile.SpooledTemporaryFile(
+                max_size=min(_MAX_SOUND_WAV_BYTES, 8 * 1024 * 1024),
+                mode="w+b",
+            ) as sound_snapshot:
+                sound_snapshot.write(wav_bytes)
+                sound_snapshot.seek(0)
+                with wave.open(sound_snapshot, "rb") as reader:
+                    channels = reader.getnchannels()
+                    frame_count = reader.getnframes()
+                    if reader.getcomptype() != "NONE" or reader.getsampwidth() != 2:
+                        raise Version2ReleasePayloadError("release sounds must be 16-bit PCM WAV")
+                    if channels <= 0 or frame_count <= 0 or reader.getframerate() <= 0:
+                        raise Version2ReleasePayloadError("release sound WAV is empty or invalid")
+                    frames = reader.readframes(frame_count)
+                    if len(frames) != frame_count * channels * 2:
+                        raise Version2ReleasePayloadError("release sound WAV is truncated")
         except Version2ReleasePayloadError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -457,17 +780,29 @@ def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
     sound_root = product_dir / DEFAULT_SOUND_RELATIVE_DIR
     provenance_path = sound_root / _SOUND_PROVENANCE_SOURCE
     manifest_path = sound_root / DEFAULT_SOUND_MANIFEST
+    provenance_bytes = _read_stable_regular_bytes(
+        provenance_path,
+        label="sound provenance",
+        max_bytes=_MAX_SOUND_PROVENANCE_BYTES,
+    )
+    manifest_bytes = _read_stable_regular_bytes(
+        manifest_path,
+        label="sound manifest",
+        max_bytes=_MAX_SOUND_MANIFEST_BYTES,
+    )
     try:
         raw = _json_no_duplicates(
-            provenance_path.read_text(encoding="utf-8-sig"),
+            provenance_bytes.decode("utf-8-sig"),
             label="sound provenance",
         )
         manifest_raw = _json_no_duplicates(
-            manifest_path.read_text(encoding="utf-8-sig"),
+            manifest_bytes.decode("utf-8-sig"),
             label="sound manifest",
         )
-    except OSError as exc:
-        raise Version2ReleasePayloadError("sound provenance is missing or unreadable") from exc
+    except UnicodeError as exc:
+        raise Version2ReleasePayloadError(
+            "sound provenance is missing or unreadable"
+        ) from exc
 
     if not isinstance(raw, dict) or set(raw) != {"schema_version", "events"}:
         raise Version2ReleasePayloadError("sound provenance root contract is invalid")
@@ -615,6 +950,8 @@ def prepare_version2_release_payload(
     stockfish_release_archive: str | Path,
     sound_pack_dir: str | Path,
     output_root: str | Path,
+    *,
+    livekit_client_archive: str | Path | None = None,
 ) -> PreparedVersion2ReleasePayload:
     """Atomically stage one complete runtime payload for the V2 package assembler.
 
@@ -628,8 +965,13 @@ def prepare_version2_release_payload(
     stockfish_archive = Path(stockfish_release_archive)
     sounds = Path(sound_pack_dir)
     output = Path(output_root)
+    livekit_archive = (
+        None
+        if livekit_client_archive is None
+        else Path(livekit_client_archive)
+    )
 
-    if output.exists():
+    if os.path.lexists(output):
         raise Version2ReleasePayloadError("output payload root already exists")
     _require_clean_source_tree(standalone, label="standalone")
     _require_clean_source_tree(sounds, label="sound pack")
@@ -638,13 +980,18 @@ def prepare_version2_release_payload(
     _require_standalone_contract(standalone)
 
     parent = output.parent
+    _reject_linked_output_ancestors(output)
     parent.mkdir(parents=True, exist_ok=True)
+    _reject_linked_output_ancestors(output)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.payload-", dir=parent))
     try:
         product = staging / _PREPARED_PRODUCT_DIR
         notices = staging / _PREPARED_NOTICES_DIR
         _copy_tree_without_links(standalone, product)
+        if livekit_archive is not None:
+            _verify_livekit_tree_against_pinned_archive(livekit_archive, product)
         notices.mkdir()
+        _publish_livekit_client_notices(product, notices)
 
         sound_destination = product / DEFAULT_SOUND_RELATIVE_DIR
         sound_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -663,7 +1010,14 @@ def prepare_version2_release_payload(
                 "packaged Stockfish resolver disagrees with staged payload"
             )
         _reject_raw_source(product)
+        if livekit_archive is not None:
+            _verify_livekit_tree_against_pinned_archive(livekit_archive, product)
 
+        if os.path.lexists(output):
+            raise Version2ReleasePayloadError(
+                "output payload root appeared during staging"
+            )
+        _reject_linked_output_ancestors(output)
         staging.replace(output)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

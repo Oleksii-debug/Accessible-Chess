@@ -1,0 +1,151 @@
+name: Classroom LiveKit SDK Package
+
+on:
+  push:
+    branches:
+      - feature/livekit-client-sdk-package-20261002
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_final_release.py'
+      - 'scripts/stage_livekit_client_sdk.py'
+      - 'tests/test_stage_livekit_client_sdk.py'
+      - 'tests/test_version2_final_release_binding.py'
+      - 'tests/test_version2_package_assembler.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_v2_package_required_resources.py'
+      - 'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+      - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+      - '.github/workflows/classroom-livekit-sdk-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-livekit-sdk-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove bounded Product-relative scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test -n "$PR_BASE_REF"
+          git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-livekit-sdk-package.yml'
+            '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+            '.github/workflows/w6-v2-package-assembler.yml'
+            '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+            '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+            'acs/version2_final_release.py'
+            'acs/version2_package_preflight.py'
+            'acs/version2_release_payload.py'
+            'scripts/stage_livekit_client_sdk.py'
+            'tests/test_stage_livekit_client_sdk.py'
+            'tests/test_v2_package_required_resources.py'
+            'tests/test_version2_final_release_binding.py'
+            'tests/test_version2_package_assembler.py'
+            'tests/test_version2_package_preflight.py'
+            'tests/test_version2_release_payload.py'
+            'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected LiveKit SDK package PR scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          git diff --check "$base...HEAD"
+          git diff --quiet "$base...HEAD" -- \
+            acs/classroom_realtime_media.py \
+            acs/classroom_domain.py \
+            acs/chesscore.py \
+            acs/teaching_session.py \
+            acs/teaching_classroom_adapter.py \
+            web/livekit_classroom_media.js \
+            web/version2_final_product_bootstrap.js
+          echo "CLASSROOM_LIVEKIT_SDK_LIVE_BASE=$base"
+          echo 'CLASSROOM_LIVEKIT_SDK_BOUNDED_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Run adversarial staging and release-payload contracts
+        run: python -m unittest -v tests.test_stage_livekit_client_sdk tests.test_version2_final_release_binding tests.test_version2_release_payload tests.test_version2_package_assembler tests.test_version2_package_preflight tests.test_v2_package_required_resources tests.test_w4_v2_p0_fresh_candidate_workflow tests.test_classroom_realtime_media
+
+      - name: Download and stage the real pinned npm artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(python scripts/stage_livekit_client_sdk.py --print-tarball-url)"
+          archive="$RUNNER_TEMP/livekit-client.tgz"
+          output="web/vendor/livekit"
+          rm -rf "$output"
+          python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$url" "$archive"
+          python scripts/stage_livekit_client_sdk.py "$archive" "$output"
+          python scripts/stage_livekit_client_sdk.py "$archive" "$output" --verify-existing
+          test -s "$output/livekit-client.umd.js"
+          test -s "$output/LICENSE"
+          test -s "$output/NOTICE"
+          test -s "$output/provenance.json"
+          python -c 'import json, pathlib, sys; p=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); assert p["component"]=="livekit-client"; assert p["version"]=="2.22.3"; assert p["license_id"]=="Apache-2.0"' "$output/provenance.json"
+          node -e 'const path=require("node:path"); const sdk=require(path.resolve(process.argv[1])); if(!sdk || typeof sdk.Room!=="function") throw new Error("LiveKit Room export unavailable"); console.log("LIVEKIT_UMD_COMMONJS_EXPORT=PASS")' "$output/livekit-client.umd.js"
+          echo 'REAL_PINNED_LIVEKIT_NPM_STAGE=PASS'
+          echo 'REAL_PINNED_LIVEKIT_NPM_TREE_VERIFY=PASS'
+
+      - name: Prove real staged SDK reaches canonical final resource owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs.version2_final_release import final_product_resource_sources
+
+          sources = final_product_resource_sources()
+          labels = [label for label, _source in sources]
+          sdk = "LiveKit browser SDK"
+          adapter = "Classroom LiveKit media adapter"
+          teacher = "V2 Teacher surface"
+          if labels.count(sdk) != 1 or labels.count(adapter) != 1:
+              raise SystemExit(f"LIVEKIT_FINAL_RESOURCE_CARDINALITY_FAILURE {labels!r}")
+          if not labels.index(sdk) < labels.index(adapter) < labels.index(teacher):
+              raise SystemExit(f"LIVEKIT_FINAL_RESOURCE_ORDER_FAILURE {labels!r}")
+          by_label = dict(sources)
+          if "LivekitClient" not in by_label[sdk] or "Room" not in by_label[sdk]:
+              raise SystemExit("LIVEKIT_FINAL_SDK_BROWSER_GLOBAL_MARKERS_MISSING")
+          if "AccessibleChessLiveKitMedia" not in by_label[adapter]:
+              raise SystemExit("LIVEKIT_FINAL_ADAPTER_GLOBAL_MARKER_MISSING")
+          print("LIVEKIT_FINAL_RESOURCE_REACHABILITY=PASS")
+          PY
+
+      - name: Re-run existing desktop provider adapter contract
+        run: node tests/js/livekit_classroom_media_adapter_test.js

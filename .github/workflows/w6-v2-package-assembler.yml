@@ -24,7 +24,9 @@ env:
   CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
   CURRENT_ASSEMBLER_BLOB: 5224ed4516fb1a09d9ac6465b6d72d6ff575a229
   CURRENT_PREFLIGHT_BLOB: 4f51c74d295b8bcc0053af81aebfe735ea76b586
+  CURRENT_PREFLIGHT_LIVEKIT_BLOB: 2107875f013424c962af9534f75acb45142d3539
   CURRENT_ASSEMBLER_TEST_BLOB: 49470870cc9ead8d9113c7edb530867deee22d16
+  CURRENT_ASSEMBLER_TEST_LIVEKIT_BLOB: 0064e147c7820170454ff7c363b2bebbb2cbc076
 
 jobs:
   focused:
@@ -64,8 +66,16 @@ jobs:
             # Fail closed on the release components this gate actually owns
             # instead of requiring the whole Product to equal an old ancestor.
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
-            test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$CURRENT_PREFLIGHT_BLOB"
-            test "$(git rev-parse HEAD:tests/test_version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_TEST_BLOB"
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            assembler_test_blob="$(git rev-parse HEAD:tests/test_version2_package_assembler.py)"
+            if [ "$preflight_blob" = "$CURRENT_PREFLIGHT_LIVEKIT_BLOB" ]; then
+              test "$assembler_test_blob" = "$CURRENT_ASSEMBLER_TEST_LIVEKIT_BLOB"
+              echo 'W6_ASSEMBLER_IDENTITY=LIVEKIT_PREFLIGHT_SUCCESSOR'
+            else
+              test "$preflight_blob" = "$CURRENT_PREFLIGHT_BLOB"
+              test "$assembler_test_blob" = "$CURRENT_ASSEMBLER_TEST_BLOB"
+              echo 'W6_ASSEMBLER_IDENTITY=PRE_LIVEKIT_BASELINE'
+            fi
             echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
           fi
 
