@@ -559,7 +559,7 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 "collaboration.file.choose_upload",
                 {},
             )
-            self.assertEqual("collaboration.error", failed["kind"])
+            self.assertEqual("error", failed["kind"])
             retry_item = runtime.webview.safe_snapshot()["files"]["items"][0]
             self.assertTrue(retry_item["can_retry"])
             retried = app.browser_command(
