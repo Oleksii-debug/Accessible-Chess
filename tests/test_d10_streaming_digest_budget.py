@@ -76,6 +76,39 @@ class D10StreamingDigestBudgetTests(unittest.TestCase):
                 ew.EducationWorkspace.from_record(record)
             canonical_json.assert_not_called()
 
+    def test_ledger_to_record_never_emits_an_over_budget_record(self) -> None:
+        record = self.ledger.to_record()
+        full_size = len(er._canonical_json(record).encode("utf-8"))
+
+        with patch.object(er, "MAX_SNAPSHOT_BYTES", full_size - 1):
+            with self.assertRaisesRegex(
+                er.EducationRecordsError,
+                "size limit",
+            ):
+                self.ledger.to_record()
+
+    def test_workspace_to_record_never_emits_an_over_budget_record(self) -> None:
+        record = self.workspace.to_record()
+        full_size = len(ew._canonical_json(record).encode("utf-8"))
+
+        with patch.object(ew, "MAX_WORKSPACE_JSON_BYTES", full_size - 1):
+            with self.assertRaisesRegex(
+                ew.EducationWorkspaceError,
+                "size limit",
+            ):
+                self.workspace.to_record()
+
+    def test_workspace_cannot_embed_an_over_budget_ledger_record(self) -> None:
+        ledger_record = self.ledger.to_record()
+        ledger_size = len(er._canonical_json(ledger_record).encode("utf-8"))
+
+        with patch.object(er, "MAX_SNAPSHOT_BYTES", ledger_size - 1):
+            with self.assertRaisesRegex(
+                er.EducationRecordsError,
+                "size limit",
+            ):
+                self.workspace.to_record()
+
     def test_ledger_to_json_rejects_before_over_limit_text_materialization(self) -> None:
         record = self.ledger.to_record()
         full_size = len(er._canonical_json(record).encode("utf-8"))
