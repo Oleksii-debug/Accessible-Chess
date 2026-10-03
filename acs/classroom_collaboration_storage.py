@@ -1305,6 +1305,10 @@ class ClassroomCollaborationSQLiteStore:
                     ).fetchone()
                     watermark_revision: int | None = None
                     if watermark is not None:
+                        if watermark["room_id"] != room_id:
+                            raise CollaborationStorageError(
+                                "stored attachment snapshot watermark crossed room boundary"
+                            )
                         try:
                             watermark_revision = int(watermark["revision"])
                         except (TypeError, ValueError, OverflowError):
