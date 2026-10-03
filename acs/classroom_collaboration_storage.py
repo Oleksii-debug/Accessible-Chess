@@ -533,7 +533,7 @@ class ClassroomCollaborationSQLiteStore:
             if version < 7:
                 db.execute(
                     """
-                    CREATE TABLE collaboration_attachment_snapshot_watermarks(
+                    CREATE TABLE IF NOT EXISTS collaboration_attachment_snapshot_watermarks(
                         attachment_id TEXT PRIMARY KEY,
                         room_id TEXT NOT NULL,
                         revision INTEGER NOT NULL CHECK(
@@ -542,12 +542,61 @@ class ClassroomCollaborationSQLiteStore:
                     )
                     """
                 )
+                columns = tuple(
+                    (
+                        row["name"],
+                        str(row["type"]).upper(),
+                        int(row["notnull"]),
+                        int(row["pk"]),
+                    )
+                    for row in db.execute(
+                        "PRAGMA table_info(collaboration_attachment_snapshot_watermarks)"
+                    )
+                )
+                expected_columns = (
+                    ("attachment_id", "TEXT", 0, 1),
+                    ("room_id", "TEXT", 1, 0),
+                    ("revision", "INTEGER", 1, 0),
+                )
+                if columns != expected_columns:
+                    raise CollaborationStorageError(
+                        "attachment snapshot watermark schema is incompatible"
+                    )
+                table_sql_row = db.execute(
+                    """
+                    SELECT sql FROM sqlite_master
+                    WHERE type='table'
+                      AND name='collaboration_attachment_snapshot_watermarks'
+                    """
+                ).fetchone()
+                normalized_table_sql = (
+                    ""
+                    if table_sql_row is None or type(table_sql_row["sql"]) is not str
+                    else "".join(table_sql_row["sql"].lower().split())
+                )
+                if (
+                    "check(revision>=0andrevision<=9007199254740991)"
+                    not in normalized_table_sql
+                ):
+                    raise CollaborationStorageError(
+                        "attachment snapshot watermark schema is incompatible"
+                    )
                 db.execute(
                     """
-                    CREATE INDEX idx_collaboration_attachment_snapshot_watermarks_room
+                    CREATE INDEX IF NOT EXISTS idx_collaboration_attachment_snapshot_watermarks_room
                     ON collaboration_attachment_snapshot_watermarks(room_id, revision)
                     """
                 )
+                index_columns = tuple(
+                    row["name"]
+                    for row in db.execute(
+                        "PRAGMA index_info(idx_collaboration_attachment_snapshot_watermarks_room)"
+                    )
+                )
+                if index_columns != ("room_id", "revision"):
+                    raise CollaborationStorageError(
+                        "attachment snapshot watermark index is incompatible"
+                    )
                 db.execute(
                     "UPDATE collaboration_schema_meta SET value=7 WHERE key='schema_version'"
                 )
@@ -1259,26 +1308,28 @@ class ClassroomCollaborationSQLiteStore:
                     if attachment.sequence_no == expected_sequence:
                         expected_sequence += 1
 
-                if snapshot_state_revision is not None:
-                    for attachment in attachments:
-                        watermark = db.execute(
-                            """
-                            SELECT room_id, revision
-                            FROM collaboration_attachment_snapshot_watermarks
-                            WHERE attachment_id=?
-                            """,
-                            (attachment.attachment_id,),
-                        ).fetchone()
-                        if watermark is not None:
-                            stored_revision = _stored_snapshot_revision(watermark["revision"])
-                            if (
-                                snapshot_state_revision is None
-                                or watermark["room_id"] != room_id
-                                or stored_revision > snapshot_state_revision
-                            ):
-                                raise CollaborationStorageError(
-                                    "attachment snapshot state watermark regressed"
-                                )
+                for attachment in attachments:
+                    watermark = db.execute(
+                        """
+                        SELECT room_id, revision
+                        FROM collaboration_attachment_snapshot_watermarks
+                        WHERE attachment_id=?
+                        """,
+                        (attachment.attachment_id,),
+                    ).fetchone()
+                    if watermark is not None:
+                        stored_revision = _stored_snapshot_revision(
+                            watermark["revision"]
+                        )
+                        if (
+                            snapshot_state_revision is None
+                            or watermark["room_id"] != room_id
+                            or stored_revision > snapshot_state_revision
+                        ):
+                            raise CollaborationStorageError(
+                                "attachment snapshot state watermark regressed"
+                            )
+                    if snapshot_state_revision is not None:
                         db.execute(
                             """
                             INSERT INTO collaboration_attachment_snapshot_watermarks(
