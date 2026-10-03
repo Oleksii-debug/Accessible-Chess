@@ -212,7 +212,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             transactions.binder.active_lease = None
             controller.blocked = True
             with self.assertRaisesRegex(RuntimeError, "not allowed"):
-                application.prepare_classroom_media_join_http("room-1", now=NOW)
+                application.prepare_classroom_media_join_http("room-1")
         issue.assert_not_called()
 
     def test_reconnect_refreshes_exact_retained_room_and_participant(self):
@@ -261,7 +261,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
                 connected=True,
             )
             with self.assertRaisesRegex(RuntimeError, "already connected"):
-                application.prepare_classroom_media_reconnect_http(now=NOW)
+                application.prepare_classroom_media_reconnect_http()
         issue.assert_not_called()
 
     def test_quiescent_unbind_retires_join_http_auth_binding(self):
