@@ -1,0 +1,172 @@
+name: One-shot converge native-event focus authority
+
+on:
+  push:
+    branches:
+      - converge/native-event-focus-current-20261004
+
+permissions:
+  contents: write
+
+jobs:
+  converge:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Three-way apply reviewed native-event delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent='23703e1ecf92c9224de775df65aa622b0b8f03a3'
+          source_base='eb23bdc5ea0e2914a7f742697b20d32edd78a950'
+          source_head='6c2c23f55c0418d1b3059b55503904aba2148fda'
+          helper_head="$(git rev-parse HEAD)"
+          branch='converge/native-event-focus-current-20261004'
+
+          git fetch origin fix/v2-release-native-event-schema-20261004
+          test "$(git merge-base "$parent" "$helper_head")" = "$parent"
+          git cat-file -e "$source_base^{commit}"
+          git cat-file -e "$source_head^{commit}"
+
+          git diff --full-index --binary "$source_base" "$source_head" -- \
+            web/version2_release_bootstrap.js \
+            tests/js/version2_release_bootstrap_dom_test.js \
+            > /tmp/native-event-focus.patch
+          test -s /tmp/native-event-focus.patch
+          git apply --3way --index /tmp/native-event-focus.patch
+
+          rm .github/workflows/zz-converge-native-event-focus-once.yml
+
+          runtime_blob="$(git hash-object web/version2_release_bootstrap.js)"
+          test_blob="$(git hash-object tests/js/version2_release_bootstrap_dom_test.js)"
+
+          python - "$parent" "$source_head" "$runtime_blob" "$test_blob" <<'PY'
+          from pathlib import Path
+          import sys
+
+          parent, source, runtime_blob, test_blob = sys.argv[1:]
+          content = f'''name: V2 Native Event Focus Current Convergence
+
+          on:
+            push:
+              branches:
+                - converge/native-event-focus-current-20261004
+            pull_request:
+              branches:
+                - converge/pgn-malformed-product-20261004
+              paths:
+                - 'web/version2_release_bootstrap.js'
+                - 'tests/js/version2_release_bootstrap_dom_test.js'
+                - '.github/workflows/v2-native-event-focus-current-convergence.yml'
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          concurrency:
+            group: v2-native-event-focus-current-${{{{ github.ref }}}}
+            cancel-in-progress: true
+
+          jobs:
+            verify:
+              strategy:
+                fail-fast: false
+                matrix:
+                  os: [ubuntu-22.04, windows-2025]
+              runs-on: ${{{{ matrix.os }}}}
+              timeout-minutes: 55
+              env:
+                EXACT_PARENT: {parent}
+                SOURCE_NATIVE_EVENT_AUTHORITY: {source}
+                RELEASE_BOOTSTRAP_BLOB: {runtime_blob}
+                RELEASE_DOM_TEST_BLOB: {test_blob}
+              steps:
+                - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+                  with:
+                    fetch-depth: 0
+                    ref: ${{{{ github.event.pull_request.head.sha || github.sha }}}}
+
+                - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+                  with:
+                    python-version: '3.12.10'
+
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: '22'
+
+                - name: Prove current-stack scope and source ancestry
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+                    git merge-base --is-ancestor "$SOURCE_NATIVE_EVENT_AUTHORITY" HEAD
+                    test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$RELEASE_BOOTSTRAP_BLOB"
+                    test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$RELEASE_DOM_TEST_BLOB"
+                    changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+                    expected="$(printf '%s\\n' \\
+                      '.github/workflows/v2-native-event-focus-current-convergence.yml' \\
+                      'tests/js/version2_release_bootstrap_dom_test.js' \\
+                      'web/version2_release_bootstrap.js' | sort)"
+                    test "$changed" = "$expected"
+                    git diff --check "$EXACT_PARENT" HEAD
+
+                - name: Validate browser transaction and native-event focus authority
+                  run: |
+                    node --check web/version2_release_bootstrap.js
+                    node --check tests/js/version2_release_bootstrap_dom_test.js
+                    node --check web/full_product_books_training.js
+                    node --check web/full_product_pgn.js
+                    node tests/js/books_training_surface_dom_test.js
+                    node tests/js/pgn_surface_dom_test.js
+                    node tests/js/version2_release_bootstrap_dom_test.js
+
+                - name: Validate adjacent product contracts
+                  run: >-
+                    python -m unittest -v
+                    tests.test_version2_release_accessibility_contract
+                    tests.test_version2_book_board_refresh_focus_order_evidence
+                    tests.test_version2_application
+                    tests.test_dev1_books_training_webview_projection
+                    tests.test_dev1_pgn_webview_projection
+
+                - name: Core selftest
+                  run: python -m acs.selftest
+          '''
+          # Dedent the embedded YAML while preserving run-block indentation.
+          import textwrap
+          Path('.github/workflows/v2-native-event-focus-current-convergence.yml').write_text(
+              textwrap.dedent(content), encoding='utf-8'
+          )
+          PY
+
+          git add -A \
+            web/version2_release_bootstrap.js \
+            tests/js/version2_release_bootstrap_dom_test.js \
+            .github/workflows/zz-converge-native-event-focus-once.yml \
+            .github/workflows/v2-native-event-focus-current-convergence.yml
+          git diff --cached --check
+
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+          python -m unittest -v \
+            tests.test_version2_release_accessibility_contract \
+            tests.test_version2_book_board_refresh_focus_order_evidence
+
+          tree="$(git write-tree)"
+          commit="$(printf '%s\n' 'Converge native-event single-focus authority on current PGN stack' | git commit-tree "$tree" -p "$helper_head" -p "$source_head")"
+          git merge-base --is-ancestor "$helper_head" "$commit"
+          git merge-base --is-ancestor "$source_head" "$commit"
+          git push origin "$commit:refs/heads/$branch"
