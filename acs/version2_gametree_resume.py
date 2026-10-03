@@ -28,6 +28,7 @@ from .pgn_workspace import PgnWorkspace
 
 _DISCARD_GUARD_DIRECTORY = ".gametree-resume-discard"
 _DISCARD_GUARD_SUFFIX = ".guard"
+_DISCARD_GUARD_RESERVATION = b"AccessibleChess GameTree discard reservation\n"
 
 
 class Version2GameTreeResumeCoordinator:
@@ -205,6 +206,34 @@ class Version2GameTreeResumeCoordinator:
         _fsync_directory(guard.parent)
         self._cleanup_discard_guard_directory_locked()
 
+    def _reserve_discard_guard_locked(self, guard: Path) -> None:
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = -1
+        try:
+            descriptor = os.open(guard, flags, 0o600)
+            os.write(descriptor, _DISCARD_GUARD_RESERVATION)
+            os.fsync(descriptor)
+        except FileExistsError as error:
+            raise GameTreeResumeError(
+                "resume discard guard already exists",
+                code=GameTreeResumeCode.STALE_WRITER,
+            ) from error
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard guard could not be reserved",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        _fsync_directory(guard.parent)
+
     def _restore_guard_to_canonical_locked(
         self,
         guard: Path,
@@ -246,10 +275,22 @@ class Version2GameTreeResumeCoordinator:
 
         guard = entries[0]
         intended_token = self._discard_guard_token(guard)
-        guard_token = _token_for_bytes(_read_store_bytes(guard))
+        guard_payload = _read_store_bytes(guard)
         path = self.store.path
         canonical_exists = _validate_regular_path(path, allow_missing=True)
 
+        if guard_payload == _DISCARD_GUARD_RESERVATION:
+            # Crash before the canonical->guard atomic move: the reservation has
+            # no user state. It is removable only while canonical state remains.
+            if not canonical_exists:
+                raise GameTreeResumeError(
+                    "resume discard reservation exists without canonical state",
+                    code=GameTreeResumeCode.IO_FAILURE,
+                )
+            self._remove_discard_guard_locked(guard)
+            return
+
+        guard_token = _token_for_bytes(guard_payload)
         if guard_token == intended_token:
             # The exact state whose Discard was already confirmed reached the
             # guard. A concurrently published *different* canonical generation
@@ -352,11 +393,7 @@ class Version2GameTreeResumeCoordinator:
             directory = self._require_discard_guard_directory(create=True)
             assert directory is not None
             guard = directory / f"{claimed_token}{_DISCARD_GUARD_SUFFIX}"
-            if guard.exists() or guard.is_symlink():
-                raise GameTreeResumeError(
-                    "resume discard guard already exists",
-                    code=GameTreeResumeCode.STALE_WRITER,
-                )
+            self._reserve_discard_guard_locked(guard)
             try:
                 os.replace(path, guard)
             except OSError as error:
