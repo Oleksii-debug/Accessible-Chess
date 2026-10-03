@@ -299,6 +299,32 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertEqual(workflow.revision, 0)
         self.assertEqual(reader.snapshot(), before)
 
+    def test_keyboard_navigation_revision_drift_rolls_back_reader_and_returns_safe_error(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Transactional semantic navigation",
+                blocks=[
+                    Paragraph(text="Before game"),
+                    Game(pgn='[Result "*"]\n\n1. e4 *', title="Game"),
+                ],
+            )
+        )
+        before = reader.snapshot()
+        error = BookBoardWorkflowError(
+            "private revision detail",
+            code=BookBoardWorkflowCode.RETURN_FAILED,
+        )
+
+        with patch.object(workflow, "semantic_game_snapshot", side_effect=error):
+            result = bridge.dispatch("book.next", {})
+
+        self.assertEqual(result.kind, "error")
+        self.assertNotIn("private revision detail", repr(result.payload))
+        self.assertEqual(reader.snapshot(), before)
+        self.assertEqual(reader.index, 0)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_game_open_move_and_exact_return_use_one_canonical_workflow(self):
         document = BookDocument(title="Книга", blocks=[
             Paragraph(text="Пояснення", block_id="before"),
