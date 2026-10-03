@@ -82,6 +82,35 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(workflow.revision, 0)
                 self.assertEqual(reader.snapshot(), progress_before)
 
+    def test_invalid_game_semantics_fail_closed_without_breaking_book_snapshot(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Broken study",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e5 *',
+                        title="Invalid line",
+                        block_id="invalid-game",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        snapshot = bridge.projection.snapshot()
+
+        self.assertNotIn("semantic_tree", snapshot["block"])
+        self.assertIn("недоступ", snapshot["block"]["warning"].casefold())
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertFalse(open_action["enabled"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_game_open_move_and_exact_return_use_one_canonical_workflow(self):
         document = BookDocument(title="Книга", blocks=[
             Paragraph(text="Пояснення", block_id="before"),

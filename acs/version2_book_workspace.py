@@ -8,7 +8,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from .book_board_workflow import BookBoardWorkflow
+from .book_board_workflow import (
+    BookBoardWorkflow,
+    BookBoardWorkflowCode,
+    BookBoardWorkflowError,
+)
 from .book_webview_bridge import BookWebViewBridge
 from .book_webview_projection import (
     BookWebViewEvent,
@@ -29,12 +33,14 @@ _SEMANTIC_TREE_LABELS = {
         "result": "Результат",
         "comments": "Коментарі",
         "warnings": "Попередження відновлення",
+        "unavailable": "Вміст партії недоступний або некоректний; ходи не показано.",
     },
     UILanguage.EN: {
         "moves": "Moves and variations",
         "result": "Result",
         "comments": "Comments",
         "warnings": "Recovery warnings",
+        "unavailable": "Game content is unavailable or invalid; moves are not shown.",
     },
 }
 
@@ -131,7 +137,21 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         semantic = self._reader.block_snapshot(block.index)
         can_open = isinstance(semantic, (Position, Diagram, Exercise, Game, VariationTree))
         if isinstance(semantic, (Game, VariationTree)):
-            snapshot["block"]["semantic_tree"] = self._semantic_tree_snapshot(block.index)
+            try:
+                snapshot["block"]["semantic_tree"] = self._semantic_tree_snapshot(block.index)
+            except BookBoardWorkflowError as error:
+                if error.code not in {
+                    BookBoardWorkflowCode.CONTENT_UNAVAILABLE,
+                    BookBoardWorkflowCode.INVALID_GAME,
+                }:
+                    raise
+                # Invalid/unresolvable chess content is a content state, not a
+                # reason to crash the whole V2 application snapshot. Publish no
+                # invented moves and disable Board open for this exact block.
+                can_open = False
+                snapshot["block"]["warning"] = _SEMANTIC_TREE_LABELS[
+                    self.language
+                ]["unavailable"]
         actions = []
         for original in snapshot["actions"]:
             action = dict(original)
