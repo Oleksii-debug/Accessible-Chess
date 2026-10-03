@@ -4,7 +4,7 @@
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
   const MAX_BOOK_SEMANTIC_DEPTH = 256;
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
-  const MAX_BOOK_SEMANTIC_DETAILS = 4;
+  const MAX_BOOK_SEMANTIC_DETAILS = 4096;
   const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50128;
   const BOOK_SEMANTIC_DETAIL_KINDS = Object.freeze({
     event: true,
@@ -193,6 +193,15 @@
     return text;
   }
 
+  function semanticResult(value, name, budget) {
+    if (value === undefined || value === null || value === "") return "";
+    const result = semanticText(value, name, budget);
+    if (!Object.prototype.hasOwnProperty.call(BOOK_SEMANTIC_RESULTS, result)) {
+      throw new TypeError(name + " is invalid");
+    }
+    return result;
+  }
+
   function semanticTextArray(value, name, budget) {
     if (!Array.isArray(value)) throw new TypeError(name + " must be an array");
     if (value.length > MAX_BOOK_SEMANTIC_TEXT_ENTRIES) {
@@ -203,19 +212,20 @@
       if (!Object.prototype.hasOwnProperty.call(value, index)) {
         throw new TypeError(name + " must be dense");
       }
-      const text = semanticText(value[index], name, budget);
-      if (!text.trim()) throw new TypeError(name + " must contain visible text");
-      out.push(text);
+      out.push(semanticText(value[index], name, budget));
     }
     return out;
   }
 
   function semanticDetails(value, budget) {
+    if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) throw new TypeError("book semantic details must be an array");
     if (value.length > MAX_BOOK_SEMANTIC_DETAILS) {
       throw new TypeError("book semantic details limit exceeded");
     }
     const out = [];
+    const seenKinds = Object.create(null);
+    const customPrefix = "custom:";
     for (let index = 0; index < value.length; index += 1) {
       if (!Object.prototype.hasOwnProperty.call(value, index)) {
         throw new TypeError("book semantic details must be dense");
@@ -225,21 +235,27 @@
         throw new TypeError("book semantic detail must be an object");
       }
       const kind = item.kind;
-      if (
-        typeof kind !== "string" ||
-        !Object.prototype.hasOwnProperty.call(BOOK_SEMANTIC_DETAIL_KINDS, kind)
-      ) {
+      const knownKind = typeof kind === "string" &&
+        Object.prototype.hasOwnProperty.call(BOOK_SEMANTIC_DETAIL_KINDS, kind);
+      const customKind = typeof kind === "string" &&
+        kind.startsWith(customPrefix) &&
+        kind.length > customPrefix.length;
+      if (!knownKind && !customKind) {
         throw new TypeError("book semantic detail kind is invalid");
       }
-      if (out.some(function (entry) { return entry.kind === kind; })) {
+      if (Object.prototype.hasOwnProperty.call(seenKinds, kind)) {
         throw new TypeError("book semantic detail kind is duplicated");
       }
       const label = semanticRequiredText(
         item.label, "book semantic detail label", budget
       );
-      const detailValue = semanticRequiredText(
+      if (customKind && kind.slice(customPrefix.length) !== label) {
+        throw new TypeError("book semantic custom detail identity is invalid");
+      }
+      const detailValue = semanticText(
         item.value, "book semantic detail value", budget
       );
+      seenKinds[kind] = true;
       out.push({ kind: kind, label: label, value: detailValue });
     }
     return out;
@@ -724,10 +740,6 @@
       container.appendChild(node("p", playersLabel + ": " + players));
     }
 
-    if (result) {
-      container.appendChild(node("p", resultLabel + ": " + result));
-    }
-
     appendSemanticDetails(
       container,
       detailsLabel,
@@ -764,7 +776,7 @@
 
     const lists = [rootList];
     const lastItems = [];
-    const deferredTrailingComments = [];
+    const deferredVariationEndings = [];
     const activeAncestorIndices = [];
     let previousDepth = 0;
 
@@ -841,6 +853,12 @@
         "book semantic comments after move",
         budget
       );
+      if (
+        item.kind === "variation"
+        && (commentsBefore.length || commentsAfter.length)
+      ) {
+        throw new TypeError("book semantic variation must not carry move comment slots");
+      }
       const exactMoveComments = item.kind === "move" && (
         item.comments_before !== undefined || item.comments_after !== undefined
       );
@@ -868,9 +886,24 @@
         "book semantic item trailing comments",
         budget
       );
+      if (item.kind === "move" && trailingComments.length) {
+        throw new TypeError("book semantic move must not carry line trailing comments");
+      }
+      const itemResult = semanticResult(
+        item.result,
+        "book semantic item result",
+        budget
+      );
+      if (item.kind !== "variation" && itemResult) {
+        throw new TypeError("book semantic move must not carry a line result");
+      }
       lists[depth].appendChild(listItem);
-      if (trailingComments.length) {
-        deferredTrailingComments.push({ item: listItem, comments: trailingComments });
+      if (itemResult || trailingComments.length) {
+        deferredVariationEndings.push({
+          item: listItem,
+          result: itemResult,
+          comments: trailingComments
+        });
       }
       lastItems[depth] = listItem;
       lastItems.length = depth + 1;
@@ -879,16 +912,23 @@
       previousDepth = depth;
     });
 
-    deferredTrailingComments.forEach(function (entry) {
-      const commentList = node("ul");
-      commentList.setAttribute("aria-label", commentsLabel);
-      entry.comments.forEach(function (comment) {
-        commentList.appendChild(node("li", comment));
-      });
-      // Appending after the full depth walk keeps variation-tail comments
-      // after that variation's nested move list instead of before its moves.
-      entry.item.appendChild(commentList);
+    deferredVariationEndings.forEach(function (entry) {
+      if (entry.result) {
+        entry.item.appendChild(node("p", resultLabel + ": " + entry.result));
+      }
+      if (entry.comments.length) {
+        const commentList = node("ul");
+        commentList.setAttribute("aria-label", commentsLabel);
+        entry.comments.forEach(function (comment) {
+          commentList.appendChild(node("li", comment));
+        });
+        entry.item.appendChild(commentList);
+      }
     });
+
+    if (result) {
+      container.appendChild(node("p", resultLabel + ": " + result));
+    }
 
     appendSemanticTextList(
       container,
@@ -908,12 +948,15 @@
   function renderBookBlock(host, block) {
     const role = block.role;
     let content;
-    const hasSemanticTree = Object.prototype.hasOwnProperty.call(block, "semantic_tree") &&
-      block.semantic_tree !== undefined && block.semantic_tree !== null;
+    const hasSemanticTree = block.semantic_tree !== undefined && block.semantic_tree !== null;
+    if (hasSemanticTree && (
+      !block.semantic_tree
+      || typeof block.semantic_tree !== "object"
+      || Array.isArray(block.semantic_tree)
+    )) {
+      throw new TypeError("book semantic tree must be an object");
+    }
     if (hasSemanticTree) {
-      if (!block.semantic_tree || typeof block.semantic_tree !== "object" || Array.isArray(block.semantic_tree)) {
-        throw new TypeError("book semantic tree must be an object");
-      }
       content = node("section");
       content.setAttribute("role", "group");
       if (block.title) {

@@ -56,6 +56,7 @@ class PgnTreeItem:
     trailing_comments: tuple[str, ...] = ()
     comments_before: tuple[str, ...] = ()
     comments_after: tuple[str, ...] = ()
+    result: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +173,7 @@ class PgnTreePresenter:
                     trailing_comments=tuple(
                         comment.text for comment in line.trailing_comments
                     ),
+                    result=line.result,
                 )
             )
             parent_id = line_id
