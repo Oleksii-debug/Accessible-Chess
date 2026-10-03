@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -103,10 +104,53 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.browser_command("books", "book.next_game")
         return book, self.app.reader.location()
 
+    def test_book_registry_linear_actions_reach_canonical_reader(self):
+        book = self.root / "linear-reading.md"
+        book.write_text("# Розділ\n\nПерший абзац.\n\nДругий абзац.\n", encoding="utf-8")
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(self.app.browser_command("shell", "book.open")["kind"], "delegated")
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+        origin = self.app.reader.location()
+        forward = self.app.router.dispatch("book.next_block")
+        self.assertFalse(forward.handled_by_shell)
+        self.assertEqual(forward.value.kind, "render")
+        self.assertEqual(self.app.reader.index, origin.index + 1)
+
+        backward = self.app.router.dispatch("book.previous_block")
+        self.assertFalse(backward.handled_by_shell)
+        self.assertEqual(backward.value.kind, "render")
+        self.assertEqual(self.app.reader.location(), origin)
+
+    def test_book_render_failure_rolls_back_reader_and_durable_progress(self):
+        book = self.root / "render-failure.md"
+        book.write_text("Коротко\n\n12345678901\n", encoding="utf-8")
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(
+            self.app.browser_command("shell", "book.open")["kind"],
+            "delegated",
+        )
+        before = self.app.reader.snapshot()
+        key = self.app.book_key
+
+        with patch(
+            "acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS",
+            10,
+        ):
+            result = self.app.browser_command("books", "book.next")
+
+        self.assertEqual(result["kind"], "error")
+        self.assertEqual(self.app.reader.snapshot(), before)
+        self.assertEqual(self.app.reader.index, 0)
+        restored = self.app.progress_store.restore(key, self.app.reader.document)
+        self.assertEqual(restored.snapshot(), before)
+
     def test_book_native_open_board_exact_return_and_persistent_resume(self):
         book, origin = self._open_book_game()
         self.projected_positions.clear()
-        self.assertEqual(self.app.browser_command("books", "book.open_position")["kind"], "delegated")
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertEqual(opened["payload"]["announcement"], "Позицію відкрито на дошці.")
         self.assertTrue(self.app.book_workflow.active)
         self.assertEqual(self.projected_positions[-1], Board.START)
 
@@ -116,9 +160,56 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(self.projected_positions[-1], expected.fen())
         self.assertEqual(self.app.book_delegate.board_snapshot().fen(), expected.fen())
 
-        self.assertEqual(self.app.browser_command("books", "book.return_from_board")["kind"], "render")
+        returned = self.app.browser_command("books", "book.return_from_board")
+        self.assertEqual(returned["kind"], "render")
+        self.assertEqual(returned["payload"]["announcement"], "Повернуто до місця читання.")
         self.assertEqual(self.app.reader.location(), origin)
         self.app.open_book(book)
+        self.assertEqual(self.app.reader.location(), origin)
+
+    def test_book_keymap_native_ingress_queues_accessible_open_and_return_results(self):
+        _book, origin = self._open_book_game()
+        self.app.drain_events()
+
+        opened = self.app.adapter.activate_action(
+            "book.open_position",
+            current_focus_id="book-block-2",
+        )
+        self.assertEqual(opened.kind, "delegated")
+        self.app.native_command(opened)
+        open_events = self.app.drain_events()
+        open_result = next(
+            event
+            for event in open_events
+            if event["kind"] == "delegated"
+            and event["payload"].get("action_id") == "book.open_position"
+        )
+        self.assertEqual(
+            open_result["payload"]["announcement"],
+            "Позицію відкрито на дошці.",
+        )
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+
+        returned = self.app.adapter.activate_action(
+            "book.return",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual(returned.kind, "delegated")
+        self.app.native_command(returned)
+        return_events = self.app.drain_events()
+        return_result = next(
+            event
+            for event in return_events
+            if event["kind"] == "delegated"
+            and event["payload"].get("action_id") == "book.return"
+        )
+        self.assertEqual(
+            return_result["payload"]["announcement"],
+            "Повернуто до місця читання.",
+        )
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
         self.assertEqual(self.app.reader.location(), origin)
 
     def _restarted_application(self, store):
@@ -373,6 +464,7 @@ class Version2ApplicationTests(unittest.TestCase):
         result = self.app.browser_command("books", "book.open_position")
 
         self.assertEqual(result["kind"], "error")
+        self.assertNotIn("announcement", result["payload"])
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual(self.app.reader.location(), origin)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
@@ -403,6 +495,32 @@ class Version2ApplicationTests(unittest.TestCase):
         result = self.app.browser_command("shell", "pgn.open", {"path": str(self.source)})
         self.assertEqual(result["kind"], "error")
         self.assertIsNone(self.app.session)
+
+
+    def test_library_open_game_cannot_replace_pgn_session_behind_modal_dialog(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+        self.app.import_ui_ready(self.mailbox)
+        searched = self.app.browser_command("library", "library.search", {"player": "петренко"})
+        self.assertEqual("render", searched["kind"])
+
+        session_before = self.app.session
+        pgn_before = self.app.pgn
+        route_before = self.app.shell.current_route.route_id
+        opened_dialog = self.app.adapter.open_dialog(
+            "test-library-modal",
+            opener_focus_id="library-results",
+            initial_focus_id="test-library-modal-confirm",
+        )
+        self.assertEqual("dialog-open", opened_dialog.kind)
+
+        result = self.app.browser_command("library", "library.open_game")
+
+        self.assertEqual("error", result["kind"])
+        self.assertIs(session_before, self.app.session)
+        self.assertIs(pgn_before, self.app.pgn)
+        self.assertEqual(route_before, self.app.shell.current_route.route_id)
+        self.assertEqual("test-library-modal", self.app.shell.active_dialog_id)
 
 
 if __name__ == "__main__": unittest.main()
