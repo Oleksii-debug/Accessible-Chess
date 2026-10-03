@@ -178,6 +178,123 @@ class ImportTerminalUiTests(unittest.TestCase):
         )
         self.assertIs(losing_cancel, events[-1])
 
+    def test_started_publication_is_outside_host_lock_and_cancel_sees_accepted_import(self):
+        events = []
+        cancel_done = threading.Event()
+        cancel_results = []
+        publication_observations = []
+        spawned = []
+        holder = {}
+        dialogs = SimpleNamespace(
+            open_pgn=lambda: None,
+            save_pgn_as=lambda *_: None,
+            select_library_import=lambda: Path("cancel-during-start.pgn"),
+        )
+
+        def observe(event):
+            events.append(event)
+            if event.kind is not FileWorkflowEventKind.IMPORT_STARTED:
+                return
+            host = holder["host"]
+            publication_observations.append(host.import_running)
+
+            def cancel_from_other_thread():
+                cancel_results.append(host("library.cancel_import", {}))
+                cancel_done.set()
+
+            thread = threading.Thread(target=cancel_from_other_thread)
+            spawned.append(thread)
+            thread.start()
+            publication_observations.append(cancel_done.wait(2.0))
+
+        host = Version2WindowsFileActionDelegate(
+            dialogs=dialogs,
+            get_pgn_session=lambda: None,
+            set_pgn_session=lambda _: None,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                SimpleNamespace(import_games=lambda *_args, **_kwargs: None),
+                None,
+                lambda: None,
+            ),
+            event_sink=observe,
+            next_delegate=lambda *_: None,
+        )
+        holder["host"] = host
+
+        started = host("library.import", {})
+        self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertEqual(publication_observations, [True, True])
+        self.assertTrue(cancel_done.is_set())
+        self.assertEqual(len(cancel_results), 1)
+        self.assertEqual(
+            cancel_results[0].kind,
+            FileWorkflowEventKind.IMPORT_CANCELLING,
+        )
+        self.assertTrue(host.wait_for_import(5.0))
+        for thread in spawned:
+            thread.join(1.0)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(
+            [event.kind for event in events],
+            [
+                FileWorkflowEventKind.IMPORT_STARTED,
+                FileWorkflowEventKind.IMPORT_CANCELLING,
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+            ],
+        )
+
+    def test_no_import_failure_publication_is_outside_host_lock(self):
+        events = []
+        probe_done = threading.Event()
+        publication_unblocked = []
+        spawned = []
+        holder = {}
+        dialogs = SimpleNamespace(
+            open_pgn=lambda: None,
+            save_pgn_as=lambda *_: None,
+            select_library_import=lambda: None,
+        )
+
+        def observe(event):
+            events.append(event)
+            if (
+                event.kind is not FileWorkflowEventKind.FAILED
+                or event.error_code != "no_import_running"
+            ):
+                return
+
+            def read_state_from_other_thread():
+                _ = holder["host"].import_running
+                probe_done.set()
+
+            thread = threading.Thread(target=read_state_from_other_thread)
+            spawned.append(thread)
+            thread.start()
+            publication_unblocked.append(probe_done.wait(2.0))
+
+        host = Version2WindowsFileActionDelegate(
+            dialogs=dialogs,
+            get_pgn_session=lambda: None,
+            set_pgn_session=lambda _: None,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                SimpleNamespace(import_games=lambda *_args, **_kwargs: None),
+                None,
+                lambda: None,
+            ),
+            event_sink=observe,
+            next_delegate=lambda *_: None,
+        )
+        holder["host"] = host
+
+        result = host("library.cancel_import", {})
+        self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(result.error_code, "no_import_running")
+        self.assertEqual(publication_unblocked, [True])
+        for thread in spawned:
+            thread.join(1.0)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(events, [result])
+
     def test_immediate_worker_terminal_cannot_precede_start(self):
         events = []
         dialogs = SimpleNamespace(open_pgn=lambda: None, save_pgn_as=lambda *_: None,
