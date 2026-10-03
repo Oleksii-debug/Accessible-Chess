@@ -189,6 +189,45 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertTrue(swapped)
             self.assertIsNone(store.active_version(manifest.pack_id))
 
+    def test_manifest_swap_after_lstat_is_rejected_before_metadata_read(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+            version_dir = (
+                store.root
+                / manifest.pack_id
+                / "versions"
+                / manifest.version
+            )
+            target = version_dir / "manifest.json"
+            replacement = version_dir / ".replacement-manifest.json"
+            replacement.write_bytes(target.read_bytes())
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(path) == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch(
+                "acs.sound_pack_store.os.open",
+                side_effect=swap_before_open,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "changed before secure read",
+            ):
+                store._read_manifest(version_dir)
+
+            self.assertTrue(swapped)
+
     def test_rights_evidence_is_version_bound_and_survives_store_reopen(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
