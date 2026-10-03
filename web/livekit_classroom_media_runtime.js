@@ -2,7 +2,12 @@
 
 (function (global) {
   const MAX_DISPATCH_STEPS = 300;
+  const MAX_PROVIDER_ID_LENGTH = 128;
+  const MAX_DEVICE_ID_LENGTH = 512;
   const TRANSACTION_RE = /^(?:host|session)-[0-9a-f]{32}$/;
+  const PROVIDER_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+  const SOURCE_NAMES = new Set(["microphone", "camera", "screen_share"]);
+  const MODERATION_ACTIONS = new Set(["publish_permission", "soft_mute", "remove"]);
   const OPERATIONS = new Set([
     "connect",
     "reconnect",
@@ -31,6 +36,41 @@
       throw new TypeError("media provider transaction identity is invalid");
     }
     return token;
+  }
+
+  function providerIdentifier(value, label) {
+    if (typeof value !== "string" || !value ||
+        value.length > MAX_PROVIDER_ID_LENGTH || !PROVIDER_ID_RE.test(value)) {
+      throw new TypeError(label + " is invalid");
+    }
+    return value;
+  }
+
+  function validateModerationCommand(command) {
+    exactKeys(
+      command,
+      ["operation_id", "actor_id", "target_id", "action", "source", "value"],
+      "moderation command"
+    );
+    providerIdentifier(command.operation_id, "moderation operation id");
+    providerIdentifier(command.actor_id, "moderation actor id");
+    providerIdentifier(command.target_id, "moderation target id");
+    if (typeof command.action !== "string" ||
+        !MODERATION_ACTIONS.has(command.action)) {
+      throw new TypeError("moderation action is invalid");
+    }
+    if (command.action === "publish_permission") {
+      if (!SOURCE_NAMES.has(command.source) || typeof command.value !== "boolean") {
+        throw new TypeError("publish permission command is invalid");
+      }
+    } else if (command.action === "soft_mute") {
+      if (command.source !== "microphone" || typeof command.value !== "boolean") {
+        throw new TypeError("soft mute command is invalid");
+      }
+    } else if (command.source !== null || typeof command.value !== "boolean") {
+      throw new TypeError("remove command is invalid");
+    }
+    return command.operation_id;
   }
 
   function providerInstruction(event) {
@@ -63,7 +103,7 @@
 
     if (operation === "set_local_source") {
       exactKeys(provider, ["transaction_id", "operation", "source", "enabled"], "local-source instruction");
-      if (!["microphone", "camera", "screen_share"].includes(provider.source) ||
+      if (!SOURCE_NAMES.has(provider.source) ||
           typeof provider.enabled !== "boolean") {
         throw new TypeError("local-source instruction is invalid");
       }
@@ -80,6 +120,14 @@
           provider.commands.length > 24) {
         throw new TypeError("moderation instruction is invalid");
       }
+      const operationIds = new Set();
+      for (const command of provider.commands) {
+        const operationId = validateModerationCommand(command);
+        if (operationIds.has(operationId)) {
+          throw new TypeError("moderation operation ids must be unique");
+        }
+        operationIds.add(operationId);
+      }
     } else if (operation === "recover_device") {
       exactKeys(
         provider,
@@ -88,6 +136,8 @@
       );
       if (!["microphone", "speaker", "camera"].includes(provider.kind) ||
           typeof provider.device_id !== "string" || !provider.device_id ||
+          provider.device_id.length > MAX_DEVICE_ID_LENGTH ||
+          /[\u0000-\u001f\u007f]/.test(provider.device_id) ||
           typeof provider.republish_enabled !== "boolean") {
         throw new TypeError("device-recovery instruction is invalid");
       }
