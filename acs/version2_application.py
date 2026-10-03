@@ -926,7 +926,17 @@ class Version2Application:
                     # reuse the previous route's focus token.
                     self._focus = self.shell.restore_focus_target()
                     self._repair_book_block_focus_after_rebind()
-                return asdict(value)
+                projected = asdict(value)
+                if value.kind == "route":
+                    projected_payload = projected.get("payload")
+                    if isinstance(projected_payload, dict):
+                        projected_payload["focus_target"] = self._focus
+                        projected_snapshot = projected_payload.get("snapshot")
+                        if isinstance(projected_snapshot, dict):
+                            projected_screen = projected_snapshot.get("screen")
+                            if isinstance(projected_screen, dict):
+                                projected_screen["focus_target"] = self._focus
+                return projected
             if area == "training":
                 try:
                     return asdict(self._dispatch_training_surface_command(command, payload))
@@ -1007,6 +1017,11 @@ class Version2Application:
             event_payload = event.get("payload")
             if isinstance(event_payload, dict):
                 event_payload["focus_target"] = self._focus
+                event_snapshot = event_payload.get("snapshot")
+                if isinstance(event_snapshot, dict):
+                    event_screen = event_snapshot.get("screen")
+                    if isinstance(event_screen, dict):
+                        event_screen["focus_target"] = self._focus
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")
             if isinstance(payload, dict):
