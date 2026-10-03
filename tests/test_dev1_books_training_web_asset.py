@@ -104,6 +104,14 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
             'requireHostEvent(result, ["render", "error"], "Training")',
             text,
         )
+        self.assertIn('requireSnapshotRecord(snapshot, "block", "Book")', text)
+        self.assertIn('requireSnapshotRecord(snapshot, "bookmark", "Book")', text)
+        self.assertIn('throw new TypeError("Book snapshot actions must be an array")', text)
+        self.assertIn('throw new TypeError("Book snapshot block requires a DOM id")', text)
+        self.assertIn('requireSnapshotRecord(snapshot, "progress", "Training")', text)
+        self.assertIn('requireSnapshotRecord(snapshot, "answer", "Training")', text)
+        self.assertIn('requireSnapshotRecord(snapshot, "reset_dialog", "Training")', text)
+        self.assertIn('throw new TypeError("Training snapshot actions must be an array")', text)
 
     def test_book_position_path_has_no_browser_fen_or_direct_board_mutation(self) -> None:
         text = self.text
