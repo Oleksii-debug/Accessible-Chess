@@ -22,6 +22,13 @@ from acs.livekit_moderation_rpc_transport import (
 )
 
 
+RPC_TRANSPORT_WORKFLOW = (
+    Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "livekit-moderation-rpc-transport.yml"
+)
+
 ROOM = "room-1"
 SERVICE_ID = "moderation-service"
 CALLER = "teacher-1"
@@ -449,6 +456,22 @@ class LiveKitModerationRpcTransportTests(unittest.IsolatedAsyncioTestCase):
             "participant RPC API is unavailable",
         ):
             self.bind(local_participant=participant)
+
+    def test_workflow_scope_uses_immutable_pull_request_base(self):
+        workflow = RPC_TRANSPORT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", workflow)
 
     def test_canonical_method_matches_browser_livekit_adapter(self):
         source = (
