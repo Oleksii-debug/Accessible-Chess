@@ -12,6 +12,7 @@ from acs.classroom_realtime_media import (
     MediaSource,
 )
 from acs.full_product_ui_shell import UILanguage
+from acs.version2_application import Version2Application
 from acs.version2_final_product_application import Version2FinalProductApplication
 
 
@@ -353,6 +354,73 @@ def minimal_application(language=UILanguage.EN):
     application._assert_thread = lambda: None
     application._rebuild_education_bridge = lambda selected: None
     return application
+
+
+def test_application_snapshot_hides_media_actions_during_active_provider_transaction(monkeypatch):
+    application = object.__new__(Version2FinalProductApplication)
+    application.media = SimpleNamespace(
+        projection=SimpleNamespace(
+            snapshot=lambda: {
+                "own": {
+                    "actions": (
+                        {"id": "stale-media-action", "command": "media.local_source"},
+                    )
+                }
+            }
+        )
+    )
+    application.media_transactions = SimpleNamespace(
+        binder=SimpleNamespace(
+            active_lease=object(),
+            recovery_status=None,
+        )
+    )
+    application.teacher = None
+    application.education = None
+    application._education_load_error = False
+    monkeypatch.setattr(Version2Application, "snapshot", lambda self: {})
+
+    snapshot = application.snapshot()
+
+    assert snapshot["media"] is None
+    assert snapshot["product_status"]["media_binding_active"] is True
+    assert snapshot["product_status"]["media_transaction_active"] is True
+    assert snapshot["product_status"]["media_recovery_required"] is False
+    assert snapshot["product_status"]["remote_transport"] == "not_approved"
+
+
+def test_application_snapshot_hides_media_actions_during_provider_recovery(monkeypatch):
+    application = object.__new__(Version2FinalProductApplication)
+    application.media = SimpleNamespace(
+        projection=SimpleNamespace(
+            snapshot=lambda: {
+                "own": {
+                    "actions": (
+                        {"id": "stale-media-action", "command": "media.local_source"},
+                    )
+                }
+            }
+        )
+    )
+    application.media_transactions = SimpleNamespace(
+        binder=SimpleNamespace(
+            active_lease=None,
+            recovery_status=object(),
+        )
+    )
+    application.teacher = None
+    application.education = None
+    application._education_load_error = False
+    monkeypatch.setattr(Version2Application, "snapshot", lambda self: {})
+
+    snapshot = application.snapshot()
+
+    assert snapshot["media"] is None
+    assert snapshot["product_status"]["media_binding_active"] is True
+    assert snapshot["product_status"]["media_provider_composed"] is True
+    assert snapshot["product_status"]["media_transaction_active"] is False
+    assert snapshot["product_status"]["media_recovery_required"] is True
+    assert snapshot["product_status"]["remote_transport"] == "not_approved"
 
 
 def test_application_publishes_media_binding_only_after_safe_initial_projection():
