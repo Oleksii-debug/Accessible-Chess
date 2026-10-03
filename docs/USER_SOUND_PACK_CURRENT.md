@@ -42,6 +42,7 @@ The full 330-file source library is retained in the built sound pack so future v
 - CAPTURE/CAPTURE2/CAPTURE3 and their Board3d counterparts play the matching CAPHIT1/2/3 WAV immediately afterward as an ordered landing layer.
 - Move/capture variants without a matching HIT asset stay single-file sounds; the runtime does not invent replacement effects.
 - NEWGAME visual placement uses 32 detected impact times for the default 2D WAV and a separate 32-impact timeline for the distinct 3D NEWGAME WAV. The selected start-sound variant chooses the matching animation timeline; both are emitted in newgame_impacts.json by the pack builder.
+- The NEWGAME visual placement animation is enabled by default, can be disabled independently from sound, persists across restarts, respects reduced-motion preference, and never changes the canonical chess/NVDA state.
 - Release validation checks every selectable variant and every layered WAV, not only the defaults.
 
 ## Distribution boundary
