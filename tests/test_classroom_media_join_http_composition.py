@@ -231,7 +231,13 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             release.set()
             inflight = application._media_join_http_inflight
             self.assertIsNotNone(inflight)
-            inflight.exception(timeout=2.0)
+            retired_error = inflight.exception(timeout=2.0)
+            self.assertIsInstance(retired_error, ClassroomJoinHttpClientError)
+            self.assertEqual(
+                str(retired_error),
+                "classroom join HTTP request was retired",
+            )
+            self.assertNotIn(TOKEN, repr(retired_error))
 
         with self.assertRaisesRegex(RuntimeError, "not pending"):
             application.finish_classroom_media_join_http(request_id)
@@ -268,7 +274,13 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             release.set()
             inflight = application._media_join_http_inflight
             self.assertIsNotNone(inflight)
-            inflight.exception(timeout=2.0)
+            retired_error = inflight.exception(timeout=2.0)
+            self.assertIsInstance(retired_error, ClassroomJoinHttpClientError)
+            self.assertEqual(
+                str(retired_error),
+                "classroom join HTTP request was retired",
+            )
+            self.assertNotIn(TOKEN, repr(retired_error))
 
         with self.assertRaisesRegex(RuntimeError, "not pending"):
             application.finish_classroom_media_join_http(request_id)
