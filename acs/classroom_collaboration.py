@@ -399,9 +399,9 @@ class ClassroomCollaborationController:
             raise CollaborationError("received chat message has invalid type")
         if message.room_id != self.room_id:
             raise CollaborationError("received chat message belongs to another room")
-        if message.hidden:
+        if message.hidden or message.redacted:
             raise CollaborationError(
-                "live chat message cannot carry moderation state"
+                "live chat message cannot carry mutable state"
             )
         self._require_member(message.sender_id)
         _chat_body(message.body)
@@ -442,7 +442,8 @@ class ClassroomCollaborationController:
             # Current membership is enforced for the local reader and live receive,
             # while replay trusts the room-scoped transport's historical sender ID.
             _id(message.sender_id, "sender id")
-            _chat_body(message.body)
+            if not message.redacted:
+                _chat_body(message.body)
             self._require_transport_timestamp(message)
             previous = message.sequence_no
 
@@ -574,6 +575,7 @@ class ClassroomCollaborationController:
             if (
                 message.message_id not in existing_ids
                 and not current_by_id[message.message_id].hidden
+                and not current_by_id[message.message_id].redacted
             )
         )
 
@@ -1451,7 +1453,10 @@ class ClassroomCollaborationController:
             or message.message_id != draft.message_id
             or message.room_id != draft.room_id
             or message.sender_id != draft.sender_id
-            or message.body != draft.body
+            or (
+                not message.redacted
+                and message.body != draft.body
+            )
             or message.retention != draft.retention
             or message.sent_at_unix_ms is None
         ):
@@ -1473,6 +1478,7 @@ class ClassroomCollaborationController:
             or message.body != draft.body
             or message.retention != draft.retention
             or message.hidden
+            or message.redacted
             or message.sent_at_unix_ms is None
         ):
             raise CollaborationError("chat transport changed immutable message identity")
