@@ -261,6 +261,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
     def test_v5_failed_upgrade_rolls_back_schema_and_version_atomically(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute("DROP TABLE collaboration_attachment_deletions")
             db.execute(
                 "DROP INDEX uq_collaboration_attachments_authoritative_sequence"
             )
@@ -424,6 +425,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         )
 
     def test_v3_schema_upgrades_attachment_state_cursor_without_rebuilding_data(self) -> None:
+        self.db_path.unlink()
         message = ChatMessageMetadata(
             "v3-message",
             "room",
@@ -446,14 +448,101 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             "persistent",
             "clean",
         )
-        self.store.append_message(message)
-        self.store.register_attachment(attachment)
         with closing(sqlite3.connect(self.db_path)) as db, db:
-            db.execute("DROP TABLE collaboration_attachment_state_cursors")
-            db.execute("DROP TABLE collaboration_attachment_deletions")
             db.execute(
-                "UPDATE collaboration_schema_meta SET value=3 "
-                "WHERE key='schema_version'"
+                "CREATE TABLE collaboration_schema_meta("
+                "key TEXT PRIMARY KEY, value INTEGER NOT NULL)"
+            )
+            db.execute(
+                "INSERT INTO collaboration_schema_meta(key,value) "
+                "VALUES('schema_version',3)"
+            )
+            db.execute(
+                """
+                CREATE TABLE collaboration_messages(
+                    message_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    body TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    sent_at_unix_ms INTEGER
+                        CHECK(sent_at_unix_ms IS NULL OR sent_at_unix_ms >= 0),
+                    UNIQUE(room_id, sequence_no)
+                )
+                """
+            )
+            db.execute(
+                "CREATE INDEX idx_collaboration_messages_room "
+                "ON collaboration_messages(room_id, sequence_no)"
+            )
+            db.execute(
+                """
+                CREATE TABLE collaboration_attachments(
+                    attachment_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    display_name TEXT NOT NULL,
+                    mime_type TEXT,
+                    size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+                    sha256 TEXT NOT NULL,
+                    object_key TEXT NOT NULL UNIQUE,
+                    transfer_state TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    scan_state TEXT NOT NULL,
+                    UNIQUE(room_id, sequence_no)
+                )
+                """
+            )
+            db.execute(
+                "CREATE INDEX idx_collaboration_attachments_room "
+                "ON collaboration_attachments(room_id, sequence_no)"
+            )
+            db.execute(
+                """
+                CREATE TABLE collaboration_chat_state_cursors(
+                    room_id TEXT PRIMARY KEY,
+                    revision INTEGER NOT NULL CHECK(revision >= 0)
+                )
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    message.message_id,
+                    message.room_id,
+                    message.sender_id,
+                    message.sequence_no,
+                    message.body,
+                    message.retention,
+                    int(message.hidden),
+                    message.sent_at_unix_ms,
+                ),
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachments "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    attachment.attachment_id,
+                    attachment.room_id,
+                    attachment.sender_id,
+                    attachment.sequence_no,
+                    attachment.display_name,
+                    attachment.mime_type,
+                    attachment.size_bytes,
+                    attachment.sha256,
+                    attachment.object_key,
+                    attachment.transfer_state,
+                    attachment.retention,
+                    attachment.scan_state,
+                ),
             )
 
         reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
@@ -477,6 +566,8 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             }
         self.assertIn("collaboration_chat_state_cursors", tables)
         self.assertIn("collaboration_attachment_state_cursors", tables)
+        self.assertIn("collaboration_attachment_deletions", tables)
+        reopened.integrity_check()
 
     def test_attachment_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         record = AttachmentMetadata(
