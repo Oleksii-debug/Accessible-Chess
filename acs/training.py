@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Mapping
 
 from .chesscore import Board, Move
@@ -131,7 +132,14 @@ class ExerciseDefinition:
         object.__setattr__(self, "start_fen", start_fen)
         object.__setattr__(self, "steps", steps)
         object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        # The dataclass is frozen; keep the definition identity frozen too.
+        # A mutable dict here would allow an active session to silently rebind
+        # its next persistence digest after construction.
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(dict(self.metadata)),
+        )
 
 
 @dataclass(frozen=True)
