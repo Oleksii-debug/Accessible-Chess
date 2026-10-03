@@ -43,14 +43,20 @@ jobs:
           test "$BASE_REF" = "feature/classroom-collaboration-contract-20260926"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
 
-          # Bind qualification to the immutable PR event. A queued run must not
-          # change meaning because the stacked base branch advances later.
+          # A stacked base can advance while this PR remains open. Qualify the
+          # effective progress delta from the live stack merge-base, while still
+          # proving the immutable event base is an ancestor of that lineage.
           git cat-file -e "$EVENT_BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          BASE_TIP="$(git rev-parse "origin/$BASE_REF")"
+          STACK_BASE="$(git merge-base "$BASE_TIP" HEAD)"
+          git cat-file -e "$STACK_BASE^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$STACK_BASE"
+          git merge-base --is-ancestor "$STACK_BASE" HEAD
+          git merge-base --is-ancestor "$STACK_BASE" "$BASE_TIP"
 
-          git diff --check "$EVENT_BASE_SHA" HEAD
-          mapfile -t actual < <(git diff --name-only "$EVENT_BASE_SHA" HEAD | LC_ALL=C sort)
+          git diff --check "$STACK_BASE" HEAD
+          mapfile -t actual < <(git diff --name-only "$STACK_BASE" HEAD | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-file-progress-contract.yml'
             'acs/classroom_collaboration.py'
