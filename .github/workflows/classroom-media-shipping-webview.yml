@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - integrate/classroom-livekit-presentation-20261003
+      - integrate/classroom-media-shipping-webview-20261003
     paths:
       - '.github/workflows/classroom-media-shipping-webview.yml'
       - 'acs/classroom_media_provider_binder.py'
@@ -53,7 +54,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove bounded shipping WebView scope on live presentation parent
+      - name: Prove bounded shipping WebView scope on live parent
         if: github.event_name == 'pull_request'
         shell: bash
         env:
@@ -61,7 +62,13 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          test "$PR_BASE_REF" = "integrate/classroom-livekit-presentation-20261003"
+          case "$PR_BASE_REF" in
+            integrate/classroom-livekit-presentation-20261003|integrate/classroom-media-shipping-webview-20261003) ;;
+            *)
+              echo "Unsupported classroom media qualification parent: $PR_BASE_REF"
+              exit 1
+              ;;
+          esac
           test -n "$EVENT_BASE_SHA"
           git cat-file -e "$EVENT_BASE_SHA^{commit}"
           git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
@@ -70,7 +77,7 @@ jobs:
           test -n "$base"
           git cat-file -e "$base^{commit}"
           if ! git merge-base --is-ancestor "$base" HEAD; then
-            echo "Current classroom presentation parent $base is not an ancestor of HEAD; synchronize before qualification."
+            echo "Current classroom media parent $base is not an ancestor of HEAD; synchronize before qualification."
             exit 1
           fi
           test "$(git merge-base "$base" HEAD)" = "$base"
@@ -99,12 +106,32 @@ jobs:
             'web/livekit_classroom_media_runtime.js'
             'web/version2_final_product_bootstrap.js'
           )
-          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
-            printf 'Unexpected classroom media shipping WebView scope.\nExpected:\n'
-            printf '  %s\n' "${expected[@]}"
-            printf 'Actual:\n'
-            printf '  %s\n' "${actual[@]}"
-            exit 1
+          if [[ "$PR_BASE_REF" = "integrate/classroom-livekit-presentation-20261003" ]]; then
+            if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+              printf 'Unexpected classroom media shipping WebView composition scope.\nExpected:\n'
+              printf '  %s\n' "${expected[@]}"
+              printf 'Actual:\n'
+              printf '  %s\n' "${actual[@]}"
+              exit 1
+            fi
+          else
+            if [[ "${#actual[@]}" -eq 0 ]]; then
+              echo "Shipping maintenance PR has no scoped delta."
+              exit 1
+            fi
+            for path in "${actual[@]}"; do
+              allowed=false
+              for expected_path in "${expected[@]}"; do
+                if [[ "$path" = "$expected_path" ]]; then
+                  allowed=true
+                  break
+                fi
+              done
+              if [[ "$allowed" != true ]]; then
+                echo "Shipping maintenance PR escaped canonical scope: $path"
+                exit 1
+              fi
+            done
           fi
           git diff --check "$base...HEAD"
           git diff --quiet "$base...HEAD" --             acs/chesscore.py             acs/classroom_domain.py             acs/classroom_realtime_media.py             acs/remote_session.py             acs/teaching_classroom_adapter.py

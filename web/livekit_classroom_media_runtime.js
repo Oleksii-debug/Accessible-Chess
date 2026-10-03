@@ -348,26 +348,81 @@
       }
     }
 
+    _rememberTransportLossSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+        return;
+      }
+      this._transportLossSnapshot = snapshot;
+      this._transportRetryAt = 0;
+    }
+
+    async _settleCleanSessionFailure(invoke, transaction, operation, snapshot) {
+      try {
+        if (operation === "disconnect") {
+          return await invoke("media.provider_session_success", {
+            transaction_id: transaction,
+            snapshot
+          });
+        }
+        return await invoke("media.provider_connection_failed_clean", {
+          transaction_id: transaction,
+          snapshot
+        });
+      } catch (_error) {
+        const result = await this._providerFailed(invoke, transaction);
+        // Browser/provider proof of clean teardown is not authority to release
+        // an ambiguous Python recovery. Retain the snapshot so current #1201
+        // can retry canonical transport-loss convergence after trusted recovery.
+        this._rememberTransportLossSnapshot(snapshot);
+        return result;
+      }
+    }
+
     async _sessionFailure(invoke, transaction, adapter, operation) {
-      if (operation === "connect" || operation === "reconnect") {
-        let snapshot = null;
+      let snapshot = null;
+      try {
+        snapshot = adapter.snapshot();
+      } catch (_error) {
+        snapshot = null;
+      }
+      if (snapshot && isCleanDisconnectedSnapshot(snapshot)) {
+        return this._settleCleanSessionFailure(
+          invoke,
+          transaction,
+          operation,
+          snapshot
+        );
+      }
+
+      // Failed reconnect/source republish or disconnect can leave a validated
+      // provider Room live while recovery hides media controls. Retry teardown
+      // immediately so microphone/camera capture is not stranded behind the
+      // recovery surface.
+      try {
+        await adapter.disconnect();
+        snapshot = adapter.snapshot();
+      } catch (_error) {
         try {
           snapshot = adapter.snapshot();
-        } catch (_error) {
+        } catch (_snapshotError) {
           snapshot = null;
         }
-        if (snapshot && snapshot.connected === false && snapshot.cleanup_required === false) {
-          try {
-            return await invoke("media.provider_connection_failed_clean", {
-              transaction_id: transaction,
-              snapshot
-            });
-          } catch (_error) {
-            return this._providerFailed(invoke, transaction);
-          }
-        }
       }
-      return this._providerFailed(invoke, transaction);
+      if (snapshot && isCleanDisconnectedSnapshot(snapshot)) {
+        return this._settleCleanSessionFailure(
+          invoke,
+          transaction,
+          operation,
+          snapshot
+        );
+      }
+
+      const result = await this._providerFailed(invoke, transaction);
+      // Keep retrying provider teardown from the existing transport reconciler.
+      // It will retain the eventual clean snapshot while trusted recovery is
+      // still latched and only clear it after Python returns media-updated.
+      this._rememberTransportLossSnapshot(snapshot);
+      return result;
     }
 
     async _takeCredential(invoke, transaction) {
@@ -515,7 +570,7 @@
       // Provider-side room moves can leave a still-live Room that is no longer
       // canonical. Retry only teardown until the adapter proves a clean
       // disconnected state; never publish a false clean loss to Python.
-      if (snapshot.cleanup_required === true) {
+      if (snapshot.connected === true || snapshot.cleanup_required === true) {
         if (this._adapter === null || typeof this._adapter.disconnect !== "function") {
           this._deferTransportRetry();
           return null;
@@ -526,6 +581,12 @@
           this._transportLossSnapshot = snapshot;
           this._transportRetryAt = 0;
         } catch (_error) {
+          // A validated active Room can still publish media even though its
+          // snapshot is not cleanup-only. Preserve the latest provider truth
+          // and keep retrying teardown instead of hiding it behind recovery.
+          try {
+            this._transportLossSnapshot = this._adapter.snapshot();
+          } catch (_snapshotError) {}
           this._deferTransportRetry();
           return null;
         }
