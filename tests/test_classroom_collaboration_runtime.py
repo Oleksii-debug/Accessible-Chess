@@ -327,6 +327,7 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                             "body": message["body"],
                             "retention": message["retention"],
                             "hidden": False,
+                            "redacted": False,
                             "sent_at_unix_ms": 1700000000000,
                         },
                     }
@@ -430,6 +431,7 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                     "body": message["body"],
                     "retention": message["retention"],
                     "hidden": False,
+                    "redacted": False,
                     "sent_at_unix_ms": 1700000000000,
                 }
                 if committed is None:
