@@ -1111,6 +1111,22 @@ class BookProgressStore:
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
+                # Publication success is bound to the exact fsynced temp inode,
+                # not merely to equivalent bytes at the canonical pathname.
+                # A non-cooperating same-user writer can substitute the temp
+                # pathname in the final lstat -> replace window with a different
+                # private inode carrying identical bytes. Byte readback alone
+                # would otherwise report a false successful commit.
+                published_identity = os.lstat(target)
+                self._require_private_data_metadata(published_identity)
+                if temp_identity is None or not self._same_file_identity(
+                    temp_identity,
+                    published_identity,
+                ):
+                    raise BookProgressStoreError(
+                        "book progress was published but canonical storage changed before confirmation",
+                        code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+                    )
                 if active_directory is not None:
                     self._require_storage_directory_unlocked(active_directory)
                 _sync_published_path(target)
