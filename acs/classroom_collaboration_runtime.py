@@ -246,6 +246,7 @@ def build_classroom_collaboration_http_runtime(
             room_id=room_id,
             participant_id=participant_id,
             storage_scope=str(path),
+            lock_path=path.with_name(f".{path.name}.chat-outbox.lock"),
             message_lookup=lookup_local_message,
         )
 
