@@ -356,7 +356,8 @@
     requireBookSnapshot(snapshot);
 
     const fragment = document.createDocumentFragment();
-    const main = node("main");\n    main.setAttribute("lang", snapshot.document.lang);
+    const main = node("main");
+    main.setAttribute("lang", snapshot.document.lang);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage);
     const block = snapshot.block || {};
