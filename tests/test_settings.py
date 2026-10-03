@@ -116,6 +116,9 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(settings.get("sound_capture_variant"), "1")
             self.assertEqual(settings.get("sound_mate_variant"), "1")
             self.assertEqual(settings.get("sound_draw_variant"), "1")
+            self.assertEqual(settings.get("sound_low_time_variant"), "1")
+            self.assertEqual(settings.get("low_time_policy"), "my_turn")
+            self.assertEqual(settings.get("low_time_seconds"), 30)
 
             settings.set("sound_move_variant", "4")
             settings.set("sound_capture_variant", "5")
