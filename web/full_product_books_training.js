@@ -107,6 +107,34 @@
     return result.payload;
   }
 
+  function requireSnapshotRecord(snapshot, field, surface) {
+    const value = snapshot[field];
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError(surface + " snapshot " + field + " must be an object");
+    }
+    return value;
+  }
+
+  function requireBookSnapshot(snapshot) {
+    const block = requireSnapshotRecord(snapshot, "block", "Book");
+    requireSnapshotRecord(snapshot, "bookmark", "Book");
+    if (!Array.isArray(snapshot.actions)) {
+      throw new TypeError("Book snapshot actions must be an array");
+    }
+    if (typeof block.dom_id !== "string" || !block.dom_id) {
+      throw new TypeError("Book snapshot block requires a DOM id");
+    }
+  }
+
+  function requireTrainingSnapshot(snapshot) {
+    requireSnapshotRecord(snapshot, "progress", "Training");
+    requireSnapshotRecord(snapshot, "answer", "Training");
+    requireSnapshotRecord(snapshot, "reset_dialog", "Training");
+    if (!Array.isArray(snapshot.actions)) {
+      throw new TypeError("Training snapshot actions must be an array");
+    }
+  }
+
   function renderBookBlock(host, block) {
     const role = String(block.role || "group");
     let content;
@@ -171,6 +199,7 @@
   function applyBookEvent(root, result, invoke, announce, fallbackMessage) {
     const payload = requireHostEvent(result, ["render", "error", "delegated"], "Book");
     if (result.kind === "render") {
+      requireBookSnapshot(payload.snapshot);
       renderBookSurface(root, payload.snapshot, invoke, announce, payload.focus_target || "", fallbackMessage);
     }
     if (payload.announcement) announce(String(payload.announcement));
@@ -335,7 +364,8 @@
     let priorAnswer = "";
     const prior = root.querySelector("#training-answer");
     if (prior && typeof prior.value === "string") priorAnswer = prior.value;
-    if (result.kind === "render" && payload.snapshot) {
+    if (result.kind === "render") {
+      requireTrainingSnapshot(payload.snapshot);
       renderTrainingSurface(
         root,
         payload.snapshot,
