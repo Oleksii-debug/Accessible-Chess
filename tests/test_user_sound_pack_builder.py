@@ -9,6 +9,7 @@ import wave
 import zipfile
 from unittest.mock import patch
 
+from scripts import build_user_sound_pack as sound_builder
 from scripts.build_user_sound_pack import (
     DEFAULT_EVENT_FILES,
     EVENT_VARIANTS,
@@ -78,6 +79,53 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             self.assertEqual(recorded["source_archive_sha256"], archive_sha)
             self.assertEqual(recorded["source_archive_bytes"], archive.stat().st_size)
             self.assertTrue((destination / "library" / "Board" / "NEWGAME.WAV").is_file())
+
+    def test_zip_source_hash_and_extraction_share_immutable_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source" / "library"
+            self._write_wave(source / "Board" / "MOVE.WAV")
+            self._write_wave(source / "Server" / "Gong.WAV")
+            archive = root / "sounds.zip"
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as writer:
+                for path in sorted(
+                    item for item in (root / "source").rglob("*")
+                    if item.is_file()
+                ):
+                    writer.write(path, path.relative_to(root / "source").as_posix())
+
+            original_bytes = archive.read_bytes()
+            original_digest = hashlib.sha256(original_bytes).hexdigest()
+            original_size = len(original_bytes)
+            original_extract = sound_builder._extract_sound_zip
+            observed_sources: list[Path] = []
+
+            def mutate_original_then_extract(snapshot: Path, destination: Path) -> None:
+                observed_sources.append(snapshot)
+                archive.write_bytes(b"mutated-after-snapshot")
+                original_extract(snapshot, destination)
+
+            destination = root / "pack"
+            with (
+                patch(
+                    "scripts.build_user_sound_pack._extract_sound_zip",
+                    side_effect=mutate_original_then_extract,
+                ),
+                self.assertRaisesRegex(Exception, "expected 330 WAV files"),
+            ):
+                build_sound_pack(
+                    archive,
+                    destination,
+                    expected_source_archive_sha256=original_digest,
+                )
+
+            self.assertEqual(len(observed_sources), 1)
+            self.assertNotEqual(observed_sources[0].resolve(), archive.resolve())
+            self.assertEqual(hashlib.sha256(original_bytes).hexdigest(), original_digest)
+            self.assertEqual(original_size, len(original_bytes))
+            self.assertEqual(archive.read_bytes(), b"mutated-after-snapshot")
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(root.glob(".pack.building-*")), [])
 
     def test_zip_source_rejects_wrong_sha256_before_extraction(self):
         with tempfile.TemporaryDirectory() as td:
