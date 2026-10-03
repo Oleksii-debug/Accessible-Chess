@@ -1065,6 +1065,7 @@ class Version2Application:
     def native_command(self, value):
         self._assert_thread()
         payload = getattr(value, "payload", {})
+        validated_training_snapshot = None
         training_route = (
             getattr(value, "kind", None) == "route"
             and hasattr(payload, "get")
@@ -1074,6 +1075,9 @@ class Version2Application:
             try:
                 if not self._start_training_from_current_book():
                     raise ValueError("Training exercise is unavailable")
+                validated_training_snapshot = self.training_workspace.snapshot()
+                if type(validated_training_snapshot) is not dict:
+                    raise ValueError("Training presentation is unavailable")
             except Exception:
                 # Native-menu/keyboard routing has already changed the shell.
                 # Recover to a coherent canonical owner instead of publishing a
@@ -1111,6 +1115,8 @@ class Version2Application:
                     event_screen = event_snapshot.get("screen")
                     if isinstance(event_screen, dict):
                         event_screen["focus_target"] = self._focus
+                    if training_route and validated_training_snapshot is not None:
+                        event_snapshot["training"] = validated_training_snapshot
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")
             if isinstance(payload, dict):
