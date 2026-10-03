@@ -53,6 +53,14 @@ def _sqlite_integer(value: object, *, name: str, minimum: int) -> int:
     return integer
 
 
+def _canonical_search_row(row: object) -> dict:
+    """Accept only the exact row container published by the ACSDB API."""
+
+    if type(row) is not dict:
+        raise TypeError("search row must be a dictionary")
+    return row
+
+
 def _row_required_integer(
     row: dict,
     key: str,
@@ -281,9 +289,10 @@ class GameSearchService:
             if _poll_cancel(cancel_check):
                 raise SearchCancelledError("Search cancelled")
 
-        has_more = len(rows) > q.limit
-        visible_rows = rows[: q.limit]
-        items = tuple(
+        if type(rows) is not list:
+            raise TypeError("search result must be a list")
+        canonical_rows = tuple(_canonical_search_row(row) for row in rows)
+        projected_items = tuple(
             GameSearchItem(
                 game_id=_row_required_integer(row, "id", minimum=1),
                 source_id=_row_required_integer(row, "source_id", minimum=1),
@@ -302,7 +311,9 @@ class GameSearchService:
                 opening=_row_optional_text(row, "opening"),
                 start_fen=_row_optional_text(row, "start_fen"),
             )
-            for row in visible_rows
+            for row in canonical_rows
         )
+        has_more = len(projected_items) > q.limit
+        items = projected_items[: q.limit]
         next_cursor = items[-1].game_id if has_more and items else None
         return GameSearchPage(items=items, next_after_game_id=next_cursor, has_more=has_more)
