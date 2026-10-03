@@ -190,6 +190,20 @@ class ClassroomMediaTransactionalWebView:
     ) -> ClassroomMediaWebViewEvent:
         """Fail closed for malformed, stale, or otherwise rejected callbacks."""
 
+        recovery = self._binder.recovery_status
+        if (
+            recovery is not None
+            and recovery.lease.transaction_id is not None
+            and (
+                not transaction_id
+                or transaction_id == recovery.lease.transaction_id
+            )
+        ):
+            # A previous callback may already have latched recovery before its
+            # WebView response was lost. Preserve that stronger state on retry
+            # instead of re-exposing stale media controls through a generic error.
+            return self._recovery_event(recovery.lease.transaction_id)
+
         active = self._binder.active_lease
         if (
             active is None
