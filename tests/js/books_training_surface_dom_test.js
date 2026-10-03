@@ -641,6 +641,28 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed semantic label must not steal reading focus");
 
+  const excessiveTextEntries = semanticGameSnapshot();
+  excessiveTextEntries.block.semantic_tree.items[0].comments_before =
+    new Array(50129).fill("");
+  let excessiveTextEntriesRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      excessiveTextEntries,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    excessiveTextEntriesRejected = true;
+  }
+  check(excessiveTextEntriesRejected, "excessive semantic text entries must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive semantic text entries must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive semantic text entries must not steal reading focus");
+
   const excessiveText = semanticGameSnapshot();
   excessiveText.block.semantic_tree.items[0].label = "x".repeat(12 * 1024 * 1024 + 1);
   let excessiveTextRejected = false;

@@ -4,6 +4,7 @@
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
   const MAX_BOOK_SEMANTIC_DETAILS = 4;
+  const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50128;
 
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
@@ -43,6 +44,10 @@
 
   function semanticText(value, name, budget) {
     if (typeof value !== "string") throw new TypeError(name + " must be text");
+    budget.entries += 1;
+    if (budget.entries > MAX_BOOK_SEMANTIC_TEXT_ENTRIES) {
+      throw new TypeError("book semantic text-entry budget exceeded");
+    }
     budget.used += value.length;
     if (budget.used > MAX_BOOK_SEMANTIC_VISIBLE_CHARS) {
       throw new TypeError("book semantic visible-text budget exceeded");
@@ -118,7 +123,7 @@
       throw new TypeError("book semantic tree kind is invalid");
     }
 
-    const budget = { used: 0 };
+    const budget = { used: 0, entries: 0 };
     const playersLabel = semanticOptionalText(
       semantic.players_label, "book semantic players label", budget, "Players"
     );

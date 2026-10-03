@@ -28,6 +28,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 
 
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
+_MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
 
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
@@ -134,9 +135,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             raise _BookSemanticTreeError("book semantic GameTree projection is unavailable")
 
         visible_total = 0
+        visible_entries = 0
 
         def safe(value: object) -> str:
-            nonlocal visible_total
+            nonlocal visible_total, visible_entries
+            visible_entries += 1
+            if visible_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree text-entry limit exceeded"
+                )
             text = _safe_text(
                 value,
                 language=self.language,
