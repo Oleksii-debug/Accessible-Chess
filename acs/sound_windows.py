@@ -368,8 +368,12 @@ class WindowsSoundPlaybackAdapter:
         # legitimately preserve or move mtimes backwards.
         source_bytes = source.read_bytes()
         source_digest = hashlib.sha256(source_bytes).hexdigest()
+        source_key = hashlib.sha256(
+            str(source.resolve()).casefold().encode("utf-8")
+        ).hexdigest()[:16]
         destination = self._cache_dir / (
-            f"{event.value}-v{volume}-s{SCALED_SOUND_CACHE_FORMAT_VERSION}-{source_digest}.wav"
+            f"{event.value}-v{volume}-a{source_key}-"
+            f"s{SCALED_SOUND_CACHE_FORMAT_VERSION}-{source_digest}.wav"
         )
         with wave.open(io.BytesIO(source_bytes), "rb") as reader:
             params = reader.getparams()
@@ -391,7 +395,7 @@ class WindowsSoundPlaybackAdapter:
             params,
             scaled,
         ):
-            self._prune_scaled_variants(destination, event, volume)
+            self._prune_scaled_variants(destination, event, volume, source_key)
             return destination
         fd, temporary_name = tempfile.mkstemp(
             dir=self._cache_dir,
@@ -419,7 +423,7 @@ class WindowsSoundPlaybackAdapter:
                     temporary,
                     exc_info=True,
                 )
-        self._prune_scaled_variants(destination, event, volume)
+        self._prune_scaled_variants(destination, event, volume, source_key)
         return destination
 
     @staticmethod
@@ -445,15 +449,24 @@ class WindowsSoundPlaybackAdapter:
         destination: Path,
         event: SoundEvent,
         volume: int,
+        source_key: str,
     ) -> None:
         """Best-effort removal of superseded content-addressed cache variants."""
 
-        # Remove the pre-content-addressed cache name as well as obsolete
-        # digest/schema variants. The schema component makes future changes to
-        # the scaling transform invalidate old derived audio deterministically.
+        # Remove the legacy single-file cache and obsolete transforms for
+        # this exact packaged source path. Other layers of the same semantic
+        # event must remain cached: MOVE+MOVEHIT and CAPTURE+CAPHIT are separate
+        # source assets that intentionally share one event and volume.
         legacy = self._cache_dir / f"{event.value}-v{volume}.wav"
-        pattern = f"{event.value}-v{volume}-*.wav"
-        for candidate in (legacy, *self._cache_dir.glob(pattern)):
+        old_content_addressed = tuple(
+            self._cache_dir.glob(f"{event.value}-v{volume}-s*-*.wav")
+        )
+        same_source = tuple(
+            self._cache_dir.glob(
+                f"{event.value}-v{volume}-a{source_key}-*.wav"
+            )
+        )
+        for candidate in (legacy, *old_content_addressed, *same_source):
             if candidate == destination:
                 continue
             try:
