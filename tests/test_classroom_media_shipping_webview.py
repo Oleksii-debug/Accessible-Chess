@@ -869,6 +869,19 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
             "runtime.reconcileTransport(areaInvoke(\"media\"))",
             source,
         )
+        self.assertIn("function drainQueuedEvents()", source)
+        self.assertIn(
+            "reconcileMediaProviderTransport().then(\n      drainQueuedEvents,\n      drainQueuedEvents",
+            source,
+        )
+        self.assertLess(
+            source.index("function reconcileMediaProviderTransport()"),
+            source.index("function drainQueuedEvents()"),
+        )
+        self.assertLess(
+            source.index("function drainQueuedEvents()"),
+            source.index("function drainEvents()"),
+        )
         self.assertIn("global.setInterval(drainEvents, 300)", source)
 
 
