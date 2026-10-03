@@ -1959,16 +1959,48 @@ class Version2UpgradeCoordinator:
     def _manifest(self, upgrade_id: str) -> tuple[Path, dict[str, object]]:
         backup = self.layout.backup_root / upgrade_id
         try:
-            info = _safe_stat(backup, "upgrade backup directory")
+            backup_identity = _safe_stat(backup, "upgrade backup directory")
         except (OSError, Version2UpgradeError) as exc:
             raise Version2UpgradeRecoveryError(
                 "upgrade backup directory is missing"
             ) from exc
-        if not stat.S_ISDIR(info.st_mode):
+        if not stat.S_ISDIR(backup_identity.st_mode):
             raise Version2UpgradeRecoveryError(
                 "upgrade backup directory is missing"
             )
+
+        data = backup / "data"
+        try:
+            data_identity = _safe_stat(data, "upgrade backup data directory")
+        except (OSError, Version2UpgradeError) as exc:
+            raise Version2UpgradeRecoveryError(
+                "upgrade backup data directory is missing"
+            ) from exc
+        if not stat.S_ISDIR(data_identity.st_mode):
+            raise Version2UpgradeRecoveryError(
+                "upgrade backup data directory is missing"
+            )
+
+        def require_backup_tree() -> None:
+            try:
+                _require_directory_identity(
+                    backup,
+                    backup_identity,
+                    label="upgrade backup directory",
+                )
+                _require_directory_identity(
+                    data,
+                    data_identity,
+                    label="upgrade backup data directory",
+                )
+            except Version2UpgradeError as exc:
+                raise Version2UpgradeRecoveryError(
+                    "upgrade backup directory changed during recovery"
+                ) from exc
+
+        require_backup_tree()
         raw = self._read_json(backup / "manifest.json", "upgrade backup manifest")
+        require_backup_tree()
         schema_version = raw.get("schema_version")
         entries = raw.get("entries")
         library_schema = raw.get("library_schema_before")
@@ -1996,6 +2028,7 @@ class Version2UpgradeCoordinator:
         total = 0
         library_entry_seen = False
         for item in entries:
+            require_backup_tree()
             if not isinstance(item, dict):
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup entry is invalid"
@@ -2039,7 +2072,7 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup exceeds recovery limits"
                 )
-            candidate = backup / "data" / Path(*PurePosixPath(path).parts)
+            candidate = data / Path(*PurePosixPath(path).parts)
             try:
                 candidate_info = _safe_stat(candidate, "upgrade backup file")
             except (OSError, Version2UpgradeError) as exc:
@@ -2055,6 +2088,7 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup checksum mismatch"
                 ) from exc
+            require_backup_tree()
             if (
                 not stat.S_ISREG(candidate_info.st_mode)
                 or candidate_info.st_size != size
@@ -2063,6 +2097,7 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup checksum mismatch"
                 )
+        require_backup_tree()
         if library_entry_seen != (library_schema is not None):
             raise Version2UpgradeRecoveryError(
                 "upgrade backup manifest library schema metadata is inconsistent"
