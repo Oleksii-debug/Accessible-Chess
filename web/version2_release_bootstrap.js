@@ -266,11 +266,11 @@
     Promise.resolve(call).then(function (result) {
       const ok = applyProfileResult(result, true);
       endProfileMutation();
-      if (!ok) profileName.focus();
+      if (!ok || profileDialog.open) focusProfilePrimaryAction();
     }, function () {
       endProfileMutation();
       announce(uiText("Не вдалося оновити профіль.", "Could not update the profile."));
-      profileName.focus();
+      focusProfilePrimaryAction();
     });
   }
   profileSave.addEventListener("click", saveProfileName);
@@ -298,11 +298,11 @@
     Promise.resolve(call).then(function (result) {
       const ok = applyProfileResult(result, true);
       endProfileMutation();
-      if (!ok) profileName.focus();
+      if (!ok || profileDialog.open) focusProfilePrimaryAction();
     }, function () {
       endProfileMutation();
       announce(uiText("Не вдалося створити псевдонім.", "Could not create an alias."));
-      profileName.focus();
+      focusProfilePrimaryAction();
     });
   });
   profileRepair.addEventListener("click", function () {
