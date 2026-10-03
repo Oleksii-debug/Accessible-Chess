@@ -35,40 +35,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.sha }}'
-          merge_base="$(git merge-base "$base" HEAD)"
-          changed="$(git diff --name-only "$merge_base" HEAD | sort)"
           if [ "${{ github.head_ref }}" = "fix/remappable-pgn-tree-navigation-20260926" ]; then
+            product_branch='work/full-product-teacher-education-reachability-20260911'
+            git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+            base="$(git rev-parse "refs/remotes/origin/$product_branch")"
+            merge_base="$(git merge-base "$base" HEAD)"
+            test "$merge_base" = "$base" || {
+              echo "Canonical keybinding stack is not based on exact live Product: expected=$base merge-base=$merge_base" >&2
+              exit 1
+            }
+            changed="$(git diff --name-only "$base" HEAD | sort)"
             expected="$(printf '%s\n' \
-            '.github/workflows/full-product-native-menu-keymap-refresh.yml' \
-            '.github/workflows/keybindings-contract.yml' \
-            '.github/workflows/remappable-board-grid-controls.yml' \
-            '.github/workflows/remappable-input-submit-keys.yml' \
-            '.github/workflows/remappable-pgn-tree-navigation.yml' \
-            'acs/full_product_actions.py' \
-            'acs/full_product_native_menu.py' \
-            'acs/keybindings.py' \
-            'acs/ui_keymap_adapter.py' \
-            'tests/js/pgn_surface_dom_test.js' \
-            'tests/js/remappable_board_grid_controls_test.js' \
-            'tests/js/remappable_input_submit_keys_test.js' \
-            'tests/test_full_product_native_menu.py' \
-            'tests/test_full_product_pgn_keybindings.py' \
-            'tests/test_keybindings.py' \
-            'tests/test_stage1_board_action_integration.py' \
-            'tests/test_webview_keymap_bridge_contract.py' \
-            'tests/test_accessible_webui.py' \
-            'tests/test_dev1_release_ui_regressions.py' \
-            'tests/test_issue22_release_contract.py' \
-            'tests/test_p0g_packaged_hotkey_result_probe.py' \
-            'tests/test_stage1_packaged_focus_origin_contract.py' \
-            'acs/ui_keymap_service.py' \
-            'acs/version2_release_app.py' \
-            'tests/test_version2_release_app.py' \
-            'web/full_product_pgn.js' \
-            'web/index.html' \
-            'web/keybindings.json' | sort)"
+              '.github/workflows/full-product-native-menu-keymap-refresh.yml' \
+              '.github/workflows/keybindings-contract.yml' \
+              '.github/workflows/remappable-board-grid-controls.yml' \
+              '.github/workflows/remappable-input-submit-keys.yml' \
+              '.github/workflows/remappable-pgn-tree-navigation.yml' \
+              'acs/full_product_actions.py' \
+              'acs/full_product_native_menu.py' \
+              'acs/keybindings.py' \
+              'acs/ui_keymap_adapter.py' \
+              'tests/js/pgn_surface_dom_test.js' \
+              'tests/js/remappable_board_grid_controls_test.js' \
+              'tests/js/remappable_input_submit_keys_test.js' \
+              'tests/test_full_product_native_menu.py' \
+              'tests/test_full_product_pgn_keybindings.py' \
+              'tests/test_keybindings.py' \
+              'tests/test_stage1_board_action_integration.py' \
+              'tests/test_webview_keymap_bridge_contract.py' \
+              'tests/test_accessible_webui.py' \
+              'tests/test_dev1_release_ui_regressions.py' \
+              'tests/test_issue22_release_contract.py' \
+              'tests/test_p0g_packaged_hotkey_result_probe.py' \
+              'tests/test_stage1_packaged_focus_origin_contract.py' \
+              'acs/ui_keymap_service.py' \
+              'acs/version2_release_app.py' \
+              'tests/test_version2_release_app.py' \
+              'web/full_product_pgn.js' \
+              'web/index.html' \
+              'web/keybindings.json' | sort)"
           else
+            base='${{ github.event.pull_request.base.sha }}'
+            merge_base="$(git merge-base "$base" HEAD)"
+            changed="$(git diff --name-only "$merge_base" HEAD | sort)"
             expected="$(printf '%s\n' \
               '.github/workflows/keybindings-contract.yml' \
               'acs/keybindings.py' \
