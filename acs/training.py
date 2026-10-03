@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from itertools import islice
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Mapping
 
 from .chesscore import Board, Move
 
@@ -103,7 +105,7 @@ class ExerciseDefinition:
     title: str = ""
     tags: tuple[str, ...] = ()
     source_id: str | None = None
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if type(self.exercise_id) is not str:
@@ -122,45 +124,83 @@ class ExerciseDefinition:
             raise ValueError("start_fen must not be empty")
         # Position syntax and legality belong to the shared canonical chess core.
         Board(start_fen)
-        if type(self.steps) is not tuple:
-            raise TypeError("exercise steps must be an exact tuple")
-        if not self.steps:
+        try:
+            step_count = len(self.steps)
+        except TypeError:
+            try:
+                steps = tuple(islice(iter(self.steps), _MAX_EXERCISE_STEPS + 1))
+            except TypeError as exc:
+                raise TypeError("exercise steps must be a finite collection") from exc
+            if len(steps) > _MAX_EXERCISE_STEPS:
+                raise ValueError("exercise has too many steps")
+            step_count = len(steps)
+        else:
+            if step_count > _MAX_EXERCISE_STEPS:
+                raise ValueError("exercise has too many steps")
+            try:
+                steps = tuple(self.steps)
+            except TypeError as exc:
+                raise TypeError("exercise steps must be a finite collection") from exc
+            if len(steps) != step_count:
+                raise ValueError("exercise steps changed during validation")
+        if step_count < 1:
             raise ValueError("exercise requires at least one step")
-        if len(self.steps) > _MAX_EXERCISE_STEPS:
-            raise ValueError("exercise has too many steps")
-        if any(type(step) is not ExerciseStep for step in self.steps):
+        if any(type(step) is not ExerciseStep for step in steps):
             raise TypeError("exercise steps must contain exact ExerciseStep values")
+
         if type(self.title) is not str:
             raise TypeError("exercise title must be a string")
         if len(self.title) > _MAX_DEFINITION_TEXT:
             raise ValueError("exercise title is too long")
-        if type(self.tags) is not tuple:
-            raise TypeError("exercise tags must be an exact tuple")
-        if len(self.tags) > _MAX_TRAINING_TAGS:
-            raise ValueError("exercise has too many tags")
-        for tag in self.tags:
-            if type(tag) is not str:
-                raise TypeError("exercise tag must be a string")
-            if len(tag) > _MAX_DEFINITION_TEXT:
-                raise ValueError("exercise tag is too long")
         if self.source_id is not None:
             if type(self.source_id) is not str:
                 raise TypeError("exercise source_id must be a string or None")
             if len(self.source_id) > _MAX_DEFINITION_TEXT:
                 raise ValueError("exercise source_id is too long")
-        if type(self.metadata) is not dict:
-            raise TypeError("exercise metadata must be an exact dict")
-        if len(self.metadata) > _MAX_TRAINING_METADATA_ITEMS:
+
+        try:
+            tag_count = len(self.tags)
+        except TypeError:
+            try:
+                raw_tags = tuple(islice(iter(self.tags), _MAX_TRAINING_TAGS + 1))
+            except TypeError as exc:
+                raise TypeError("exercise tags must be a finite collection") from exc
+            if len(raw_tags) > _MAX_TRAINING_TAGS:
+                raise ValueError("exercise has too many tags")
+            tag_count = len(raw_tags)
+        else:
+            if tag_count > _MAX_TRAINING_TAGS:
+                raise ValueError("exercise has too many tags")
+            try:
+                raw_tags = tuple(self.tags)
+            except TypeError as exc:
+                raise TypeError("exercise tags must be a finite collection") from exc
+            if len(raw_tags) != tag_count:
+                raise ValueError("exercise tags changed during validation")
+        tags = tuple(_normalize_tag(tag) for tag in raw_tags)
+
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("exercise metadata must be a mapping")
+        try:
+            metadata_count = len(self.metadata)
+        except TypeError as exc:
+            raise TypeError("exercise metadata must be a finite mapping") from exc
+        if metadata_count > _MAX_TRAINING_METADATA_ITEMS:
             raise ValueError("exercise metadata has too many items")
         for key, value in self.metadata.items():
             if type(key) is not str or type(value) is not str:
                 raise TypeError("exercise metadata must map strings to strings")
             if len(key) > _MAX_DEFINITION_TEXT or len(value) > _MAX_DEFINITION_TEXT:
                 raise ValueError("exercise metadata text is too long")
+        metadata = dict(self.metadata)
+        if len(metadata) != metadata_count:
+            raise ValueError("exercise metadata changed during validation")
+
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
-        object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "steps", steps)
+        object.__setattr__(self, "tags", tags)
+        object.__setattr__(self, "metadata", metadata)
 
 
 
