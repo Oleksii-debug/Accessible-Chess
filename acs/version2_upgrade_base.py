@@ -48,17 +48,24 @@ _EDUCATION_WORKSPACE_LOCK_DIRECTORY = ".education-workspace.json.lock"
 
 
 def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
-    """Return whether a root file is crash residue from a canonical writer."""
+    """Return whether a root file is exact crash residue from a canonical writer."""
     if len(relative_path.parts) != 1:
         return False
     name = relative_path.parts[0].casefold()
-    return (
-        name.startswith("gametree-resume.json.") and name.endswith(".tmp")
-    ) or (
-        name.startswith("gametree-resume.json.cas-") and name.endswith(".bak")
-    ) or (
-        name.startswith(".book-progress.json.") and name.endswith(".tmp")
+
+    generated_shapes = (
+        ("gametree-resume.json.", ".tmp"),
+        ("gametree-resume.json.cas-", ".bak"),
+        (".book-progress.json.bak.", ".tmp"),
+        (".book-progress.json.", ".tmp"),
     )
+    for prefix, suffix in generated_shapes:
+        if not name.startswith(prefix) or not name.endswith(suffix):
+            continue
+        token = name[len(prefix) : -len(suffix)]
+        if _is_tempfile_token(token):
+            return True
+    return False
 
 
 def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
@@ -88,11 +95,17 @@ def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
 _TEMPFILE_TOKEN_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyz0123456789_"
 )
+# CPython's tempfile._RandomNameSequence, used by every canonical mkstemp
+# writer classified here, emits exactly eight characters from the alphabet
+# above. The upgrade classifier is intentionally tied to the shipped writer
+# grammar: accepting arbitrary lengths can misclassify preservation-backed user
+# files as disposable crash residue.
+_TEMPFILE_TOKEN_LENGTH = 8
 _HEX_CHARACTERS = frozenset("0123456789abcdef")
 
 
 def _is_tempfile_token(value: str) -> bool:
-    return bool(value) and all(
+    return len(value) == _TEMPFILE_TOKEN_LENGTH and all(
         character in _TEMPFILE_TOKEN_CHARACTERS for character in value
     )
 
@@ -153,6 +166,68 @@ def _is_upgrade_generated_root_runtime_file(
             return True
 
     return False
+
+
+def _generated_runtime_file_is_authenticated_hardlink(
+    path: Path,
+    metadata: os.stat_result,
+    relative_path: PurePosixPath,
+    *,
+    root: Path,
+    settings_name: str,
+    library_name: str,
+) -> bool:
+    """Authenticate an intentional writer hardlink against its canonical inode."""
+    if len(relative_path.parts) != 1:
+        return False
+    name = relative_path.parts[0].casefold()
+    target_name: str | None = None
+
+    gametree_prefix = "gametree-resume.json.cas-"
+    if name.startswith(gametree_prefix) and name.endswith(".bak"):
+        token = name[len(gametree_prefix) : -len(".bak")]
+        if _is_tempfile_token(token):
+            target_name = "gametree-resume.json"
+
+    settings = settings_name.casefold()
+    library = library_name.casefold()
+    if target_name is None:
+        for target, canonical_name in (
+            (settings, settings_name),
+            (library, library_name),
+        ):
+            prefix = f".{target}.publish-guard-"
+            if not name.startswith(prefix):
+                continue
+            token = name[len(prefix) :]
+            if len(token) == 12 and all(
+                character in _HEX_CHARACTERS for character in token
+            ):
+                target_name = canonical_name
+                break
+
+    if target_name is None:
+        return False
+    target_path = root / target_name
+    try:
+        target_metadata = _safe_stat(
+            target_path,
+            "generated hardlink canonical target",
+        )
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(target_metadata.st_mode):
+        return False
+    try:
+        return os.path.samestat(metadata, target_metadata)
+    except (AttributeError, OSError):
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+        ) == (
+            target_metadata.st_dev,
+            target_metadata.st_ino,
+        )
 
 
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
@@ -762,23 +837,7 @@ class Version2UpgradeCoordinator:
         ):
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
-            if (
-                len(relative_path.parts) == 1
-                and relative_path.parts[0].casefold()
-                == _EDUCATION_WORKSPACE_LOCK_DIRECTORY
-            ):
-                lock_info = _safe_stat(path, "education workspace publication lock")
-                if stat.S_ISDIR(lock_info.st_mode):
-                    # EducationWorkspaceStore owns this exact root directory as
-                    # its live publication lock. It does not participate in the
-                    # upgrade lock, so migration must not race an active save.
-                    raise Version2UpgradeBusy(
-                        "education workspace store is busy during upgrade"
-                    )
-                # A regular file with the same spelling is not the canonical
-                # directory lock and remains preservation-backed user data.
-            if relative.casefold() in _CONTROL_NAME_KEYS:
-                continue
+            control_name = relative.casefold() in _CONTROL_NAME_KEYS
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
             # The root object itself is still validated below, so a regular file
@@ -790,11 +849,34 @@ class Version2UpgradeCoordinator:
                 in _DERIVED_ROOT_DIRECTORY_KEYS
             ):
                 continue
-            # Atomic GameTree/Book-progress writers may leave these exact-root
-            # temporary files behind only after abrupt process death. They are
-            # internal publication residue, not preservation-backed user data.
-            # Nested lookalikes and non-matching near names remain ordinary data.
+            # Validate the filesystem object before trusting filename grammar.
+            # A symlink/reparse point that merely looks like writer residue is
+            # not authenticated writer output and must fail closed rather than
+            # disappearing from the preservation set.
+            info = _safe_stat(path, "user-data entry")
             if (
+                len(relative_path.parts) == 1
+                and relative_path.parts[0].casefold()
+                == _EDUCATION_WORKSPACE_LOCK_DIRECTORY
+                and stat.S_ISDIR(info.st_mode)
+            ):
+                # EducationWorkspaceStore owns this exact root directory as its
+                # live publication lock. It does not participate in the upgrade
+                # lock, so migration must not race an active workspace save.
+                raise Version2UpgradeBusy(
+                    "education workspace store is busy during upgrade"
+                )
+            # Fixed coordination/control names are trustworthy only when the
+            # filesystem object has the regular-file shape produced by the
+            # canonical writer. An exact-looking directory remains traversable
+            # user data, while symlink/reparse points fail closed in _safe_stat.
+            if (
+                control_name
+                and stat.S_ISREG(info.st_mode)
+                and int(getattr(info, "st_nlink", 1)) == 1
+            ):
+                continue
+            generated_runtime_file = (
                 _is_generated_root_runtime_file(relative_path)
                 or _is_generated_training_progress_file(relative_path)
                 or _is_generated_education_workspace_file(relative_path)
@@ -803,15 +885,26 @@ class Version2UpgradeCoordinator:
                     settings_name=self.layout.settings_name,
                     library_name=self.layout.library_name,
                 )
-            ):
-                continue
+            )
+            # Atomic writers leave regular files. An exact-looking directory is
+            # traversed normally so its children remain preservation-backed.
+            if generated_runtime_file and stat.S_ISREG(info.st_mode):
+                link_count = int(getattr(info, "st_nlink", 1))
+                if link_count == 1 or _generated_runtime_file_is_authenticated_hardlink(
+                    path,
+                    info,
+                    relative_path,
+                    root=self.layout.root,
+                    settings_name=self.layout.settings_name,
+                    library_name=self.layout.library_name,
+                ):
+                    continue
             folded = relative.casefold()
             if folded in seen:
                 raise Version2UpgradeError(
                     "user-data paths collide on Windows case-folding"
                 )
             seen.add(folded)
-            info = _safe_stat(path, "user-data entry")
             if stat.S_ISDIR(info.st_mode):
                 continue
             if not stat.S_ISREG(info.st_mode):

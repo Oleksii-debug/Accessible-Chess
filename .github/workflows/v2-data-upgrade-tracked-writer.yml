@@ -10,10 +10,13 @@ on:
       - 'acs/version2_upgrade_base.py'
       - 'acs/legacy_library_migration.py'
       - 'acs/settings.py'
+      - 'acs/book_progress_store.py'
+      - 'acs/gametree_resume.py'
       - 'acs/education_workspace_store.py'
       - 'acs/version2_final_product_application.py'
       - 'tests/test_v2_upgrade_schema0_integration.py'
       - 'tests/test_v2_upgrade_sound_artifact_control.py'
+      - 'tests/test_v2_upgrade_root_writer_artifact_grammar.py'
       - 'tests/test_v2_upgrade_training_progress_artifact_control.py'
       - 'tests/test_v2_upgrade_self_coordination_artifact_control.py'
       - 'tests/test_v2_upgrade_education_workspace_artifact_control.py'
@@ -68,6 +71,7 @@ jobs:
             acs/legacy_library_migration.py \
             tests/test_v2_upgrade_schema0_integration.py \
             tests/test_v2_upgrade_sound_artifact_control.py \
+            tests/test_v2_upgrade_root_writer_artifact_grammar.py \
             tests/test_v2_upgrade_training_progress_artifact_control.py \
             tests/test_v2_upgrade_self_coordination_artifact_control.py \
             tests/test_v2_upgrade_education_workspace_artifact_control.py \
@@ -91,10 +95,11 @@ jobs:
           acs/education_workspace_store.py=773bb02701288af6b37c07771d67ede6a627dafb
           acs/version2_final_product_application.py=b90927d8e026a9debfca5cd7d7d095bb1f40413d
           acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
-          acs/version2_upgrade_base.py=3acde31fa3527469660f6c7a767fbbd9f9198178
+          acs/version2_upgrade_base.py=c56e8f93f995f2cf2b42b93b8d6bcdeb8700dbf7
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
           tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
           tests/test_v2_upgrade_sound_artifact_control.py=9e26a615c933042378ef33004b54ac2c45ff404c
+          tests/test_v2_upgrade_root_writer_artifact_grammar.py=cb6d25a780ca0ffd82cf9c2935e3c41fd5fd44a7
           tests/test_v2_upgrade_training_progress_artifact_control.py=cd0be4e3d9e0cff14f8d2b1288d92e3b9a428465
           tests/test_v2_upgrade_self_coordination_artifact_control.py=88a69a82e19d504590d63762ef5d44ff639d34a3
           tests/test_v2_upgrade_education_workspace_artifact_control.py=5c12e6298aef0ff934a013a1bd3d86c26426bc6a
@@ -110,6 +115,7 @@ jobs:
           tests.test_v2_upgrade_v6_successor
           tests.test_version2_upgrade
           tests.test_v2_upgrade_sound_artifact_control
+          tests.test_v2_upgrade_root_writer_artifact_grammar
           tests.test_v2_upgrade_training_progress_artifact_control
           tests.test_v2_upgrade_self_coordination_artifact_control
           tests.test_v2_upgrade_education_workspace_artifact_control
