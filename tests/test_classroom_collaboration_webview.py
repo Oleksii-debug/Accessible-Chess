@@ -2004,6 +2004,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
     def test_language_switch_changes_presentation_without_rebuilding_core(self) -> None:
         view = self.webview(language=UILanguage.EN)
         self.assertEqual("Chat", view.snapshot()["chat"]["heading"])
+        self.assertEqual("Unread", view.snapshot()["chat"]["unread_message_label"])
         self.assertEqual("Message time", view.snapshot()["chat"]["timestamp_label"])
         self.assertEqual("Refresh files", view.snapshot()["files"]["sync_label"])
         self.assertEqual(
@@ -2028,6 +2029,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         view.set_language(UILanguage.UA)
         self.assertEqual("Чат", view.snapshot()["chat"]["heading"])
+        self.assertEqual("Непрочитане", view.snapshot()["chat"]["unread_message_label"])
         self.assertEqual("Час повідомлення", view.snapshot()["chat"]["timestamp_label"])
         self.assertEqual("Оновити файли", view.snapshot()["files"]["sync_label"])
         self.assertEqual(
