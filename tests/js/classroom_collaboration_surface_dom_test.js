@@ -532,6 +532,82 @@ check(
   "delayed progress from an older opaque transfer identity must not replace the active transfer"
 );
 
+const stalePriorTransferRedraw = collaboration([], 0, false, "session-a");
+stalePriorTransferRedraw.files.transfer_progress = {
+  transfer_key: transferKeyA,
+  name: "lesson.pgn",
+  transferred_bytes: 1024,
+  total_bytes: 1024,
+  complete: true,
+  label: "File transfer progress",
+  text: "Stale terminal snapshot from lesson.pgn"
+};
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.synced",
+    payload: { collaboration: stalePriorTransferRedraw }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "0" &&
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("max") === "2048" &&
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 0 B of 2.0 KB: second.pgn.",
+  "an unrelated stale redraw must not replace the active transfer with a prior transfer snapshot"
+);
+
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        transfer_key: transferKeyB,
+        name: "second.pgn",
+        transferred_bytes: 768,
+        total_bytes: 2048,
+        complete: false,
+        label: "File transfer progress",
+        text: "Transferred 768 B of 2.0 KB: second.pgn."
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+const staleSameTransferRedraw = collaboration([], 0, false, "session-a");
+staleSameTransferRedraw.files.transfer_progress = {
+  transfer_key: transferKeyB,
+  name: "second.pgn",
+  transferred_bytes: 128,
+  total_bytes: 2048,
+  complete: false,
+  label: "File transfer progress",
+  text: "Transferred 128 B of 2.0 KB: second.pgn."
+};
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.chat.synced",
+    payload: { collaboration: staleSameTransferRedraw }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "768" &&
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 768 B of 2.0 KB: second.pgn.",
+  "an unrelated stale redraw must not move the same transfer backwards"
+);
+
 const zeroProgressRoot = new FakeElement("div");
 window.AccessibleChessEducationSurface.render(
   zeroProgressRoot,
