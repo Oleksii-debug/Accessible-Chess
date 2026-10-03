@@ -1153,7 +1153,7 @@ class BookProgressStoreTests(unittest.TestCase):
         reader.go_to(3)
         private_failure = OSError(5, "replace failed", str(self.path))
         with mock.patch(
-            "acs.book_progress_store.os.replace",
+            "acs.book_progress_store._replace_published_path",
             side_effect=private_failure,
         ):
             with self.assertRaises(BookProgressStoreError) as caught:
@@ -2000,15 +2000,21 @@ class BookProgressStoreTests(unittest.TestCase):
         real_lstat = os.lstat
         path_checks = 0
 
+        class StatAlias:
+            def __init__(self, current: os.stat_result) -> None:
+                self._current = current
+                self.st_ctime_ns = getattr(current, "st_ctime_ns", 0) + 1
+
+            def __getattr__(self, name: str):
+                return getattr(self._current, name)
+
         def alias_ctime_on_final_path_check(path: object) -> os.stat_result:
             nonlocal path_checks
             current = real_lstat(path)
             if os.fspath(path) == os.fspath(self.path):
                 path_checks += 1
                 if path_checks == 3:
-                    alias = mock.Mock(wraps=current)
-                    alias.st_ctime_ns = getattr(current, "st_ctime_ns", 0) + 1
-                    return alias
+                    return StatAlias(current)  # type: ignore[return-value]
             return current
 
         with (
