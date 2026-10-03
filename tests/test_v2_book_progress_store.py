@@ -799,6 +799,49 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original_bytes)
         self.assertEqual(self.store.restore("book:atomic", self.original_document()).index, 1)
 
+    def test_backup_publication_rechecks_target_after_temp_fsync(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:backup-temp-race", reader)
+        reader.go_to(2)
+        self.store.save("book:backup-temp-race", reader)
+
+        primary_before = self.path.read_bytes()
+        external_backup = b'{"entries":{},"generation":91,"schema_version":2}'
+        real_mkstemp = tempfile.mkstemp
+        injected = False
+
+        def backup_changes_during_temp_write(*args, **kwargs):
+            nonlocal injected
+            descriptor, name = real_mkstemp(*args, **kwargs)
+            if kwargs.get("prefix") == f".{self.store.backup_path.name}.":
+                self.store.backup_path.write_bytes(external_backup)
+                injected = True
+            return descriptor, name
+
+        reader.go_to(3)
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=backup_changes_during_temp_write,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:backup-temp-race", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), external_backup)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.store.backup_path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
     def test_post_replace_canonical_change_reports_durability_unknown(self) -> None:
         self.path.parent.mkdir(parents=True)
         external = b'{"entries":{},"generation":41,"schema_version":2}'
