@@ -17,7 +17,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import stat
 import tempfile
 import threading
@@ -1239,8 +1238,13 @@ class FilesystemSoundPackStore:
                 pack_dir, manifest.pack_id, manifest.version
             )
         finally:
-            if cleanup and staging.exists():
-                shutil.rmtree(staging, ignore_errors=True)
+            if cleanup and os.path.lexists(staging):
+                try:
+                    self._remove_without_following(staging)
+                except SoundPackStoreError:
+                    # Best-effort cleanup must never replace the primary install
+                    # failure, and reparse/symlink entries are never traversed.
+                    pass
 
     def _installed_disk_pack(self, pack_id: str) -> InstalledSoundPack:
         identity = _stable_id(pack_id, allow_dot=True)
