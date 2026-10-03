@@ -443,6 +443,54 @@ Starting board
             import_text_book("text", source_name="book.rtf", source_format="rtf")
         self.assertEqual(format_error.exception.code, BookTextImportErrorCode.UNSUPPORTED_FORMAT)
 
+    def test_markdown_lists_keep_semantics_with_up_to_three_leading_spaces(self) -> None:
+        cases = (
+            (" - First item\n - Second item\n", False, None, ["First item", "Second item"]),
+            ("  3. Third item\n  4. Fourth item\n", True, 3, ["Third item", "Fourth item"]),
+            ("   * Alpha\n   * Beta\n", False, None, ["Alpha", "Beta"]),
+        )
+        for source, ordered, start, items in cases:
+            with self.subTest(source=source):
+                result = import_text_book(
+                    source,
+                    source_name="shallow-indent-list.md",
+                    source_format="markdown",
+                )
+                lists = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, ListBlock)
+                ]
+                self.assertEqual(len(lists), 1)
+                self.assertEqual(lists[0].items, items)
+                self.assertEqual(lists[0].ordered, ordered)
+                self.assertEqual(lists[0].start, start)
+                self.assertFalse(
+                    any("list indentation" in warning for warning in result.warnings)
+                )
+
+    def test_markdown_tab_or_four_space_list_indent_stays_readable_fallback(self) -> None:
+        for prefix in ("    ", "\t"):
+            with self.subTest(prefix=repr(prefix)):
+                source = f"{prefix}- First item\n{prefix}- Second item\n"
+                result = import_text_book(
+                    source,
+                    source_name="unsupported-indent-list.md",
+                    source_format="markdown",
+                )
+                self.assertFalse(
+                    any(isinstance(block, ListBlock) for block in result.document.blocks)
+                )
+                paragraphs = [
+                    block.text
+                    for block in result.document.blocks
+                    if isinstance(block, Paragraph)
+                ]
+                self.assertEqual(paragraphs, ["- First item", "- Second item"])
+                self.assertTrue(
+                    any("list indentation" in warning for warning in result.warnings)
+                )
+
     def test_markdown_lists_are_semantic_while_block_quote_loss_remains_explicit(self) -> None:
         source = '''# Notes
 
