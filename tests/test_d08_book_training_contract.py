@@ -313,6 +313,85 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, coercive)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
 
+    def test_wire_dict_subclasses_are_rejected_before_hooks(self):
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("wire dict subclass len must never execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("wire dict subclass iteration must never execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("wire dict subclass items must never execute")
+
+        payloads = []
+
+        payloads.append(HostileDict(self.payload))
+
+        nested_origin = copy.deepcopy(self.payload)
+        nested_origin["origin"] = HostileDict(nested_origin["origin"])
+        payloads.append(nested_origin)
+
+        nested_definition = copy.deepcopy(self.payload)
+        nested_definition["definition"] = HostileDict(nested_definition["definition"])
+        payloads.append(nested_definition)
+
+        nested_step = copy.deepcopy(self.payload)
+        nested_step["definition"]["steps"][0] = HostileDict(
+            nested_step["definition"]["steps"][0]
+        )
+        payloads.append(nested_step)
+
+        nested_metadata = copy.deepcopy(self.payload)
+        nested_metadata["definition"]["metadata"] = HostileDict(
+            nested_metadata["definition"]["metadata"]
+        )
+        payloads.append(nested_metadata)
+
+        for payload in payloads:
+            with self.subTest(level=type(payload).__name__):
+                HostileDict.touched = False
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
+                self.assertFalse(HostileDict.touched)
+
+    def test_wire_hostile_key_is_rejected_before_rehash_or_equality(self):
+        class HostileKey(str):
+            armed = False
+
+            def __hash__(self):
+                if type(self).armed:
+                    raise AssertionError("wire key must not be rehashed before type guard")
+                return str.__hash__(self)
+
+            def __eq__(self, other):
+                if type(self).armed:
+                    raise AssertionError("wire key must not be compared before type guard")
+                return str.__eq__(self, other)
+
+        payload = {}
+        for key, value in self.payload.items():
+            payload[
+                HostileKey(key) if key == "schema_version" else key
+            ] = copy.deepcopy(value)
+        HostileKey.armed = True
+        try:
+            with self.assertRaises(BookTrainingError) as caught:
+                restore_book_training_material(self.book, payload)
+        finally:
+            HostileKey.armed = False
+
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
     def test_wire_step_count_is_rejected_before_step_materialization(self):
         oversized = copy.deepcopy(self.payload)
         raw_step = copy.deepcopy(oversized["definition"]["steps"][0])
