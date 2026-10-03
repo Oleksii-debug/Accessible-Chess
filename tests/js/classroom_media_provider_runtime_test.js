@@ -105,12 +105,12 @@ function runtimeGlobal() {
   };
 }
 
-function providerConfigEvent() {
+function providerConfigEvent(serverUrl) {
   return {
     kind: "provider-config",
     payload: {
       config: {
-        server_url: "wss://media.example.test",
+        server_url: serverUrl || "wss://media.example.test",
         moderation_participant_identity: "moderation-bot"
       }
     }
@@ -410,6 +410,148 @@ async function testFailedConnectSubmitsExactCleanupSnapshot() {
   ]);
 }
 
+async function testProviderConfigChangeWhileConnectedCancelsBeforeDispatch() {
+  FakeAdapter.instances.length = 0;
+  const calls = [];
+  let configReads = 0;
+  const runtime = new ClassroomMediaProviderRuntime({
+    globalObject: runtimeGlobal(),
+    invoke: async function (command, payload) {
+      calls.push(command);
+      if (command === "media.provider_config") {
+        configReads += 1;
+        return providerConfigEvent(
+          configReads === 1
+            ? "wss://media-one.example.test"
+            : "wss://media-two.example.test"
+        );
+      }
+      if (command === "media.provider_take_credential") {
+        return {
+          kind: "provider-credential",
+          payload: {
+            transaction_id: SESSION_ID,
+            credential: {
+              room_id: "room-1",
+              participant_id: "student-1",
+              token: TOKEN
+            }
+          }
+        };
+      }
+      if (command === "media.provider_dispatched") {
+        return {
+          kind: "provider-ready",
+          payload: { transaction_id: payload.transaction_id }
+        };
+      }
+      if (command === "media.provider_session_success") {
+        return terminalEvent();
+      }
+      if (command === "media.provider_not_started") {
+        assert.strictEqual(payload.transaction_id, HOST_ID);
+        return {
+          kind: "error",
+          payload: {
+            message: "safe",
+            snapshot: null,
+            recovery_required: false
+          }
+        };
+      }
+      if (command === "media.provider_effect_success") {
+        throw new Error("config change must not reach provider effect acknowledgement");
+      }
+      throw new Error("unexpected command " + command);
+    }
+  });
+
+  const connected = await runtime.settle(connectDispatch());
+  assert.strictEqual(connected.kind, "media-updated");
+  assert.strictEqual(FakeAdapter.instances.length, 1);
+  assert.strictEqual(FakeAdapter.instances[0].options.serverUrl, "wss://media-one.example.test");
+
+  const blocked = await runtime.settle(effectDispatch(0, 1));
+  assert.strictEqual(blocked.kind, "error");
+  assert.strictEqual(FakeAdapter.instances.length, 1);
+  assert.deepStrictEqual(
+    FakeAdapter.instances[0].calls.map((call) => call[0]),
+    ["connect"]
+  );
+  assert.deepStrictEqual(calls.slice(-2), [
+    "media.provider_config",
+    "media.provider_not_started"
+  ]);
+}
+
+async function testProviderConfigChangeAfterCleanDisconnectRebuildsExecutor() {
+  FakeAdapter.instances.length = 0;
+  const calls = [];
+  let configReads = 0;
+  const runtime = new ClassroomMediaProviderRuntime({
+    globalObject: runtimeGlobal(),
+    invoke: async function (command, payload) {
+      calls.push(command);
+      if (command === "media.provider_config") {
+        configReads += 1;
+        return providerConfigEvent(
+          configReads === 1
+            ? "wss://media-one.example.test"
+            : "wss://media-two.example.test"
+        );
+      }
+      if (command === "media.provider_dispatched") {
+        return {
+          kind: "provider-ready",
+          payload: { transaction_id: payload.transaction_id }
+        };
+      }
+      if (command === "media.provider_session_success") {
+        return terminalEvent();
+      }
+      if (command === "media.provider_take_credential") {
+        return {
+          kind: "provider-credential",
+          payload: {
+            transaction_id: SESSION_ID,
+            credential: {
+              room_id: "room-2",
+              participant_id: "student-1",
+              token: TOKEN
+            }
+          }
+        };
+      }
+      throw new Error("unexpected command " + command);
+    }
+  });
+
+  const disconnectDispatch = {
+    kind: "provider-dispatch",
+    payload: {
+      transaction_id: SESSION_ID,
+      focus_target: "classroom-media-heading",
+      provider: {
+        transaction_id: SESSION_ID,
+        operation: "disconnect",
+        credential_required: false,
+        enabled_sources: []
+      }
+    }
+  };
+  await runtime.settle(disconnectDispatch);
+  assert.strictEqual(FakeAdapter.instances.length, 1);
+  assert.strictEqual(FakeAdapter.instances[0].options.serverUrl, "wss://media-one.example.test");
+
+  await runtime.settle(connectDispatch());
+  assert.strictEqual(FakeAdapter.instances.length, 2);
+  assert.strictEqual(FakeAdapter.instances[1].options.serverUrl, "wss://media-two.example.test");
+  assert.deepStrictEqual(
+    FakeAdapter.instances[1].calls.map((call) => call[0]),
+    ["connect"]
+  );
+}
+
 async function testMismatchedExecutorReceiptEntersRecoveryWithoutCanonicalAck() {
   const calls = [];
   const globals = runtimeGlobal();
@@ -501,6 +643,8 @@ async function main() {
   await testUnavailablePackagedRuntimeCancelsBeforeProviderBoundary();
   await testLostReadyAfterCredentialUsesFailClosedNotStartedCallback();
   await testFailedConnectSubmitsExactCleanupSnapshot();
+  await testProviderConfigChangeWhileConnectedCancelsBeforeDispatch();
+  await testProviderConfigChangeAfterCleanDisconnectRebuildsExecutor();
   await testMismatchedExecutorReceiptEntersRecoveryWithoutCanonicalAck();
   await testRuntimeRejectsConcurrentSettle();
   process.stdout.write("CLASSROOM_MEDIA_PROVIDER_RUNTIME_TEST=PASS\n");
