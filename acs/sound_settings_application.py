@@ -269,6 +269,12 @@ class SoundSettingsApplication:
                 entry = self._catalog[pack_id]
                 status = self._packs.status(entry)
                 manifest = entry.manifest
+                installed_manifest = installed_local.get(pack_id)
+                installed_compatible = (
+                    None
+                    if installed_manifest is None
+                    else self._local_pack_compatible(installed_manifest)
+                )
                 represented.add(manifest.pack_id)
                 packs.append(
                     {
@@ -279,6 +285,7 @@ class SoundSettingsApplication:
                         "license_id": manifest.license_id,
                         "provenance": manifest.provenance,
                         "compatible": entry.compatible,
+                        "installed_compatible": installed_compatible,
                         "installed_version": status.installed_version,
                         "state": status.state.value,
                         "active": profile.pack_id == manifest.pack_id,
@@ -302,6 +309,7 @@ class SoundSettingsApplication:
                     "license_id": manifest.license_id,
                     "provenance": manifest.provenance,
                     "compatible": compatible,
+                    "installed_compatible": compatible,
                     "installed_version": manifest.version,
                     "state": "local_installed" if compatible else "incompatible",
                     "active": profile.pack_id == manifest.pack_id,
