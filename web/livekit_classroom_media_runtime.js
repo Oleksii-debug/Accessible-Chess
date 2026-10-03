@@ -32,11 +32,10 @@
   }
 
   function transactionId(value) {
-    const token = String(value || "");
-    if (!TRANSACTION_RE.test(token)) {
+    if (typeof value !== "string" || !TRANSACTION_RE.test(value)) {
       throw new TypeError("media provider transaction identity is invalid");
     }
-    return token;
+    return value;
   }
 
   function providerIdentifier(value, label) {
@@ -97,8 +96,8 @@
     if (transactionId(provider.transaction_id) !== transaction) {
       throw new TypeError("media provider instruction transaction mismatch");
     }
-    const operation = String(provider.operation || "");
-    if (!OPERATIONS.has(operation)) {
+    const operation = provider.operation;
+    if (typeof operation !== "string" || !OPERATIONS.has(operation)) {
       throw new TypeError("media provider operation is invalid");
     }
 
@@ -214,10 +213,9 @@
       this._adapter = null;
       this._config = null;
       this._busy = false;
+      this._activeTransaction = null;
       this._transportLossSnapshot = null;
       this._transportRetryAt = 0;
-      this._sessionRecovery = null;
-      this._sessionRecoveryRetryAt = 0;
     }
 
     get configured() {
@@ -350,50 +348,36 @@
       }
     }
 
-    _rememberSessionRecovery(transaction, operation) {
-      this._sessionRecovery = Object.freeze({ transaction, operation });
-      this._sessionRecoveryRetryAt = 0;
-    }
-
-    _clearSessionRecovery(transaction) {
-      if (this._sessionRecovery !== null &&
-          this._sessionRecovery.transaction === transaction) {
-        this._sessionRecovery = null;
-        this._sessionRecoveryRetryAt = 0;
+    _rememberTransportLossSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+        return;
       }
-    }
-
-    _deferSessionRecoveryRetry() {
-      this._sessionRecoveryRetryAt = Date.now() + TRANSPORT_RETRY_MS;
+      this._transportLossSnapshot = snapshot;
+      this._transportRetryAt = 0;
     }
 
     async _settleCleanSessionFailure(invoke, transaction, operation, snapshot) {
       try {
-        let result;
         if (operation === "disconnect") {
-          // The first disconnect threw, but the cleanup retry reached the exact
-          // intended provider state. Commit the original disconnect transaction
-          // rather than downgrading a completed leave to an unknown outcome.
-          result = await invoke("media.provider_session_success", {
-            transaction_id: transaction,
-            snapshot
-          });
-        } else {
-          result = await invoke("media.provider_connection_failed_clean", {
+          // The first provider disconnect threw, but the immediate cleanup retry
+          // reached the exact intended state. Commit the original leave through
+          // the existing session-success authority.
+          return await invoke("media.provider_session_success", {
             transaction_id: transaction,
             snapshot
           });
         }
-        const payload = result && result.payload && typeof result.payload === "object"
-          ? result.payload
-          : {};
-        if (result && result.kind === "error" && payload.recovery_required === true) {
-          this._rememberSessionRecovery(transaction, operation);
-        }
-        return result;
+        return await invoke("media.provider_connection_failed_clean", {
+          transaction_id: transaction,
+          snapshot
+        });
       } catch (_error) {
         const result = await this._providerFailed(invoke, transaction);
-        this._rememberSessionRecovery(transaction, operation);
+        // Provider state is already proven clean, but Python may have latched an
+        // ambiguous session recovery because the bridge reply was lost. Retain
+        // the clean snapshot until trusted recovery completion lets the normal
+        // transport-loss callback converge canonical state.
+        this._rememberTransportLossSnapshot(snapshot);
         return result;
       }
     }
@@ -405,7 +389,6 @@
       } catch (_error) {
         snapshot = null;
       }
-
       if (snapshot && isCleanDisconnectedSnapshot(snapshot)) {
         return this._settleCleanSessionFailure(
           invoke,
@@ -415,15 +398,18 @@
         );
       }
 
-      // A failed connect/reconnect can leave a validated Room with microphone
-      // already enabled; a failed disconnect can leave the entire session live.
-      // Retry provider teardown immediately before latching recovery so the
-      // accessible surface never loses its only practical way to stop capture.
+      // A failed connect/reconnect can leave a validated Room with capture
+      // already enabled; a failed disconnect can leave the whole session live.
+      // Retry teardown immediately before presenting recovery.
       try {
         await adapter.disconnect();
         snapshot = adapter.snapshot();
       } catch (_error) {
-        snapshot = null;
+        try {
+          snapshot = adapter.snapshot();
+        } catch (_snapshotError) {
+          snapshot = null;
+        }
       }
       if (snapshot && isCleanDisconnectedSnapshot(snapshot)) {
         return this._settleCleanSessionFailure(
@@ -435,7 +421,11 @@
       }
 
       const result = await this._providerFailed(invoke, transaction);
-      this._rememberSessionRecovery(transaction, operation);
+      // Do not let recovery hide the only path that can stop provider capture.
+      // The existing periodic transport reconciler will retry disconnect until
+      // the adapter proves a clean snapshot. Current #1201 semantics deliberately
+      // keep that snapshot pending while trusted Python recovery is latched.
+      this._rememberTransportLossSnapshot(snapshot);
       return result;
     }
 
@@ -560,70 +550,21 @@
       }
     }
 
-    async _deliverSessionRecovery(invoke) {
-      const recovery = this._sessionRecovery;
-      if (recovery === null) return null;
-      if (this._adapter === null || typeof this._adapter.disconnect !== "function") {
-        this._deferSessionRecoveryRetry();
-        return null;
-      }
-
-      let snapshot = null;
-      try {
-        snapshot = this._adapter.snapshot();
-      } catch (_error) {
-        snapshot = null;
-      }
-      if (!snapshot || !isCleanDisconnectedSnapshot(snapshot)) {
-        try {
-          await this._adapter.disconnect();
-          snapshot = this._adapter.snapshot();
-        } catch (_error) {
-          this._deferSessionRecoveryRetry();
-          return null;
-        }
-      }
-      if (!isCleanDisconnectedSnapshot(snapshot)) {
-        this._deferSessionRecoveryRetry();
-        return null;
-      }
-
-      let result;
-      try {
-        result = await invoke("media.provider_session_recovery_clean", {
-          transaction_id: recovery.transaction,
-          snapshot
-        });
-      } catch (_error) {
-        this._deferSessionRecoveryRetry();
-        return null;
-      }
-      const payload = result && result.payload && typeof result.payload === "object"
-        ? result.payload
-        : {};
-      if (result && result.kind === "media-updated") {
-        this._clearSessionRecovery(recovery.transaction);
-        return result;
-      }
-      if (result && result.kind === "error" && payload.recovery_required === true) {
-        this._deferSessionRecoveryRetry();
-        return result;
-      }
-      this._deferSessionRecoveryRetry();
-      return result && typeof result === "object" ? result : null;
-    }
-
     _deferTransportRetry() {
       this._transportRetryAt = Date.now() + TRANSPORT_RETRY_MS;
     }
 
     _transportReplyIsTerminal(result) {
-      if (!result || typeof result !== "object") return false;
-      if (result.kind === "media-updated") return true;
-      const payload = result.payload && typeof result.payload === "object"
-        ? result.payload
-        : {};
-      return result.kind === "error" && payload.recovery_required === true;
+      // A recovery latch is not canonical transport-loss completion.  Python may
+      // still be holding an unrelated/active provider recovery while its media
+      // controller remains connected.  Keep the clean disconnected provider
+      // snapshot and retry after trusted recovery resolution; only an accepted
+      // media-updated reply proves canonical transport loss was committed.
+      return Boolean(
+        result &&
+        typeof result === "object" &&
+        result.kind === "media-updated"
+      );
     }
 
     async _deliverTransportLoss(invoke) {
@@ -633,7 +574,7 @@
       // Provider-side room moves can leave a still-live Room that is no longer
       // canonical. Retry only teardown until the adapter proves a clean
       // disconnected state; never publish a false clean loss to Python.
-      if (snapshot.cleanup_required === true) {
+      if (snapshot.connected === true || snapshot.cleanup_required === true) {
         if (this._adapter === null || typeof this._adapter.disconnect !== "function") {
           this._deferTransportRetry();
           return null;
@@ -644,6 +585,12 @@
           this._transportLossSnapshot = snapshot;
           this._transportRetryAt = 0;
         } catch (_error) {
+          // Preserve the latest visible provider state for the next retry. In
+          // particular, a validated active Room can still be publishing media
+          // even though cleanup_required is false.
+          try {
+            this._transportLossSnapshot = this._adapter.snapshot();
+          } catch (_snapshotError) {}
           this._deferTransportRetry();
           return null;
         }
@@ -673,27 +620,13 @@
 
     async reconcileTransport(invoke) {
       invoke = requireInvoke(invoke);
-      if (this._busy) return null;
-      const now = Date.now();
-      const sessionReady = this._sessionRecovery !== null &&
-        this._sessionRecoveryRetryAt <= now;
-      const transportReady = this._transportLossSnapshot !== null &&
-        this._transportRetryAt <= now;
-      if (!sessionReady && !transportReady) return null;
-
+      if (this._busy || this._transportLossSnapshot === null) return null;
+      if (this._transportRetryAt > Date.now()) return null;
       this._busy = true;
       try {
-        let result = null;
-        if (sessionReady) {
-          result = await this._deliverSessionRecovery(invoke);
-          if (this._sessionRecovery !== null) return result;
-        }
-        if (transportReady && this._transportLossSnapshot !== null) {
-          const transportResult = await this._deliverTransportLoss(invoke);
-          return transportResult || result;
-        }
-        return result;
+        return await this._deliverTransportLoss(invoke);
       } finally {
+        this._activeTransaction = null;
         this._busy = false;
       }
     }
@@ -717,6 +650,12 @@
             return null;
           }
         }
+        if (transaction === this._activeTransaction) {
+          // Duplicate delivery of the exact in-flight dispatch must not retire
+          // the canonical transaction that currently owns the provider. The
+          // original execution will publish the sole terminal acknowledgement.
+          return { kind: "status", payload: {} };
+        }
         return this._providerNotStarted(invoke, transaction);
       }
 
@@ -724,7 +663,7 @@
       // newly prepared transaction before reconciling that older transport fact,
       // so stale canonical "connected" state cannot authorize a second provider
       // mutation.
-      if (this._sessionRecovery !== null || this._transportLossSnapshot !== null) {
+      if (this._transportLossSnapshot !== null) {
         let parsed;
         try {
           parsed = providerInstruction(event);
@@ -742,7 +681,16 @@
         return reconciled || retired;
       }
 
+      let activeTransaction = null;
+      try {
+        activeTransaction = transactionId(
+          event && event.payload && event.payload.transaction_id
+        );
+      } catch (_error) {
+        activeTransaction = null;
+      }
       this._busy = true;
+      this._activeTransaction = activeTransaction;
       try {
         let current = event;
         for (let index = 0; index < MAX_DISPATCH_STEPS; index += 1) {
@@ -769,12 +717,13 @@
         const parsed = providerInstruction(current);
         return this._providerFailed(invoke, parsed.transaction);
       } finally {
+        this._activeTransaction = null;
         this._busy = false;
       }
     }
   }
 
-  // The runtime has mutable execution state (_busy, _adapter, _config).
+  // The runtime has mutable execution state (_busy, _activeTransaction, _adapter, _config).
   // Seal its shape without freezing those state slots.
   global.AccessibleChessClassroomMediaProviderRuntime = Object.seal(
     new ClassroomMediaProviderRuntime()
