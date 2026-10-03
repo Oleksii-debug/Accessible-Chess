@@ -348,6 +348,22 @@ async function clickRoute(routeId) {
   check(originalMain.hidden === false, "native Stage 1 action hid the original main");
   check(documentRef.activeElement === moveInput, "native Stage 1 action disturbed the current Stage 1 keyboard focus");
 
+  const beforeAccessibleResultRefreshes = stage1RefreshCalls;
+  eventQueue = [{
+    kind: "delegated",
+    payload: {
+      action_id: "analysis.pv1",
+      announcement: "Variation 1. Depth 18. Evaluation +0.42. e4 e5."
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(stage1RefreshCalls === beforeAccessibleResultRefreshes + 1,
+    "native analysis shortcut did not refresh Stage 1 state");
+  check(live.textContent === "Variation 1. Depth 18. Evaluation +0.42. e4 e5.",
+    "native delegated accessible result did not reach the live region");
+
   console.log("Version 2 release bootstrap DOM/focus contract PASS");
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
