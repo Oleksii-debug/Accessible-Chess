@@ -387,6 +387,29 @@ class PackagedSoundResolverTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 PackagedSoundAssetResolver(tmp).load_manifest()
 
+    def test_scaled_copy_supports_unsigned_8bit_pcm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "alert.wav"
+            with wave.open(str(source), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(1)
+                writer.setframerate(8000)
+                writer.writeframes(bytes([0, 64, 128, 192, 255]))
+
+            adapter = WindowsSoundPlaybackAdapter(
+                PackagedSoundAssetResolver(tmp),
+                cache_dir=Path(tmp) / "cache",
+            )
+            scaled = adapter._scaled_copy(source, SoundEvent.LOW_TIME, 50)
+
+            with wave.open(str(scaled), "rb") as reader:
+                self.assertEqual(reader.getsampwidth(), 1)
+                self.assertEqual(reader.getcomptype(), "NONE")
+                self.assertEqual(
+                    list(reader.readframes(reader.getnframes())),
+                    [64, 96, 128, 160, 192],
+                )
+
     def test_scaled_cache_is_bound_to_source_bytes_not_mtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "move.wav"
@@ -571,7 +594,7 @@ class PackagedSoundResolverTests(unittest.TestCase):
                 cache_dir=cache,
             )
 
-            with self.assertRaisesRegex(ValueError, "truncated 16-bit PCM WAV asset"):
+            with self.assertRaisesRegex(ValueError, "truncated PCM WAV asset"):
                 adapter._scaled_copy(source, SoundEvent.MOVE, 50)
 
             self.assertEqual(list(cache.glob("move-v50-*.wav")), [])
