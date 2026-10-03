@@ -168,6 +168,81 @@ class ClassroomChatServerSQLiteStore:
         db.execute("PRAGMA foreign_keys=ON")
         return db
 
+    @staticmethod
+    def _validate_schema_shape(
+        db: sqlite3.Connection,
+        *,
+        version: int,
+    ) -> None:
+        expected: dict[str, tuple[tuple[object, ...], ...]] = {
+            "classroom_chat_server_meta": (
+                ("key", "TEXT", 0, None, 1),
+                ("value", "INTEGER", 1, None, 0),
+            ),
+            "classroom_chat_server_messages": (
+                ("message_id", "TEXT", 0, None, 1),
+                ("room_id", "TEXT", 1, None, 0),
+                ("sender_id", "TEXT", 1, None, 0),
+                ("sequence_no", "INTEGER", 1, None, 0),
+                ("body", "TEXT", 1, None, 0),
+                ("retention", "TEXT", 1, None, 0),
+                ("hidden", "INTEGER", 1, "0", 0),
+                ("sent_at_unix_ms", "INTEGER", 1, None, 0),
+            ),
+            "classroom_chat_server_permissions": (
+                ("room_id", "TEXT", 1, None, 1),
+                ("target_id", "TEXT", 1, None, 2),
+                ("allowed", "INTEGER", 1, None, 0),
+            ),
+            "classroom_chat_server_moderation_ops": (
+                ("room_id", "TEXT", 1, None, 1),
+                ("operation_id", "TEXT", 1, None, 2),
+                ("fingerprint", "TEXT", 1, None, 0),
+            ),
+        }
+        if version >= 2:
+            expected["classroom_chat_server_state_updates"] = (
+                ("room_id", "TEXT", 1, None, 1),
+                ("revision", "INTEGER", 1, None, 2),
+                ("message_id", "TEXT", 1, None, 0),
+                ("hidden", "INTEGER", 1, None, 0),
+            )
+
+        for table, wanted in expected.items():
+            rows = db.execute(f"PRAGMA table_info({table})").fetchall()
+            actual = tuple(
+                (
+                    row["name"],
+                    str(row["type"]).upper(),
+                    int(row["notnull"]),
+                    row["dflt_value"],
+                    int(row["pk"]),
+                )
+                for row in rows
+            )
+            if actual != wanted:
+                raise ClassroomChatServerError(
+                    "classroom chat server schema shape is incompatible"
+                )
+
+        message_sql_row = db.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type='table'
+              AND name='classroom_chat_server_messages'
+            """
+        ).fetchone()
+        if (
+            message_sql_row is None
+            or type(message_sql_row["sql"]) is not str
+            or "unique(room_id,sequence_no)" not in "".join(
+                message_sql_row["sql"].lower().split()
+            )
+        ):
+            raise ClassroomChatServerError(
+                "classroom chat server message ordering constraint is missing"
+            )
+
     def _ensure_schema(self) -> None:
         with closing(self._connect()) as db, db:
             try:
@@ -217,6 +292,10 @@ class ClassroomChatServerSQLiteStore:
                         raise ClassroomChatServerError(
                             "classroom chat server schema is incomplete"
                         )
+                    self._validate_schema_shape(
+                        db,
+                        version=version,
+                    )
                 elif namespace_objects:
                     raise ClassroomChatServerError(
                         "classroom chat server schema metadata is missing"
@@ -280,6 +359,10 @@ class ClassroomChatServerSQLiteStore:
                         """,
                         (_SERVER_SCHEMA_VERSION,),
                     )
+                self._validate_schema_shape(
+                    db,
+                    version=_SERVER_SCHEMA_VERSION,
+                )
             except ClassroomChatServerError:
                 raise
             except sqlite3.Error:

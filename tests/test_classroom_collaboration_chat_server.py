@@ -766,6 +766,56 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_current_schema_rejects_wrong_permission_primary_key(self) -> None:
+        path = Path(self.tmp.name) / "schema-wrong-permission-key.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("ALTER TABLE classroom_chat_server_permissions RENAME TO old_permissions")
+            db.execute(
+                """
+                CREATE TABLE classroom_chat_server_permissions(
+                    room_id TEXT NOT NULL,
+                    target_id TEXT NOT NULL,
+                    allowed INTEGER NOT NULL CHECK(allowed IN (0,1))
+                )
+                """
+            )
+            db.execute("DROP TABLE old_permissions")
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema shape is incompatible",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+    def test_current_schema_rejects_missing_message_ordering_constraint(self) -> None:
+        path = Path(self.tmp.name) / "schema-missing-message-order.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP INDEX idx_classroom_chat_server_messages_room")
+            db.execute("ALTER TABLE classroom_chat_server_messages RENAME TO old_messages")
+            db.execute(
+                """
+                CREATE TABLE classroom_chat_server_messages(
+                    message_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    body TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
+                    sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0)
+                )
+                """
+            )
+            db.execute("DROP TABLE old_messages")
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "message ordering constraint is missing",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
     def test_current_schema_does_not_recreate_missing_authority_table(self) -> None:
         path = Path(self.tmp.name) / "schema-incomplete-current.sqlite3"
         store = ClassroomChatServerSQLiteStore(path)
