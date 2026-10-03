@@ -215,16 +215,16 @@ class EducationLedger:
 
     def to_record(self) -> dict[str, Any]:
         body = self._body()
-        body["digest"] = _digest(body)
+        # A record returned by this authority must always be reopenable through
+        # from_record()/from_json() under the same aggregate wire budget.
+        body["digest"] = _digest(body, max_bytes=MAX_SNAPSHOT_BYTES)
+        _digest(body, max_bytes=MAX_SNAPSHOT_BYTES)
         return body
 
     def to_json(self) -> str:
-        text = _canonical_json(self.to_record())
-        if _utf8_size_exceeds_limit(text, MAX_SNAPSHOT_BYTES):
-            raise EducationRecordsError(
-                "education records snapshot exceeds size limit"
-            )
-        return text
+        # to_record() proves the complete canonical wire record is within
+        # budget before the returned JSON string is materialized.
+        return _canonical_json(self.to_record())
 
     @classmethod
     def from_record(cls, value: Mapping[str, Any]) -> "EducationLedger":
@@ -245,9 +245,9 @@ class EducationLedger:
         )
 
         # Decode and bound attacker-controlled collections before hashing the
-        # record body.  The decoded canonical object is the digest authority,
-        # so a direct from_record() caller cannot force an unbounded JSON
-        # materialization merely to reach the later collection validators.
+        # record body.  Integrity is checked against the exact validated wire
+        # record below, so a direct from_record() caller cannot force an
+        # unbounded JSON materialization merely to reach these validators.
         ledger = cls(
             version=data["version"],
             classroom_digest=data["classroom_digest"],
@@ -265,10 +265,24 @@ class EducationLedger:
                 limit=MAX_OPERATION_RECEIPTS,
             ),
         )
-        if ledger.digest != supplied_digest:
+
+        # Bind integrity to the exact validated wire record rather than to a
+        # normalized reconstruction.  This runs only after all collection and
+        # field validators above, and hashes incrementally so a direct
+        # from_record() caller cannot force a full canonical JSON allocation.
+        body = {key: data[key] for key in expected if key != "digest"}
+        actual_digest = _digest(body, max_bytes=MAX_SNAPSHOT_BYTES)
+        if actual_digest != supplied_digest:
             raise EducationRecordsError(
                 "education records snapshot digest mismatch"
             )
+
+        # from_json() already bounds the complete wire text before parsing.
+        # Direct from_record() must enforce the same aggregate budget, including
+        # the digest field, rather than relying only on per-field/list limits.
+        full_record = dict(body)
+        full_record["digest"] = supplied_digest
+        _digest(full_record, max_bytes=MAX_SNAPSHOT_BYTES)
         return ledger
 
     @classmethod
@@ -892,15 +906,38 @@ def _canonical_json(value: object) -> str:
         ) from exc
 
 
-def _digest(value: object) -> str:
-    text = _canonical_json(value)
+def _digest(value: object, *, max_bytes: int | None = None) -> str:
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+        raise ValueError("canonical digest byte limit must be a non-negative integer")
+
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256()
+    total = 0
     try:
-        encoded = text.encode("utf-8")
-    except UnicodeEncodeError as exc:
+        for chunk in encoder.iterencode(value):
+            try:
+                encoded = chunk.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise EducationRecordsError(
+                    "education records contain an invalid Unicode scalar value"
+                ) from exc
+            total += len(encoded)
+            if max_bytes is not None and total > max_bytes:
+                raise EducationRecordsError(
+                    "education records snapshot exceeds size limit"
+                )
+            digest.update(encoded)
+    except EducationRecordsError:
+        raise
+    except (TypeError, ValueError, RecursionError) as exc:
         raise EducationRecordsError(
-            "education records contain an invalid Unicode scalar value"
+            "education records cannot be serialized canonically"
         ) from exc
-    return hashlib.sha256(encoded).hexdigest()
+    return digest.hexdigest()
 
 
 def _utf8_size_exceeds_limit(value: str, limit: int) -> bool:

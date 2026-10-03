@@ -195,14 +195,18 @@ class EducationWorkspace:
 
     def to_record(self) -> dict[str, object]:
         record = self._body()
-        record["digest"] = _digest(record)
+        # Keep write/read symmetry exact: anything emitted here must be
+        # reopenable through from_record()/from_json() under the same complete
+        # workspace byte ceiling.  _body() also calls ledger.to_record(), so
+        # nested D10 history cannot bypass its own stricter snapshot budget.
+        record["digest"] = _digest(record, max_bytes=MAX_WORKSPACE_JSON_BYTES)
+        _digest(record, max_bytes=MAX_WORKSPACE_JSON_BYTES)
         return record
 
     def to_json(self) -> str:
-        text = _canonical_json(self.to_record())
-        if _utf8_size_exceeds_limit(text, MAX_WORKSPACE_JSON_BYTES):
-            raise EducationWorkspaceError("education workspace exceeds size limit")
-        return text
+        # to_record() proves the complete canonical wire record is bounded
+        # before the returned JSON string is materialized.
+        return _canonical_json(self.to_record())
 
     @classmethod
     def from_record(cls, value: Mapping[str, Any]) -> "EducationWorkspace":
@@ -249,16 +253,21 @@ class EducationWorkspace:
             prepared_positions=prepared_positions,
         )
 
-        # All nested authorities and prepared-position fields are bounded and
-        # semantically validated above.  Integrity must still bind to the exact
-        # accepted wire body, not to the normalized reconstruction: legacy
-        # prepared-position records intentionally migrate to current defaults,
-        # and hashing the migrated object would reject their valid legacy
-        # digest after successful validation.
-        bounded_body = {key: data[key] for key in data if key != "digest"}
-        actual_digest = _digest(bounded_body)
+        # Authenticate the exact validated wire record, not a reconstructed
+        # object whose constructors may intentionally canonicalize legacy or
+        # shorthand inputs (for example an empty prepared-position title).
+        # Validation happens first; hashing then streams through the bounded
+        # record without materializing one giant canonical JSON string.
+        body = {key: data[key] for key in data if key != "digest"}
+        actual_digest = _digest(body, max_bytes=MAX_WORKSPACE_JSON_BYTES)
         if actual_digest != supplied_digest:
             raise EducationWorkspaceError("education workspace digest mismatch")
+
+        # Match from_json()'s complete-wire byte budget for direct record
+        # callers as well, including the digest field itself.
+        full_record = dict(body)
+        full_record["digest"] = supplied_digest
+        _digest(full_record, max_bytes=MAX_WORKSPACE_JSON_BYTES)
         return workspace
 
     @classmethod
@@ -962,15 +971,38 @@ def _canonical_json(value: object) -> str:
         ) from exc
 
 
-def _digest(value: object) -> str:
-    text = _canonical_json(value)
+def _digest(value: object, *, max_bytes: int | None = None) -> str:
+    if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+        raise ValueError("canonical digest byte limit must be a non-negative integer")
+
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256()
+    total = 0
     try:
-        data = text.encode("utf-8")
-    except UnicodeEncodeError as exc:
+        for chunk in encoder.iterencode(value):
+            try:
+                encoded = chunk.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise EducationWorkspaceError(
+                    "education workspace contains invalid Unicode"
+                ) from exc
+            total += len(encoded)
+            if max_bytes is not None and total > max_bytes:
+                raise EducationWorkspaceError(
+                    "education workspace exceeds size limit"
+                )
+            digest.update(encoded)
+    except EducationWorkspaceError:
+        raise
+    except (TypeError, ValueError, RecursionError) as exc:
         raise EducationWorkspaceError(
-            "education workspace contains invalid Unicode"
+            "education workspace cannot be serialized canonically"
         ) from exc
-    return hashlib.sha256(data).hexdigest()
+    return digest.hexdigest()
 
 
 def _utf8_size_exceeds_limit(value: str, limit: int) -> bool:
