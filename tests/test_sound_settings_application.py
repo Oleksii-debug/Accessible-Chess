@@ -335,6 +335,35 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "invalid mapping"):
             app.snapshot()
 
+    def test_installed_rights_provider_must_match_installed_manifest_license(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("local.wood")
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        mismatched = SoundPackRightsEvidence(
+            license_id="MIT",
+            source_uri="https://example.invalid/source/local.wood",
+            license_uri="https://opensource.org/license/mit",
+        )
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={},
+            installed_pack_provider=lambda: {"local.wood": local},
+            installed_rights_provider=lambda _pack_id: mismatched,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "license must match installed manifest",
+        ):
+            app.snapshot(language="en")
+
     def test_catalog_projection_and_install_use_closed_world_entry(self) -> None:
         classic = _manifest("classic")
         soft = _manifest("soft")
