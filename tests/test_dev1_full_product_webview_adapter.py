@@ -48,6 +48,78 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(command.payload["focus_target"], "teacher-pointer-input")
         self.assertEqual(calls, [])
 
+    def test_delegated_route_transition_preserves_invoking_focus(self):
+        shell = AccessibleShellState(language=UILanguage.EN)
+
+        def delegate(action_id, payload):
+            self.assertEqual(action_id, "teacher.highlight")
+            self.assertEqual(payload, {"square": "f3"})
+            shell.open_route("teacher")
+
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, delegate),
+        )
+        command = adapter.activate_action(
+            "teacher.highlight",
+            {"square": "f3"},
+            current_focus_id="board-launcher",
+        )
+
+        self.assertEqual(command.kind, "delegated")
+        self.assertEqual(shell.current_route.route_id, "teacher")
+        shell.open_route("board")
+        self.assertEqual(shell.restore_focus_target(), "board-launcher")
+
+    def test_repeated_delegated_round_trips_restore_latest_invoking_focus(self):
+        shell = AccessibleShellState(
+            language=UILanguage.EN,
+            initial_route="books",
+        )
+
+        def delegate(action_id, payload):
+            self.assertEqual(action_id, "teacher.highlight")
+            self.assertEqual(payload, {"square": "f3"})
+            shell.open_route("board")
+
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, delegate),
+        )
+
+        for focus_id in ("book-block-1", "book-block-3"):
+            command = adapter.activate_action(
+                "teacher.highlight",
+                {"square": "f3"},
+                current_focus_id=focus_id,
+            )
+            self.assertEqual(command.kind, "delegated")
+            self.assertEqual(shell.current_route.route_id, "board")
+
+            shell.open_route("books")
+            self.assertEqual(shell.restore_focus_target(), focus_id)
+
+    def test_malformed_delegated_focus_fails_before_domain_dispatch(self):
+        adapter, calls = self.make_adapter()
+        for focus_id in (
+            "bad focus",
+            "book.block",
+            "\x00",
+            " move-input",
+            "move-input ",
+            "x" * 161,
+        ):
+            with self.subTest(focus_id=repr(focus_id)):
+                command = adapter.activate_action(
+                    "teacher.highlight",
+                    {"square": "f3"},
+                    current_focus_id=focus_id,
+                )
+                self.assertEqual(command.kind, "error")
+                self.assertEqual(adapter.shell.current_route.route_id, "board")
+                self.assertEqual(adapter.shell.restore_focus_target(), "move-input")
+                self.assertEqual(calls, [])
+
     def test_domain_action_is_delegated_unchanged(self):
         adapter, calls = self.make_adapter()
         command = adapter.activate_action("teacher.highlight", {"square": "f3"})
