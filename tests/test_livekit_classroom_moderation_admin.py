@@ -798,6 +798,31 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
         )
         self.assertTrue(request.permission.can_publish)
         self.assertTrue(request.permission.can_publish_data)
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.CAMERA,
+                    value=False,
+                    operation="op-real-verify-camera",
+                ),
+            )
+        )
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.PUBLISH_PERMISSION,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                    operation="op-real-verify-microphone",
+                ),
+            )
+        )
+        self.assertEqual(len(room.updates), 1)
+        self.assertEqual(room.mutes, [])
+        self.assertEqual(room.removals, [])
 
     def test_repr_does_not_render_room_service_details(self):
         secret = "room-service-secret"
