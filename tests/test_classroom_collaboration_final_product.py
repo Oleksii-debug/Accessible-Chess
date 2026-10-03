@@ -57,13 +57,25 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
 
     def test_trusted_binding_is_single_owner_and_unbind_does_not_mutate_store(self) -> None:
         app = self.bare_app()
-        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+        self.collaboration._pending_chat = ("pending-before-unbind", "Draft")
+        self.collaboration._unread_message_ids.add("unread-before-unbind")
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch.object(
+                self.collaboration,
+                "retire_browser_session",
+                wraps=self.collaboration.retire_browser_session,
+            ) as retire,
+        ):
             app.bind_classroom_collaboration(self.collaboration)
             self.assertIs(app.collaboration, self.collaboration)
             with self.assertRaises(RuntimeError):
                 app.bind_classroom_collaboration(self.collaboration)
             app.unbind_classroom_collaboration()
+        retire.assert_called_once_with()
         self.assertIsNone(app.collaboration)
+        self.assertIsNone(self.collaboration._pending_chat)
+        self.assertEqual(set(), self.collaboration._unread_message_ids)
         self.assertEqual((), self.store.room_messages("room-1"))
 
     def test_classes_browser_area_routes_only_collaboration_prefix_to_collaboration_boundary(self) -> None:
