@@ -34,10 +34,12 @@ class TrainingWebViewBridge:
             raise ValueError("training browser payload has too many fields")
         out: dict[str, object] = {}
         for key, item in value.items():
-            if not isinstance(key, str):
+            if type(key) is not str:
                 raise TypeError("training browser payload keys must be text")
+            if len(key) > 64:
+                raise ValueError("invalid training browser payload key")
             token = key.strip()
-            if not token or len(token) > 64 or token in out:
+            if not token or token in out:
                 raise ValueError("invalid training browser payload key")
             out[token] = item
         return out
@@ -53,10 +55,12 @@ class TrainingWebViewBridge:
         payload: Mapping[str, object] | None = None,
     ) -> TrainingWebViewEvent:
         try:
-            if not isinstance(command, str):
+            if type(command) is not str:
                 raise TypeError("training browser command must be text")
+            if len(command) > 64:
+                raise ValueError("invalid training browser command")
             command_id = command.strip()
-            if not command_id or len(command_id) > 64:
+            if not command_id:
                 raise ValueError("invalid training browser command")
             data = self._payload(payload)
 
