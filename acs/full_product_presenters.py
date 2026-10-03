@@ -299,6 +299,17 @@ class LibraryView:
     message: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class _LibraryPresenterState:
+    """Exact in-memory Library state for one presentation transaction."""
+
+    pages: tuple[tuple[GameSearchQuery, GameSearchPage], ...]
+    page_index: int
+    selected_game_id: int | None
+    status: SurfaceStatus
+    message: str
+
+
 class LibraryPresenter:
     """Keyboard-stable page/selection projection over :class:`GameSearchService`."""
 
@@ -322,6 +333,25 @@ class LibraryPresenter:
 
     def set_language(self, language: UILanguage) -> None:
         self._language = language
+
+    def _capture_state(self) -> _LibraryPresenterState:
+        """Capture state so a failed projection can roll back atomically."""
+        return _LibraryPresenterState(
+            pages=tuple(self._pages),
+            page_index=self._page_index,
+            selected_game_id=self._selected_game_id,
+            status=self._status,
+            message=self._message,
+        )
+
+    def _restore_state(self, state: _LibraryPresenterState) -> None:
+        if not isinstance(state, _LibraryPresenterState):
+            raise TypeError("invalid Library presenter state")
+        self._pages = list(state.pages)
+        self._page_index = state.page_index
+        self._selected_game_id = state.selected_game_id
+        self._status = state.status
+        self._message = state.message
 
     @staticmethod
     def _validate_page(page: GameSearchPage) -> GameSearchPage:
