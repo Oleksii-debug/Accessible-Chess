@@ -185,6 +185,35 @@ class SoundRuntime:
             return False
         return True
 
+    def preview(self, event: SoundEvent) -> SoundPlaybackReport:
+        """Explicit settings preview.
+
+        Preview intentionally ignores master/per-event enable switches because
+        the user explicitly requested auditioning this sound.  It still honors
+        master and per-event volume, including zero volume, and preserves the
+        same failure isolation/no-system-beep boundary as normal dispatch.
+        """
+
+        if not isinstance(event, SoundEvent):
+            raise TypeError("sound preview requires a SoundEvent")
+        settings = self.current_settings()
+        volume = settings.volume_for(event)
+        requested = (event,)
+        if volume == 0:
+            return SoundPlaybackReport(requested, (), (), disabled=True)
+        try:
+            self._playback.play(event, volume=volume)
+        except Exception as exc:
+            message = str(exc).strip() or type(exc).__name__
+            failure = SoundPlaybackFailure(event, type(exc).__name__, message)
+            if self._error_sink is not None:
+                try:
+                    self._error_sink(failure)
+                except Exception:
+                    pass
+            return SoundPlaybackReport(requested, (), (failure,))
+        return SoundPlaybackReport(requested, requested, ())
+
     def dispatch(self, events: Iterable[SoundEvent]) -> SoundPlaybackReport:
         ordered: list[SoundEvent] = []
         seen: set[SoundEvent] = set()
