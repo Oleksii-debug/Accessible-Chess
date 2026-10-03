@@ -94,6 +94,10 @@ class FakeAdapter {
   async recoverDevice(kind, deviceId, republish) {
     this.calls.push(["recoverDevice", kind, deviceId, republish]);
     if (this.fail.has("recoverDevice")) throw new Error("private device detail");
+    const updates = {};
+    if (kind === "microphone") updates.microphone_enabled = republish;
+    if (kind === "camera") updates.camera_enabled = republish;
+    this.current = snapshot(Object.assign({}, this.current, updates));
     return this.current;
   }
 
@@ -207,6 +211,30 @@ async function testDeviceRecoveryReceipt() {
     ["recoverDevice", "camera", "camera-2", true]
   ]);
   assert.strictEqual(result.status, "success");
+}
+
+async function testDeviceRecoverySnapshotMismatchFailsClosed() {
+  class InconsistentRecoveryAdapter extends FakeAdapter {
+    async recoverDevice(kind, deviceId, republish) {
+      this.calls.push(["recoverDevice", kind, deviceId, republish]);
+      return this.current;
+    }
+  }
+
+  const adapter = new InconsistentRecoveryAdapter();
+  const executor = create(adapter);
+  const result = await executor.execute({
+    transaction_id: HOST_ID,
+    operation: "recover_device",
+    kind: "camera",
+    device_id: "camera-2",
+    republish_enabled: true
+  });
+
+  assert.strictEqual(result.status, "failed");
+  assert.strictEqual(result.operation, "recover_device");
+  assert.strictEqual(result.chunk_index, null);
+  assert.strictEqual(result.provider_snapshot.camera_enabled, false);
 }
 
 async function testConnectUsesCredentialOnceAndNeverReturnsSecret() {
@@ -562,6 +590,7 @@ async function main() {
     testLocalSourceSemanticSnapshotMismatchFailsClosed,
     testModerationChunkReceipt,
     testDeviceRecoveryReceipt,
+  testDeviceRecoverySnapshotMismatchFailsClosed,
     testConnectUsesCredentialOnceAndNeverReturnsSecret,
     testReconnectPreservesExactEnabledSources,
     testDisconnectDoesNotRequestCredential,
