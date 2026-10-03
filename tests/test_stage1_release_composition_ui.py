@@ -368,12 +368,14 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 self.assertTrue(first["played"], first)
                 self.assertEqual(first["event"], "low_time")
                 self.assertEqual(playback.calls[-1], (SoundEvent.LOW_TIME, 80))
+                self.assertGreater(api._clock_sound_not_before, 0.0)
 
                 before = len(playback.calls)
                 repeated = api.clock_sound_pulse()
                 self.assertFalse(repeated["played"], repeated)
                 self.assertEqual(len(playback.calls), before)
 
+                api._clock_sound_not_before = 0.0
                 clock.set_remaining("w", 35_000)
                 api.clock_sound_pulse()
                 clock.set_remaining("w", 25_000)
@@ -384,6 +386,38 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                     [event for event, _volume in playback.calls].count(SoundEvent.LOW_TIME),
                     2,
                 )
+            finally:
+                api.close_analysis()
+                runtime.close()
+
+    def test_low_time_warning_retries_after_sounds_are_reenabled(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                started = api.start_engine_game("white", 5, 1, 0)
+                self.assertTrue(started["ok"], started)
+                session = api._engine_session
+                self.assertIsNotNone(session)
+                clock = session._clock
+                self.assertIsNotNone(clock)
+                api._clock_sound_not_before = 0.0
+                api._settings.set("tick_policy", "off")
+                api._settings.set("low_time_policy", "my_turn")
+                api._settings.set("low_time_seconds", 30)
+                clock.set_remaining("w", 25_000)
+
+                self.assertTrue(api.set_sound_enabled(False)["ok"])
+                muted = api.clock_sound_pulse()
+                self.assertTrue(muted["disabled"], muted)
+                self.assertFalse(muted["played"], muted)
+                self.assertNotIn("w", api._low_time_warned_sides)
+
+                self.assertTrue(api.set_sound_enabled(True)["ok"])
+                retried = api.clock_sound_pulse()
+                self.assertTrue(retried["played"], retried)
+                self.assertEqual(retried["event"], "low_time")
+                self.assertIn("w", api._low_time_warned_sides)
             finally:
                 api.close_analysis()
                 runtime.close()
