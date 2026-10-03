@@ -123,9 +123,15 @@ class ExerciseDefinition:
             raise TypeError("exercise tags must be a collection of strings")
         if self.source_id is not None and type(self.source_id) is not str:
             raise TypeError("exercise source_id must be a string or None")
-        if not isinstance(self.metadata, Mapping) or any(
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("exercise metadata must map strings to strings")
+        try:
+            metadata = dict(self.metadata)
+        except Exception as exc:
+            raise TypeError("exercise metadata must map strings to strings") from exc
+        if any(
             type(key) is not str or type(value) is not str
-            for key, value in self.metadata.items()
+            for key, value in metadata.items()
         ):
             raise TypeError("exercise metadata must map strings to strings")
         object.__setattr__(self, "exercise_id", exercise_id)
@@ -133,12 +139,12 @@ class ExerciseDefinition:
         object.__setattr__(self, "steps", steps)
         object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
         # The dataclass is frozen; keep the definition identity frozen too.
-        # A mutable dict here would allow an active session to silently rebind
-        # its next persistence digest after construction.
+        # Snapshot once before validation/publication so a mutable or custom
+        # Mapping cannot change between the checked and stored representations.
         object.__setattr__(
             self,
             "metadata",
-            MappingProxyType(dict(self.metadata)),
+            MappingProxyType(metadata),
         )
 
 
