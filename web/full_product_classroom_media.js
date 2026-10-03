@@ -141,10 +141,10 @@
     heading.tabIndex = -1;
     section.appendChild(heading);
 
-    if (!snapshot || typeof snapshot !== "object") {
-      const recoveryRequired = availability &&
-        typeof availability === "object" &&
-        availability.recovery_required === true;
+    const recoveryRequired = availability &&
+      typeof availability === "object" &&
+      availability.recovery_required === true;
+    if (!snapshot || typeof snapshot !== "object" || recoveryRequired) {
       section.appendChild(node("p", uiText(
         language,
         recoveryRequired
