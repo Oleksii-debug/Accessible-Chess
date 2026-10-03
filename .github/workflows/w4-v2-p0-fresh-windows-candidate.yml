@@ -392,6 +392,15 @@ jobs:
           inventory = json.loads(
               (sound_root / 'inventory.json').read_text(encoding='utf-8')
           )
+          inventory_notice = json.loads(
+              (
+                  extraction
+                  / 'THIRD_PARTY_NOTICES'
+                  / 'SOUND_INVENTORY.json'
+              ).read_text(encoding='utf-8')
+          )
+          if inventory_notice != inventory:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE_MISMATCH')
           if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH')
           if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
@@ -430,6 +439,7 @@ jobs:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH')
           print(f'FRESH_EXTRACTION_PREFLIGHT_FILES={len(report.inventory)}')
           print(f'FRESH_EXTRACTION_USER_SOUND_WAV_COUNT={len(wavs)}')
+          print('FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE=PASS')
           print('FRESH_EXTRACTION_USER_SOUND_PACK=PASS')
           print('FRESH_EXTRACTION_PREFLIGHT=PASS')
           '@ | python -
