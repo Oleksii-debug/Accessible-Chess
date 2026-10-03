@@ -920,9 +920,13 @@
     }
     if (
       payload.announcement !== undefined &&
-      typeof payload.announcement !== "string"
+      (
+        typeof payload.announcement !== "string" ||
+        payload.announcement.length > 1200 ||
+        payload.announcement.indexOf("\u0000") !== -1
+      )
     ) {
-      throw new TypeError("Book event announcement must be text");
+      throw new TypeError("Book event announcement must be bounded safe text");
     }
 
     if (result.kind === "render") {
@@ -948,7 +952,12 @@
         throw new TypeError("Book delegated event action is invalid");
       }
     } else {
-      if (typeof payload.message !== "string" || !payload.message.trim()) {
+      if (
+        typeof payload.message !== "string" ||
+        !payload.message.trim() ||
+        payload.message.length > 1200 ||
+        payload.message.indexOf("\u0000") !== -1
+      ) {
         throw new TypeError("Book error event message is invalid");
       }
     }
@@ -1022,6 +1031,7 @@
     if (requestedFocus && requestedFocus !== expectedBlockId) {
       throw new TypeError("Book focus target does not match the rendered block");
     }
+    const heading = requiredUiText(snapshot.heading, "Book heading", 360);
     const actions = validateBookActions(snapshot.actions);
     const bookmark = validateBookmark(snapshot.bookmark);
     const starterCatalogue = validateStarterCatalogue(snapshot.starter_materials);
@@ -1029,7 +1039,7 @@
     const fragment = document.createDocumentFragment();
     const main = node("section");
     applySnapshotLanguage(main, snapshot);
-    main.appendChild(node("h2", snapshot.heading || ""));
+    main.appendChild(node("h2", heading));
     renderStarterMaterials(main, starterCatalogue, invoke, announce, fallbackMessage);
     const block = snapshot.block;
     renderBookBlock(main, block);
@@ -1138,9 +1148,13 @@
     }
     if (
       payload.announcement !== undefined &&
-      typeof payload.announcement !== "string"
+      (
+        typeof payload.announcement !== "string" ||
+        payload.announcement.length > 1200 ||
+        payload.announcement.indexOf("\u0000") !== -1
+      )
     ) {
-      throw new TypeError("Training event announcement must be text");
+      throw new TypeError("Training event announcement must be bounded safe text");
     }
 
     if (result.kind === "render") {
@@ -1163,7 +1177,7 @@
         throw new TypeError("Training solution must be an array");
       }
       const solution = payload.solution || [];
-      if (solution.length > 256) {
+      if (solution.length > MAX_TRAINING_SOLUTION_MOVES) {
         throw new TypeError("Training solution is too large");
       }
       for (let index = 0; index < solution.length; index += 1) {
@@ -1171,7 +1185,8 @@
           !Object.prototype.hasOwnProperty.call(solution, index) ||
           typeof solution[index] !== "string" ||
           !solution[index].trim() ||
-          solution[index].length > 128
+          solution[index].length > TRAINING_ANSWER_MAX_LENGTH ||
+          solution[index].indexOf("\u0000") !== -1
         ) {
           throw new TypeError("Training solution item is invalid");
         }
@@ -1194,7 +1209,12 @@
         if (next) next.value = priorAnswer;
       }
     } else {
-      if (typeof payload.message !== "string" || !payload.message.trim()) {
+      if (
+        typeof payload.message !== "string" ||
+        !payload.message.trim() ||
+        payload.message.length > 1200 ||
+        payload.message.indexOf("\u0000") !== -1
+      ) {
         throw new TypeError("Training error event message is invalid");
       }
     }
