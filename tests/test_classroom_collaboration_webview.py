@@ -25,6 +25,9 @@ from tests.test_classroom_collaboration import FakeChat, FakeFiles, FakeFileStor
 from tests.test_classroom_realtime_media import FakeMedia
 
 
+CHAT_OUTBOX_SCOPE = "https://chat.example.test/v1/classroom/chat"
+
+
 class MemorySecretStore:
     def __init__(self) -> None:
         self.values: dict[str, bytes] = {}
@@ -2375,6 +2378,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         secrets_store = MemorySecretStore()
         first_outbox = SecretStoreChatOutbox(
             secrets_store,
+            CHAT_OUTBOX_SCOPE,
             "room-1",
             "student-1",
         )
@@ -2403,6 +2407,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         second_outbox = SecretStoreChatOutbox(
             secrets_store,
+            CHAT_OUTBOX_SCOPE,
             "room-1",
             "student-1",
         )
@@ -2441,6 +2446,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         outbox = SecretStoreChatOutbox(
             FailingWriteSecretStore(),
+            CHAT_OUTBOX_SCOPE,
             "room-1",
             "student-1",
         )
@@ -2457,7 +2463,12 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
     def test_durable_chat_outbox_keeps_retention_in_recovery_identity(self) -> None:
         secrets_store = MemorySecretStore()
-        outbox = SecretStoreChatOutbox(secrets_store, "room-1", "student-1")
+        outbox = SecretStoreChatOutbox(
+            secrets_store,
+            CHAT_OUTBOX_SCOPE,
+            "room-1",
+            "student-1",
+        )
         outbox.reserve(
             message_id="old-session-message",
             body="Same visible text",
@@ -2466,6 +2477,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         view = self.webview(
             chat_outbox=SecretStoreChatOutbox(
                 secrets_store,
+                CHAT_OUTBOX_SCOPE,
                 "room-1",
                 "student-1",
             ),
