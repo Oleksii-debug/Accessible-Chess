@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+from acs.settings import Settings
 import acs.version2_upgrade_base as upgrade_base_module
 from acs.version2_upgrade import (
     UserDataLayout,
@@ -230,6 +231,72 @@ class V2UpgradeTrackedWriterConflictTests(unittest.TestCase):
                 "external-recovery-window-v6.pgn",
                 names,
                 "recovery silently overwrote the final-window Library writer",
+            )
+
+    def test_lock_path_split_defers_rollback_and_preserves_new_settings_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings_path = root / "settings.json"
+            original_bytes = json.dumps(
+                {"language": "en", "volume": 20}
+            ).encode("utf-8")
+            settings_path.write_bytes(original_bytes)
+            lock_path = root / ".v2-upgrade.lock"
+            displaced_lock = root / ".v2-upgrade.lock.displaced"
+            replacement_lock = root / "replacement-upgrade.lock"
+            external_volume = 96
+            injected = False
+
+            def split_lock_and_write(phase: str) -> None:
+                nonlocal injected
+                if phase != "settings-migrated" or injected:
+                    return
+                os.replace(lock_path, displaced_lock)
+                replacement_lock.write_bytes(b"\0")
+                os.replace(replacement_lock, lock_path)
+
+                external = Settings(settings_path)
+                external.set("volume", external_volume)
+                injected = True
+
+            with self.assertRaisesRegex(
+                Version2UpgradeRecoveryError,
+                "upgrade lock identity was lost",
+            ):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root),
+                    phase_hook=split_lock_and_write,
+                ).run()
+
+            self.assertTrue(injected)
+            current = Settings(settings_path)
+            self.assertEqual(external_volume, current.get("volume"))
+
+            journal = json.loads(
+                (root / ".v2-upgrade-state.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                "migrating",
+                journal["phase"],
+                "lock loss must leave a nonterminal journal for later recovery",
+            )
+
+            # The old locked inode is no longer canonical and the coordinator
+            # has exited, so removing this test-only displaced pathname does not
+            # change the canonical lock used by the next recovery attempt.
+            displaced_lock.unlink()
+
+            with self.assertRaises(Version2UpgradeRecoveryError):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root)
+                ).recover_interrupted()
+
+            current = Settings(settings_path)
+            self.assertEqual(
+                external_volume,
+                current.get("volume"),
+                "later recovery overwrote a writer that used the new canonical lock",
             )
 
     def test_interrupted_recovery_preserves_newer_external_tracked_settings(self) -> None:
