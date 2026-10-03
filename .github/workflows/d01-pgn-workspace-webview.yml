@@ -172,7 +172,7 @@ jobs:
               test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
               ;;
             work/user-sound-pack-integration-20261003)
-              test "$stage1_core_actual" = 03048189cfb677a7233d90d178be1d7bb6274c95
+              test "$stage1_core_actual" = b362e2ac5bb4a8d300279d43e4ae296fec3a074a
               ;;
             *)
               test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
