@@ -648,6 +648,17 @@ class TrainingProjectionTests(unittest.TestCase):
         self.presenter = TrainingPresenter(ExerciseSession(self.definition), language=UILanguage.EN)
         self.projection = TrainingWebViewProjection(self.presenter, language=UILanguage.EN)
 
+    def test_passive_snapshot_requires_bound_definition_authority(self) -> None:
+        self.presenter.session.definition = ExerciseDefinition(
+            exercise_id="replacement",
+            start_fen=FEN,
+            steps=(ExerciseStep(frozenset({"e4"})),),
+            title="Replacement",
+        )
+
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            self.projection.snapshot()
+
     def test_passive_snapshot_excludes_solution_fen_source_and_metadata(self) -> None:
         snapshot = self.projection.snapshot()
         text = repr(snapshot)
