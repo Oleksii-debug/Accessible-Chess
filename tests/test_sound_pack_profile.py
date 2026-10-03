@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from unittest import mock
 
 from acs.sound_pack_catalog import (
     DownloadedSoundPack,
@@ -470,6 +471,32 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
 
         self.assertIn("soft.wood", pack_storage.items)
         self.assertEqual(operations, [("profile.write", "classic")])
+
+    def test_concurrent_replacement_between_fallback_save_and_delete_survives(self):
+        coordinator, _manager, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+        )
+        replacement = manifest("soft.wood", "2.0.0")
+        real_save = coordinator._profiles.save
+
+        def save_then_replace(profile):
+            saved = real_save(profile)
+            pack_storage.items["soft.wood"] = replacement
+            return saved
+
+        with mock.patch.object(
+            coordinator._profiles,
+            "save",
+            side_effect=save_then_replace,
+        ), self.assertRaisesRegex(
+            OSError,
+            "changed before conditional uninstall",
+        ):
+            coordinator.uninstall("soft.wood")
+
+        self.assertEqual("classic", coordinator.current_profile.pack_id)
+        self.assertEqual("classic", profile_storage.raw["pack_id"])
+        self.assertEqual(replacement, pack_storage.items["soft.wood"])
 
     def test_pack_delete_failure_leaves_safe_persisted_fallback(self):
         operations = []
