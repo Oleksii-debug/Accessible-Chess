@@ -465,6 +465,124 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertNotIn("rooms/room-1", exposed)
         self.assertNotIn("sha256", exposed.lower())
 
+    def test_final_app_ambiguous_file_ack_retries_same_logical_attachment(self) -> None:
+        selected = self.root / "ambiguous-runtime-upload.bin"
+        selected.write_bytes(b"same logical payload")
+        attempts: list[dict[str, object]] = []
+        committed: dict[str, object] | None = None
+
+        class Response:
+            status = 200
+
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+
+            def getheaders(self):
+                return [
+                    ("Content-Type", "application/json; charset=utf-8"),
+                    ("Content-Length", str(len(self.body))),
+                ]
+
+            def read(self, limit):
+                return self.body[:limit]
+
+        class Connection:
+            def __init__(self, host, port, timeout):
+                self.headers = []
+                self.sent_parts = []
+
+            def putrequest(self, method, target, **kwargs):
+                self.request = (method, target, kwargs)
+
+            def putheader(self, name, value):
+                self.headers.append((name, value))
+
+            def endheaders(self):
+                return None
+
+            def send(self, data):
+                self.sent_parts.append(bytes(data))
+
+            def getresponse(self):
+                nonlocal committed
+                (header_size,) = struct.unpack("!I", self.sent_parts[0])
+                envelope = json.loads(self.sent_parts[1].decode("utf-8"))
+                self.assert_frame(header_size, envelope)
+                content = b"".join(self.sent_parts[2:])
+                metadata = dict(envelope["metadata"])
+                attempts.append(
+                    {
+                        "attachment_id": metadata["attachment_id"],
+                        "object_key": metadata["object_key"],
+                        "sha256": metadata["sha256"],
+                        "content": content,
+                    }
+                )
+                authoritative = dict(metadata)
+                authoritative["sequence_no"] = 0
+                authoritative["transfer_state"] = "stored"
+                authoritative["scan_state"] = "clean"
+                if committed is None:
+                    committed = authoritative
+                    raise OSError("response acknowledgement lost after commit")
+                self.assertEqual(authoritative, committed)
+                return Response({"v": 1, "ok": True, "attachment": committed})
+
+            @staticmethod
+            def assert_frame(header_size, envelope):
+                if header_size <= 0 or not isinstance(envelope, dict):
+                    raise AssertionError("invalid file HTTP frame")
+
+            def close(self):
+                return None
+
+        app = self.bare_app()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+                Connection,
+            ),
+        ):
+            runtime = self.configure(
+                app,
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                file_picker=lambda: selected,
+            )
+            failed = app.browser_command(
+                "classes",
+                "collaboration.file.choose_upload",
+                {},
+            )
+            self.assertEqual("collaboration.error", failed["kind"])
+            retry_item = runtime.webview.safe_snapshot()["files"]["items"][0]
+            self.assertTrue(retry_item["can_retry"])
+            retried = app.browser_command(
+                "classes",
+                "collaboration.file.retry",
+                {"file_key": retry_item["file_key"]},
+            )
+
+        self.assertEqual("collaboration.file.retried", retried["kind"])
+        self.assertEqual(self.file_token_calls, 2)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(
+            attempts[0]["attachment_id"],
+            attempts[1]["attachment_id"],
+        )
+        self.assertEqual(attempts[0]["object_key"], attempts[1]["object_key"])
+        self.assertEqual(attempts[0]["sha256"], attempts[1]["sha256"])
+        self.assertEqual(attempts[0]["content"], attempts[1]["content"])
+        attachments = runtime.store.room_attachments("room-1")
+        self.assertEqual(len(attachments), 1)
+        self.assertEqual(attachments[0].transfer_state, "stored")
+        self.assertEqual(attachments[0].scan_state, "clean")
+        self.assertEqual(attachments[0].sequence_no, 0)
+
     def test_product_status_reports_http_only_for_owned_http_composition(self) -> None:
         app = self.bare_app()
         with (
