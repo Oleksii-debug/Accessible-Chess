@@ -245,20 +245,30 @@ def build_classroom_collaboration_http_runtime(
             secret_store=selected_secret_store,
             room_id=room_id,
             participant_id=participant_id,
+            storage_scope=str(path),
             message_lookup=lookup_local_message,
         )
 
-    controller = DurableOutboxClassroomCollaborationController(
-        chat_outbox=chat_outbox,
-        room_id=room_id,
-        local_participant_id=participant_id,
-        roster=roster,
-        chat=chat_client,
-        files=file_client,
-        store=cast(ClassroomCollaborationSQLiteStore, deferred_store),
-        file_store=file_client,
-        quota=quota,
-    )
+    controller_kwargs = {
+        "room_id": room_id,
+        "local_participant_id": participant_id,
+        "roster": roster,
+        "chat": chat_client,
+        "files": file_client,
+        "store": cast(ClassroomCollaborationSQLiteStore, deferred_store),
+        "file_store": file_client,
+        "quota": quota,
+    }
+    controller: ClassroomCollaborationController
+    if chat_outbox is None:
+        # Preserve the exact canonical controller on platforms/configurations
+        # that have no approved durable secret authority.
+        controller = ClassroomCollaborationController(**controller_kwargs)
+    else:
+        controller = DurableOutboxClassroomCollaborationController(
+            chat_outbox=chat_outbox,
+            **controller_kwargs,
+        )
 
     store = ClassroomCollaborationSQLiteStore(str(path))
     deferred_store.bind(store)
