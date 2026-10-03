@@ -40,7 +40,7 @@ _EXPORT_LABELS = {
 }
 
 
-class LibraryExportWebViewProjection(LibraryWebViewProjection):
+_MAX_EXPORT_SELECTION = 5000\n\n\nclass LibraryExportWebViewProjection(LibraryWebViewProjection):
     """Keyboard-first export enrichment of the canonical Library presenter."""
 
     def __init__(self, *args, **kwargs) -> None:
