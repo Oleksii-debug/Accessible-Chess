@@ -1329,6 +1329,53 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual("2.0.0", store.active_version(newer.pack_id))
             self.assertEqual(( "2.0.0",), store.versions(newer.pack_id))
 
+    def test_tampered_newer_active_pack_still_blocks_version_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            newer = _manifest(version="2.0.0")
+            newer_download, _ = _staged_download(root, newer, seed=b"n")
+            store.install_atomically(newer_download)
+
+            active_asset = (
+                store.root
+                / newer.pack_id
+                / "versions"
+                / newer.version
+                / newer.files["move"]
+            )
+            active_asset.write_bytes(b"tampered-active-version")
+            self.assertIsNone(
+                store.active_version(newer.pack_id),
+                "full installed verification should fail after asset tampering",
+            )
+            self.assertEqual(
+                (newer.pack_id, "2.0.0"),
+                FilesystemSoundPackStore._read_active(
+                    store.root / newer.pack_id
+                ),
+                "anti-rollback authority remains the valid active pointer",
+            )
+
+            older = _manifest(version="1.9.9")
+            older_download, _ = _staged_download(root, older, seed=b"o")
+            with self.assertRaisesRegex(SoundPackStoreError, "roll back"):
+                store.install_atomically(older_download)
+
+            self.assertFalse(
+                (
+                    store.root
+                    / newer.pack_id
+                    / "versions"
+                    / older.version
+                ).exists(),
+                "rollback rejection must happen before the older version is published",
+            )
+            self.assertEqual(
+                (newer.pack_id, "2.0.0"),
+                FilesystemSoundPackStore._read_active(store.root / newer.pack_id),
+            )
+
     def test_atomic_store_semver_prerelease_cannot_replace_final_release(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
