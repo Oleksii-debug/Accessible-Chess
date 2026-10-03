@@ -404,8 +404,20 @@ class Version2Application:
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
         if action in {"library.search", "library.reset_filters"}:
+            # Native/global Library actions may be invoked from another route.
+            # Validate modal ownership before touching Library state, then commit
+            # the route only after projection succeeds. A failed search/reset
+            # must not move keyboard or screen-reader context to a route whose
+            # requested operation never completed.
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before changing Library state")
+            result = (
+                self.library.projection.search(self.library.projection.query)
+                if action.endswith("search")
+                else self.library.projection.reset_filters()
+            )
             self.shell.open_route("library")
-            return self.library.projection.search(self.library.projection.query) if action.endswith("search") else self.library.projection.reset_filters()
+            return result
         if action == "library.next_page": return self.library.projection.next_page()
         if action == "library.previous_page": return self.library.projection.previous_page()
         if action == "library.export" and not payload:
