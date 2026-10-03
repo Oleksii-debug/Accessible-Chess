@@ -242,6 +242,10 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(first.chat_outbox)
         assert first.chat_outbox is not None
         pending_id = first.chat_outbox.entries()[0].message_id
+        self.assertNotIn(
+            b"Durable runtime draft",
+            (self.root / "collaboration.sqlite3").read_bytes(),
+        )
 
         second = self.build(chat_secret_store=secure)
         second_calls: list[str] = []
@@ -1366,6 +1370,23 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 )
 
         self.assertFalse(target.exists())
+        self.assertIsNone(app.collaboration)
+        self.assertIsNone(app._collaboration_runtime)
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
+    def test_final_app_rejects_empty_store_path_before_runtime_composition(self) -> None:
+        app = self.bare_app()
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            with self.assertRaisesRegex(
+                TypeError,
+                "collaboration_store_path must be a non-empty path",
+            ):
+                self.configure(
+                    app,
+                    collaboration_store_path="",
+                )
+
         self.assertIsNone(app.collaboration)
         self.assertIsNone(app._collaboration_runtime)
         self.assertEqual(self.chat_token_calls, 0)
