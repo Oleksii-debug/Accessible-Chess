@@ -124,6 +124,7 @@ function collaboration(messages, unreadCount, moderation, sessionKey) {
       moderation_available: !!moderation,
       empty_message: "No messages.",
       unread_label: "Unread: " + unreadCount,
+      unread_message_label: "Unread",
       unread_count: unreadCount,
       max_body_chars: 8000,
       messages: messages
@@ -1234,6 +1235,20 @@ check(
 check(
   root.querySelector("#collaboration-message-two") !== null,
   "new ordered chat message must render"
+);
+const unreadMessageStatus = root
+  .querySelector("#collaboration-message-two")
+  .querySelector('[data-message-unread-status="true"]');
+check(
+  unreadMessageStatus !== null &&
+  unreadMessageStatus.textContent === "Unread" &&
+  unreadMessageStatus.getAttribute("aria-live") === "off",
+  "unread message status must be visible, reviewable by NVDA and non-live"
+);
+check(
+  root.querySelector("#collaboration-message-one")
+    .querySelector('[data-message-unread-status="true"]') === null,
+  "read messages must not expose a stale unread marker"
 );
 
 window.AccessibleChessEducationSurface.apply(
