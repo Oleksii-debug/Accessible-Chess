@@ -30,6 +30,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
 _MAX_BOOK_SEMANTIC_TAGS = 4_096
 _MAX_BOOK_SEMANTIC_COMMENT_ENTRIES = 10_000
+_BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
@@ -159,10 +160,21 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticTreeError("book semantic GameTree root depth is invalid")
             if position > 0 and item.depth > previous_depth + 1:
                 raise _BookSemanticTreeError("book semantic GameTree depth jumps unexpectedly")
+            if (
+                (item.kind == "move" and item.depth % 2 != 0)
+                or (item.kind == "variation" and item.depth % 2 != 1)
+            ):
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree item kind/depth topology is invalid"
+                )
             label = safe(item.label)
             if not label:
                 raise _BookSemanticTreeError("book semantic GameTree item label is empty")
             if item.kind == "move":
+                if item.trailing_comments:
+                    raise _BookSemanticTreeError(
+                        "book semantic move unexpectedly carries line trailing comments"
+                    )
                 comments_before = tuple(
                     comment
                     for comment in (safe_comment(raw) for raw in item.comments_before)
@@ -175,6 +187,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 )
                 comments = ()
             else:
+                if item.comments_before or item.comments_after:
+                    raise _BookSemanticTreeError(
+                        "book semantic variation unexpectedly carries move comment slots"
+                    )
                 comments_before = ()
                 comments_after = ()
                 comments = tuple(
@@ -197,6 +213,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 if not result:
                     raise _BookSemanticTreeError(
                         "book semantic variation result is empty"
+                    )
+                if result not in _BOOK_SEMANTIC_RESULTS:
+                    raise _BookSemanticTreeError(
+                        "book semantic variation result is invalid"
                     )
             rendered_items.append(
                 {
@@ -226,13 +246,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if players == "? — ?":
             players = ""
 
+        root_result = safe(view.result)
+        if root_result and root_result not in _BOOK_SEMANTIC_RESULTS:
+            raise _BookSemanticTreeError("book semantic GameTree result is invalid")
+
         return {
             "kind": mode.value,
             "label": labels["moves"],
             "players_label": labels["players"],
             "players": players,
             "result_label": labels["result"],
-            "result": safe(view.result),
+            "result": root_result,
             "metadata_label": labels["metadata"],
             "metadata": tuple(metadata),
             "comments_label": labels["comments"],
