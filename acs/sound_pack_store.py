@@ -335,13 +335,17 @@ class FilesystemSoundPackStore:
         return self._pack_dir(pack_id) / "versions" / _stable_version(version)
 
     def _ensure_pack_parent(self, pack_id: str) -> tuple[Path, Path]:
+        root_existed = os.path.lexists(self.root)
         try:
             self.root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise SoundPackStoreError("sound pack root could not be created") from exc
         _require_real_dir(self.root, "sound pack root")
+        if not root_existed:
+            _fsync_directory(self.root.parent)
 
         pack_dir = self._pack_dir(pack_id)
+        pack_existed = os.path.lexists(pack_dir)
         try:
             pack_dir.mkdir(exist_ok=True)
         except OSError as exc:
@@ -349,8 +353,11 @@ class FilesystemSoundPackStore:
                 "sound pack identity directory could not be created"
             ) from exc
         _require_real_dir(pack_dir, "sound pack identity directory")
+        if not pack_existed:
+            _fsync_directory(self.root)
 
         versions = pack_dir / "versions"
+        versions_existed = os.path.lexists(versions)
         try:
             versions.mkdir(exist_ok=True)
         except OSError as exc:
@@ -358,6 +365,8 @@ class FilesystemSoundPackStore:
                 "sound pack versions directory could not be created"
             ) from exc
         _require_real_dir(versions, "sound pack versions directory")
+        if not versions_existed:
+            _fsync_directory(pack_dir)
         return pack_dir, versions
 
     @staticmethod
@@ -986,3 +995,4 @@ class FilesystemSoundPackStore:
         if not pack_dir.exists():
             return
         self._remove_without_following(pack_dir)
+        _fsync_directory(self.root)
