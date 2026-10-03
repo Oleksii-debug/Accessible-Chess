@@ -1103,7 +1103,12 @@ class FilesystemSoundPackStore:
                 )
 
             _read_verified_asset_bytes(path, digest)
-        return manifest, digests, rights_evidence
+        verified_rights = (
+            rights_evidence
+            if rights_binding_supported and rights_sha256 is not None
+            else None
+        )
+        return manifest, digests, verified_rights
 
     @staticmethod
     def _active_payload(pack_id: str, version: str) -> dict[str, object]:
