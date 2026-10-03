@@ -61,16 +61,33 @@ def _auditable_rights_uri(label: str, value: object) -> str:
     text = value.strip()
     if not text:
         raise ValueError(f"sound pack rights {label} is required")
+    if text != value:
+        raise ValueError(f"sound pack rights {label} must not contain surrounding whitespace")
     if len(text) > _MAX_RIGHTS_EVIDENCE_URI_CHARS:
         raise ValueError(f"sound pack rights {label} exceeds the resource limit")
     if any(
-        ord(ch) < 32 or ord(ch) == 127 or ch in {"\u2028", "\u2029"}
+        ch.isspace()
+        or ord(ch) < 32
+        or ord(ch) == 127
+        or ch in {"\u2028", "\u2029"}
         for ch in text
     ):
-        raise ValueError(f"sound pack rights {label} contains control characters")
+        raise ValueError(f"sound pack rights {label} contains whitespace or control characters")
     parsed = urlsplit(text)
     if parsed.scheme == "https":
-        if not parsed.netloc or parsed.username is not None or parsed.password is not None:
+        try:
+            hostname = parsed.hostname
+            parsed.port
+        except ValueError as exc:
+            raise ValueError(
+                f"sound pack rights {label} must be an auditable HTTPS URL or URN"
+            ) from exc
+        if (
+            not parsed.netloc
+            or hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
             raise ValueError(
                 f"sound pack rights {label} must be an auditable HTTPS URL or URN"
             )
@@ -197,6 +214,8 @@ class SoundPackCatalogEntry:
         signature = None if self.signature is None else self.signature.strip()
         if signature == "":
             raise ValueError("signature cannot be blank")
+        if self.signature is not None and signature != self.signature:
+            raise ValueError("signature must not contain surrounding whitespace")
         if signature is not None and len(signature) > _MAX_SOUND_PACK_SIGNATURE_CHARS:
             raise ValueError("signature exceeds the resource limit")
         if signature is not None and any(
