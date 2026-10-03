@@ -242,7 +242,10 @@ class Version2BookTrainingWorkspace:
         material = self.material
         if bridge is None or material is None:
             raise RuntimeError("no Training exercise is active")
-        command_id = command.strip() if isinstance(command, str) else command
+        # Normalize only exact browser text. A str subclass is untrusted
+        # Python input and must reach the exact-type bridge boundary without
+        # executing an overridden strip() hook here.
+        command_id = command.strip() if type(command) is str else command
         if command_id == "training.continue" and not (
             self.session.completed and self.has_next()
         ):
