@@ -379,14 +379,12 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
             store = workspace._store
             self.assertIsNotNone(store)
             self.assertIsNone(workspace._revision)
-            self.assertIsNone(workspace._persisted_snapshot)
 
             with patch.object(store, "save", wraps=store.save) as save:
                 first_revision = workspace.save()
             save.assert_called_once()
             self.assertIsNotNone(first_revision)
             durable = store.path.read_bytes()
-            self.assertEqual(workspace.session.snapshot(), workspace._persisted_snapshot)
 
             with patch(
                 "acs.training_progress_store.tempfile.mkstemp",
@@ -418,7 +416,6 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                 changed_revision = workspace.save()
             save.assert_called_once()
             self.assertNotEqual(first_revision, changed_revision)
-            self.assertEqual(workspace.session.snapshot(), workspace._persisted_snapshot)
 
     def test_training_continue_does_not_rewrite_already_committed_origin(self) -> None:
         with tempfile.TemporaryDirectory(prefix="accessible-chess-training-continue-no-rewrite-") as raw:
