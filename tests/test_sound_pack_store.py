@@ -416,6 +416,9 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             reopened = FilesystemSoundPackStore(store.root)
             self.assertEqual(manifest, reopened.installed()[manifest.pack_id])
             self.assertIsNone(reopened.rights_evidence(manifest.pack_id))
+            self.assertIsNone(
+                reopened.installed_audit()[manifest.pack_id].rights_evidence
+            )
             self.assertIsNotNone(reopened.resolve_asset(manifest.pack_id, "move"))
 
     def test_missing_storage_parent_chain_is_durably_linked_before_pack_tree(self) -> None:
