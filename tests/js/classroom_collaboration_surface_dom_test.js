@@ -93,8 +93,9 @@ function check(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function collaboration(messages, unreadCount, moderation) {
+function collaboration(messages, unreadCount, moderation, sessionKey) {
   return {
+    session_key: sessionKey || "session-a",
     heading: "Classroom collaboration",
     chat: {
       heading: "Chat",
@@ -986,6 +987,92 @@ check(
   "unavailable collaboration must expose no stale actions"
 );
 
+const staleResultRoot = new FakeElement("div");
+const staleResultAnnouncements = [];
+let staleResultResolve = null;
+window.AccessibleChessEducationSurface.render(
+  staleResultRoot,
+  {
+    document: { lang: "en", heading: "Classes" },
+    sections: [],
+    detail: null,
+    collaboration: collaboration([], 0, false, "session-old-result")
+  },
+  () => new Promise((resolve) => { staleResultResolve = resolve; }),
+  (message) => staleResultAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+staleResultRoot.querySelector("#collaboration-chat-sync").listeners.click();
+
+const staleFailureRoot = new FakeElement("div");
+const staleFailureAnnouncements = [];
+let staleFailureReject = null;
+window.AccessibleChessEducationSurface.render(
+  staleFailureRoot,
+  {
+    document: { lang: "en", heading: "Classes" },
+    sections: [],
+    detail: null,
+    collaboration: collaboration([], 0, false, "session-old-failure")
+  },
+  () => new Promise((_resolve, reject) => { staleFailureReject = reject; }),
+  (message) => staleFailureAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+staleFailureRoot.querySelector("#collaboration-file-sync").listeners.click();
+
+Promise.resolve().then(() => {
+  check(
+    typeof staleResultResolve === "function" &&
+    typeof staleFailureReject === "function",
+    "stale-session test must have both old host operations in flight"
+  );
+  window.AccessibleChessEducationSurface.render(
+    staleResultRoot,
+    {
+      document: { lang: "en", heading: "Classes" },
+      sections: [],
+      detail: null,
+      collaboration: collaboration([], 0, false, "session-new-result")
+    },
+    invoke,
+    (message) => staleResultAnnouncements.push(message),
+    "",
+    "Action failed"
+  );
+  window.AccessibleChessEducationSurface.render(
+    staleFailureRoot,
+    {
+      document: { lang: "en", heading: "Classes" },
+      sections: [],
+      detail: null,
+      collaboration: collaboration([], 0, false, "session-new-failure")
+    },
+    invoke,
+    (message) => staleFailureAnnouncements.push(message),
+    "",
+    "Action failed"
+  );
+
+  staleResultResolve({
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-stale-result",
+          sender: "Old session",
+          body: "Must never enter the rebound UI.",
+          unread: false
+        }
+      ], 0, false, "session-old-result"),
+      announcement: "OLD SESSION RESULT"
+    }
+  });
+  staleFailureReject(new Error("old session bridge failure"));
+});
+
 const pendingRoot = new FakeElement("div");
 let pendingSendResolve = null;
 let pendingInvokeCount = 0;
@@ -1101,6 +1188,21 @@ setImmediate(() => {
       throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "false" &&
       throwingInput.value === "Keep this draft",
       "bridge rejection must re-enable chat without discarding the draft"
+    );
+    check(
+      staleResultRoot.querySelector("#classroom-collaboration").getAttribute(
+        "data-collaboration-session"
+      ) === "session-new-result" &&
+      staleResultRoot.querySelector("#collaboration-message-stale-result") === null &&
+      !staleResultAnnouncements.includes("OLD SESSION RESULT"),
+      "old-session success result must not replace or announce into the rebound collaboration UI"
+    );
+    check(
+      staleFailureRoot.querySelector("#classroom-collaboration").getAttribute(
+        "data-collaboration-session"
+      ) === "session-new-failure" &&
+      !staleFailureAnnouncements.includes("Action failed"),
+      "old-session rejected promise must not announce a failure into the rebound collaboration UI"
     );
     const settledWrapper = pendingRoot.querySelector("#classroom-collaboration");
     const settledInput = pendingRoot.querySelector("#collaboration-chat-input");
