@@ -10,6 +10,43 @@ from acs.training import (
 )
 
 
+class _BombFrozenSet(frozenset):
+    def __iter__(self):
+        raise AssertionError("frozenset subclass iteration hook must not execute")
+
+    def __len__(self):
+        raise AssertionError("frozenset subclass length hook must not execute")
+
+
+class _BombTuple(tuple):
+    def __iter__(self):
+        raise AssertionError("tuple subclass iteration hook must not execute")
+
+    def __len__(self):
+        raise AssertionError("tuple subclass length hook must not execute")
+
+
+class _DefinitionSubclass(ExerciseDefinition):
+    pass
+
+
+class _BombDict(dict):
+    def __iter__(self):
+        raise AssertionError("dict subclass iteration hook must not execute")
+
+    def __len__(self):
+        raise AssertionError("dict subclass length hook must not execute")
+
+    def __contains__(self, key):
+        raise AssertionError("dict subclass containment hook must not execute")
+
+    def __getitem__(self, key):
+        raise AssertionError("dict subclass item hook must not execute")
+
+    def items(self):
+        raise AssertionError("dict subclass items hook must not execute")
+
+
 class CanonicalTrainingEvaluationTests(unittest.TestCase):
     def test_coordinate_alias_and_san_are_the_same_canonical_answer(self):
         definition = ExerciseDefinition(
@@ -212,6 +249,101 @@ class DeterministicResumeTests(unittest.TestCase):
 
 
 class MalformedAndResourceBoundaryTests(unittest.TestCase):
+    def test_constructor_requires_exact_containers_before_hooks(self):
+        with self.assertRaisesRegex(TypeError, "exact frozenset"):
+            ExerciseStep(_BombFrozenSet({"e4"}))
+
+        step = ExerciseStep(frozenset({"e4"}))
+        with self.assertRaisesRegex(TypeError, "exact tuple"):
+            ExerciseDefinition("steps", Board.START, _BombTuple((step,)))
+
+        with self.assertRaisesRegex(TypeError, "exact tuple"):
+            ExerciseDefinition(
+                "tags",
+                Board.START,
+                (step,),
+                tags=_BombTuple(("opening",)),
+            )
+
+        with self.assertRaisesRegex(TypeError, "exact dict"):
+            ExerciseDefinition(
+                "metadata",
+                Board.START,
+                (step,),
+                metadata=_BombDict({"kind": "test"}),
+            )
+
+    def test_session_retains_exact_definition_authority(self):
+        subclass = _DefinitionSubclass(
+            "subclass",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            ExerciseSession(subclass)
+
+        definition = ExerciseDefinition(
+            "authority",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+        session.definition = subclass
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            session.snapshot()
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            session.submit("e4")
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            session.reset()
+
+    def test_constructor_raw_move_and_metadata_resources_are_bounded(self):
+        with self.assertRaisesRegex(ValueError, "too long"):
+            ExerciseStep(frozenset({"e4" + (" " * 63)}))
+
+        with self.assertRaisesRegex(ValueError, "too many items"):
+            ExerciseDefinition(
+                "metadata-count",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                metadata={f"k{index}": "v" for index in range(257)},
+            )
+
+        with self.assertRaisesRegex(ValueError, "too many tags"):
+            ExerciseDefinition(
+                "tag-count",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                tags=tuple(f"tag-{index}" for index in range(257)),
+            )
+
+    def test_snapshot_requires_exact_dict_before_hooks(self):
+        definition = ExerciseDefinition(
+            "snapshot-container",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        snapshot = _BombDict(ExerciseSession(definition).snapshot())
+        with self.assertRaisesRegex(TypeError, "exact dict"):
+            ExerciseSession.restore(definition, snapshot)
+
+    def test_snapshot_scalar_resources_are_bounded_before_replay(self):
+        definition = ExerciseDefinition(
+            "snapshot-bounds",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        snapshot = ExerciseSession(definition).snapshot()
+        snapshot["attempts"] = (1 << 53)
+        snapshot["mistakes"] = (1 << 53)
+        snapshot["status"] = "in_progress"
+        with self.assertRaisesRegex(ValueError, "counters"):
+            ExerciseSession.restore(definition, snapshot)
+
+        snapshot = ExerciseSession(definition).snapshot()
+        snapshot["position_fen"] = "x" * 4097
+        with self.assertRaisesRegex(ValueError, "position_fen is too long"):
+            ExerciseSession.restore(definition, snapshot)
+
     def test_invalid_start_position_uses_canonical_fen_validation(self):
         with self.assertRaises(ValueError):
             ExerciseDefinition(
