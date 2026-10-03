@@ -1681,11 +1681,30 @@ class FilesystemSoundPackStore:
                 "sound pack file could not be removed"
             ) from exc
 
-    def uninstall(self, pack_id: str) -> None:
+    def uninstall(
+        self,
+        pack_id: str,
+        *,
+        expected_manifest: SoundPackManifest | None = None,
+    ) -> None:
         identity = _stable_id(pack_id, allow_dot=True)
         if identity in self._built_in:
             raise SoundPackStoreError("built-in sound pack id is immutable")
+        if expected_manifest is not None:
+            if not isinstance(expected_manifest, SoundPackManifest):
+                raise TypeError("expected_manifest must be SoundPackManifest or null")
+            if expected_manifest.pack_id != identity:
+                raise SoundPackStoreError(
+                    "expected uninstall manifest id does not match pack id"
+                )
         with self._exclusive_mutation():
+            pack_dir = self._pack_dir(identity)
+            if expected_manifest is not None and os.path.lexists(pack_dir):
+                current = self._installed_disk_pack(identity).manifest
+                if current != expected_manifest:
+                    raise SoundPackStoreError(
+                        "sound pack changed before conditional uninstall"
+                    )
             self._uninstall_locked(identity)
 
     def _uninstall_locked(self, pack_id: str) -> None:
