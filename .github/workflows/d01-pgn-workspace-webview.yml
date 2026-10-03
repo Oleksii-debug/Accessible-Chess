@@ -254,20 +254,50 @@ jobs:
             }
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
-          acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
-          tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
-          tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
+
+          # Browser-contract hardening is an intentional successor of the
+          # reviewed D01 bridge/projection/DOM suite. Accept only exact prior or
+          # reviewed successor identities; every third identity remains fail-closed.
+          bridge_actual="$(git rev-parse HEAD:acs/pgn_webview_bridge.py)"
+          case "$bridge_actual" in
+            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c)
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/pgn_webview_bridge.py actual=%s\n' "$bridge_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          projection_test_actual="$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)"
+          case "$projection_test_actual" in
+            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e)
+              ;;
+            *)
+              printf 'Feature blob mismatch: tests/test_dev1_pgn_webview_projection.py actual=%s\n' "$projection_test_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
+          case "$dom_test_actual" in
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c)
+              ;;
+            *)
+              printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
+              exit 1
+              ;;
+          esac
 
           # Presentation privacy is an intentional successor of the exact D01
           # projection. Accept only the prior projection or the reviewed privacy
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -286,7 +316,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2
