@@ -98,6 +98,7 @@ class Stage1SaturationRefactorContractTests(unittest.TestCase):
                 "8f7fadad423106c2e7cb51c86af0038cd27566f1",  # #1135 mate/draw sound routing
                 "c8b4959a7c4ed67617766b87691020694a609fb6",  # #1135 independent low-time warning
                 "48306efcc79851a17ffc215593bcf92c069ebfbe",  # #1135 protect NEWGAME from first engine move
+                "03048189cfb677a7233d90d178be1d7bb6274c95",  # #1135 complete low-time alert and retry
             },
         )
         self.assertIn(
