@@ -75,6 +75,34 @@ class PgnFileServiceTests(unittest.TestCase):
                 any("bytes were replaced" in warning for warning in opened.global_warnings)
             )
 
+    def test_open_windows_1251_ukrainian_special_letters_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-ukrainian-specials.pgn"
+            source = (
+                '[Event "ЇЇ"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {Ґґ Єє Іі Її} *\n'
+            )
+            path.write_bytes(source.encode("cp1251"))
+
+            opened = open_pgn(path)
+
+            self.assertEqual(1, opened.total_games)
+            self.assertEqual("ЇЇ", opened.games[0].tags["Event"])
+            self.assertEqual(
+                "Ґґ Єє Іі Її",
+                opened.games[0].line.moves[0].comments_after[0].text,
+            )
+            self.assertTrue(
+                any(
+                    warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+                    for warning in opened.global_warnings
+                )
+            )
+            self.assertFalse(
+                any("bytes were replaced" in warning for warning in opened.global_warnings)
+            )
+
     def test_malformed_cp1251_like_source_never_leaks_codec_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "malformed-legacy-looking.pgn"

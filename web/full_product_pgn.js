@@ -213,12 +213,57 @@
     host.appendChild(toolbar);
   }
 
+  function keyboardChord(event) {
+    const parts = [];
+    if (event.ctrlKey) parts.push("Ctrl");
+    if (event.altKey) parts.push("Alt");
+    if (event.shiftKey) parts.push("Shift");
+    let key = event.key;
+    if (key === "ArrowLeft") key = "Left";
+    else if (key === "ArrowRight") key = "Right";
+    else if (key === "ArrowUp") key = "Up";
+    else if (key === "ArrowDown") key = "Down";
+    else if (key === "PageUp") key = "PageUp";
+    else if (key === "PageDown") key = "PageDown";
+    else if (key.length === 1) key = key.toUpperCase();
+    parts.push(key);
+    return parts.join("+");
+  }
+
+  function installPgnKeyboard(root, invoke, announce) {
+    root.__acsPgnInvoke = invoke;
+    root.__acsPgnAnnounce = announce;
+    if (root.__acsPgnKeyboardInstalled) return;
+    root.__acsPgnKeyboardInstalled = true;
+    root.addEventListener("keydown", function (event) {
+      const target = event.target;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].indexOf(target.tagName) >= 0) return;
+      if (event.ctrlKey && !event.altKey && !event.shiftKey && String(event.key).toLowerCase() === "c") return;
+      const selection = global.getSelection && global.getSelection();
+      if (event.ctrlKey && !event.altKey && selection && selection.toString()) return;
+      const chord = keyboardChord(event);
+      let command = "";
+      let payload = {};
+      if (chord === "Ctrl+Alt+Left") { command = "pgn.move"; payload = { delta: -1 }; }
+      else if (chord === "Ctrl+Alt+Right") { command = "pgn.move"; payload = { delta: 1 }; }
+      else if (chord === "Ctrl+Alt+Up") command = "pgn.parent";
+      else if (chord === "Ctrl+Alt+PageUp") command = "pgn.previous_game";
+      else if (chord === "Ctrl+Alt+PageDown") command = "pgn.next_game";
+      else if (chord === "Ctrl+Alt+C") command = "pgn.copy_selection";
+      if (!command) return;
+      event.preventDefault();
+      event.stopPropagation();
+      invokeCommand(root, root.__acsPgnInvoke, root.__acsPgnAnnounce, command, payload);
+    });
+  }
+
   function renderPgnSurface(root, snapshot, invoke, announce, requestedFocus) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("PGN root must support replaceChildren");
     }
     requireFunction(invoke, "PGN invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "PGN announce");
+    installPgnKeyboard(root, invoke, announce);
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("PGN snapshot is required");
     root._pgnErrorMessage = typeof snapshot.error_message === "string" && snapshot.error_message
       ? snapshot.error_message.slice(0, 240)

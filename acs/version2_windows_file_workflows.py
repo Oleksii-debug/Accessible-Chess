@@ -420,22 +420,15 @@ class Version2WindowsFileActionDelegate:
             )
         )
 
-    def _start_import(self) -> FileWorkflowEvent:
-        previous_focus = self._focus()
-        with self._lock:
-            if self._worker is not None and self._worker.is_alive():
-                return self._failed(
-                    "library.import",
-                    "import_already_running",
-                    focus_target="library-import-cancel",
-                )
-        try:
-            source_path = self._dialogs.select_library_import()
-        except Exception:
-            return self._failed("library.import", "file_dialog_failed", focus_target=previous_focus)
-        if source_path is None:
-            return self._dialog_cancelled("library.import", previous_focus)
-        suffix = Path(source_path).suffix.lower()
+    def _begin_import_path(
+        self,
+        source_path: Path,
+        *,
+        previous_focus: str,
+    ) -> FileWorkflowEvent:
+        if not isinstance(source_path, Path):
+            raise TypeError("trusted import source_path must be a Path")
+        suffix = source_path.suffix.lower()
         if suffix not in self._IMPORT_SUFFIXES:
             return self._failed(
                 "library.import",
@@ -456,14 +449,11 @@ class Version2WindowsFileActionDelegate:
             self._cancel_event = cancel_event
             worker = threading.Thread(
                 target=self._run_import,
-                args=(generation, Path(source_path), suffix, cancel_event),
+                args=(generation, source_path, suffix, cancel_event),
                 name=f"AccessibleChess-V2-Import-{generation}",
                 daemon=False,
             )
             self._worker = worker
-            # Publish start before allowing even an immediately completing worker
-            # to emit its terminal event. Otherwise an empty/fast import can be
-            # announced complete and then become spuriously RUNNING again.
             started = self._emit(
                 FileWorkflowEvent(
                     FileWorkflowEventKind.IMPORT_STARTED,
@@ -476,8 +466,50 @@ class Version2WindowsFileActionDelegate:
             except Exception:
                 self._worker = None
                 self._cancel_event = None
-                return self._failed("library.import", "import_worker_unavailable", focus_target=previous_focus)
+                return self._failed(
+                    "library.import",
+                    "import_worker_unavailable",
+                    focus_target=previous_focus,
+                )
             return started
+
+    def start_import_path(self, source_path: str | Path) -> FileWorkflowEvent:
+        """Start one trusted-host import without opening the user file picker.
+
+        This is deliberately not exposed through the browser action router. It
+        exists for already-verified packaged sources such as an owner-private
+        library payload. The normal worker, cancellation, progress, canonical
+        parsing and atomic Library publication paths remain unchanged.
+        """
+
+        previous_focus = self._focus()
+        if not isinstance(source_path, (str, Path)):
+            raise TypeError("trusted import source must be a filesystem path")
+        return self._begin_import_path(Path(source_path), previous_focus=previous_focus)
+
+    def _start_import(self) -> FileWorkflowEvent:
+        previous_focus = self._focus()
+        with self._lock:
+            if self._worker is not None and self._worker.is_alive():
+                return self._failed(
+                    "library.import",
+                    "import_already_running",
+                    focus_target="library-import-cancel",
+                )
+        try:
+            source_path = self._dialogs.select_library_import()
+        except Exception:
+            return self._failed(
+                "library.import",
+                "file_dialog_failed",
+                focus_target=previous_focus,
+            )
+        if source_path is None:
+            return self._dialog_cancelled("library.import", previous_focus)
+        return self._begin_import_path(
+            Path(source_path),
+            previous_focus=previous_focus,
+        )
 
     def _cancel_import(self) -> FileWorkflowEvent:
         with self._lock:

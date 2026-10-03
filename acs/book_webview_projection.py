@@ -40,6 +40,8 @@ _LABELS = {
         "returned": "Повернуто до місця читання.",
         "opened": "Позицію відкрито на дошці.",
         "hidden_path": "[локальний шлях приховано]",
+        "position_available": "Позиція доступна на дошці.",
+        "block": "Блок",
     },
     UILanguage.EN: {
         "heading": "Chess book reader",
@@ -62,6 +64,8 @@ _LABELS = {
         "returned": "Returned to the reading location.",
         "opened": "Position opened on the board.",
         "hidden_path": "[local path hidden]",
+        "position_available": "Board position available.",
+        "block": "Block",
     },
 }
 
@@ -197,14 +201,33 @@ class BookWebViewProjection:
         # One immutable BookBlockView per browser render; no repeated mutable reads.
         return self._snapshot_from_block(self._presenter.current())
 
+    def _block_announcement(self, snapshot: Mapping[str, object]) -> str:
+        block = snapshot.get("block", {})
+        if not isinstance(block, Mapping):
+            return ""
+        labels = _LABELS[self._language]
+        index = block.get("index")
+        prefix = f"{labels['block']} {index + 1}. " if type(index) is int else ""
+        title = str(block.get("title", "")).strip()
+        text = str(block.get("text", "")).strip()
+        body = title or text
+        if title and text and text != title:
+            body = f"{title}. {text}"
+        if block.get("has_position") is True:
+            body = (body + ". " if body else "") + labels["position_available"]
+        return (prefix + body).strip()[:700]
+
     def _render(self, block: BookBlockView, *, announcement: str = "") -> BookWebViewEvent:
         snapshot = self._snapshot_from_block(block)
+        spoken = _safe_text(announcement, language=self._language, limit=1000)
+        if not spoken:
+            spoken = self._block_announcement(snapshot)
         return BookWebViewEvent(
             "render",
             {
                 "snapshot": snapshot,
                 "focus_target": snapshot["block"]["dom_id"],
-                "announcement": _safe_text(announcement, language=self._language, limit=1000),
+                "announcement": spoken,
             },
         )
 

@@ -144,12 +144,60 @@
     main.appendChild(section);
   }
 
+  function bookChord(event) {
+    const parts = [];
+    if (event.ctrlKey) parts.push("Ctrl");
+    if (event.altKey) parts.push("Alt");
+    if (event.shiftKey) parts.push("Shift");
+    let key = event.key;
+    if (key === "ArrowLeft") key = "Left";
+    else if (key === "ArrowRight") key = "Right";
+    else if (key === "Enter") key = "Enter";
+    else if (key === "Backspace") key = "Backspace";
+    else if (key.length === 1) key = key.toUpperCase();
+    parts.push(key);
+    return parts.join("+");
+  }
+
+  function installBookKeyboard(root, invoke, announce, fallbackMessage) {
+    root.__acsBookInvoke = invoke;
+    root.__acsBookAnnounce = announce;
+    root.__acsBookFallback = fallbackMessage;
+    if (root.__acsBookKeyboardInstalled) return;
+    root.__acsBookKeyboardInstalled = true;
+    root.addEventListener("keydown", function (event) {
+      if (event.target && ["INPUT", "TEXTAREA", "SELECT"].indexOf(event.target.tagName) >= 0) return;
+      if (event.ctrlKey && !event.altKey && !event.shiftKey && String(event.key).toLowerCase() === "c") return;
+      const selection = global.getSelection && global.getSelection();
+      if (event.ctrlKey && !event.altKey && selection && selection.toString()) return;
+      const chord = bookChord(event);
+      let command = "";
+      if (chord === "Alt+Left") command = "book.previous";
+      else if (chord === "Alt+Right") command = "book.next";
+      else if (chord === "Ctrl+Alt+P") command = "book.next_position";
+      else if (chord === "Ctrl+Alt+G") command = "book.next_game";
+      else if (chord === "Ctrl+Alt+Enter") command = "book.open_position";
+      else if (chord === "Ctrl+Alt+Backspace") command = "book.return_from_board";
+      else if (chord === "Ctrl+Alt+Shift+Left" || chord === "Ctrl+Shift+Alt+Left") command = "book.previous_heading";
+      else if (chord === "Ctrl+Alt+Shift+Right" || chord === "Ctrl+Shift+Alt+Right") command = "book.next_heading";
+      else if (chord === "Alt+Shift+Left") command = "book.previous_heading";
+      else if (chord === "Alt+Shift+Right") command = "book.next_heading";
+      if (!command) return;
+      event.preventDefault();
+      event.stopPropagation();
+      safeInvoke(root.__acsBookInvoke, command, {}, function (result) {
+        applyBookEvent(root, result, root.__acsBookInvoke, root.__acsBookAnnounce, root.__acsBookFallback);
+      }, root.__acsBookAnnounce, root.__acsBookFallback);
+    });
+  }
+
   function renderBookSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("Book root must support replaceChildren");
     }
     requireFunction(invoke, "Book invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Book announce");
+    installBookKeyboard(root, invoke, announce, fallbackMessage);
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Book snapshot is required");
 
     const fragment = document.createDocumentFragment();

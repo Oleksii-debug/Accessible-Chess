@@ -4,15 +4,57 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Accessible Chess</title>
+<link rel="stylesheet" href="vendor/pico-2.1.1.min.css">
 <style>
-:root{font-family:"Segoe UI",system-ui,sans-serif;font-size:18px}
-body{margin:0;padding:1rem 1.4rem 4rem;line-height:1.45;background:Canvas;color:CanvasText}
-main{max-width:72rem}h1,h2,h3{margin-top:1.35rem}.block{white-space:pre-wrap;border:1px solid GrayText;padding:.7rem;min-height:2rem}.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
-input[type=text],input[type=search],input[type=number],textarea{min-width:18rem;font:inherit;padding:.45rem}input[type=number]{min-width:5rem}textarea{width:min(60rem,95%);min-height:6rem}button,select{font:inherit;padding:.45rem .7rem}fieldset{margin-top:1rem;padding:.8rem}
-.skip-link{position:absolute;left:.5rem;top:-4rem;padding:.5rem .75rem;background:Canvas;color:CanvasText;border:2px solid Highlight;z-index:10}.skip-link:focus{top:.5rem}
-#board-application[hidden]{display:none}#board-grid{display:grid;grid-template-columns:repeat(8,minmax(4.5rem,1fr));max-width:52rem;gap:2px}[role=gridcell]{border:1px solid GrayText;padding:.65rem .25rem;text-align:center;outline-offset:2px}[role=gridcell][aria-selected=true]{outline:3px solid Highlight}
-.binding-list{list-style:none;padding:0}.binding-item{border:1px solid GrayText;padding:.75rem;margin:.5rem 0}.binding-item h4{margin:.1rem 0 .4rem}.conflict{font-weight:700}.capture-active{outline:3px solid Highlight}#analysis-lines{padding-left:1.6rem}#analysis-lines button{width:min(68rem,100%);text-align:left;margin:.25rem 0}#analysis-lines button[aria-pressed=true]{outline:3px solid Highlight}
-dialog{max-width:min(70rem,95vw);max-height:90vh;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.35)}
+:root{
+  font-family:"Segoe UI",system-ui,sans-serif;
+  font-size:17px;
+  color-scheme:light dark;
+  --acs-surface:color-mix(in srgb, Canvas 94%, Highlight 6%);
+  --acs-surface-strong:color-mix(in srgb, Canvas 86%, Highlight 14%);
+  --acs-border:color-mix(in srgb, CanvasText 28%, Canvas 72%);
+  --acs-shadow:0 .45rem 1.4rem color-mix(in srgb, CanvasText 14%, transparent);
+  --acs-radius:.85rem;
+  --acs-light-square:#f0d9b5;
+  --acs-dark-square:#b58863;
+  --acs-light-text:#1b1b1b;
+  --acs-dark-text:#111;
+}
+body{margin:0;padding:0 1.25rem 4rem;line-height:1.5;background:Canvas;color:CanvasText}
+body>header{max-width:78rem;margin:0 auto;padding:1rem 0 .35rem;border-bottom:1px solid var(--acs-border)}
+body>header h1{margin:0;letter-spacing:-.025em}
+main{max-width:78rem;margin:0 auto}
+main>section,main>section>section{background:var(--acs-surface);border:1px solid var(--acs-border);border-radius:var(--acs-radius);padding:1rem 1.1rem;margin:1rem 0;box-shadow:var(--acs-shadow)}
+h1,h2,h3{line-height:1.2}h2{margin-top:.1rem}h3{margin-top:.7rem}
+.block{white-space:pre-wrap;border:1px solid var(--acs-border);border-radius:.55rem;padding:.75rem;min-height:2rem;background:Canvas}
+.row{display:flex;gap:.65rem;flex-wrap:wrap;align-items:center}
+input[type=text],input[type=search],input[type=number],textarea{min-width:min(18rem,100%);font:inherit}
+input[type=number]{min-width:5rem}textarea{width:min(60rem,100%);min-height:6rem}
+button,select,input,textarea{font:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+  outline:3px solid Highlight !important;outline-offset:3px
+}
+.skip-link{position:absolute;left:.5rem;top:-5rem;padding:.6rem .9rem;background:Canvas;color:CanvasText;border:3px solid Highlight;z-index:9999;border-radius:.4rem}.skip-link:focus{top:.5rem}
+#live{max-width:78rem;margin:0 auto;position:relative}
+#board-application[hidden]{display:none}
+#board-grid{display:grid;grid-template-columns:repeat(8,minmax(3.65rem,1fr));width:min(42rem,100%);gap:0;border:3px solid var(--acs-border);border-radius:.55rem;overflow:hidden;box-shadow:var(--acs-shadow)}
+[role=gridcell]{position:relative;aspect-ratio:1;display:grid;place-items:center;padding:.15rem;border:0;outline-offset:-4px;user-select:none}
+[role=gridcell].light-square{background:var(--acs-light-square);color:var(--acs-light-text)}
+[role=gridcell].dark-square{background:var(--acs-dark-square);color:var(--acs-dark-text)}
+[role=gridcell][aria-selected=true]{box-shadow:inset 0 0 0 5px Highlight}
+.board-piece{font-family:"Segoe UI Symbol","Noto Sans Symbols 2",serif;font-size:clamp(2rem,6vw,3.35rem);line-height:1;text-shadow:0 1px 1px rgba(255,255,255,.35)}
+.board-coordinate{position:absolute;inset:auto .22rem .12rem auto;font-size:.72rem;font-weight:700;opacity:.78}
+.binding-list{list-style:none;padding:0}.binding-item{border:1px solid var(--acs-border);border-radius:.55rem;padding:.8rem;margin:.55rem 0;background:Canvas}.binding-item h4{margin:.1rem 0 .45rem}.conflict{font-weight:700}.capture-active{outline:3px solid Highlight}
+#analysis-lines{padding-left:1.6rem}#analysis-lines button{width:min(68rem,100%);text-align:left;margin:.25rem 0}#analysis-lines button[aria-pressed=true]{outline:3px solid Highlight}
+dialog{max-width:min(70rem,95vw);max-height:90vh;overflow:auto;border-radius:var(--acs-radius)}dialog::backdrop{background:rgba(0,0,0,.5)}
+[role=treeitem],[role=option]{border-radius:.35rem;padding:.35rem .5rem;margin:.15rem 0}
+[role=treeitem][aria-selected=true],[role=option][aria-selected=true]{background:var(--acs-surface-strong);font-weight:650}
+@media(max-width:680px){body{padding-inline:.7rem}main>section,main>section>section{padding:.8rem}#board-grid{grid-template-columns:repeat(8,minmax(2.6rem,1fr))}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
+@media(forced-colors:active){
+  main>section,main>section>section,.block,[role=gridcell]{forced-color-adjust:auto;background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none}
+  [role=gridcell][aria-selected=true]{outline:3px solid Highlight;box-shadow:none}
+}
 </style>
 </head>
 <body>
@@ -49,7 +91,8 @@ function analysisLineText(line){const en=document.documentElement.lang==='en',pv
 function setAnalysisMutationLock(locked){['move-input','move-submit','fen-input','fen-load','position-input','position-turn','position-load','empty-board','new-game','undo','redo','white-turn','black-turn','history-prev','history-next','history-input','history-go','engine-play-open'].forEach(id=>{const n=el(id);if(n)n.disabled=!!locked})}
 function renderAnalysis(s){const a=s&&s.analysis||{},lines=a.lines||[],enabled=!!a.enabled,selected=Number(a.selectedPv||1),exploring=!!a.exploring,list=el('analysis-lines'),en=document.documentElement.lang==='en';setText('engine-toggle',enabled?(en?'Disable Stockfish':'Вимкнути Stockfish'):(en?'Enable Stockfish':'Увімкнути Stockfish'));el('analysis-restart').disabled=!enabled;el('analysis-lock').disabled=!enabled;el('analysis-lock').setAttribute('aria-pressed',a.targetLocked?'true':'false');setText('analysis-lock',a.targetLocked?(en?'Follow current position':'Стежити за поточною позицією'):(en?'Lock target':'Зафіксувати ціль'));if(document.activeElement!==el('analysis-multipv'))el('analysis-multipv').value=String(a.multipv||5);if(document.activeElement!==el('analysis-depth'))el('analysis-depth').value=String(a.depth||16);lines.forEach((line,i)=>{let li=list.children[i],button;if(!li){li=document.createElement('li');button=document.createElement('button');button.type='button';button.addEventListener('click',()=>apiAction('select_analysis_pv',Number(button.dataset.pv)));li.appendChild(button);list.appendChild(li)}else button=li.firstElementChild;button.disabled=false;button.dataset.pv=String(line.multipv);const lineText=analysisLineText(line);if(button.textContent!==lineText)button.textContent=lineText;button.setAttribute('aria-pressed',line.multipv===selected?'true':'false')});for(let i=list.children.length-1;i>=lines.length;i--){const extra=list.children[i];if(extra.contains(document.activeElement)){const button=extra.firstElementChild;button.disabled=true;button.removeAttribute('data-pv');button.textContent=en?'This variation is no longer available.':'Цей варіант більше недоступний.'}else extra.remove()}const hasLines=enabled&&lines.length>0;['analysis-prev-pv','analysis-next-pv','analysis-read','analysis-explore','analysis-insert-move','analysis-insert-line'].forEach(id=>el(id).disabled=!hasLines);el('analysis-return').disabled=!exploring;el('analysis-explore-prev').disabled=!exploring||Number(a.explorationPly)<=1;el('analysis-explore-next').disabled=!exploring||Number(a.explorationPly)>=Number(a.explorationLength);setText('analysis-exploration-status',exploring?(en?`Temporary view: move ${a.explorationPly} of ${a.explorationLength}. The main line is unchanged.`:`Тимчасовий перегляд: хід ${a.explorationPly} з ${a.explorationLength}. Основну лінію не змінено.`):(a.targetLocked?(en?'The target is locked; board changes do not switch it.':'Ціль зафіксовано; зміни на дошці її не перемикають.'):(en?'Analysis follows the current position.':'Аналіз стежить за поточною позицією.')));setAnalysisMutationLock(exploring)}
 function render(s){if(!s)return;state=s;setText('game-info',s.gameInfo);setText('moves',s.moves);setText('white-pieces',s.whitePieces);setText('black-pieces',s.blackPieces);setText('game-status',s.gameStatus);setText('last-move',s.lastMove);setText('engine-status',s.engineStatus);setText('history-status',s.reviewStatus);el('fen-input').value=s.fen||'';applyUiLanguage(s.lang||'uk');renderBoard(s.board||[]);renderEngineGame(s);renderAnalysis(s)}
-function renderBoard(cells){const grid=el('board-grid');grid.textContent='';cells.forEach((cell,i)=>{const node=document.createElement('div');node.id='sq-'+cell.square;node.setAttribute('role','gridcell');node.setAttribute('tabindex',i===boardIndex?'0':'-1');node.setAttribute('aria-label',cell.label);node.setAttribute('aria-selected',cell.selected?'true':'false');node.setAttribute('aria-rowindex',String(Math.floor(i/8)+1));node.setAttribute('aria-colindex',String((i%8)+1));node.dataset.square=cell.square;node.textContent=cell.square;node.addEventListener('focus',()=>boardIndex=i);node.addEventListener('keydown',onBoardKey);grid.appendChild(node)})}
+function pieceGlyph(label){const t=String(label||'').toLowerCase(),white=t.includes('білий')||t.includes('біла ')||t.includes('white '),black=t.includes('чорний')||t.includes('чорна ')||t.includes('black ');if(!(white||black))return'';const kind=t.includes('король')||t.includes('king')?'k':t.includes('ферзь')||t.includes('queen')?'q':t.includes('тура')||t.includes('rook')?'r':t.includes('слон')||t.includes('bishop')?'b':t.includes('кінь')||t.includes('knight')?'n':t.includes('пішак')||t.includes('pawn')?'p':'';const glyphs={wk:'♔',wq:'♕',wr:'♖',wb:'♗',wn:'♘',wp:'♙',bk:'♚',bq:'♛',br:'♜',bb:'♝',bn:'♞',bp:'♟'};return glyphs[(white?'w':'b')+kind]||''}
+function renderBoard(cells){const grid=el('board-grid');grid.textContent='';cells.forEach((cell,i)=>{const node=document.createElement('div');node.id='sq-'+cell.square;node.className=((Math.floor(i/8)+(i%8))%2===0?'light-square':'dark-square');node.setAttribute('role','gridcell');node.setAttribute('tabindex',i===boardIndex?'0':'-1');node.setAttribute('aria-label',cell.label);node.setAttribute('aria-selected',cell.selected?'true':'false');node.setAttribute('aria-rowindex',String(Math.floor(i/8)+1));node.setAttribute('aria-colindex',String((i%8)+1));node.dataset.square=cell.square;const glyph=pieceGlyph(cell.label),piece=document.createElement('span'),coord=document.createElement('span');piece.className='board-piece';piece.setAttribute('aria-hidden','true');piece.textContent=glyph;coord.className='board-coordinate';coord.setAttribute('aria-hidden','true');coord.textContent=cell.square;node.appendChild(piece);node.appendChild(coord);node.addEventListener('focus',()=>boardIndex=i);node.addEventListener('keydown',onBoardKey);grid.appendChild(node)})}
 function enterBoard(){el('board-application').hidden=false;const cells=el('board-grid').querySelectorAll('[role=gridcell]');if(cells[boardIndex])cells[boardIndex].focus()}
 function exitBoard(){el('board-application').hidden=true;el('board-launcher').focus()}
 function focusBoardIndex(i){const cells=[...el('board-grid').querySelectorAll('[role=gridcell]')];if(!cells.length)return;boardIndex=Math.max(0,Math.min(63,i));cells.forEach((n,j)=>n.tabIndex=j===boardIndex?0:-1);cells[boardIndex].focus()}
