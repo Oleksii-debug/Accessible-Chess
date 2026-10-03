@@ -251,6 +251,74 @@ async function run() {
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
 
+  const throwingRoot = new FakeElement("div");
+  let throwingCalls = 0;
+  const throwingInvoke = () => {
+    throwingCalls += 1;
+    throw new Error("synchronous host transport failure");
+  };
+  window.AccessibleChessBookSurface.render(
+    throwingRoot,
+    bookSnapshot(5, "Throw probe"),
+    throwingInvoke,
+    announce,
+    "book-block-5",
+    "Transport failed"
+  );
+  const beforeThrowAnnouncements = announcements.length;
+  find(throwingRoot, "BUTTON", "Next").listeners.click();
+  check(throwingCalls === 1, "synchronous host dispatch was deferred or skipped");
+  check(
+    announcements.slice(beforeThrowAnnouncements).includes("Transport failed"),
+    "synchronous host failure was not announced accessibly"
+  );
+
+  const pendingRoot = new FakeElement("div");
+  let pendingCalls = 0;
+  let resolveFirstPending = null;
+  const pendingInvoke = () => {
+    pendingCalls += 1;
+    if (pendingCalls === 1) {
+      return new Promise((resolve) => {
+        resolveFirstPending = resolve;
+      });
+    }
+    return {
+      kind: "render",
+      payload: {
+        snapshot: bookSnapshot(7, "Second completed action"),
+        focus_target: "book-block-7",
+        announcement: ""
+      }
+    };
+  };
+  window.AccessibleChessBookSurface.render(
+    pendingRoot,
+    bookSnapshot(6, "Pending action"),
+    pendingInvoke,
+    announce,
+    "book-block-6",
+    "Action failed"
+  );
+  const pendingButton = find(pendingRoot, "BUTTON", "Next");
+  pendingButton.listeners.click();
+  pendingButton.listeners.click();
+  check(pendingCalls === 1, "overlapping book action escaped the one-flight guard");
+  check(typeof resolveFirstPending === "function", "pending host action was not captured");
+  resolveFirstPending({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(6, "First completed action"),
+      focus_target: "book-block-6",
+      announcement: ""
+    }
+  });
+  await flushPromises();
+  await flushPromises();
+  find(pendingRoot, "BUTTON", "Next").listeners.click();
+  check(pendingCalls === 2, "one-flight guard was not released after completion");
+  await flushPromises();
+
   const listSnapshot = bookSnapshot(4, "List");
   listSnapshot.block.role = "group";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
