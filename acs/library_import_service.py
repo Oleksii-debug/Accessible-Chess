@@ -601,6 +601,16 @@ class LibraryImportService:
                         game_fingerprints,
                     )
                     _poll_cancel(cancel_check, database=self._db)
+                    # The final cancellation observer runs after canonical-row
+                    # comparison. It may retain and mutate the caller's PgnGame
+                    # objects while returning False, so bind reuse success to the
+                    # same validated authority again at the commit boundary.
+                    for game, fingerprint in zip(
+                        parsed_games,
+                        game_fingerprints,
+                        strict=True,
+                    ):
+                        _assert_game_authority_unchanged(game, fingerprint)
                     self._db._finish_import_attempt(
                         attempt_id,
                         status="warning" if warning_count else "full",
