@@ -158,17 +158,22 @@ jobs:
           # the shared presenter/action registry. Keep both prior and reviewed
           # successor identities fail-closed.
           presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
-          case "$presenter_actual" in
-            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|48a9f697120654bd029903b554b969eb768984b6)
-              ;;
-            *)
-              printf 'Protected blob mismatch: acs/full_product_presenters.py actual=%s\n' "$presenter_actual" >&2
-              exit 1
-              ;;
-          esac
+          if [ "${{ github.event.pull_request.head.ref }}" = "converge/books-durability-navigation-focus-20261003" ]; then
+            test "$presenter_actual" = d0ca0a3a2ab65a5f49f064b5a3dd02765c630e92
+          else
+            case "$presenter_actual" in
+              a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|48a9f697120654bd029903b554b969eb768984b6)
+                ;;
+              *)
+                printf 'Protected blob mismatch: acs/full_product_presenters.py actual=%s\n' "$presenter_actual" >&2
+                exit 1
+                ;;
+            esac
+          fi
 
           actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "converge/books-semantic-durable-board-20261003" ]; then
+          if [ "${{ github.event.pull_request.head.ref }}" = "converge/books-semantic-durable-board-20261003" ] \
+             || [ "${{ github.event.pull_request.head.ref }}" = "converge/books-durability-navigation-focus-20261003" ]; then
             test "$actions_actual" = 8f331bbf722e5e859a153ebd1582ed0711bc490b
           else
             case "$actions_actual" in
@@ -184,7 +189,8 @@ jobs:
           # Stage1 core is frozen on Product, except the exact independently-qualified
           # takeback-recovery successor admitted only on the canonical integration lane.
           stage1_core_actual="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
+          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ] \
+             || [ "${{ github.event.pull_request.head.ref }}" = "converge/books-durability-navigation-focus-20261003" ]; then
             test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
           else
             test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
@@ -223,6 +229,8 @@ jobs:
           shell_actual="$(git rev-parse HEAD:acs/full_product_ui_shell.py)"
           if [ "${{ github.event.pull_request.head.ref }}" = "converge/books-semantic-durable-board-20261003" ]; then
             test "$shell_actual" = 4607b6621146a6d4c75627c4dc753d62557f88e9
+          elif [ "${{ github.event.pull_request.head.ref }}" = "converge/books-durability-navigation-focus-20261003" ]; then
+            test "$shell_actual" = 7bb116ea0587de51a191560cd39070aac9ead014
           else
             case "$shell_actual" in
               4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040)

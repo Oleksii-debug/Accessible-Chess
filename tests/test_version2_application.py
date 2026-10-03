@@ -104,6 +104,36 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual("error", result["kind"])
         self.assertFalse(HostileText.touched)
 
+    def test_browser_ingress_rejects_payload_subclasses_before_container_hooks(self):
+        class HostilePayload(dict):
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress truthiness hook must never execute")
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress length hook must never execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress iteration hook must never execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress items hook must never execute")
+
+        for area, command in (
+            ("shell", "screen.library"),
+            ("review", "pgn.return"),
+            ("books", "book.next"),
+        ):
+            with self.subTest(area=area):
+                result = self.app.browser_command(area, command, HostilePayload())
+                self.assertEqual("error", result["kind"])
+                self.assertFalse(HostilePayload.touched)
+
     def test_direct_book_dispatch_rejects_command_subclass_without_strip_hook(self):
         self._open_book_game()
 
@@ -323,6 +353,132 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
+    def test_book_open_binds_native_focus_to_rendered_current_block(self):
+        book = self.root / "initial-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+
+        self.app.open_book(book)
+
+        self.assertEqual(self.app.reader.index, 0)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+        self.assertEqual(
+            self.app.snapshot()["screen"]["focus_target"],
+            "book-block-0",
+        )
+
+    def test_native_books_route_replaces_legacy_placeholder_before_event_publish(self):
+        book = self.root / "native-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        self.app.record_focus("book-reader")
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library["kind"], "route")
+
+        route = self.app.adapter.activate_action(
+            "screen.books",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual(route.kind, "route")
+        self.assertEqual(route.payload["focus_target"], "book-reader")
+
+        self.assertTrue(self.app.native_command(route))
+
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+        route_events = [
+            event for event in self.app.drain_events()
+            if event.get("kind") == "route"
+        ]
+        self.assertEqual(len(route_events), 1)
+        self.assertEqual(
+            route_events[0]["payload"]["focus_target"],
+            "book-block-0",
+        )
+        self.assertEqual(
+            route_events[0]["payload"]["snapshot"]["screen"]["focus_target"],
+            "book-block-0",
+        )
+
+    def test_browser_books_route_projects_repaired_focus_in_route_snapshot(self):
+        book = self.root / "browser-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        self.app.record_focus("book-reader")
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library["kind"], "route")
+
+        books = self.app.browser_command("shell", "screen.books")
+
+        self.assertEqual(books["kind"], "route")
+        self.assertEqual(books["payload"]["focus_target"], "book-block-0")
+        self.assertEqual(
+            books["payload"]["snapshot"]["screen"]["focus_target"],
+            "book-block-0",
+        )
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+
+    def test_book_durability_rebind_repairs_stale_book_block_focus(self):
+        book = self.root / "durability-rebind-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        key = self.app.book_key
+        document = self.app.reader.document
+        self.app.record_focus("book-block-0")
+
+        external = BookReader(document)
+        external.go_to(2)
+        self.app.progress_store.save(key, external)
+
+        self.app._reload_book_progress_after_durability_ambiguity()
+
+        self.assertEqual(self.app.reader.index, 2)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-2")
+        self.assertEqual(self.app._focus, "book-block-2")
+        self.assertEqual(
+            self.app.snapshot()["screen"]["focus_target"],
+            "book-block-2",
+        )
+
+    def test_book_durability_rebind_preserves_stable_book_control_focus(self):
+        book = self.root / "durability-rebind-control-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n\nДругий абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        key = self.app.book_key
+        document = self.app.reader.document
+        self.app.record_focus("book-bookmark-name")
+
+        external = BookReader(document)
+        external.go_to(2)
+        self.app.progress_store.save(key, external)
+
+        self.app._reload_book_progress_after_durability_ambiguity()
+
+        self.assertEqual(self.app.reader.index, 2)
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "book-bookmark-name",
+        )
+        self.assertEqual(self.app._focus, "book-bookmark-name")
+
     def test_book_durability_unknown_with_unreadable_primary_fails_surface_closed(self):
         book = self.root / "durability-unknown-unreadable.md"
         book.write_text(
@@ -541,6 +697,117 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(store.path.exists())
         self.assertEqual(store.backup_path.read_bytes(), unrelated_backup)
 
+    def test_native_training_route_validates_post_bind_snapshot_before_publication(self):
+        document = BookDocument(
+            title="Native Training snapshot",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Знайдіть хід.",
+                    answer_text="e4",
+                    block_id="native-training",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:native-training-snapshot"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        self.app._repair_book_block_focus_after_rebind()
+        self.app.drain_events()
+
+        routed = self.app.adapter.activate_action(
+            "screen.training",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual("route", routed.kind)
+        self.assertNotIn("training", routed.payload["snapshot"])
+
+        self.assertTrue(self.app.native_command(routed))
+
+        self.assertEqual("training", self.app.shell.current_route.route_id)
+        self.assertIsNotNone(self.app.training_workspace)
+        self.assertEqual("training-answer", self.app._focus)
+        current = self.app.snapshot()
+        self.assertIsNotNone(current["training"])
+        self.assertEqual("training-answer", current["training"]["focus_target"])
+        route_events = [
+            event for event in self.app.drain_events()
+            if event.get("kind") == "route"
+        ]
+        self.assertEqual(1, len(route_events))
+        self.assertNotIn("training", route_events[0]["payload"]["snapshot"])
+        self.assertEqual(
+            "training-answer",
+            route_events[0]["payload"]["focus_target"],
+        )
+
+    def test_native_training_snapshot_failure_clears_transient_workspace_and_recovers_books(self):
+        document = BookDocument(
+            title="Native Training failure",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Знайдіть хід.",
+                    answer_text="e4",
+                    block_id="native-training-failure",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:native-training-failure"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        self.app._repair_book_block_focus_after_rebind()
+        before = self.app.reader.snapshot()
+        self.app.drain_events()
+
+        routed = self.app.adapter.activate_action(
+            "screen.training",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual("route", routed.kind)
+
+        with patch(
+            "acs.version2_application.Version2BookTrainingWorkspace.snapshot",
+            side_effect=RuntimeError("Training projection failed"),
+        ):
+            accepted = self.app.native_command(routed)
+
+        self.assertFalse(accepted)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(before, self.app.reader.snapshot())
+        persisted = self.app.progress_store.restore_primary(
+            self.app.book_key,
+            document,
+        )
+        self.assertEqual(before, persisted.snapshot())
+        events = self.app.drain_events()
+        self.assertEqual(
+            [{"kind": "route", "payload": {"route_id": "books"}}],
+            [event for event in events if event.get("kind") == "route"],
+        )
+        self.assertEqual(
+            1,
+            sum(1 for event in events if event.get("kind") == "error"),
+        )
+
     def test_training_continue_durability_unknown_rebinds_to_canonical_successor(self):
         board = Board()
         board.push_text("e4")
@@ -588,6 +855,15 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertNotEqual("error", submitted["kind"])
         self.assertTrue(self.app.training_workspace.session.completed)
+        self.assertEqual(
+            submitted["payload"]["focus_target"],
+            "training-action-continue",
+        )
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "training-action-continue",
+        )
+        self.assertEqual(self.app._focus, "training-action-continue")
 
         store = self.app.progress_store
 
@@ -612,6 +888,123 @@ class Version2ApplicationTests(unittest.TestCase):
         persisted = store.restore_primary(self.app.book_key, document)
         self.assertEqual(self.app.reader.snapshot(), persisted.snapshot())
         self.assertEqual("training", self.app.shell.current_route.route_id)
+
+    def test_training_last_exercise_uses_real_reset_focus_and_reentry(self):
+        document = BookDocument(
+            title="Training terminal focus",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Знайдіть хід.",
+                    answer_text="e4",
+                    block_id="training-terminal",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:training-terminal-focus"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+
+        routed = self.app.browser_command("shell", "screen.training")
+        self.assertEqual("route", routed["kind"])
+        self.assertEqual("training-answer", routed["payload"]["focus_target"])
+
+        submitted = self.app.browser_command(
+            "training",
+            "training.submit",
+            {"answer": "e4"},
+        )
+
+        self.assertEqual("render", submitted["kind"])
+        self.assertEqual(
+            "training-action-reset",
+            submitted["payload"]["focus_target"],
+        )
+        self.assertEqual(
+            "training-action-reset",
+            submitted["payload"]["snapshot"]["focus_target"],
+        )
+        self.assertEqual(
+            "training-action-reset",
+            self.app.shell.restore_focus_target(),
+        )
+        self.assertEqual("training-action-reset", self.app._focus)
+
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual("route", library["kind"])
+        returned = self.app.browser_command("shell", "screen.training")
+        self.assertEqual("route", returned["kind"])
+        self.assertEqual(
+            "training-action-reset",
+            returned["payload"]["focus_target"],
+        )
+        self.assertEqual(
+            "training-action-reset",
+            returned["payload"]["snapshot"]["screen"]["focus_target"],
+        )
+        self.assertEqual("training-action-reset", self.app._focus)
+
+    def test_training_reveal_records_real_solution_focus_target(self):
+        document = BookDocument(
+            title="Training reveal focus",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Знайдіть хід.",
+                    answer_text="e4",
+                    block_id="training-reveal",
+                ),
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:training-reveal-focus"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        routed = self.app.browser_command("shell", "screen.training")
+        self.assertEqual("route", routed["kind"])
+
+        revealed = self.app.browser_command("training", "training.reveal")
+
+        self.assertEqual("render", revealed["kind"])
+        self.assertEqual(
+            "training-solution",
+            revealed["payload"]["focus_target"],
+        )
+        self.assertTrue(revealed["payload"]["solution"])
+        self.assertEqual(
+            "training-solution",
+            self.app.shell.restore_focus_target(),
+        )
+        self.assertEqual("training-solution", self.app._focus)
+
+        language = self.app.browser_command(
+            "training",
+            "training.language",
+            {"language": "en"},
+        )
+        self.assertEqual("render", language["kind"])
+        self.assertEqual("training-answer", language["payload"]["focus_target"])
+        self.assertEqual(
+            "training-answer",
+            language["payload"]["snapshot"]["focus_target"],
+        )
+        self.assertEqual("training-answer", self.app.shell.restore_focus_target())
+        self.assertEqual("training-answer", self.app._focus)
 
     def test_book_render_failure_rolls_back_reader_and_durable_progress(self):
         book = self.root / "render-failure.md"
