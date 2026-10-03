@@ -773,6 +773,72 @@ class LocalSoundCompositionTests(unittest.TestCase):
             self.assertEqual("move", move["sound_id"])
             self.assertNotIn("quiet.move", move["sound_choices"])
 
+    def test_corrupt_installed_provider_pack_is_projected_installable_and_repaired(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-repair-") as raw:
+            root = Path(raw)
+            entry, staging = _catalog_entry(root)
+            downloader = _StagedDownloader(entry, staging)
+            first = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={entry.manifest.pack_id: entry},
+                pack_downloader=downloader,
+            )
+            installed = first.settings.install_pack(
+                entry.manifest.pack_id,
+                activate=True,
+                language="en",
+            )
+            self.assertTrue(installed.ok)
+
+            version_dir = first.pack_store._version_dir(
+                entry.manifest.pack_id,
+                entry.manifest.version,
+            )
+            damaged = version_dir / entry.manifest.files["move"]
+            damaged.write_bytes(b"tampered-installed-sound")
+            self.assertNotIn(
+                entry.manifest.pack_id,
+                first.pack_store.installed(),
+            )
+
+            restarted = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={entry.manifest.pack_id: entry},
+                pack_downloader=_StagedDownloader(entry, staging),
+            )
+            self.assertEqual(
+                "classic",
+                restarted.profile_manager.current.pack_id,
+                "startup must fail safe while the installed pack is corrupt",
+            )
+            item = restarted.settings.snapshot(language="en")["packs"][0]
+            self.assertEqual("not_installed", item["state"])
+            self.assertTrue(item["can_install"])
+
+            repaired = restarted.settings.install_pack(
+                entry.manifest.pack_id,
+                activate=True,
+                language="en",
+            )
+
+            self.assertTrue(repaired.ok)
+            self.assertEqual(
+                entry.manifest.pack_id,
+                restarted.profile_manager.current.pack_id,
+            )
+            self.assertEqual(
+                entry.manifest,
+                restarted.pack_store.installed()[entry.manifest.pack_id],
+            )
+            self.assertEqual(
+                entry.manifest.version,
+                restarted.pack_store.active_version(entry.manifest.pack_id),
+            )
+
     def test_oversized_provider_catalog_is_rejected_before_iteration_or_filesystem_side_effects(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-provider-limit-") as raw:
             root = Path(raw)
