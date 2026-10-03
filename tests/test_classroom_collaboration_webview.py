@@ -464,6 +464,38 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual(1, len(self.store.room_messages("room-1")))
 
+    def test_sync_removes_hidden_message_from_unread_count(self) -> None:
+        view = self.webview()
+        message = ChatMessageMetadata(
+            "remote-unread-hidden",
+            "room-1",
+            "student-2",
+            0,
+            "Moderated after delivery",
+            sent_at_unix_ms=1700000000000,
+        )
+        received = view.receive_chat(message)
+        self.assertEqual(
+            1,
+            received.payload["collaboration"]["chat"]["unread_count"],
+        )
+
+        def hide_during_sync():
+            self.store.set_message_hidden(message.message_id, True)
+            return ()
+
+        with mock.patch.object(
+            self.controller,
+            "sync_chat",
+            side_effect=hide_during_sync,
+        ):
+            synced = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual("collaboration.chat.synced", synced.kind)
+        self.assertEqual(0, synced.payload["collaboration"]["chat"]["unread_count"])
+        self.assertEqual((), synced.payload["collaboration"]["chat"]["messages"])
+        self.assertEqual(set(), view._unread_message_ids)
+
     def test_trusted_live_chat_echo_recovers_pending_send_without_unread(self) -> None:
         view = self.webview()
         with mock.patch.object(
