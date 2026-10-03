@@ -143,6 +143,7 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 Books surface", root / "full_product_books_training.js"),
         ("V2 Teacher surface", root / "full_product_teacher.js"),
         ("V2 Education surface", root / "full_product_education.js"),
+        ("V2 Classroom media surface", root / "full_product_classroom_media.js"),
         ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
         # The final bootstrap creates #v2-workspace synchronously, then starts an
         # asynchronous snapshot refresh. Load P0 after that DOM owner exists so
@@ -151,10 +152,17 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("P0 event-aware accessibility runtime", root / "p0_accessibility_runtime.js"),
     )
     output: list[tuple[str, str]] = []
+    seen_labels: set[str] = set()
     for label, path in resources:
+        if label in seen_labels:
+            raise RuntimeError("Final-product WebView resource label is duplicated.")
+        seen_labels.add(label)
         if not path.exists():
             raise RuntimeError(f"{label} not found in packaged resources.")
-        output.append((label, _read_resource_text(path, label=label)))
+        source = _read_resource_text(path, label=label)
+        if not source.strip():
+            raise RuntimeError(f"{label} is empty in packaged resources.")
+        output.append((label, source))
     return tuple(output)
 
 
