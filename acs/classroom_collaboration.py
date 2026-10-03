@@ -271,20 +271,14 @@ class ClassroomCollaborationController:
                         )
                     except Exception:
                         raise initial_error
-                    if (
-                        type(history) is not tuple
-                        or len(history) > MAX_SYNC_MESSAGES
-                    ):
-                        raise CollaborationError(
-                            "ambiguous chat recovery history is invalid or too large"
-                        )
+                    self._validate_chat_history_page(
+                        history,
+                        after_sequence=after,
+                    )
                     matches = tuple(
                         message
                         for message in history
-                        if (
-                            type(message) is ChatMessageMetadata
-                            and message.message_id == draft.message_id
-                        )
+                        if message.message_id == draft.message_id
                     )
                 if len(matches) != 1:
                     if not matches:
@@ -332,25 +326,16 @@ class ClassroomCollaborationController:
             self.sync_chat()
             return self._store.append_message(message)
 
-    def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
-        self._require_member(self.local_participant_id)
-        existing = self._store.room_messages(self.room_id, include_hidden=True)
-        existing_ids = {message.message_id for message in existing}
-        after: int | None = None
-        for message in existing:
-            expected = 0 if after is None else after + 1
-            if message.sequence_no != expected:
-                break
-            after = message.sequence_no
-        incoming = self._chat.history_after(
-            room_id=self.room_id,
-            after_sequence=after,
-            limit=MAX_SYNC_MESSAGES,
-        )
+    def _validate_chat_history_page(
+        self,
+        incoming: tuple[ChatMessageMetadata, ...],
+        *,
+        after_sequence: int | None,
+    ) -> None:
         if type(incoming) is not tuple or len(incoming) > MAX_SYNC_MESSAGES:
             raise CollaborationError("chat history response is invalid or too large")
 
-        previous = after
+        previous = after_sequence
         for message in incoming:
             if type(message) is not ChatMessageMetadata:
                 raise CollaborationError("chat history contains invalid message type")
@@ -368,6 +353,26 @@ class ClassroomCollaborationController:
             _chat_body(message.body)
             self._require_transport_timestamp(message)
             previous = message.sequence_no
+
+    def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
+        self._require_member(self.local_participant_id)
+        existing = self._store.room_messages(self.room_id, include_hidden=True)
+        existing_ids = {message.message_id for message in existing}
+        after: int | None = None
+        for message in existing:
+            expected = 0 if after is None else after + 1
+            if message.sequence_no != expected:
+                break
+            after = message.sequence_no
+        incoming = self._chat.history_after(
+            room_id=self.room_id,
+            after_sequence=after,
+            limit=MAX_SYNC_MESSAGES,
+        )
+        self._validate_chat_history_page(
+            incoming,
+            after_sequence=after,
+        )
 
         state_after = self._store.chat_state_revision(self.room_id)
         updates = self._chat.state_updates_after(
