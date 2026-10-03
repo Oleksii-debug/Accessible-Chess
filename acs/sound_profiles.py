@@ -36,6 +36,21 @@ CORE_SOUND_EVENTS = (
     )
 )
 
+# Schema 1 is already a durable provider/storage contract. New application sound
+# semantics must not retroactively invalidate previously valid installed packs.
+SOUND_PACK_SCHEMA1_REQUIRED_EVENTS = (
+    "start",
+    "move",
+    "capture",
+    "check",
+    "castle",
+    "promotion",
+    "illegal",
+    "end",
+    "tick",
+    "low_time",
+)
+
 OPTIONAL_OWNER_SOUND_EVENTS = (
     "mate",
     "draw",
@@ -170,7 +185,11 @@ class SoundPackManifest:
                 raise ValueError("sound pack contains Windows case-colliding asset paths")
             path_spellings[folded] = path
             files[key] = path
-        missing = [event for event in CORE_SOUND_EVENTS if event not in files]
+        missing = [
+            event
+            for event in SOUND_PACK_SCHEMA1_REQUIRED_EVENTS
+            if event not in files
+        ]
         if missing:
             raise ValueError(f"sound pack is missing core events: {', '.join(missing)}")
         object.__setattr__(self, "pack_id", pack_id)
