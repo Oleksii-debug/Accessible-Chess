@@ -1574,9 +1574,9 @@ class ClassroomCollaborationSQLiteStore:
             ).fetchall()
         pending: list[str] = []
         for row in rows:
-            deletion_room = _canonical_id(row["room_id"], "deletion room id")
-            _canonical_id(row["attachment_id"], "deletion attachment id")
-            deletion_key = _safe_object_key(row["object_key"])
+            deletion_room, _attachment_id, deletion_key = (
+                self._deletion_intent_from_row(row)
+            )
             if (
                 deletion_room != room
                 or row["attachment_room_id"] != deletion_room
@@ -1770,12 +1770,9 @@ class ClassroomCollaborationSQLiteStore:
                 FROM collaboration_attachment_deletions
                 """
             ):
-                room = _canonical_id(deletion["room_id"], "deletion room id")
-                attachment_id = _canonical_id(
-                    deletion["attachment_id"],
-                    "deletion attachment id",
+                room, attachment_id, object_key = self._deletion_intent_from_row(
+                    deletion
                 )
-                object_key = _safe_object_key(deletion["object_key"])
                 row = db.execute(
                     "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
                     (attachment_id,),
@@ -1793,6 +1790,21 @@ class ClassroomCollaborationSQLiteStore:
                     raise CollaborationStorageError(
                         "attachment deletion intent is inconsistent with tombstone"
                     )
+
+    @staticmethod
+    def _deletion_intent_from_row(
+        row: sqlite3.Row,
+    ) -> tuple[str, str, str]:
+        try:
+            return (
+                _canonical_id(row["room_id"], "deletion room id"),
+                _canonical_id(row["attachment_id"], "deletion attachment id"),
+                _safe_object_key(row["object_key"]),
+            )
+        except (TypeError, ValueError, KeyError, IndexError, OverflowError) as error:
+            raise CollaborationStorageError(
+                "stored attachment deletion intent is invalid"
+            ) from error
 
     @staticmethod
     def _message_from_row(row: sqlite3.Row) -> ChatMessageMetadata:

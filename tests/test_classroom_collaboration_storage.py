@@ -151,6 +151,72 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
 
+    def test_corrupt_attachment_cleanup_intent_fails_closed(self) -> None:
+        tombstone = AttachmentMetadata(
+            "corrupt-cleanup-a0",
+            "room",
+            "teacher",
+            0,
+            "corrupt.bin",
+            None,
+            1,
+            "c" * 64,
+            "rooms/room/corrupt-cleanup-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_attachment_deletions "
+                "SET attachment_id='invalid attachment id' "
+                "WHERE object_key=?",
+                (tombstone.object_key,),
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "stored attachment deletion intent is invalid",
+        ):
+            self.store.pending_attachment_deletions("room")
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "stored attachment deletion intent is invalid",
+        ):
+            self.store.integrity_check()
+
+    def test_cleanup_acknowledgement_cannot_cross_room_boundary(self) -> None:
+        tombstone = AttachmentMetadata(
+            "room-bound-cleanup",
+            "room",
+            "teacher",
+            0,
+            "room-bound.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room/room-bound-cleanup",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "crossed room boundary",
+        ):
+            self.store.acknowledge_attachment_deletion(
+                room_id="other-room",
+                object_key=tombstone.object_key,
+            )
+
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+
     def test_v5_sequence_index_upgrades_without_leaving_legacy_index(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
             db.execute(
