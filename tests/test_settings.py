@@ -1,7 +1,9 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.settings import DEFAULTS, SCHEMA_VERSION, Settings, SettingsError
 
@@ -42,6 +44,135 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(raw["schema_version"], SCHEMA_VERSION)
             self.assertEqual(raw["values"]["volume"], 42)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_post_publication_unlock_failure_does_not_turn_save_into_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            lock_target = "msvcrt.locking" if os.name == "nt" else "fcntl.flock"
+            with mock.patch(
+                lock_target,
+                side_effect=[None, OSError("simulated post-publication unlock failure")],
+            ):
+                settings.set("language", "en")
+
+            self.assertEqual(settings.get("language"), "en")
+            self.assertEqual(Settings(path).get("language"), "en")
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_lock_acquisition_failure_still_prevents_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            lock_target = "msvcrt.locking" if os.name == "nt" else "fcntl.flock"
+            with mock.patch(
+                lock_target,
+                side_effect=OSError("simulated lock contention"),
+            ):
+                with self.assertRaises(SettingsError):
+                    settings.set("language", "en")
+
+            self.assertFalse(path.exists())
+            self.assertEqual(settings.get("language"), "uk")
+
+    def test_lock_setup_failure_closes_handle_and_rolls_back_memory(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            handle = mock.Mock()
+            handle.seek.return_value = 0
+            handle.write.side_effect = OSError("simulated lock-file initialization failure")
+
+            with mock.patch.object(Path, "open", return_value=handle):
+                with self.assertRaisesRegex(
+                    SettingsError,
+                    "temporarily unavailable for Version 2 persistence",
+                ):
+                    settings.set("language", "en")
+
+            handle.close.assert_called_once_with()
+            self.assertEqual(settings.get("language"), "uk")
+            self.assertFalse(path.exists())
+
+    def test_lock_directory_failure_is_stable_settings_error_and_rolls_back(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+
+            with mock.patch.object(
+                Path,
+                "mkdir",
+                side_effect=OSError("simulated settings directory failure"),
+            ):
+                with self.assertRaisesRegex(
+                    SettingsError,
+                    "temporarily unavailable for Version 2 persistence",
+                ):
+                    settings.set("language", "en")
+
+            self.assertEqual(settings.get("language"), "uk")
+            self.assertFalse(path.exists())
+
+    def test_prepublication_replace_failure_still_propagates(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            with mock.patch.object(
+                Path,
+                "replace",
+                side_effect=OSError("simulated settings replace failure"),
+            ):
+                with self.assertRaises(OSError):
+                    settings.set("language", "en")
+
+            self.assertFalse(path.exists())
+            self.assertEqual(settings.get("language"), "uk")
+
+    def test_reset_save_failure_restores_memory_and_canonical_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("volume", 42)
+            persisted = path.read_bytes()
+
+            with mock.patch.object(
+                Path,
+                "replace",
+                side_effect=OSError("simulated reset replace failure"),
+            ):
+                with self.assertRaises(OSError):
+                    settings.reset("volume")
+
+            self.assertEqual(settings.get("volume"), 42)
+            self.assertEqual(path.read_bytes(), persisted)
+
+    def test_import_save_failure_restores_data_warning_and_canonical_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("language", "en")
+            settings.set("volume", 33)
+            settings.warning = "existing warning"
+            persisted = path.read_bytes()
+            before = dict(settings.data)
+
+            payload = json.dumps(
+                {
+                    "schema_version": SCHEMA_VERSION,
+                    "values": {"language": "uk", "volume": 1},
+                }
+            )
+            with mock.patch.object(
+                Path,
+                "replace",
+                side_effect=OSError("simulated import replace failure"),
+            ):
+                with self.assertRaises(OSError):
+                    settings.import_json(payload)
+
+            self.assertEqual(settings.data, before)
+            self.assertEqual(settings.warning, "existing warning")
+            self.assertEqual(path.read_bytes(), persisted)
 
     def test_invalid_value_does_not_persist_or_mutate(self):
         with tempfile.TemporaryDirectory() as td:
