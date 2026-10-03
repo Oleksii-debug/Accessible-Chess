@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.full_product_actions import build_full_product_action_registry
 from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_profile import build_version2_action_registry
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
@@ -57,6 +58,21 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
         self.assertIn("resolveBinding(chord,'global','document')", html)
         self.assertIn("if(id==='screen.help'){openHelp();return}", html)
         self.assertNotIn("line('history.previous')", html)
+
+    def test_terminal_widget_contexts_project_to_matching_web_fallback_scopes(self):
+        snapshot = build_web_keymap(build_full_product_action_registry())
+        by_id = {item["id"]: item for item in snapshot["actions"]}
+
+        expected = {
+            "pgn.next_item": ("pgn_tree", "pgn_tree"),
+            "library.next_result": ("library_results", "library_results"),
+            "education.next_item": ("education_list", "education_list"),
+        }
+        for action_id, (registry_context, ui_context) in expected.items():
+            with self.subTest(action_id=action_id):
+                item = by_id[action_id]
+                self.assertEqual(item["registryContext"], registry_context)
+                self.assertEqual(item["context"], ui_context)
 
     def test_board_grid_remap_uses_same_persisted_registry(self):
         with tempfile.TemporaryDirectory() as td:
