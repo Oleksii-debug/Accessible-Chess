@@ -21,13 +21,20 @@ _COMPLETE_PGN_DATE_RE = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})$")
 _PLAYER_COMPONENT_SPLIT_RE = re.compile(r"[,\s'\u2018\u2019\u02bc\-\u2010\u2011]+")
 
 
+def normalize_search_text(value: str) -> str:
+    """NFKC-normalize text and collapse Unicode whitespace for search comparison."""
+    if type(value) is not str:
+        raise TypeError("search text must be text")
+    return " ".join(unicodedata.normalize("NFKC", value).split())
+
+
 def normalize_search_term(value: str | None, *, name: str) -> str | None:
-    """Validate and NFKC-normalize one optional user-facing search term."""
+    """Validate and normalize one bounded optional user-facing search term."""
     if value is None:
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
-    normalized = " ".join(unicodedata.normalize("NFKC", value).split())
+    normalized = normalize_search_text(value)
     if len(normalized) > MAX_SEARCH_TERM_CHARS:
         raise ValueError(
             f"{name} exceeds maximum search term length of {MAX_SEARCH_TERM_CHARS} characters"
