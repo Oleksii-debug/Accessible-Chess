@@ -85,7 +85,7 @@ jobs:
           test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "e739071cf5d8a40f7622559c0fcd598cf4c7c945"
-          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "1f7d2f0a80207dcc6d14b361f8dfe4b1cbf07032"
+          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "8c4e32190fca0e2baa9660532698fa0fe1fe03bd"
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "7bb116ea0587de51a191560cd39070aac9ead014"
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "9f6fedc62dab8b3154f6e1bec6ad26338e310729"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "66bcf463dea9eb70803462f78dbc5f7a3ef37a22"
