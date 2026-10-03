@@ -128,6 +128,36 @@ class BookProjectionTests(unittest.TestCase):
                 )
             )
 
+    def test_snapshot_rejects_raw_oversize_before_redaction_scan(self) -> None:
+        paragraph = self.presenter.next_block()
+        with (
+            patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4),
+            patch(
+                "acs.book_webview_projection.redact_local_paths",
+                side_effect=AssertionError("redaction must not scan raw oversize text"),
+            ) as redact,
+        ):
+            with self.assertRaisesRegex(ValueError, "visible-text budget"):
+                self.projection._snapshot_from_block(
+                    replace(paragraph, text="xxxxx")
+                )
+        redact.assert_not_called()
+
+    def test_list_whitespace_only_item_still_fails_after_deferred_sanitation(self) -> None:
+        block = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "empty visible item"):
+            self.projection._snapshot_from_block(
+                replace(
+                    block,
+                    kind="List",
+                    role="list",
+                    heading_level=None,
+                    list_items=("   ",),
+                    list_ordered=False,
+                    list_start=None,
+                )
+            )
+
     def test_snapshot_rejects_oversized_list_before_element_scan(self) -> None:
         block = self.presenter.current()
         oversized = ("item",) * 65536 + (object(),)
