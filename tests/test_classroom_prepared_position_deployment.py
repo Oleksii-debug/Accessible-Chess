@@ -527,6 +527,34 @@ class PreparedPositionDeploymentTests(unittest.TestCase):
                 dp.PreparedPositionDeploymentBatch.from_record(oversized_target)
             digest.assert_not_called()
 
+    def test_wire_byte_limit_runs_before_json_parse_without_encode_copy(self) -> None:
+        with (
+            patch.object(dp, "MAX_DEPLOYMENT_JSON_BYTES", 10),
+            patch.object(
+                dp.json,
+                "loads",
+                side_effect=AssertionError("JSON parser must not run after byte overflow"),
+            ) as loads,
+        ):
+            with self.assertRaisesRegex(
+                dp.PreparedPositionDeploymentError,
+                "size limit",
+            ):
+                dp.PreparedPositionDeploymentBatch.from_json('"éééééé"')
+            loads.assert_not_called()
+
+        with patch.object(
+            dp.json,
+            "loads",
+            side_effect=AssertionError("JSON parser must not receive invalid Unicode"),
+        ) as loads:
+            with self.assertRaisesRegex(
+                dp.PreparedPositionDeploymentError,
+                "invalid Unicode",
+            ):
+                dp.PreparedPositionDeploymentBatch.from_json("\ud800")
+            loads.assert_not_called()
+
     def test_resource_bounds_apply_to_wire_payload(self) -> None:
         batch = dp.plan_prepared_position_deployment(
             _lesson(),
