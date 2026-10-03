@@ -10,6 +10,7 @@ on:
     paths:
       - '.github/workflows/classroom-media-shipping-webview.yml'
       - 'acs/classroom_media_provider_binder.py'
+      - 'acs/classroom_media_session_transactions.py'
       - 'acs/classroom_media_webview_bridge.py'
       - 'acs/classroom_media_webview_projection.py'
       - 'acs/classroom_media_webview_transactions.py'
@@ -77,6 +78,7 @@ jobs:
           expected=(
             '.github/workflows/classroom-media-shipping-webview.yml'
             'acs/classroom_media_provider_binder.py'
+            'acs/classroom_media_session_transactions.py'
             'acs/classroom_media_webview_bridge.py'
             'acs/classroom_media_webview_projection.py'
             'acs/classroom_media_webview_transactions.py'
