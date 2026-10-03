@@ -47,14 +47,12 @@ jobs:
           test "$EXPECTED_BASE_REF" = "feature/livekit-moderation-service-token-20261002"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
           git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          git fetch --no-tags origin "$EXPECTED_BASE_REF"
-          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base...HEAD"
-          changed="$(git diff --name-only "$base...HEAD" | sort)"
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
           allowed="$(printf '%s\n'             '.github/workflows/livekit-reserved-moderation-identity.yml'             'acs/livekit_classroom_identities.py'             'acs/livekit_join_token_issuer.py'             'acs/livekit_moderation_service_token.py'             'tests/test_livekit_join_token_issuer.py' | sort)"
           test "$changed" = "$allowed"
-          git diff --quiet "$base" HEAD --             acs/classroom_join_credentials.py             acs/classroom_realtime_media.py             acs/classroom_domain.py             acs/chesscore.py             web/livekit_classroom_media.js
+          git diff --quiet "$EVENT_BASE_SHA" HEAD --             acs/classroom_join_credentials.py             acs/classroom_realtime_media.py             acs/classroom_domain.py             acs/chesscore.py             web/livekit_classroom_media.js
 
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
