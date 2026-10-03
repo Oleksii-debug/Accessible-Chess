@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
-from acs.full_product_presenters import PgnTreePresenter
+from acs.full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from acs.full_product_ui_shell import UILanguage
 from acs.gametree import parse_games, serialize_games
 from acs.pgn_webview_projection import PgnWebViewProjection
@@ -176,6 +178,131 @@ class PgnWebViewProjectionTests(unittest.TestCase):
                 )
                 with self.assertRaises(ValueError):
                     projection.snapshot()
+
+    def test_hostile_string_subclasses_fail_before_projection_hooks(self) -> None:
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile strip must never execute")
+
+            def replace(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile replace must never execute")
+
+            def encode(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile encode must never execute")
+
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("hostile equality must never execute")
+
+        base = self.presenter.view()
+        hostile_title = replace(base, title=HostileText("Alpha — Beta"))
+        with patch.object(self.presenter, "view", return_value=hostile_title):
+            with self.assertRaisesRegex(TypeError, "presentation text must be text"):
+                self.projection.snapshot()
+        self.assertFalse(HostileText.touched)
+
+        first = base.items[0]
+        hostile_item = replace(first, node_id=HostileText(first.node_id))
+        hostile_items = replace(
+            base,
+            items=(hostile_item, *base.items[1:]),
+        )
+        with patch.object(self.presenter, "view", return_value=hostile_items):
+            with self.assertRaisesRegex(ValueError, "node id is invalid"):
+                self.projection.snapshot()
+        self.assertFalse(HostileText.touched)
+
+        with self.assertRaisesRegex(TypeError, "language must be UILanguage"):
+            self.projection.set_language(HostileText("en"))
+        with self.assertRaisesRegex(TypeError, "node id must be text"):
+            self.projection.select(HostileText(first.node_id))
+        with self.assertRaisesRegex(TypeError, "comment text must be text"):
+            self.projection.edit_comment(HostileText("note"))
+        self.assertFalse(HostileText.touched)
+
+    def test_projection_cardinality_budgets_fail_before_materialization(self) -> None:
+        base = self.presenter.view()
+        first = base.items[0]
+
+        oversized_tree = replace(
+            base,
+            items=(first,) * 10001,
+            selected_node_id=first.node_id,
+        )
+        with patch.object(self.presenter, "view", return_value=oversized_tree):
+            with self.assertRaisesRegex(ValueError, "tree exceeds the item-count budget"):
+                self.projection.snapshot()
+
+        oversized_tags = replace(
+            base,
+            tags=tuple(("Tag", str(index)) for index in range(257)),
+        )
+        with patch.object(self.presenter, "view", return_value=oversized_tags):
+            with self.assertRaisesRegex(ValueError, "tags exceed the item-count budget"):
+                self.projection.snapshot()
+
+        oversized_warnings = replace(
+            base,
+            warnings=tuple("warning" for _ in range(257)),
+        )
+        with patch.object(self.presenter, "view", return_value=oversized_warnings):
+            with self.assertRaisesRegex(ValueError, "warnings exceed the item-count budget"):
+                self.projection.snapshot()
+
+        comment_heavy = replace(
+            first,
+            comments=tuple("comment" for _ in range(257)),
+        )
+        heavy_view = replace(
+            base,
+            items=(comment_heavy, *base.items[1:]),
+        )
+        with patch.object(self.presenter, "view", return_value=heavy_view):
+            with self.assertRaisesRegex(ValueError, "too many comments"):
+                self.projection.snapshot()
+
+    def test_raw_text_budget_precedes_path_scrub_scan(self) -> None:
+        base = self.presenter.view()
+        oversized_title = replace(base, title="xxxxx")
+        with (
+            patch("acs.pgn_webview_projection._MAX_PGN_RAW_TEXT", 4),
+            patch(
+                "acs.pgn_webview_projection._scrub_local_paths",
+                side_effect=AssertionError("oversized PGN text reached path scrub"),
+            ) as scrub,
+            patch.object(self.presenter, "view", return_value=oversized_title),
+        ):
+            with self.assertRaisesRegex(ValueError, "raw text budget"):
+                self.projection.snapshot()
+        scrub.assert_not_called()
+
+    def test_malformed_presenter_collection_shapes_fail_closed(self) -> None:
+        base = self.presenter.view()
+        malformed_items = PgnGameView(
+            base.game_index,
+            base.title,
+            base.result,
+            base.tags,
+            base.warnings,
+            list(base.items),  # type: ignore[arg-type]
+            base.selected_node_id,
+        )
+        with patch.object(self.presenter, "view", return_value=malformed_items):
+            with self.assertRaisesRegex(TypeError, "canonical tuples"):
+                self.projection.snapshot()
+
+        malformed_tag = replace(
+            base,
+            tags=(["White", "Alpha"],),  # type: ignore[list-item]
+        )
+        with patch.object(self.presenter, "view", return_value=malformed_tag):
+            with self.assertRaisesRegex(TypeError, "tag entry is invalid"):
+                self.projection.snapshot()
 
     def test_comment_input_is_bounded_and_nul_rejected_before_dispatch(self) -> None:
         before = list(self.calls)
