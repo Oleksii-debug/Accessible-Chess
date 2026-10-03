@@ -29,6 +29,21 @@ MAX_PROVIDER_CREDENTIAL_CHARS = 4096
 class LiveKitClassroomServerRuntimeError(RuntimeError):
     """Sanitized failure at the trusted provider-client lifecycle boundary."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        cleanup_runtime: "LiveKitClassroomServerRuntime | None" = None,
+    ) -> None:
+        super().__init__(message)
+        self._cleanup_runtime = cleanup_runtime
+
+    @property
+    def cleanup_runtime(self) -> "LiveKitClassroomServerRuntime | None":
+        """Return only the redacted retryable cleanup owner, never the raw client."""
+
+        return self._cleanup_runtime
+
 
 class LiveKitClassroomServerRuntime:
     """Own one explicit-credential LiveKitAPI client for server moderation."""
@@ -45,13 +60,28 @@ class LiveKitClassroomServerRuntime:
         self,
         *,
         client: object,
-        moderation_admin: LiveKitClassroomModerationAdmin,
+        moderation_admin: LiveKitClassroomModerationAdmin | None,
+        cleanup_required: bool = False,
     ) -> None:
+        if type(cleanup_required) is not bool:
+            raise TypeError("cleanup_required must be bool")
+        if moderation_admin is None and not cleanup_required:
+            raise TypeError(
+                "moderation_admin is required unless runtime is cleanup-only"
+            )
         self._client = client
         self._moderation_admin = moderation_admin
         self._closed = False
         self._closing = False
-        self._cleanup_required = False
+        self._cleanup_required = cleanup_required
+
+    @classmethod
+    def _cleanup_owner(cls, client: object) -> "LiveKitClassroomServerRuntime":
+        return cls(
+            client=client,
+            moderation_admin=None,
+            cleanup_required=True,
+        )
 
     @classmethod
     async def open(
@@ -90,13 +120,19 @@ class LiveKitClassroomServerRuntime:
                 client=client,
                 moderation_admin=moderation_admin,
             )
-        except LiveKitClassroomServerRuntimeError:
-            if client is not None:
-                await _close_failed_client(client)
+        except LiveKitClassroomServerRuntimeError as error:
+            if client is not None and not await _close_failed_client(client):
+                raise LiveKitClassroomServerRuntimeError(
+                    str(error),
+                    cleanup_runtime=cls._cleanup_owner(client),
+                ) from None
             raise
         except Exception:
-            if client is not None:
-                await _close_failed_client(client)
+            if client is not None and not await _close_failed_client(client):
+                raise LiveKitClassroomServerRuntimeError(
+                    "LiveKit server runtime initialization failed",
+                    cleanup_runtime=cls._cleanup_owner(client),
+                ) from None
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime initialization failed"
             ) from None
@@ -131,7 +167,12 @@ class LiveKitClassroomServerRuntime:
             raise LiveKitClassroomServerRuntimeError(
                 "LiveKit server runtime requires cleanup"
             )
-        return self._moderation_admin
+        moderation_admin = self._moderation_admin
+        if moderation_admin is None:
+            raise LiveKitClassroomServerRuntimeError(
+                "LiveKit server moderation authority is unavailable"
+            )
+        return moderation_admin
 
     @property
     def closed(self) -> bool:
@@ -287,14 +328,19 @@ def _credential(value: object, label: str) -> str:
     return value
 
 
-async def _close_failed_client(client: object) -> None:
+async def _close_failed_client(client: object) -> bool:
+    """Best-effort initialization cleanup; False means a retry owner is required."""
+
     close = getattr(client, "aclose", None)
     if not callable(close):
-        return
+        return False
     try:
         await close()
+    except asyncio.CancelledError:
+        raise
     except Exception:
-        pass
+        return False
+    return True
 
 
 __all__ = [
