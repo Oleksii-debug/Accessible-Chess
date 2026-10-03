@@ -1,0 +1,126 @@
+name: Full Product Book Command Authority Port Once
+
+on:
+  push:
+    branches:
+      - fix/full-product-book-command-authority-20261004
+    paths:
+      - '.github/workflows/full-product-book-command-authority-port-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: full-product-book-command-authority-port-once
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact successor
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact starting authority and defect
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='52ad1adee0130563d20d72f16355b05d96c648f0'
+          test "${GITHUB_REF_NAME}" = 'fix/full-product-book-command-authority-20261004'
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git hash-object acs/version2_application.py)" = '6fd87a6f128d227cbe263a9efe72b6b3d938935f'
+          python - <<'PY'
+          from acs.version2_application import Version2Application
+
+          assert not hasattr(Version2Application, '_BOOK_BOARD_ACTIVE_COMMANDS')
+          assert 'book.previous_position' not in Version2Application._BOOK_PROGRESS_COMMANDS
+          assert 'book.previous_game' not in Version2Application._BOOK_PROGRESS_COMMANDS
+          PY
+
+      - name: Restore canonical Book command authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('acs/version2_application.py')
+          text = path.read_text(encoding='utf-8')
+
+          old_position = '''            "book.next_heading",\n            "book.next_position",\n'''
+          new_position = '''            "book.next_heading",\n            "book.previous_position",\n            "book.next_position",\n'''
+          if text.count(old_position) != 1:
+              raise SystemExit('reverse-position authority anchor changed')
+          text = text.replace(old_position, new_position, 1)
+
+          old_game = '''            "book.next_position",\n            "book.next_game",\n'''
+          new_game = '''            "book.next_position",\n            "book.previous_game",\n            "book.next_game",\n'''
+          if text.count(old_game) != 1:
+              raise SystemExit('reverse-game authority anchor changed')
+          text = text.replace(old_game, new_game, 1)
+
+          old_board = '''    _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})\n    _BOOK_PROGRESS_RELOAD_CODES = frozenset(\n'''
+          new_board = '''    _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})\n    _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(\n        {\n            "book.board_next_move",\n            "book.board_previous_move",\n            "book.board_enter_variation",\n            "book.board_leave_variation",\n            "book.board_analyze",\n        }\n    )\n    _BOOK_PROGRESS_RELOAD_CODES = frozenset(\n'''
+          if text.count(old_board) != 1:
+              raise SystemExit('Book Board active-command authority anchor changed')
+          text = text.replace(old_board, new_board, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify exact semantic repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs.book_progress_store import BookProgressStoreErrorCode
+          from acs.version2_application import Version2Application
+
+          assert Version2Application._BOOK_PROGRESS_COMMANDS == frozenset({
+              'book.previous', 'book.next',
+              'book.previous_heading', 'book.next_heading',
+              'book.previous_position', 'book.next_position',
+              'book.previous_game', 'book.next_game',
+              'book.bookmark.save', 'book.bookmark.restore',
+          })
+          assert Version2Application._BOOK_BOARD_ACTIVE_COMMANDS == frozenset({
+              'book.board_next_move', 'book.board_previous_move',
+              'book.board_enter_variation', 'book.board_leave_variation',
+              'book.board_analyze',
+          })
+          assert Version2Application._BOOK_PROGRESS_RELOAD_CODES == frozenset({
+              BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+              BookProgressStoreErrorCode.STALE_WRITE,
+          })
+          PY
+          python -m compileall -q acs/version2_application.py tests/test_full_product_book_command_authority.py
+          git diff --check
+
+      - name: Run focused application and Book authority regressions
+        run: >-
+          python -m unittest -v
+          tests.test_full_product_book_command_authority
+          tests.test_version2_application
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_v2_book_board_workflow
+
+      - name: Run core selftest
+        run: python -m acs.selftest
+
+      - name: Commit verified repair and retire one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='52ad1adee0130563d20d72f16355b05d96c648f0'
+          git config user.name 'Accessible Chess convergence bot'
+          git config user.email 'actions@users.noreply.github.com'
+          rm .github/workflows/full-product-book-command-authority-port-once.yml
+          git add acs/version2_application.py tests/test_full_product_book_command_authority.py .github/workflows/full-product-book-command-authority-port-once.yml
+          git commit -m 'Fix Full Product Book command authority after convergence'
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' 'acs/version2_application.py' 'tests/test_full_product_book_command_authority.py' | sort)"
+          test "$changed" = "$expected"
+          git push origin HEAD:fix/full-product-book-command-authority-20261004
