@@ -778,6 +778,58 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             item["rights_source_uri"],
         )
 
+    def test_same_version_catalog_asset_digest_drift_projects_version_conflict(self) -> None:
+        classic = _manifest("classic")
+        installed = _manifest("soft", "2.0.0")
+        installed_entry = _entry(installed)
+        self.assertIsNotNone(installed_entry.rights_evidence)
+        installed_assets = dict(installed_entry.assets)
+        changed_assets = dict(installed_entry.assets)
+        path = next(iter(changed_assets))
+        original = changed_assets[path]
+        changed_assets[path] = SoundAssetDigest(
+            path=path,
+            size_bytes=original.size_bytes,
+            sha256="0" * 64,
+        )
+        catalog_entry = SoundPackCatalogEntry(
+            manifest=installed_entry.manifest,
+            assets=changed_assets,
+            total_bytes=installed_entry.total_bytes,
+            compatible=True,
+            rights_evidence=installed_entry.rights_evidence,
+        )
+        pack_storage = _PackStorage([classic, installed])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        record = SoundPackInstalledAudit(
+            installed,
+            installed_entry.rights_evidence,
+            installed_assets,
+        )
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": catalog_entry},
+            installed_audit_provider=lambda: {"soft": record},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("version_conflict", item["state"])
+        self.assertEqual("2.0.0", item["installed_version"])
+        self.assertFalse(
+            item["can_install"],
+            "same-version immutable content conflict must require explicit uninstall",
+        )
+        self.assertTrue(item["can_uninstall"])
+        self.assertTrue(item["rights_auditable"])
+
     def test_missing_pack_in_coherent_audit_does_not_reread_storage_for_active_manifest(self) -> None:
         classic = _manifest("classic")
         soft = _manifest("soft")
