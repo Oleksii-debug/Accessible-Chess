@@ -247,6 +247,100 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertIn("шахівниця", snapshot["block"]["warning"])
         self.assertEqual(reader.snapshot(), before)
 
+    def test_semantic_tree_rejects_supplementary_label_beyond_utf16_limit(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Supplementary scalar bound",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable game")],
+            )
+        )
+        before = reader.snapshot()
+        # 601 supplementary scalars occupy 1202 UTF-16 units.  The WebView
+        # contract allows 1200; the host must reject rather than truncate this
+        # malformed presenter label back onto the accepted boundary.
+        over_limit = "\U0001F600" * 601
+        malformed = PgnGameView(
+            0,
+            "Alpha — Beta",
+            "*",
+            (),
+            (),
+            (PgnTreeItem("m0", "move", 0, over_limit, None),),
+            "m0",
+        )
+
+        with patch.object(PgnTreePresenter, "view", return_value=malformed):
+            snapshot = bridge.projection.snapshot()
+
+        actions = {item["command"]: item["enabled"] for item in snapshot["actions"]}
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertIn("шахівниця", snapshot["block"]["warning"])
+        self.assertTrue(actions["book.open_game"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
+    def test_semantic_tree_accepts_exact_supplementary_label_utf16_boundary(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Exact supplementary scalar bound",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable game")],
+            )
+        )
+        before = reader.snapshot()
+        exact_limit = "\U0001F600" * 600
+        bounded = PgnGameView(
+            0,
+            "Alpha — Beta",
+            "*",
+            (),
+            (),
+            (PgnTreeItem("m0", "move", 0, exact_limit, None),),
+            "m0",
+        )
+
+        with patch.object(PgnTreePresenter, "view", return_value=bounded):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertEqual(snapshot["semantic_tree"]["items"][0]["label"], exact_limit)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
+    def test_semantic_tree_rejects_string_subclass_before_sanitizer_dispatch(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Hostile semantic scalar",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable game")],
+            )
+        )
+        before = reader.snapshot()
+
+        class HostileText(str):
+            def replace(self, *_args, **_kwargs):
+                raise AssertionError("semantic sanitizer inspected a hostile string subclass")
+
+        malformed = PgnGameView(
+            0,
+            "Alpha — Beta",
+            "*",
+            (),
+            (),
+            (PgnTreeItem("m0", "move", 0, HostileText("1 e4"), None),),
+            "m0",
+        )
+
+        with patch.object(PgnTreePresenter, "view", return_value=malformed):
+            snapshot = bridge.projection.snapshot()
+
+        actions = {item["command"]: item["enabled"] for item in snapshot["actions"]}
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertIn("шахівниця", snapshot["block"]["warning"])
+        self.assertTrue(actions["book.open_game"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
     def test_unavailable_semantic_content_disables_the_matching_board_action(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(

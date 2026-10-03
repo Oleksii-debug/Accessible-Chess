@@ -125,11 +125,19 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         ) -> tuple[str, int]:
             if type(max_units) is not int or not 0 <= max_units <= _MAX_BOOK_BLOCK_VISIBLE_CHARS:
                 raise _BookSemanticProjectionError("semantic GameTree scalar limit is invalid")
+            # Semantic presenter fields are already canonical text.  Reject an
+            # oversized/malformed scalar from O(1) metadata before replace(),
+            # strip() or path-redaction can scan attacker-controlled text.
+            if type(value) is not str or len(value) > max_units:
+                raise _BookSemanticProjectionError("semantic GameTree text is invalid")
             try:
+                # Keep one complete supplementary Unicode scalar beyond the
+                # browser limit.  +1 can truncate a two-unit scalar exactly back
+                # to max_units and turn an over-limit value into an accepted one.
                 text = _safe_text(
                     value,
                     language=self.language,
-                    limit=max_units + 1,
+                    limit=max_units + 2,
                 )
             except (TypeError, ValueError) as exc:
                 raise _BookSemanticProjectionError("semantic GameTree text is invalid") from exc
@@ -171,8 +179,14 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             return tuple(rendered)
 
         labels = _SEMANTIC_LABELS[self.language]
-        white, _ = clean(game.tags.get("White", ""))
-        black, _ = clean(game.tags.get("Black", ""))
+        white, _ = clean(
+            game.tags.get("White", ""),
+            max_units=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
+        )
+        black, _ = clean(
+            game.tags.get("Black", ""),
+            max_units=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
+        )
         white = white or labels["unknown"]
         black = black or labels["unknown"]
         result = game.result
