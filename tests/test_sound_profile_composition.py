@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
+import wave
 from unittest import mock
 
+from acs.sound_pack_catalog import (
+    DownloadedSoundPack,
+    SoundAssetDigest,
+    SoundPackCatalogEntry,
+)
 from acs.sound_pack_store import FilesystemSoundPackStore
 from acs.sound_profile_composition import (
     _local_pack_resolver,
@@ -28,6 +36,56 @@ def _pack_manifest(pack_id: str, suffix: str = ".wav") -> SoundPackManifest:
         author="Accessible Chess tests",
         provenance="tests-only generated assets",
     )
+
+
+def _write_wav(path: Path, samples: tuple[int, ...] = (1000, -1000, 500, -500)) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(8000)
+        writer.writeframes(struct.pack("<" + "h" * len(samples), *samples))
+
+
+def _catalog_entry(root: Path, pack_id: str = "remote.wood") -> tuple[SoundPackCatalogEntry, Path]:
+    manifest = _pack_manifest(pack_id)
+    staging = root / "provider-staging"
+    assets: dict[str, SoundAssetDigest] = {}
+    for relative in sorted(set(manifest.files.values())):
+        target = staging / relative
+        _write_wav(target)
+        payload = target.read_bytes()
+        assets[relative] = SoundAssetDigest(
+            relative,
+            len(payload),
+            hashlib.sha256(payload).hexdigest(),
+        )
+    return (
+        SoundPackCatalogEntry(
+            manifest=manifest,
+            assets=assets,
+            total_bytes=sum(item.size_bytes for item in assets.values()),
+        ),
+        staging,
+    )
+
+
+class _StagedDownloader:
+    def __init__(self, entry: SoundPackCatalogEntry, staging: Path) -> None:
+        self.entry = entry
+        self.staging = staging
+        self.calls: list[tuple[str, int]] = []
+
+    def download(self, entry: SoundPackCatalogEntry, *, max_bytes: int) -> DownloadedSoundPack:
+        self.calls.append((entry.manifest.pack_id, max_bytes))
+        if entry != self.entry:
+            raise AssertionError("unexpected catalog entry")
+        return DownloadedSoundPack(
+            manifest=entry.manifest,
+            assets=entry.assets,
+            total_bytes=entry.total_bytes,
+            payload_ref=self.staging,
+        )
 
 
 class _InstalledStore:
@@ -385,6 +443,119 @@ class LocalSoundCompositionTests(unittest.TestCase):
             provider = composition.settings._installed_pack_provider
             self.assertTrue(callable(provider))
             self.assertEqual({}, provider())
+
+    def test_optional_provider_install_survives_restart_and_local_uninstall_without_provider(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-") as raw:
+            root = Path(raw)
+            entry, staging = _catalog_entry(root)
+            downloader = _StagedDownloader(entry, staging)
+            first = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={entry.manifest.pack_id: entry},
+                pack_downloader=downloader,
+            )
+
+            before = first.settings.snapshot(language="en")
+            remote = next(
+                item for item in before["packs"]
+                if item["pack_id"] == entry.manifest.pack_id
+            )
+            self.assertEqual("not_installed", remote["state"])
+            self.assertTrue(remote["can_install"])
+
+            installed = first.settings.install_pack(
+                entry.manifest.pack_id,
+                activate=True,
+                language="en",
+            )
+
+            self.assertTrue(installed.ok)
+            self.assertEqual(entry.manifest.pack_id, first.profile_manager.current.pack_id)
+            self.assertEqual(
+                entry.manifest.version,
+                first.pack_store.active_version(entry.manifest.pack_id),
+            )
+            self.assertEqual(1, len(downloader.calls))
+
+            restarted = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+            )
+            self.assertEqual(
+                entry.manifest.pack_id,
+                restarted.profile_manager.current.pack_id,
+            )
+            local = next(
+                item for item in restarted.settings.snapshot(language="en")["packs"]
+                if item["pack_id"] == entry.manifest.pack_id
+            )
+            self.assertEqual("local_installed", local["state"])
+            self.assertTrue(local["can_uninstall"])
+
+            removed = restarted.settings.uninstall_pack(
+                entry.manifest.pack_id,
+                language="en",
+            )
+
+            self.assertTrue(removed.ok)
+            self.assertEqual("classic", restarted.profile_manager.current.pack_id)
+            self.assertNotIn(
+                entry.manifest.pack_id,
+                restarted.pack_store.installed(),
+            )
+
+    def test_provider_catalog_requires_downloader_and_cannot_replace_classic(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-contract-") as raw:
+            root = Path(raw)
+            entry, staging = _catalog_entry(root)
+
+            with self.assertRaisesRegex(ValueError, "requires a download provider"):
+                create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=root / "data-a",
+                    asset_playback=_Playback(),
+                    catalog={entry.manifest.pack_id: entry},
+                )
+
+            classic_entry, classic_staging = _catalog_entry(root / "classic", "classic")
+            with self.assertRaisesRegex(ValueError, "cannot replace"):
+                create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=root / "data-b",
+                    asset_playback=_Playback(),
+                    catalog={"classic": classic_entry},
+                    pack_downloader=_StagedDownloader(classic_entry, classic_staging),
+                )
+
+    def test_non_wav_provider_pack_is_visible_as_incompatible_not_installable(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-incompatible-") as raw:
+            root = Path(raw)
+            manifest = _pack_manifest("remote.ogg", ".ogg")
+            assets = {
+                relative: SoundAssetDigest(relative, 1, hashlib.sha256(b"x").hexdigest())
+                for relative in sorted(set(manifest.files.values()))
+            }
+            entry = SoundPackCatalogEntry(
+                manifest=manifest,
+                assets=assets,
+                total_bytes=sum(item.size_bytes for item in assets.values()),
+            )
+
+            composition = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={manifest.pack_id: entry},
+                pack_downloader=mock.Mock(download=mock.Mock()),
+            )
+
+            item = composition.settings.snapshot(language="en")["packs"][0]
+            self.assertEqual("incompatible", item["state"])
+            self.assertFalse(item["compatible"])
+            self.assertFalse(item["can_install"])
 
     def test_composition_creates_dedicated_profile_pack_and_cache_roots(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-layout-") as raw:
