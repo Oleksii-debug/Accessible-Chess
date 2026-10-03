@@ -348,6 +348,11 @@
           "; докази прав каталогу конфліктують із перевіреними правами встановленої версії",
           "; catalog rights evidence conflicts with the verified installed-version rights"
         );
+      } else if (item.state === "rights_unverified") {
+        installed += text(
+          "; поточна встановлена версія не має integrity-bound аудиту прав",
+          "; the current installed version has no integrity-bound rights audit"
+        );
       } else if (item.state === "catalog_older") {
         installed += text(
           "; версія в каталозі старіша за встановлену",
@@ -370,7 +375,8 @@
       (
         catalogVersion !== String(item.version || "") ||
         item.state === "version_conflict" ||
-        item.state === "rights_conflict"
+        item.state === "rights_conflict" ||
+        item.state === "rights_unverified"
       )
     ) {
       const catalogRightsMetadata = item.catalog_rights_auditable === true
