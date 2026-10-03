@@ -579,17 +579,22 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             self.assertTrue(temp_path.exists())
             self.assertEqual(substitute_bytes, temp_path.read_bytes())
 
-    def test_control_name_directory_fails_closed(self):
+    def test_control_name_directory_preserves_descendants_as_user_data(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
-            (root / "book-progress.json.lock").mkdir()
+            control_named_directory = root / "book-progress.json.lock"
+            control_named_directory.mkdir()
+            payload = control_named_directory / "keep.bin"
+            payload.write_bytes(b"preserve-directory-user-data")
 
-            with self.assertRaisesRegex(
-                Version2UpgradeError,
-                "control entry must be a regular file",
-            ):
-                self._coordinator(root)._files()
+            files = {
+                path.relative_to(root).as_posix()
+                for path in self._coordinator(root)._files()
+            }
+
+            self.assertIn("book-progress.json.lock/keep.bin", files)
+            self.assertEqual(payload.read_bytes(), b"preserve-directory-user-data")
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO creation is unavailable")
     def test_control_name_special_object_fails_closed(self):
