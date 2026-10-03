@@ -935,6 +935,15 @@ class FilesystemSoundPackStore:
         source: Path,
     ) -> None:
         manifest = downloaded.manifest
+        current_version = self.active_version(manifest.pack_id)
+        if (
+            current_version is not None
+            and _semantic_version_key(current_version)
+            > _semantic_version_key(manifest.version)
+        ):
+            raise SoundPackStoreError(
+                "sound pack install would roll back the active version"
+            )
         pack_dir, versions_dir = self._ensure_pack_parent(manifest.pack_id)
         destination = versions_dir / manifest.version
 
