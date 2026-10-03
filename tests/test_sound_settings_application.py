@@ -11,7 +11,7 @@ from acs.sound_pack_catalog import (
 )
 from acs.sound_pack_profile import SoundPackProfileCoordinator
 from acs.sound_profile_store import SoundProfileManager, SoundProfileWriteBlockedError
-from acs.sound_profiles import CORE_SOUND_EVENTS, SoundPackManifest
+from acs.sound_profiles import CORE_SOUND_EVENTS, OPTIONAL_CLASSROOM_SOUND_EVENTS, SoundPackManifest
 from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
 from acs.sound_settings_application import SoundSettingsApplication
 
@@ -268,6 +268,46 @@ class SoundSettingsApplicationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown sound pack"):
             app.select_pack("missing.pack")
+
+    def test_verified_manifest_exposes_every_declared_optional_classroom_ui_event(self) -> None:
+        base = _manifest("classroom.pack")
+        files = dict(base.files)
+        for event_id in OPTIONAL_CLASSROOM_SOUND_EVENTS:
+            files[event_id] = "audio/" + event_id.replace(".", "-") + ".wav"
+        manifest = SoundPackManifest(
+            pack_id=base.pack_id,
+            version=base.version,
+            title=base.title,
+            license_id=base.license_id,
+            files=files,
+            author=base.author,
+            provenance=base.provenance,
+        )
+        _storage, manager, _playback, runtime = self._profile_runtime(
+            resolver=lambda requested: requested
+            if requested in {"classic", manifest.pack_id}
+            else "classic"
+        )
+        manager.set_pack(manifest.pack_id)
+        app = SoundSettingsApplication(
+            manager,
+            runtime,
+            installed_pack_provider=lambda: {manifest.pack_id: manifest},
+        )
+
+        snapshot = app.snapshot(language="en")
+        event_ids = tuple(item["event_id"] for item in snapshot["events"])
+
+        for event_id in OPTIONAL_CLASSROOM_SOUND_EVENTS:
+            with self.subTest(event_id=event_id):
+                self.assertIn(event_id, event_ids)
+                item = next(
+                    item
+                    for item in snapshot["events"]
+                    if item["event_id"] == event_id
+                )
+                self.assertTrue(item["label"])
+                self.assertIn(event_id, item["sound_choices"])
 
     def test_classic_provider_rejects_arbitrary_sound_remap(self) -> None:
         _storage, manager, _playback, runtime = self._profile_runtime()
