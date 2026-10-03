@@ -163,6 +163,7 @@ class SoundPackState(str, Enum):
     CURRENT = "current"
     DIFFERENT_VERSION = "different_version"
     CATALOG_OLDER = "catalog_older"
+    VERSION_CONFLICT = "version_conflict"
     INCOMPATIBLE = "incompatible"
 
 
@@ -221,6 +222,13 @@ class SoundPackManager:
         if current is not None:
             if not isinstance(current, SoundPackManifest):
                 raise SoundPackInstallError("installed sound pack metadata is invalid")
+            if (
+                current.version == entry.manifest.version
+                and current != entry.manifest
+            ):
+                raise SoundPackInstallError(
+                    "sound pack catalog metadata conflicts with the installed version"
+                )
             if _semantic_version_key(current.version) > _semantic_version_key(
                 entry.manifest.version
             ):
@@ -379,6 +387,11 @@ class SoundPackManager:
             state = SoundPackState.NOT_INSTALLED
         elif not isinstance(current, SoundPackManifest):
             raise SoundPackInstallError("installed sound pack metadata is invalid")
+        elif (
+            current.version == entry.manifest.version
+            and current != entry.manifest
+        ):
+            state = SoundPackState.VERSION_CONFLICT
         elif current.version == entry.manifest.version:
             state = SoundPackState.CURRENT
         elif _semantic_version_key(current.version) > _semantic_version_key(
