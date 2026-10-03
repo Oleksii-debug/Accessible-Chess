@@ -403,7 +403,7 @@
     return snapshot.document.lang;
   }
 
-  function validateTrainingSnapshot(snapshot, requestedFocus, solution) {
+  function validateTrainingSnapshot(snapshot, solution, requestedFocus) {
     if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
       throw new TypeError("Training snapshot is required");
     }
@@ -514,20 +514,6 @@
       requiredUiText(reset[name], "Training reset dialog text", 600);
     });
     requiredUiText(snapshot.solution_label, "Training solution label", 160);
-    if (!Array.isArray(solution) || solution.length > 256) {
-      throw new TypeError("Training solution is invalid");
-    }
-    for (let index = 0; index < solution.length; index += 1) {
-      if (
-        !Object.prototype.hasOwnProperty.call(solution, index) ||
-        typeof solution[index] !== "string" ||
-        !solution[index].trim() ||
-        solution[index].length > 128
-      ) {
-        throw new TypeError("Training solution item is invalid");
-      }
-    }
-
     if (!Array.isArray(solution) || solution.length > 64) {
       throw new TypeError("Training solution must be a bounded dense array");
     }
