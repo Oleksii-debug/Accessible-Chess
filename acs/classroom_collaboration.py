@@ -393,8 +393,9 @@ class ClassroomCollaborationController:
             message.message_id for message in existing
         }
         known_message_ids.update(message.message_id for message in incoming)
+
         state_previous = state_after
-        applicable_updates: list[ChatMessageStateUpdate] = []
+        validated_updates: list[ChatMessageStateUpdate] = []
         for update in updates:
             if type(update) is not ChatMessageStateUpdate:
                 raise CollaborationError(
@@ -409,6 +410,48 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "chat moderation state has an unresolved revision gap"
                 )
+            validated_updates.append(update)
+            state_previous = update.revision
+
+        # History and mutable-state pages are separate transport reads. A message
+        # can be accepted and hidden after the first history snapshot but before
+        # the state snapshot, making a legitimate state update appear to reference
+        # an unknown message. If the first history page was complete, make one
+        # bounded catch-up read before classifying that state as corrupt.
+        if (
+            history_complete
+            and any(
+                update.message_id not in known_message_ids
+                for update in validated_updates
+            )
+        ):
+            remaining = MAX_SYNC_MESSAGES - len(incoming)
+            catch_up_after = (
+                incoming[-1].sequence_no
+                if incoming
+                else after
+            )
+            catch_up = self._chat.history_after(
+                room_id=self.room_id,
+                after_sequence=catch_up_after,
+                limit=remaining,
+            )
+            if type(catch_up) is not tuple or len(catch_up) > remaining:
+                raise CollaborationError(
+                    "chat history response exceeded requested catch-up bound"
+                )
+            self._validate_chat_history_page(
+                catch_up,
+                after_sequence=catch_up_after,
+            )
+            incoming = incoming + catch_up
+            known_message_ids.update(
+                message.message_id for message in catch_up
+            )
+            history_complete = len(catch_up) < remaining
+
+        applicable_updates: list[ChatMessageStateUpdate] = []
+        for update in validated_updates:
             if update.message_id not in known_message_ids:
                 if history_complete:
                     raise CollaborationError(
@@ -416,7 +459,6 @@ class ClassroomCollaborationController:
                     )
                 break
             applicable_updates.append(update)
-            state_previous = update.revision
 
         try:
             persisted = self._store.reconcile_message_sync_atomic(

@@ -1169,6 +1169,48 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (),
         )
 
+    def test_sync_chat_recovers_message_hidden_between_history_and_state_reads(self):
+        controller = self.controller("student-1")
+        hidden = ChatMessageMetadata(
+            "snapshot-race-hidden",
+            "room-1",
+            "teacher-1",
+            0,
+            "Accepted and hidden between snapshots",
+            hidden=True,
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.state_updates = [
+            ChatMessageStateUpdate(
+                room_id="room-1",
+                message_id=hidden.message_id,
+                revision=0,
+            )
+        ]
+
+        with patch.object(
+            self.chat,
+            "history_after",
+            side_effect=((), (hidden,)),
+        ) as history_after:
+            announced = controller.sync_chat()
+
+        self.assertEqual(announced, ())
+        self.assertEqual(history_after.call_count, 2)
+        self.assertEqual(
+            history_after.call_args_list[1].kwargs,
+            {
+                "room_id": "room-1",
+                "after_sequence": None,
+                "limit": MAX_SYNC_MESSAGES,
+            },
+        )
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (hidden,),
+        )
+        self.assertEqual(self.store.chat_state_revision("room-1"), 0)
+
     def test_hidden_history_is_persisted_but_not_returned_for_announcement(self):
         controller = self.controller("student-1")
         message = self.chat.send_message(
