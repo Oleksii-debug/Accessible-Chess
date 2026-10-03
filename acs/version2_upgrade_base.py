@@ -873,6 +873,11 @@ class Version2UpgradeCoordinator:
                 and relative_path.parts[0].casefold()
                 in _DERIVED_ROOT_DIRECTORY_KEYS
             ):
+                # Even disposable runtime descendants remain inside the trusted
+                # user-data filesystem boundary.  Authenticate the actual
+                # directory entry before excluding it so a canonical cache/guard
+                # pathname cannot hide a symlink or reparse alias.
+                _safe_stat(path, "derived runtime entry")
                 continue
             # Atomic GameTree/Book-progress writers may leave these exact-root
             # temporary files behind only after abrupt process death. They are
@@ -888,6 +893,12 @@ class Version2UpgradeCoordinator:
                     library_name=self.layout.library_name,
                 )
             ):
+                # Filename grammar identifies ownership, but it does not prove
+                # filesystem identity.  Canonically named crash residue must
+                # still be an authenticated in-root object; otherwise a symlink
+                # or reparse alias could bypass the same fail-closed boundary
+                # enforced for persistent control files.
+                _safe_stat(path, "generated runtime entry")
                 continue
             folded = relative.casefold()
             if folded in seen:
