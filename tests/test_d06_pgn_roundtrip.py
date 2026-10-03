@@ -248,7 +248,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 parse_pgn_text,
                 '[Result "*"]\n\n1. Nf3++ *',
             )
-        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 3):
+        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 2):
             self.assert_code(
                 PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
                 parse_pgn_text,
