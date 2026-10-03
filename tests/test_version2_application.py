@@ -261,6 +261,56 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
+    def test_book_open_binds_native_focus_to_rendered_current_block(self):
+        book = self.root / "initial-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+
+        self.app.open_book(book)
+
+        self.assertEqual(self.app.reader.index, 0)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+        self.assertEqual(
+            self.app.snapshot()["screen"]["focus_target"],
+            "book-block-0",
+        )
+
+    def test_native_books_route_replaces_legacy_placeholder_before_event_publish(self):
+        book = self.root / "native-book-focus.md"
+        book.write_text(
+            "# Розділ\n\nПерший абзац.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        self.app.record_focus("book-reader")
+        library = self.app.browser_command("shell", "screen.library")
+        self.assertEqual(library["kind"], "route")
+
+        route = self.app.adapter.activate_action(
+            "screen.books",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual(route.kind, "route")
+        self.assertEqual(route.payload["focus_target"], "book-reader")
+
+        self.assertTrue(self.app.native_command(route))
+
+        self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
+        self.assertEqual(self.app._focus, "book-block-0")
+        route_events = [
+            event for event in self.app.drain_events()
+            if event.get("kind") == "route"
+        ]
+        self.assertEqual(len(route_events), 1)
+        self.assertEqual(
+            route_events[0]["payload"]["focus_target"],
+            "book-block-0",
+        )
+
     def test_book_durability_rebind_repairs_stale_book_block_focus(self):
         book = self.root / "durability-rebind-focus.md"
         book.write_text(
