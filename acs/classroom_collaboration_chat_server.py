@@ -364,6 +364,26 @@ class ClassroomChatServerSQLiteStore:
                 # atomic unit. sqlite3.executescript() would implicitly commit
                 # before running its script and can leave a half-migrated DB.
                 db.execute("BEGIN IMMEDIATE")
+                # Persistent triggers on any canonical authority table can
+                # mutate or erase otherwise validated writes after this code has
+                # computed sequence/idempotency state. They are never part of the
+                # supported schema, so fail closed before migration or repair.
+                trigger_row = db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='trigger'
+                      AND (
+                        name LIKE 'classroom_chat_server_%'
+                        OR tbl_name LIKE 'classroom_chat_server_%'
+                      )
+                    LIMIT 1
+                    """
+                ).fetchone()
+                if trigger_row is not None:
+                    raise ClassroomChatServerError(
+                        "classroom chat server schema contains unsupported trigger"
+                    )
+
                 namespace_rows = db.execute(
                     """
                     SELECT name FROM sqlite_master
