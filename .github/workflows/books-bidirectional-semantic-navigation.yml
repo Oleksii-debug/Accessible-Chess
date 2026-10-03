@@ -85,9 +85,9 @@ jobs:
               'web/full_product_books_training.js'
             )
             test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "bb34d6496a9481153440cb3bf449525728346f03"
-            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "1d64f5a43afcb24374da7a3608061ab562002c0a"
-            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "5fa8be2194e55737db9a4d611e6098db7664c191"
-            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "813345da231efb3ed6b4d7982bb800e037c9d404"
+            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "8bdd9964525955a7e6361023534ab3485eb8ed91"
+            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "ef8ae3cde077835f91f49055ecce70231d6f9a8d"
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "e016f52bf9fb11b64783e64145b5153e3c182c75"
             test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "87583407365588a16259b8baee4e7b4dce8b4864"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
