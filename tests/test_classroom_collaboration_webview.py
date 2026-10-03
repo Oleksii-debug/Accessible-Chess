@@ -2461,6 +2461,53 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         send_chat.assert_not_called()
         self.assertEqual(view._pending_chat, {})
 
+    def test_durable_chat_outbox_cleanup_failure_keeps_exact_retry_identity(self) -> None:
+        class DeleteFailsOnceSecretStore(MemorySecretStore):
+            def __init__(self) -> None:
+                super().__init__()
+                self.fail_delete = True
+
+            def delete(self, name: str) -> bool:
+                if self.fail_delete:
+                    self.fail_delete = False
+                    raise RuntimeError("temporary secure-store cleanup failure")
+                return super().delete(name)
+
+        secrets_store = DeleteFailsOnceSecretStore()
+        outbox = SecretStoreChatOutbox(
+            secrets_store,
+            CHAT_OUTBOX_SCOPE,
+            "room-1",
+            "student-1",
+        )
+        view = self.webview(chat_outbox=outbox)
+        calls: list[str] = []
+
+        def confirmed_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append(message_id)
+            return None
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=confirmed_send,
+        ):
+            first = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Confirmed remotely, cleanup retries"},
+            )
+            second = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Confirmed remotely, cleanup retries"},
+            )
+
+        self.assertEqual("error", first.kind)
+        self.assertEqual("collaboration.chat.sent", second.kind)
+        self.assertEqual(calls, ["message-ui-1", "message-ui-1"])
+        self.assertEqual(self.ids["message"], 1)
+        self.assertEqual(outbox.entries(), ())
+        self.assertEqual(view._pending_chat, {})
+
     def test_durable_chat_outbox_keeps_retention_in_recovery_identity(self) -> None:
         secrets_store = MemorySecretStore()
         outbox = SecretStoreChatOutbox(
