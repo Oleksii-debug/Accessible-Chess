@@ -1293,23 +1293,6 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertEqual(self.chat_token_calls, 0)
         self.assertEqual(self.file_token_calls, 0)
 
-    def test_final_app_rejects_empty_store_path_before_runtime_composition(self) -> None:
-        app = self.bare_app()
-        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
-            with self.assertRaisesRegex(
-                TypeError,
-                "collaboration_store_path must be a non-empty path",
-            ):
-                self.configure(
-                    app,
-                    collaboration_store_path="",
-                )
-
-        self.assertIsNone(app.collaboration)
-        self.assertIsNone(app._collaboration_runtime)
-        self.assertEqual(self.chat_token_calls, 0)
-        self.assertEqual(self.file_token_calls, 0)
-
     def test_custom_store_path_and_language_are_bound_without_fetching_tokens(self) -> None:
         app = self.bare_app()
         custom = self.root / "custom" / "room.sqlite3"

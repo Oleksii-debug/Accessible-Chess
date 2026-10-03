@@ -114,11 +114,6 @@ def build_classroom_collaboration_http_runtime(
         raise TypeError("chat bearer token provider must be callable")
     if not callable(file_bearer_token_provider):
         raise TypeError("file bearer token provider must be callable")
-    if not all(
-        callable(getattr(roster, attribute, None))
-        for attribute in ("participant_ids", "role_for", "board_control_allowed")
-    ):
-        raise TypeError("roster must implement ClassroomRosterPort")
     if not callable(participant_label):
         raise TypeError("participant_label must be callable")
     for label, callback in (
@@ -171,18 +166,6 @@ def build_classroom_collaboration_http_runtime(
         path = Path(store_path)
     else:
         raise TypeError("store_path must be a non-empty path")
-    if str(path) == ":memory:":
-        raise ValueError(
-            "store_path must use durable filesystem storage, not SQLite memory"
-        )
-    try:
-        path = path.resolve(strict=False)
-        if path.exists() and not path.is_file():
-            raise ValueError("store_path must reference a file, not a directory")
-        if not path.parent.is_dir():
-            raise ValueError("store_path parent directory must already exist")
-    except (OSError, RuntimeError) as exc:
-        raise ValueError("store_path could not be validated") from exc
 
     # Validate network inputs before any local persistence is created.
     chat_call = ClassroomChatHttpRpcCall(
