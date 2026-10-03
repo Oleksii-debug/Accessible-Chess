@@ -27,6 +27,8 @@ DEFAULT_SOUND_RELATIVE_DIR = Path("assets") / "sounds"
 DEFAULT_SOUND_MANIFEST = "manifest.json"
 DEFAULT_SOUND_VARIANTS_MANIFEST = "variants.json"
 SOUND_VARIANTS_SCHEMA_VERSION = 1
+DEFAULT_SOUND_LAYERS_MANIFEST = "layers.json"
+SOUND_LAYERS_SCHEMA_VERSION = 1
 REQUIRED_SOUND_EVENTS = tuple(SoundEvent)
 SCALED_SOUND_CACHE_FORMAT_VERSION = 1
 ASYNC_SOUND_EVENTS = frozenset({SoundEvent.START, SoundEvent.TICK})
@@ -204,6 +206,77 @@ class PackagedSoundAssetResolver:
                 return option.path
         raise KeyError(f"unknown sound variant for {event.value}: {token}")
 
+    def load_layer_catalog(self) -> dict[SoundEvent, dict[str, tuple[Path, ...]]]:
+        path = self.root / DEFAULT_SOUND_LAYERS_MANIFEST
+        if not path.is_file():
+            return {}
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(raw, dict) or raw.get("schema_version") != SOUND_LAYERS_SCHEMA_VERSION:
+            raise ValueError("unsupported sound layers schema")
+        events = raw.get("events")
+        if not isinstance(events, dict):
+            raise ValueError("sound layers events must be an object")
+
+        expected = {event.value for event in REQUIRED_SOUND_EVENTS}
+        if not set(events).issubset(expected):
+            raise ValueError("sound layers contain an unknown semantic event")
+
+        variants = self.load_variant_catalog()
+        catalog: dict[SoundEvent, dict[str, tuple[Path, ...]]] = {}
+        for event_name, raw_variants in events.items():
+            event = SoundEvent(event_name)
+            if event in ASYNC_SOUND_EVENTS:
+                raise ValueError(f"asynchronous sound event cannot be layered: {event.value}")
+            if not isinstance(raw_variants, dict) or not raw_variants:
+                raise ValueError(f"sound layers are invalid for {event.value}")
+            available = {option.variant_id: option.path for option in variants[event]}
+            event_layers: dict[str, tuple[Path, ...]] = {}
+            for raw_variant_id, raw_sequence in raw_variants.items():
+                variant_id = self._variant_id(raw_variant_id)
+                if variant_id not in available:
+                    raise ValueError(
+                        f"sound layer references unknown variant: {event.value}/{variant_id}"
+                    )
+                if (
+                    not isinstance(raw_sequence, list)
+                    or not 2 <= len(raw_sequence) <= 4
+                ):
+                    raise ValueError(
+                        f"sound layer sequence is invalid: {event.value}/{variant_id}"
+                    )
+                sequence = tuple(
+                    self._variant_path(
+                        value,
+                        label=f"{event.value}/{variant_id}/layer-{index + 1}",
+                    )
+                    for index, value in enumerate(raw_sequence)
+                )
+                if sequence[0] != available[variant_id]:
+                    raise ValueError(
+                        f"sound layer must start with its selected variant: "
+                        f"{event.value}/{variant_id}"
+                    )
+                if len(set(sequence)) != len(sequence):
+                    raise ValueError(
+                        f"sound layer sequence contains duplicate assets: "
+                        f"{event.value}/{variant_id}"
+                    )
+                event_layers[variant_id] = sequence
+            catalog[event] = event_layers
+        return catalog
+
+    def resolve_sequence(
+        self,
+        event: SoundEvent,
+        *,
+        variant_id: str | None = None,
+    ) -> tuple[Path, ...]:
+        if not isinstance(event, SoundEvent):
+            raise TypeError("sound event must be SoundEvent")
+        token = "1" if variant_id is None else self._variant_id(variant_id)
+        primary = self.resolve(event, variant_id=token)
+        return self.load_layer_catalog().get(event, {}).get(token, (primary,))
+
 
 class WindowsSoundPlaybackAdapter:
     """Synchronous Windows WAV player implementing ``SoundPlaybackPort``.
@@ -242,23 +315,43 @@ class WindowsSoundPlaybackAdapter:
                 variant_id = self._variant_provider(event)
                 if not isinstance(variant_id, str):
                     raise TypeError("sound variant provider must return text")
-            source = (
-                self._resolver.resolve(event)
-                if variant_id is None
-                else self._resolver.resolve(event, variant_id=variant_id)
-            )
-            playable = source if volume == 100 else self._scaled_copy(source, event, volume)
+            resolve_sequence = getattr(self._resolver, "resolve_sequence", None)
+            if callable(resolve_sequence):
+                sources = (
+                    resolve_sequence(event)
+                    if variant_id is None
+                    else resolve_sequence(event, variant_id=variant_id)
+                )
+            else:
+                source = (
+                    self._resolver.resolve(event)
+                    if variant_id is None
+                    else self._resolver.resolve(event, variant_id=variant_id)
+                )
+                sources = (source,)
+
+            if not sources:
+                raise ValueError("sound playback sequence cannot be empty")
+            if event in ASYNC_SOUND_EVENTS and len(sources) != 1:
+                raise ValueError("asynchronous sound events cannot use layered playback")
+
             import winsound
 
-            # Mechanical move/check/end cues remain synchronous so their
-            # deterministic semantic ordering is preserved.  The supplied
-            # NEWGAME and clock assets are intentionally multi-second sounds;
-            # accepting those asynchronously keeps the keyboard/UI responsive
-            # while Windows owns playback of the long cue.
+            # Mechanical move/capture cues may consist of a short movement cue
+            # followed by the original landing/impact WAV.  Play those layers
+            # synchronously and in declared order. NEWGAME and Tick remain
+            # single multi-second asynchronous assets so the keyboard/UI stays
+            # responsive while Windows owns playback.
             flags = winsound.SND_FILENAME | winsound.SND_NODEFAULT
             if event in ASYNC_SOUND_EVENTS:
                 flags |= winsound.SND_ASYNC
-            winsound.PlaySound(str(playable), flags)
+            for source in sources:
+                playable = (
+                    source
+                    if volume == 100
+                    else self._scaled_copy(source, event, volume)
+                )
+                winsound.PlaySound(str(playable), flags)
         except Exception:
             self._logger.exception("chess sound playback failed for event=%s", event.value)
             raise
