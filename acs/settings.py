@@ -31,30 +31,6 @@ DEFAULTS: dict[str, Any] = {
     "sound_draw_variant": "1",
     "sound_tick_variant": "1",
     "sound_low_time_variant": "1",
-    "sound_move_enabled": True,
-    "sound_move_volume": 100,
-    "sound_capture_enabled": True,
-    "sound_capture_volume": 100,
-    "sound_check_enabled": True,
-    "sound_check_volume": 100,
-    "sound_castle_enabled": True,
-    "sound_castle_volume": 100,
-    "sound_promotion_enabled": True,
-    "sound_promotion_volume": 100,
-    "sound_illegal_enabled": True,
-    "sound_illegal_volume": 100,
-    "sound_start_enabled": True,
-    "sound_start_volume": 100,
-    "sound_end_enabled": True,
-    "sound_end_volume": 100,
-    "sound_mate_enabled": True,
-    "sound_mate_volume": 100,
-    "sound_draw_enabled": True,
-    "sound_draw_volume": 100,
-    "sound_tick_enabled": True,
-    "sound_tick_volume": 100,
-    "sound_low_time_enabled": True,
-    "sound_low_time_volume": 100,
 }
 
 _ALLOWED_LANGUAGE = {"uk", "en"}
@@ -75,13 +51,6 @@ _SOUND_VARIANT_KEYS = frozenset(
         "sound_tick_variant",
         "sound_low_time_variant",
     }
-)
-
-_SOUND_EVENT_ENABLED_KEYS = frozenset(
-    key for key in DEFAULTS if key.startswith("sound_") and key.endswith("_enabled")
-)
-_SOUND_EVENT_VOLUME_KEYS = frozenset(
-    key for key in DEFAULTS if key.startswith("sound_") and key.endswith("_volume")
 )
 
 
@@ -160,13 +129,13 @@ def _validated_value(key: str, value: Any) -> Any:
         if value not in _ALLOWED_NOTATION:
             raise SettingsError("notation must be san, uk_literal, or en_literal")
         return value
-    if key in {"sounds", "newgame_animation"} or key in _SOUND_EVENT_ENABLED_KEYS:
+    if key in {"sounds", "newgame_animation"}:
         if not isinstance(value, bool):
             raise SettingsError(f"{key} must be boolean")
         return value
-    if key == "volume" or key in _SOUND_EVENT_VOLUME_KEYS:
+    if key == "volume":
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
-            raise SettingsError(f"{key} must be an integer in 0..100")
+            raise SettingsError("volume must be an integer in 0..100")
         return value
     if key in {"tick_policy", "low_time_policy"}:
         if value not in _ALLOWED_TICK_POLICY:
