@@ -182,6 +182,24 @@ class ClassroomChatServerSQLiteStore:
             ) from None
 
     @staticmethod
+    def _validate_no_authority_triggers(db: sqlite3.Connection) -> None:
+        trigger_row = db.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type='trigger'
+              AND (
+                name LIKE 'classroom_chat_server_%'
+                OR tbl_name LIKE 'classroom_chat_server_%'
+              )
+            LIMIT 1
+            """
+        ).fetchone()
+        if trigger_row is not None:
+            raise ClassroomChatServerError(
+                "classroom chat server schema contains unsupported trigger"
+            )
+
+    @staticmethod
     def _validate_schema_shape(
         db: sqlite3.Connection,
         *,
@@ -368,21 +386,7 @@ class ClassroomChatServerSQLiteStore:
                 # mutate or erase otherwise validated writes after this code has
                 # computed sequence/idempotency state. They are never part of the
                 # supported schema, so fail closed before migration or repair.
-                trigger_row = db.execute(
-                    """
-                    SELECT 1 FROM sqlite_master
-                    WHERE type='trigger'
-                      AND (
-                        name LIKE 'classroom_chat_server_%'
-                        OR tbl_name LIKE 'classroom_chat_server_%'
-                      )
-                    LIMIT 1
-                    """
-                ).fetchone()
-                if trigger_row is not None:
-                    raise ClassroomChatServerError(
-                        "classroom chat server schema contains unsupported trigger"
-                    )
+                self._validate_no_authority_triggers(db)
 
                 namespace_rows = db.execute(
                     """
@@ -617,6 +621,7 @@ class ClassroomChatServerSQLiteStore:
         with closing(self._connect()) as db:
             try:
                 db.execute("BEGIN IMMEDIATE")
+                self._validate_no_authority_triggers(db)
                 existing = db.execute(
                     "SELECT * FROM classroom_chat_server_messages WHERE message_id=?",
                     (draft.message_id,),
@@ -900,6 +905,7 @@ class ClassroomChatServerSQLiteStore:
         with closing(self._connect()) as db:
             try:
                 db.execute("BEGIN IMMEDIATE")
+                self._validate_no_authority_triggers(db)
                 for command in commands:
                     fingerprint = _moderation_fingerprint(command)
                     previous = db.execute(
@@ -1053,6 +1059,7 @@ class ClassroomChatServerSQLiteStore:
     def integrity_check(self) -> None:
         try:
             with closing(self._connect()) as db:
+                self._validate_no_authority_triggers(db)
                 row = db.execute("PRAGMA integrity_check").fetchone()
                 if row is None or row[0] != "ok":
                     raise ClassroomChatServerError(
