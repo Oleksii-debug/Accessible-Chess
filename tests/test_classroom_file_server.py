@@ -9,15 +9,18 @@ import unittest
 from pathlib import Path
 
 from acs.classroom_collaboration import (
+    ClassroomCollaborationController,
     FileQuotaPolicy,
     PreparedFile,
     _canonical_object_key,
 )
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
+    ClassroomCollaborationSQLiteStore,
     CollaborationConflictError,
     CollaborationQuotaError,
 )
+from acs.classroom_realtime_media import ClassroomRole
 from acs.classroom_file_server import (
     ClassroomFileServerClient,
     ClassroomFileServerError,
@@ -50,6 +53,33 @@ class AllowMembers:
             )
         )
         return (trusted_caller_identity, room_id) in self.members
+
+
+class SingleStudentRoster:
+    def participant_ids(self):
+        return ("student-1",)
+
+    def role_for(self, participant_id):
+        if participant_id != "student-1":
+            raise KeyError(participant_id)
+        return ClassroomRole.STUDENT
+
+    def board_control_allowed(self, participant_id):
+        return participant_id == "student-1"
+
+
+class UnusedChat:
+    def send_message(self, _draft):
+        raise AssertionError("chat transport must not be used by file integration")
+
+    def history_after(self, **_kwargs):
+        raise AssertionError("chat transport must not be used by file integration")
+
+    def state_updates_after(self, **_kwargs):
+        raise AssertionError("chat transport must not be used by file integration")
+
+    def apply_moderation(self, _commands):
+        raise AssertionError("chat transport must not be used by file integration")
 
 
 class FakeScanner:
@@ -1070,6 +1100,59 @@ class ClassroomFileServerTests(unittest.TestCase):
                 after_sequence=None,
                 limit=10,
             )
+
+    def test_canonical_controller_uses_file_server_for_progress_and_download(self):
+        collaboration_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "controller-collaboration.sqlite3")
+        )
+        controller = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=SingleStudentRoster(),
+            chat=UnusedChat(),
+            files=self.student1,
+            store=collaboration_store,
+            file_store=self.student1,
+            quota=FileQuotaPolicy(max_file_bytes=64, max_room_bytes=96),
+        )
+        payload = b"controller-server-progress"
+        source = self.root / "controller-server-progress.bin"
+        source.write_bytes(payload)
+        prepared = controller.prepare_file(
+            attachment_id="controller-server-progress-a0",
+            local_path=source,
+            sequence_no=47,
+            retention="persistent",
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(
+            tuple(
+                (item.transferred_bytes, item.total_bytes, item.complete)
+                for item in observed
+            ),
+            (
+                (0, len(payload), False),
+                (len(payload), len(payload), False),
+                (len(payload), len(payload), True),
+            ),
+        )
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(stored.sequence_no, 0)
+        self.assertEqual(
+            collaboration_store.room_attachments("room-1"),
+            (stored,),
+        )
+        token = controller.issue_download_token(
+            attachment_id=stored.attachment_id,
+            ttl_seconds=60,
+        )
+        self.assertEqual(token, "read-student-1-60")
 
     def test_client_upload_and_retry_report_canonical_provider_progress(self):
         prepared = self.prepared(
