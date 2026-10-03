@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import hashlib
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -197,6 +198,68 @@ class ClassroomFileServerTests(unittest.TestCase):
             ClassroomFileServerSQLiteStore(str(missing_parent))
         self.assertIsNone(raised.exception.__cause__)
         self.assertFalse(missing_parent.exists())
+
+    def test_store_rejects_versioned_but_incompatible_schema_on_restart(self):
+        path = self.root / "incompatible-v1.sqlite3"
+        with sqlite3.connect(path) as db:
+            db.executescript(
+                """
+                CREATE TABLE classroom_file_server_meta(
+                    key TEXT PRIMARY KEY,
+                    value INTEGER NOT NULL
+                );
+                INSERT INTO classroom_file_server_meta(key,value)
+                VALUES('schema_version',1);
+                CREATE TABLE classroom_file_server_attachments(
+                    attachment_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sequence_no INTEGER,
+                    transfer_state TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX uq_classroom_file_server_room_sequence
+                ON classroom_file_server_attachments(room_id, sequence_no)
+                WHERE transfer_state IN ('stored','deleted');
+                CREATE TABLE classroom_file_server_state_updates(
+                    room_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    attachment_id TEXT NOT NULL,
+                    transfer_state TEXT NOT NULL,
+                    scan_state TEXT NOT NULL,
+                    PRIMARY KEY(room_id, revision),
+                    FOREIGN KEY(attachment_id)
+                        REFERENCES classroom_file_server_attachments(attachment_id)
+                );
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "schema columns are incompatible",
+        ):
+            ClassroomFileServerSQLiteStore(str(path))
+
+    def test_store_sanitizes_partial_schema_migration_failure(self):
+        path = self.root / "partial-v1.sqlite3"
+        with sqlite3.connect(path) as db:
+            db.executescript(
+                """
+                CREATE TABLE classroom_file_server_meta(
+                    key TEXT PRIMARY KEY,
+                    value INTEGER NOT NULL
+                );
+                CREATE TABLE classroom_file_server_attachments(
+                    attachment_id TEXT PRIMARY KEY
+                );
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "schema migration failed",
+        ) as raised:
+            ClassroomFileServerSQLiteStore(str(path))
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertNotIn("already exists", str(raised.exception).lower())
 
     def test_external_authorization_failure_drops_sensitive_exception_cause(self):
         class BrokenAuthorization:
