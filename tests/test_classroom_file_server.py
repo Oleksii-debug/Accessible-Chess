@@ -971,6 +971,34 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.student1.cancel(attachment_id="never-accepted")
         self.assertEqual(self.objects.delete_calls, [])
 
+    def test_tombstone_committed_during_download_status_blocks_new_token(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="download-tombstone-status-a0")
+        )
+
+        def tombstone_only():
+            self.store.cancel(
+                trusted_sender_id="student-1",
+                attachment_id=stored.attachment_id,
+            )
+
+        self.objects.after_status = tombstone_only
+        token_calls = len(self.objects.token_calls)
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "no longer cleared for download",
+        ):
+            self.student2.issue_read_token(
+                object_key=stored.object_key,
+                participant_id="student-2",
+                ttl_seconds=60,
+            )
+
+        self.assertEqual(len(self.objects.token_calls), token_calls)
+        self.assertIn(stored.object_key, self.objects.objects)
+        self.assertEqual(self.service.drain_pending_deletions(), 1)
+
     def test_membership_revoked_during_download_status_cannot_mint_token(self):
         stored = self.student1.upload(
             self.prepared(attachment_id="download-revoked-status-a0")
