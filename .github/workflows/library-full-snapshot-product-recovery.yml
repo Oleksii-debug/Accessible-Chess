@@ -1,0 +1,91 @@
+name: Library Full Snapshot Product Recovery Convergence
+
+on:
+  push:
+    branches:
+      - converge/library-full-snapshot-product-recovery-20261004
+  pull_request:
+    branches:
+      - converge/library-import-event-product-recovery-20261004
+    paths:
+      - 'web/full_product_library.js'
+      - 'tests/js/library_surface_dom_test.js'
+      - '.github/workflows/library-full-snapshot-product-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-full-snapshot-product-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact successor parent and resolved blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='1032236b46a3e31a27f88008a2024e9e511f26e7'
+          source='f2566c64886a68bb5c2c861aac564bcbb53f8451'
+          git cat-file -e "$parent^{commit}"
+          git cat-file -e "$source^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/library-full-snapshot-product-recovery.yml' \
+            'tests/js/library_surface_dom_test.js' \
+            'web/full_product_library.js' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "9943aa2e1924c9087faca7e9ead610475bfb98e5"
+          test "$(git rev-parse HEAD:tests/js/library_surface_dom_test.js)" = "6d1ce6f2a3d2cd09c2585269d0fb8543cd59f98e"
+
+          echo 'LIBRARY_FULL_SNAPSHOT_PRODUCT_RECOVERY_SCOPE=PASS'
+
+      - name: Validate Library JavaScript
+        run: |
+          node --check web/full_product_library.js
+          node --check tests/js/library_surface_dom_test.js
+          node tests/js/library_surface_dom_test.js
+
+      - name: Adjacent Library application and export regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_library_webview_projection
+          tests.test_library_export_webview_projection
+          tests.test_d07_library_import_service
+
+      - name: Package preflight adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest
