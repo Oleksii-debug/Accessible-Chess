@@ -65,10 +65,10 @@ jobs:
           fi
 
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "ee0c3a002a6877694c9a92ec09bddb30018951ec"
-          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "758ce9e3ce2e374e1cb4f0775108451abd917017"
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "4aeae48fef4d5b754b08bf1211874256af18d6c2"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "c73225a8f5e177833770f173fa7839ed924003b1"
           test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "1a169994d00314190cec8a90b1c0fe79c77d5c0b"
-          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "fddbb9566e787239d961b91e3a079d5229c533cb"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "a5615311b704c2852ab68f2150e8a20bc7efa152"
           test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "5ba41954d0aa3beddc878eb69f290a062a74fd01"
 
           test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "7b701dd0a28ade8093dc8c99d91ba7cedee8d109"
