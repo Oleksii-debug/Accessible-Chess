@@ -481,8 +481,15 @@ def _json_no_duplicates(text: str, *, label: str) -> dict[str, object]:
             result[key] = value
         return result
 
+    def reject_nonfinite(value: str) -> object:
+        _fail(f"{label} contains non-finite JSON number: {value}")
+
     try:
-        value = json.loads(text, object_pairs_hook=hook)
+        value = json.loads(
+            text,
+            object_pairs_hook=hook,
+            parse_constant=reject_nonfinite,
+        )
     except Version2PackagePreflightError:
         raise
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
