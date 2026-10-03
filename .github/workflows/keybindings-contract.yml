@@ -65,6 +65,7 @@ jobs:
               'acs/keybindings.py' \
               'acs/ui_keymap_adapter.py' \
               'acs/ui_keymap_editor.py' \
+              'acs/ui_keymap_service.py' \
               'tests/js/education_surface_dom_test.js' \
               'tests/js/library_surface_dom_test.js' \
               'tests/js/p0g_event_aware_announcement_test.js' \

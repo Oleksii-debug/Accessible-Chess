@@ -103,6 +103,43 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
                 self.assertEqual(rows[action_id].context_label, context_label)
                 self.assertNotIn("_", rows[action_id].context_label)
 
+    def test_newer_keymap_schema_is_preserved_until_explicit_full_reset(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keymap.json"
+            original = json.dumps(
+                {
+                    "schema_version": 999,
+                    "bindings": {"history.go_to_move": "Ctrl+J"},
+                    "aliases": {},
+                },
+                sort_keys=True,
+            )
+            path.write_text(original, encoding="utf-8")
+            api = KeymapAwareAccessibleChessAPI(lang="en", keymap_path=path)
+
+            snapshot = api.keymap_snapshot()
+            self.assertTrue(snapshot["writeBlocked"])
+            self.assertTrue(snapshot["recoveryMessage"])
+            self.assertEqual(
+                api.keymap_resolve_binding("history", "Ctrl+G")["actionId"],
+                "history.go_to_move",
+            )
+
+            blocked = api.keymap_save("history.go_to_move", "Alt+J")
+            self.assertFalse(blocked["ok"])
+            self.assertIn("newer Accessible Chess version", blocked["message"])
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+            blocked_reset = api.keymap_reset_action("history.go_to_move")
+            self.assertFalse(blocked_reset["ok"])
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+            reset_all = api.keymap_reset_all()
+            self.assertTrue(reset_all["ok"])
+            rewritten = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(rewritten["schema_version"], 1)
+            self.assertFalse(api.keymap_snapshot()["writeBlocked"])
+
     def test_board_grid_remap_uses_same_persisted_registry(self):
         with tempfile.TemporaryDirectory() as td:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")

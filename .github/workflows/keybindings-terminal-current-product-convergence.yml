@@ -8,6 +8,7 @@ on:
       - 'acs/keybindings.py'
       - 'acs/ui_keymap_adapter.py'
       - 'acs/ui_keymap_editor.py'
+      - 'acs/ui_keymap_service.py'
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
       - 'web/index.html'
@@ -97,6 +98,7 @@ jobs:
             'acs/keybindings.py' \
             'acs/ui_keymap_adapter.py' \
             'acs/ui_keymap_editor.py' \
+            'acs/ui_keymap_service.py' \
             'tests/js/education_surface_dom_test.js' \
             'tests/js/library_surface_dom_test.js' \
             'tests/js/version2_library_open_route_refresh_dom_test.js' \
@@ -136,6 +138,8 @@ jobs:
           python -m py_compile
           acs/keybindings.py
           acs/ui_keymap_adapter.py
+          acs/ui_keymap_editor.py
+          acs/ui_keymap_service.py
           acs/full_product_actions.py
           acs/full_product_native_menu.py
           tests/test_keybindings.py
