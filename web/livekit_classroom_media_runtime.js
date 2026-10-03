@@ -125,6 +125,7 @@
       this._adapter = null;
       this._config = null;
       this._busy = false;
+      this._transportLossSnapshot = null;
     }
 
     get configured() {
@@ -187,11 +188,18 @@
       }
 
       const Adapter = global.AccessibleChessLiveKitMedia.LiveKitClassroomMediaAdapter;
-      this._adapter = new Adapter({
+      let adapter = null;
+      adapter = new Adapter({
         livekit: global.LivekitClient,
         serverUrl: nextConfig.server_url,
-        moderationParticipantIdentity: nextConfig.moderation_participant_identity
+        moderationParticipantIdentity: nextConfig.moderation_participant_identity,
+        onTransportLost: (snapshot) => {
+          if (this._adapter === adapter) {
+            this._transportLossSnapshot = snapshot;
+          }
+        }
       });
+      this._adapter = adapter;
       this._config = nextConfig;
       return this._adapter;
     }
@@ -374,6 +382,33 @@
       }
     }
 
+    async _deliverTransportLoss(invoke) {
+      const snapshot = this._transportLossSnapshot;
+      if (snapshot === null) return null;
+      let result;
+      try {
+        result = await invoke("media.provider_transport_lost", { snapshot });
+      } catch (_error) {
+        return null;
+      }
+      if (!result || typeof result !== "object") return null;
+      if (this._transportLossSnapshot === snapshot) {
+        this._transportLossSnapshot = null;
+      }
+      return result;
+    }
+
+    async reconcileTransport(invoke) {
+      invoke = requireInvoke(invoke);
+      if (this._busy || this._transportLossSnapshot === null) return null;
+      this._busy = true;
+      try {
+        return await this._deliverTransportLoss(invoke);
+      } finally {
+        this._busy = false;
+      }
+    }
+
     async execute(event, invoke) {
       invoke = requireInvoke(invoke);
       if (this._busy) {
@@ -384,6 +419,29 @@
           return null;
         }
       }
+
+      // A final provider disconnect can arrive between user actions. Retire the
+      // newly prepared transaction before reconciling that older transport fact,
+      // so stale canonical "connected" state cannot authorize a second provider
+      // mutation.
+      if (this._transportLossSnapshot !== null) {
+        let parsed;
+        try {
+          parsed = providerInstruction(event);
+        } catch (_error) {
+          return null;
+        }
+        if (parsed.providerBoundaryCrossed) {
+          return this._providerOutcomeUnknown(invoke, parsed.transaction);
+        }
+        const retired = await this._providerNotStarted(invoke, parsed.transaction);
+        if (retired && retired.payload && retired.payload.recovery_required === true) {
+          return retired;
+        }
+        const reconciled = await this.reconcileTransport(invoke);
+        return reconciled || retired;
+      }
+
       this._busy = true;
       try {
         let current = event;
