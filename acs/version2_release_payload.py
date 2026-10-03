@@ -474,7 +474,7 @@ def _publish_sound_provenance(product_dir: Path, notices_dir: Path) -> None:
         raise Version2ReleasePayloadError("sound provenance events must be an object")
 
     expected_events = {event.value for event in SoundEvent}
-    if len(expected_events) != 9 or set(events) != expected_events:
+    if set(events) != expected_events:
         raise Version2ReleasePayloadError(
             "sound provenance must declare exactly all semantic sound events"
         )
