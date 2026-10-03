@@ -1063,6 +1063,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.files.scan_state = "clean"
         view = self.webview()
+        old_session_key = view.snapshot()["session_key"]
+        self.assertEqual(32, len(old_session_key))
 
         uploaded = view.dispatch("collaboration.file.choose_upload", {})
         clean_item = next(
@@ -1119,6 +1121,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual(set(), view._removed_participant_ids)
         snapshot = view.snapshot()
         self.assertEqual(0, snapshot["chat"]["unread_count"])
+        self.assertNotEqual(old_session_key, snapshot["session_key"])
+        self.assertEqual(32, len(snapshot["session_key"]))
 
         stale = view.dispatch(
             "collaboration.file.save",
