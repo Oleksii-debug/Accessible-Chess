@@ -395,6 +395,45 @@ async function run() {
     "discarded stale result left the Book surface busy"
   );
 
+  const staleRejectRoot = new FakeElement("div");
+  let rejectStale = null;
+  const staleRejectInvoke = () => new Promise((resolve, reject) => {
+    rejectStale = reject;
+  });
+  window.AccessibleChessBookSurface.render(
+    staleRejectRoot,
+    bookSnapshot(12, "Before stale rejection"),
+    staleRejectInvoke,
+    announce,
+    "book-block-12",
+    "Action failed"
+  );
+  const beforeStaleRejectAnnouncements = announcements.length;
+  find(staleRejectRoot, "BUTTON", "Next").listeners.click();
+  window.AccessibleChessBookSurface.render(
+    staleRejectRoot,
+    bookSnapshot(13, "Newer render before rejection"),
+    staleRejectInvoke,
+    announce,
+    "book-block-13",
+    "Action failed"
+  );
+  rejectStale(new Error("stale rejected transport"));
+  await flushPromises();
+  await flushPromises();
+  check(
+    announcements.length === beforeStaleRejectAnnouncements,
+    "stale rejected action announced a failure on the newer Book render"
+  );
+  check(
+    staleRejectRoot.querySelector("#book-block-13") !== null,
+    "stale rejected action disturbed the newer Book render"
+  );
+  check(
+    staleRejectRoot.getAttribute("aria-busy") === null,
+    "stale rejected action left the Book surface busy"
+  );
+
   const listSnapshot = bookSnapshot(4, "List");
   listSnapshot.block.role = "group";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
