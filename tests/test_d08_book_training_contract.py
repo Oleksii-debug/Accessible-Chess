@@ -22,6 +22,25 @@ START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 KING_FEN = "8/8/8/8/8/8/4K3/7k w - - 0 1"
 
 
+class _BombDict(dict):
+    def __iter__(self):
+        raise AssertionError("dict subclass iteration hook must not execute")
+
+    def __len__(self):
+        raise AssertionError("dict subclass length hook must not execute")
+
+    def __getitem__(self, key):
+        raise AssertionError("dict subclass item hook must not execute")
+
+    def items(self):
+        raise AssertionError("dict subclass items hook must not execute")
+
+
+class _BombStr(str):
+    def strip(self, *args, **kwargs):
+        raise AssertionError("string subclass strip hook must not execute")
+
+
 def make_book(*, source_name="training-source.docx", blocks=None):
     return BookDocument(
         "Training book",
@@ -388,6 +407,71 @@ class BookTrainingWireContractTests(unittest.TestCase):
         with self.assertRaises(BookTrainingError) as caught:
             restore_book_training_material(self.book, oversized)
 
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_wire_requires_exact_dicts_before_container_hooks(self):
+        cases = []
+
+        top = _BombDict(self.payload)
+        cases.append(top)
+
+        origin = copy.deepcopy(self.payload)
+        origin["origin"] = _BombDict(origin["origin"])
+        cases.append(origin)
+
+        definition = copy.deepcopy(self.payload)
+        definition["definition"] = _BombDict(definition["definition"])
+        cases.append(definition)
+
+        step = copy.deepcopy(self.payload)
+        step["definition"]["steps"][0] = _BombDict(
+            step["definition"]["steps"][0]
+        )
+        cases.append(step)
+
+        metadata = copy.deepcopy(self.payload)
+        metadata["definition"]["metadata"] = _BombDict(
+            metadata["definition"]["metadata"]
+        )
+        cases.append(metadata)
+
+        for payload in cases:
+            with self.subTest(layer=type(payload).__name__):
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
+
+    def test_export_rejects_mutated_metadata_container_before_hooks(self):
+        object.__setattr__(
+            self.material.definition,
+            "metadata",
+            _BombDict({"content_kind": "book_exercise"}),
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            self.material.as_dict()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_export_revalidates_mutated_origin_before_string_hooks(self):
+        object.__setattr__(
+            self.material.origin,
+            "heading_path",
+            (_BombStr("Hostile heading"),),
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            self.material.as_dict()
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_export_rejects_oversized_mutated_metadata_before_item_scan(self):
+        object.__setattr__(
+            self.material.definition,
+            "metadata",
+            {f"k{index}": "v" for index in range(257)},
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            self.material.as_dict()
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
 
     def test_tampered_move_and_origin_digest_fail_closed(self):
