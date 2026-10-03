@@ -146,7 +146,15 @@ class SoundProfileManager:
                 type(schema) is int
                 and schema > SOUND_PROFILE_SCHEMA_VERSION
             ):
-                profile = self._reconcile_pack(self._default, reasons)
+                # A newer schema can change enable/volume/event semantics in ways
+                # this version cannot interpret. Preserve the newer bytes and
+                # fail closed for playback instead of silently applying an
+                # enabled local default profile.
+                future_safe_default = replace(
+                    self._default,
+                    master_enabled=False,
+                )
+                profile = self._reconcile_pack(future_safe_default, reasons)
                 self._current = profile
                 self._writes_blocked = True
                 self._refresh_required = False
