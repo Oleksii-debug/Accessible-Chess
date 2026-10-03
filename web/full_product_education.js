@@ -540,6 +540,7 @@
     );
     status.id = "classroom-collaboration-status";
     status.setAttribute("aria-live", "off");
+    if (snapshot.available === false) status.setAttribute("role", "status");
     wrapper.appendChild(status);
     if (snapshot.available === false) {
       return wrapper;
