@@ -21,6 +21,8 @@ class SoundEvent(str, Enum):
     ILLEGAL = "illegal"
     START = "start"
     END = "end"
+    MATE = "mate"
+    DRAW = "draw"
     TICK = "tick"
 
 
@@ -77,6 +79,14 @@ class SoundEventPolicy:
     @staticmethod
     def game_end() -> tuple[SoundEvent, ...]:
         return (SoundEvent.END,)
+
+    @staticmethod
+    def checkmate() -> tuple[SoundEvent, ...]:
+        return (SoundEvent.MATE,)
+
+    @staticmethod
+    def draw() -> tuple[SoundEvent, ...]:
+        return (SoundEvent.DRAW,)
 
     @staticmethod
     def illegal() -> tuple[SoundEvent, ...]:
