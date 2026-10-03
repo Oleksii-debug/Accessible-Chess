@@ -8,7 +8,7 @@ on:
       - '.github/workflows/p0g-packaged-hotkey-result-probe-contract.yml'
   push:
     branches:
-      - fix/p0g-match-counter-20260929
+      - qa/p0g-packaged-hotkey-result-20260926
     paths:
       - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
       - 'tests/test_p0g_packaged_hotkey_result_probe.py'
@@ -18,10 +18,10 @@ permissions:
   contents: read
 
 env:
-  CURRENT_PRODUCT_BASE: 171ca45b6483cce4b51354bd0c8626733f87c45c
-  OWNER_HEAD: fix/p0g-match-counter-20260929
-  PROBE_BLOB: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
-  TEST_BLOB: c5212dfa0c58d9d7a366a18dd89be8623bac01d0
+  CURRENT_PRODUCT_BASE: e61b570761207ecd1db0322bfc80c3e302b63e2f
+  OWNER_HEAD: qa/p0g-packaged-hotkey-result-20260926
+  PROBE_BLOB: 796d705c66b11f880b3173caddfb41e7af09de35
+  TEST_BLOB: e8b330c9d533ff8a8316d2a8bfa1166d73e97383
 
 jobs:
   contract:
