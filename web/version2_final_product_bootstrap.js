@@ -538,6 +538,36 @@
   function applyQueuedEvent(event, orderedStage1Refreshes) {
     if (!event || typeof event !== "object") return false;
     const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    if (event.kind === "provider-dispatch") {
+      const mediaSurface = global.AccessibleChessClassroomMediaSurface;
+      if (!mediaSurface || typeof mediaSurface.executeProvider !== "function") {
+        announce(uiText(
+          "Керування медіа тимчасово недоступне.",
+          "Media controls are temporarily unavailable."
+        ));
+        return true;
+      }
+      const work = Promise.resolve().then(function () {
+        return mediaSurface.executeProvider(event, areaInvoke("media"));
+      }).then(function (terminal) {
+        const finalPayload = terminal && terminal.payload &&
+          typeof terminal.payload === "object" ? terminal.payload : {};
+        if (finalPayload.announcement) announce(finalPayload.announcement);
+        if (terminal && terminal.kind === "error" && finalPayload.message) {
+          announce(finalPayload.message);
+        }
+      }, function () {
+        announce(uiText(
+          "Не вдалося завершити медіазв’язок.",
+          "Could not complete the media connection."
+        ));
+      });
+      // The transaction must settle before the whole-product snapshot refreshes;
+      // otherwise a trusted join/reconnect event could repaint stale canonical
+      // media state while its sole provider lease is still active.
+      orderedStage1Refreshes.push(work);
+      return true;
+    }
     if (event.kind === "render-import") {
       if (currentRouteId === "library" && global.AccessibleChessLibrarySurface &&
           typeof global.AccessibleChessLibrarySurface.apply === "function") {
