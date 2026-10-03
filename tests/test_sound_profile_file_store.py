@@ -278,6 +278,39 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             payload = JsonSoundProfileStorage(path).read_profile()
             self.assertIsInstance(payload.get("schema_version"), str)
 
+    def test_profile_lock_swap_after_lstat_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            path = root / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+            lock_path = storage._lock_path
+            lock_path.write_bytes(b"\0")
+            replacement = root / "replacement.lock"
+            replacement.write_bytes(b"\0")
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(target, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(target) == lock_path and not swapped:
+                    swapped = True
+                    os.replace(replacement, lock_path)
+                if dir_fd is None:
+                    return real_open(target, flags, mode)
+                return real_open(target, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch(
+                "acs.sound_profile_file_store.os.open",
+                side_effect=swap_before_open,
+            ), self.assertRaisesRegex(
+                SoundProfileFileError,
+                "lock changed before secure open",
+            ):
+                with storage._exclusive_access():
+                    self.fail("profile lock identity swap must fail closed")
+
+            self.assertTrue(swapped)
+
     @unittest.skipIf(os.name == "nt", "ordinary Windows test runners cannot create symlinks")
     def test_symlinked_profile_directory_ancestor_is_rejected_without_following(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
