@@ -119,6 +119,80 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(workflow.revision, 0)
                 self.assertEqual(reader.snapshot(), progress_before)
 
+    def test_recovered_game_warning_and_last_canonical_metadata_are_readable(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Recovered source",
+                blocks=[
+                    Game(
+                        pgn=(
+                            '[Event "First"]\n'
+                            '[Event "Second"]\n'
+                            '[Result "*"]\n\n'
+                            '1. e4 e5 *'
+                        ),
+                        title="Recovered game",
+                        block_id="recovered-game",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        tree = bridge.projection.snapshot()["block"]["semantic_tree"]
+
+        self.assertIn(
+            {"label": "Подія", "value": "Second"},
+            tree["details"],
+        )
+        self.assertNotIn(
+            {"label": "Подія", "value": "First"},
+            tree["details"],
+        )
+        self.assertTrue(
+            any("duplicate tag Event" in warning for warning in tree["warnings"])
+        )
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_language_switch_rebuilds_semantic_labels_without_moving_reader(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Bilingual study",
+                blocks=[
+                    Game(
+                        pgn=(
+                            '[Event "Accessible Cup"]\n'
+                            '[Result "*"]\n\n'
+                            '1. e4 (1. d4 d5) e5 *'
+                        ),
+                        title="Study",
+                        block_id="study",
+                    )
+                ],
+            )
+        )
+        before = reader.snapshot()
+
+        ua = bridge.projection.snapshot()["block"]["semantic_tree"]
+        event = bridge.dispatch("book.language", {"language": "en"})
+        en = event.payload["snapshot"]["block"]["semantic_tree"]
+
+        self.assertEqual(ua["details_label"], "Відомості про партію")
+        self.assertEqual(en["details_label"], "Game details")
+        self.assertIn({"label": "Event", "value": "Accessible Cup"}, en["details"])
+        self.assertTrue(
+            any(
+                item["kind"] == "variation" and item["label"] == "Variation 1"
+                for item in en["items"]
+            )
+        )
+        self.assertEqual(event.payload["snapshot"]["document"]["lang"], "en")
+        self.assertEqual(reader.snapshot(), before)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_excessive_semantic_item_count_fails_closed_but_keeps_board_available(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
