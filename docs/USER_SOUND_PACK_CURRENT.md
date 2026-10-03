@@ -8,6 +8,8 @@ This file records the exact sound source requested by the repository owner for t
 - Supplied archive SHA-256: bbe91f4adedd3f14f7128bdee4373f743aa0fdd14fba670df35e3ff6173bf8ab
 - Extracted WAV count: 330
 - Deterministic extracted WAV inventory SHA-256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920
+- Current prepared v3 ZIP snapshot SHA-256: b09c1d66b472165c4a880bd86f19b180e1023cf9e3913b7fc53ca34f560b9bff
+- Current prepared v3 ZIP size: 20,856,200 bytes
 - Inventory fingerprint algorithm: sort WAV files by case-folded relative POSIX path, then hash the concatenation of relative path, NUL, file SHA-256, and LF.
 
 The builder scripts/build_user_sound_pack.py is bound to this exact extracted inventory and fails closed if a different 330-file tree is supplied.
