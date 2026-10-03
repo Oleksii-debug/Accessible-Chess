@@ -421,6 +421,44 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 (root / "packs" / manifest.pack_id / "active.json").is_file()
             )
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "ordinary Windows runners cannot reliably create symlinks",
+    )
+    def test_failed_install_cleanup_unlinks_redirected_staging_without_following(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            outside = root / "outside"
+            outside.mkdir()
+            sentinel = outside / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            staged_root = None
+
+            def redirect_staging_then_fail(source, destination, digest):
+                nonlocal staged_root
+                staged_root = destination.parents[1]
+                staged_root.rmdir()
+                staged_root.symlink_to(outside, target_is_directory=True)
+                raise SoundPackStoreError("forced copy failure")
+
+            with mock.patch.object(
+                store,
+                "_copy_verified",
+                side_effect=redirect_staging_then_fail,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "forced copy failure",
+            ):
+                store.install_atomically(downloaded)
+
+            self.assertIsNotNone(staged_root)
+            assert staged_root is not None
+            self.assertFalse(os.path.lexists(staged_root))
+            self.assertEqual("keep", sentinel.read_text(encoding="utf-8"))
+
     def test_staging_directory_tree_is_flushed_before_version_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
