@@ -35,6 +35,26 @@ def _is_link_like_resource(path: Any) -> bool:
     return bool(getattr(info, "st_file_attributes", 0) & reparse_flag)
 
 
+def _required_resource_text(path: Any, label: str) -> str:
+    """Read one packaged script fail-closed without exposing filesystem details."""
+
+    if (
+        not os.path.lexists(path)
+        or _is_link_like_resource(path)
+        or not path.is_file()
+    ):
+        raise RuntimeError(f"{label} not found or invalid in packaged resources.")
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        raise RuntimeError(
+            f"{label} could not be read from packaged resources."
+        ) from None
+    if not source.strip():
+        raise RuntimeError(f"{label} is empty in packaged resources.")
+    return source
+
+
 def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
     livekit_root = root / "vendor" / "livekit"
@@ -77,10 +97,12 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("P0 event-aware accessibility runtime", root / "p0_accessibility_runtime.js"),
     )
     output: list[tuple[str, str]] = []
+    seen_labels: set[str] = set()
     for label, path in resources:
-        if not path.exists():
-            raise RuntimeError(f"{label} not found in packaged resources.")
-        output.append((label, path.read_text(encoding="utf-8")))
+        if label in seen_labels:
+            raise RuntimeError("Final-product WebView resource label is duplicated.")
+        seen_labels.add(label)
+        output.append((label, _required_resource_text(path, label)))
     return tuple(output)
 
 
