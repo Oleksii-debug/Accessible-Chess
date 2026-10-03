@@ -4,6 +4,7 @@ import hashlib
 import io
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest import mock
 import wave
@@ -279,6 +280,96 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 snapshot,
                 "bytes changed after verification must never cross the playback boundary",
             )
+
+    def test_install_and_uninstall_are_serialized_across_store_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store_root = root / "packs"
+            first_store = FilesystemSoundPackStore(store_root)
+            second_store = FilesystemSoundPackStore(store_root)
+            first = _manifest(version="1.0.0")
+            first_download, _ = _staged_download(root, first, seed=b"a")
+            first_store.install_atomically(first_download)
+            second = _manifest(version="2.0.0")
+            second_download, _ = _staged_download(root, second, seed=b"b")
+
+            publication_entered = threading.Event()
+            release_publication = threading.Event()
+            uninstall_started = threading.Event()
+            uninstall_done = threading.Event()
+            errors: list[BaseException] = []
+            original_publish = FilesystemSoundPackStore._publish_active
+
+            def blocking_publish(pack_dir, pack_id, version):
+                if version == "2.0.0":
+                    publication_entered.set()
+                    if not release_publication.wait(5):
+                        raise AssertionError("timed out waiting to release publication")
+                return original_publish(pack_dir, pack_id, version)
+
+            def install_worker():
+                try:
+                    first_store.install_atomically(second_download)
+                except BaseException as exc:
+                    errors.append(exc)
+
+            def uninstall_worker():
+                uninstall_started.set()
+                try:
+                    second_store.uninstall(second.pack_id)
+                except BaseException as exc:
+                    errors.append(exc)
+                finally:
+                    uninstall_done.set()
+
+            with mock.patch.object(
+                FilesystemSoundPackStore,
+                "_publish_active",
+                side_effect=blocking_publish,
+            ):
+                installer = threading.Thread(target=install_worker)
+                installer.start()
+                self.assertTrue(publication_entered.wait(5))
+
+                uninstaller = threading.Thread(target=uninstall_worker)
+                uninstaller.start()
+                self.assertTrue(uninstall_started.wait(5))
+                self.assertFalse(
+                    uninstall_done.wait(0.2),
+                    "uninstall must not enter destructive mutation while update owns the store lock",
+                )
+
+                release_publication.set()
+                installer.join(5)
+                uninstaller.join(5)
+
+            self.assertFalse(installer.is_alive())
+            self.assertFalse(uninstaller.is_alive())
+            self.assertEqual([], errors)
+            self.assertNotIn(second.pack_id, second_store.installed())
+
+    @unittest.skipIf(
+        __import__("os").name == "nt",
+        "ordinary Windows test runners cannot create symlinks reliably",
+    )
+    def test_mutation_lock_symlink_is_rejected_without_pack_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            outside = root / "outside.lock"
+            outside.write_bytes(b"x")
+            store._mutation_lock_path.symlink_to(outside)
+
+            with self.assertRaisesRegex(
+                SoundPackStoreError,
+                "mutation lock.*regular",
+            ):
+                store.install_atomically(downloaded)
+
+            self.assertFalse(store.root.exists())
+            self.assertEqual(b"x", outside.read_bytes())
 
     def test_update_keeps_old_version_and_switches_active_only_after_new_publish(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
