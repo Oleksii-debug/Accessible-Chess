@@ -1166,6 +1166,12 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             event.payload["file_progress"]["transferred_bytes"]
             for event in progress_events
         ])
+        failed_transfer_keys = {
+            event.payload["file_progress"]["transfer_key"]
+            for event in progress_events
+        }
+        self.assertEqual(1, len(failed_transfer_keys))
+        failed_transfer_key = next(iter(failed_transfer_keys))
         self.assertIsNone(
             failed.payload["collaboration"]["files"]["transfer_progress"]
         )
@@ -1184,9 +1190,16 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             progress_events[0].payload["file_progress"]["transferred_bytes"],
         )
         self.assertTrue(progress_events[-1].payload["file_progress"]["complete"])
+        retry_transfer_keys = {
+            event.payload["file_progress"]["transfer_key"]
+            for event in progress_events
+        }
+        self.assertEqual(1, len(retry_transfer_keys))
+        retry_transfer_key = next(iter(retry_transfer_keys))
+        self.assertNotEqual(failed_transfer_key, retry_transfer_key)
         self.assertEqual(
             retried.payload["collaboration"]["files"]["transfer_progress"]["transfer_key"],
-            progress_events[-1].payload["file_progress"]["transfer_key"],
+            retry_transfer_key,
         )
 
     def test_broken_file_progress_sink_cannot_turn_valid_upload_into_failure(self) -> None:
