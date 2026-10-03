@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import stat
 from typing import Any, Mapping
 
 
@@ -30,49 +31,133 @@ class SettingsError(ValueError):
 class _SettingsSaveLock:
     """Serialize canonical Settings.save() with the Version 2 upgrade lock.
 
-    The upgrade coordinator owns ``.v2-upgrade.lock`` for its complete
-    snapshot/migrate/verify transaction. Canonical settings writes use the same
-    byte-range/advisory lock so their atomic pathname replacement cannot race
-    the upgrader's final publication window. Contention fails closed: the
-    caller can retry after upgrade completion, but no successful Settings.save
-    is silently overwritten.
+    The lock pathname itself is part of the coordination contract. A save must
+    never follow a symlink/reparse point, adopt a replacement inode, or keep
+    using an old locked inode after the canonical pathname was substituted.
     """
 
     def __init__(self, settings_path: Path) -> None:
         self.path = settings_path.parent / ".v2-upgrade.lock"
         self.handle = None
 
+    @staticmethod
+    def _reparse(info: os.stat_result) -> bool:
+        flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+    @staticmethod
+    def _identity(info: os.stat_result) -> tuple[int, int]:
+        return int(info.st_dev), int(info.st_ino)
+
+    @classmethod
+    def _require_private_regular(cls, info: os.stat_result) -> None:
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or cls._reparse(info)
+            or not stat.S_ISREG(info.st_mode)
+            or int(getattr(info, "st_nlink", 1)) != 1
+        ):
+            raise SettingsError(
+                "settings upgrade lock must be one private regular file"
+            )
+
+    def assert_current(self) -> os.stat_result:
+        if self.handle is None:
+            raise SettingsError("settings upgrade lock is not held")
+        opened = os.fstat(self.handle.fileno())
+        self._require_private_regular(opened)
+        try:
+            current = os.lstat(self.path)
+        except OSError as exc:
+            raise SettingsError(
+                "settings upgrade lock changed while held"
+            ) from exc
+        try:
+            self._require_private_regular(current)
+        except SettingsError as exc:
+            raise SettingsError(
+                "settings upgrade lock changed while held"
+            ) from exc
+        if self._identity(opened) != self._identity(current):
+            raise SettingsError("settings upgrade lock changed while held")
+        return opened
+
     def __enter__(self) -> "_SettingsSaveLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+b")
-        if self.handle.seek(0, os.SEEK_END) == 0:
-            self.handle.write(b"\0")
-            self.handle.flush()
-        self.handle.seek(0)
         try:
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(
-                    self.handle.fileno(),
-                    fcntl.LOCK_EX | fcntl.LOCK_NB,
-                )
-        except (OSError, BlockingIOError) as exc:
-            self.handle.close()
-            self.handle = None
+            before = os.lstat(self.path)
+        except FileNotFoundError:
+            before = None
+        except OSError as exc:
             raise SettingsError(
-                "settings are temporarily locked for Version 2 upgrade"
+                "settings upgrade lock could not be inspected"
             ) from exc
-        return self
+        if before is not None:
+            self._require_private_regular(before)
+
+        flags = os.O_RDWR
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        if before is None:
+            flags |= os.O_CREAT | os.O_EXCL
+        try:
+            descriptor = os.open(self.path, flags, 0o600)
+        except OSError as exc:
+            raise SettingsError(
+                "settings upgrade lock could not be opened safely"
+            ) from exc
+
+        try:
+            self.handle = os.fdopen(descriptor, "r+b")
+            opened = self.assert_current()
+            if before is not None and self._identity(before) != self._identity(opened):
+                raise SettingsError("settings upgrade lock changed while opening")
+
+            if opened.st_size == 0:
+                self.handle.seek(0)
+                self.handle.write(b"\0")
+                self.handle.flush()
+                os.fsync(self.handle.fileno())
+                self.assert_current()
+
+            self.handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(
+                        self.handle.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+            except (OSError, BlockingIOError) as exc:
+                raise SettingsError(
+                    "settings are temporarily locked for Version 2 upgrade"
+                ) from exc
+            self.assert_current()
+            return self
+        except BaseException:
+            if self.handle is not None:
+                self.handle.close()
+                self.handle = None
+            else:
+                os.close(descriptor)
+            raise
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self.handle is None:
             return
+        continuity_error: SettingsError | None = None
         try:
+            try:
+                self.assert_current()
+            except SettingsError as current_error:
+                continuity_error = current_error
             self.handle.seek(0)
             if os.name == "nt":
                 import msvcrt
@@ -85,6 +170,8 @@ class _SettingsSaveLock:
         finally:
             self.handle.close()
             self.handle = None
+        if continuity_error is not None and exc_type is None:
+            raise continuity_error
 
 
 def _validated_value(key: str, value: Any) -> Any:
@@ -238,8 +325,11 @@ class Settings:
         return warnings
 
     def save(self) -> None:
-        with _SettingsSaveLock(self.path):
+        with _SettingsSaveLock(self.path) as upgrade_lock:
+            upgrade_lock.assert_current()
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(self.path.suffix + ".tmp")
             tmp.write_text(self.export_json() + "\n", encoding="utf-8")
+            upgrade_lock.assert_current()
             tmp.replace(self.path)
+            upgrade_lock.assert_current()
