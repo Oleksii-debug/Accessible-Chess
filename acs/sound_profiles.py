@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath, PureWindowsPath
 import re
+import unicodedata
 from types import MappingProxyType
 from typing import Mapping
 
@@ -347,6 +348,7 @@ def _bounded_manifest_text(label: str, value: str, max_chars: int) -> str:
         ord(ch) < 32
         or ord(ch) == 127
         or ch in {"\u2028", "\u2029"}
+        or unicodedata.category(ch) == "Cf"
         for ch in text
     ):
         raise ValueError(f"sound pack {label} contains control characters")
