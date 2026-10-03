@@ -666,6 +666,24 @@ def resolve_book_training_origin(
             "book training origin semantic identity changed",
             code=BookTrainingErrorCode.STALE_ORIGIN,
         )
+    # Heading ancestry is part of the exported semantic origin. Stable
+    # block/source identities may survive unrelated linear reordering, but the
+    # same exercise silently moved under a different chapter is not the same
+    # reading context. Index-only targets are snapshot-bound as well, so their
+    # recorded export index must match the exact index encoded by the target.
+    if entry.heading_path != origin.heading_path:
+        raise BookTrainingError(
+            "book training origin heading context changed",
+            code=BookTrainingErrorCode.STALE_ORIGIN,
+        )
+    if (
+        origin.target_key.startswith("index:")
+        and entry.target.index != origin.index_at_export
+    ):
+        raise BookTrainingError(
+            "book training index origin no longer matches its exported snapshot",
+            code=BookTrainingErrorCode.STALE_ORIGIN,
+        )
     reader = BookReader(document)
     return reader.go_to(entry.target.index)
 
