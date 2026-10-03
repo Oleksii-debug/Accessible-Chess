@@ -904,6 +904,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertIsNotNone(
             uploaded.payload["collaboration"]["files"]["transfer_progress"]
         )
+        uploaded_revision = uploaded.payload["collaboration"]["files"]["progress_revision"]
         attachment = self.store.room_attachments("room-1")[0]
 
         def delete_authoritatively():
@@ -925,6 +926,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual((), synced.payload["collaboration"]["files"]["items"])
         self.assertIsNone(
             synced.payload["collaboration"]["files"]["transfer_progress"]
+        )
+        self.assertGreater(
+            synced.payload["collaboration"]["files"]["progress_revision"],
+            uploaded_revision,
         )
         self.assertIsNone(view._file_progress)
         self.assertIsNone(view._file_progress_attempt_token)
@@ -1183,6 +1188,21 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             [False, False, True],
             [event.payload["file_progress"]["complete"] for event in progress_events],
         )
+        first_progress_revisions = [
+            event.payload["file_progress"]["progress_revision"]
+            for event in progress_events
+        ]
+        self.assertEqual([1, 2, 3], first_progress_revisions)
+        self.assertEqual(
+            first_progress_revisions[-1],
+            uploaded.payload["collaboration"]["files"]["progress_revision"],
+        )
+        self.assertEqual(
+            first_progress_revisions[-1],
+            uploaded.payload["collaboration"]["files"]["transfer_progress"][
+                "progress_revision"
+            ],
+        )
         session_key = uploaded.payload["collaboration"]["session_key"]
         transfer_keys = {
             event.payload["file_progress"]["transfer_key"]
@@ -1233,6 +1253,17 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual(1, len(second_transfer_keys))
         second_transfer_key = next(iter(second_transfer_keys))
         self.assertNotEqual(first_transfer_key, second_transfer_key)
+        second_progress_revisions = [
+            event.payload["file_progress"]["progress_revision"]
+            for event in progress_events
+        ]
+        self.assertEqual(sorted(second_progress_revisions), second_progress_revisions)
+        self.assertEqual(len(set(second_progress_revisions)), len(second_progress_revisions))
+        self.assertGreater(second_progress_revisions[0], first_progress_revisions[-1])
+        self.assertEqual(
+            second_progress_revisions[-1],
+            second.payload["collaboration"]["files"]["progress_revision"],
+        )
         self.assertEqual(
             second_transfer_key,
             second.payload["collaboration"]["files"]["transfer_progress"]["transfer_key"],
@@ -1275,6 +1306,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertIsNone(
             failed.payload["collaboration"]["files"]["transfer_progress"]
         )
+        failed_revision = failed.payload["collaboration"]["files"]["progress_revision"]
+        self.assertGreater(
+            failed_revision,
+            progress_events[-1].payload["file_progress"]["progress_revision"],
+        )
         self.assertIsNone(view._file_progress)
         failed_item = failed.payload["collaboration"]["files"]["items"][0]
         self.assertTrue(failed_item["can_retry"])
@@ -1289,7 +1325,15 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             0,
             progress_events[0].payload["file_progress"]["transferred_bytes"],
         )
+        self.assertGreater(
+            progress_events[0].payload["file_progress"]["progress_revision"],
+            failed_revision,
+        )
         self.assertTrue(progress_events[-1].payload["file_progress"]["complete"])
+        self.assertEqual(
+            progress_events[-1].payload["file_progress"]["progress_revision"],
+            retried.payload["collaboration"]["files"]["progress_revision"],
+        )
         retry_transfer_keys = {
             event.payload["file_progress"]["transfer_key"]
             for event in progress_events
