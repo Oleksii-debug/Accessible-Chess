@@ -9,6 +9,7 @@ REQUIRED_QA_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
     "tests/test_p0_packaged_document_copy_probe.py",
     "scripts/verify_p0_packaged_document_copy_evidence.py",
+    "tests/test_verify_p0_packaged_document_copy_evidence.py",
     "scripts/p0g_packaged_hotkey_result_probe.ps1",
     "tests/test_p0g_packaged_hotkey_result_probe.py",
 )
@@ -31,19 +32,44 @@ def _production_text_files() -> list[Path]:
 
 
 class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
-    def test_pull_request_identity_is_proven_structurally_not_by_branch_allowlist(self) -> None:
+    def test_pull_request_identity_is_proven_against_live_product_parent(self) -> None:
         workflow = (
             ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("EVENT_BASE_SHA:", workflow)
         self.assertIn("EVENT_HEAD_SHA:", workflow)
-        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', workflow)
+        self.assertIn("CHECKED_SHA:", workflow)
+        self.assertIn(
+            "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
+            workflow,
+        )
+        self.assertIn('test "$(git rev-parse HEAD)" = "$CHECKED_SHA"', workflow)
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
+            workflow,
+        )
+        self.assertIn(
+            'live_base="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"', workflow
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"', workflow
+        )
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
         self.assertIn('git merge-base --is-ancestor "$EVENT_HEAD_SHA" HEAD', workflow)
+        self.assertIn(
+            'test "$(git merge-base "$live_base" "$EVENT_HEAD_SHA")" = "$live_base"',
+            workflow,
+        )
         self.assertIn('git show -s --format=%P HEAD', workflow)
-        self.assertIn('git diff --check "$EVENT_BASE_SHA..HEAD"', workflow)
+        self.assertIn('test "$parents" = "$live_base $EVENT_HEAD_SHA"', workflow)
+        self.assertIn('git diff --check "$live_base..HEAD"', workflow)
+        self.assertNotIn('git diff --check "$EVENT_BASE_SHA..HEAD"', workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
+        for path in REQUIRED_QA_PATHS:
+            with self.subTest(trigger_path=path):
+                self.assertIn("      - '" + path + "'", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
