@@ -89,11 +89,6 @@ class Version2Application:
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
         self._events = deque(maxlen=64)
-        # The Book Board adapter treats event sinks as observers and therefore
-        # swallows sink exceptions. Book-return persistence is stronger than an
-        # observer: remember a failed required write so the action boundary can
-        # fail closed after the synchronous delegate call.
-        self._book_persistence_event_failed = False
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
@@ -566,7 +561,6 @@ class Version2Application:
             except Exception:
                 return
             self.shell.open_route("books")
-            self.save_book_progress()
 
     def _delegate(self, action, payload):
         # Native menus enter the same projection commands as keyboard buttons.
@@ -660,9 +654,8 @@ class Version2Application:
                 before_reader = self.reader.snapshot() if opening_board else None
                 before_language = self.books.projection.language if opening_board else None
                 before_bookmark = self.books.projection.bookmark_name if opening_board else None
-                self._book_persistence_event_failed = False
                 result = self.book_delegate(action, payload)
-                if self._book_persistence_event_failed or result.kind is BookBoardUiEventKind.FAILED:
+                if result.kind is BookBoardUiEventKind.FAILED:
                     raise ValueError(
                         concise_user_error("", language=self.shell.language)
                     )
