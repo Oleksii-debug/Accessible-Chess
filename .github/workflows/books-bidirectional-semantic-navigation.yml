@@ -79,15 +79,17 @@ jobs:
             expected_paths=(
               '.github/workflows/books-bidirectional-semantic-navigation.yml'
               '.github/workflows/p0-release-critical-triad-convergence.yml'
+              'acs/book_webview_projection.py'
               'tests/test_book_bidirectional_semantic_navigation.py'
               'tests/test_dev1_books_training_web_asset.py'
               'tests/js/books_training_surface_dom_test.js'
               'web/full_product_books_training.js'
             )
-            test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "9d1e7bcc15eefea3c343ff0761e15db74bb52fa3"
-            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "909afae3525704030d85a0b510895097e99bc4ba"
-            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "949f0fc83ec72a7e049e3a637adb480682725aa3"
-            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "3e408087893fc7d0df4fe68d7ca6b2ee52f45e6b"
+            test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "522fd54441f4729132f6c57ae77beddf5710dfb9"
+            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "98f4a637b14b7f0792074e2e433ecd5b3c97d524"
+            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "d76bcfad2c2b042b8826bee845015763fc99b6bc"
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "a5acf344e47bd019d86e4b764f8ddbca34dde9fd"
+            test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "8e8ceffc0e0a12708e84c3337d68cdafcddf05fa"
             test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "87583407365588a16259b8baee4e7b4dce8b4864"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
