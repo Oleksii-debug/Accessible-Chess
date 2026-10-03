@@ -55,6 +55,12 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     "WHERE type='index' AND name='uq_collaboration_attachments_terminal_sequence'"
                 ).fetchone()
             )
+            self.assertIsNotNone(
+                db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='table' AND name='collaboration_attachment_snapshot_watermarks'"
+                ).fetchone()
+            )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
 
     def test_v5_sequence_index_upgrades_without_leaving_legacy_index(self) -> None:
@@ -315,6 +321,95 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             }
         self.assertIn("collaboration_chat_state_cursors", tables)
         self.assertIn("collaboration_attachment_state_cursors", tables)
+
+    def test_attachment_snapshot_watermark_survives_reopen_and_skips_old_state_pages(self) -> None:
+        current = AttachmentMetadata(
+            "snapshot-a", "room", "teacher", 0, "snapshot.bin", None, 1,
+            "a" * 64, "rooms/room/snapshot-a", "stored", "persistent", "clean"
+        )
+        self.store.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(current,),
+            updates=(
+                AttachmentStateUpdate(
+                    "room", current.attachment_id, 0, "stored", "failed"
+                ),
+            ),
+            snapshot_state_revision=2,
+        )
+        self.assertEqual(self.store.room_attachments("room"), (current,))
+        self.assertEqual(self.store.attachment_state_revision("room"), 0)
+        self.assertEqual(
+            self.store.attachment_snapshot_state_revision(current.attachment_id),
+            2,
+        )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        reopened.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(),
+            updates=(
+                AttachmentStateUpdate(
+                    "room", current.attachment_id, 1, "stored", "pending"
+                ),
+                AttachmentStateUpdate(
+                    "room", current.attachment_id, 2, "stored", "clean"
+                ),
+            ),
+        )
+        self.assertEqual(reopened.room_attachments("room"), (current,))
+        self.assertEqual(reopened.attachment_state_revision("room"), 2)
+        self.assertEqual(
+            reopened.attachment_snapshot_state_revision(current.attachment_id),
+            2,
+        )
+
+    def test_attachment_snapshot_watermark_cannot_regress(self) -> None:
+        current = AttachmentMetadata(
+            "snapshot-regress", "room", "teacher", 0, "snapshot.bin", None, 1,
+            "b" * 64, "rooms/room/snapshot-regress", "stored", "persistent", "clean"
+        )
+        self.store.reconcile_attachment_sync_atomic(
+            room_id="room",
+            attachments=(current,),
+            updates=(),
+            snapshot_state_revision=3,
+        )
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "snapshot state watermark regressed",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(current,),
+                updates=(),
+                snapshot_state_revision=2,
+            )
+        self.assertEqual(
+            self.store.attachment_snapshot_state_revision(current.attachment_id),
+            3,
+        )
+
+    def test_attachment_snapshot_watermark_rejects_invalid_revision_atomically(self) -> None:
+        current = AttachmentMetadata(
+            "snapshot-invalid", "room", "teacher", 0, "snapshot.bin", None, 1,
+            "c" * 64, "rooms/room/snapshot-invalid", "stored", "persistent", "clean"
+        )
+        for revision in (True, -1, MAX_WIRE_INTEGER + 1):
+            with self.subTest(revision=revision):
+                with self.assertRaises(ValueError):
+                    self.store.reconcile_attachment_sync_atomic(
+                        room_id="room",
+                        attachments=(current,),
+                        updates=(),
+                        snapshot_state_revision=revision,
+                    )
+                self.assertEqual(self.store.room_attachments("room"), ())
+                self.assertIsNone(
+                    self.store.attachment_snapshot_state_revision(
+                        current.attachment_id
+                    )
+                )
 
     def test_attachment_state_cursor_is_durable_atomic_and_monotonic(self) -> None:
         record = AttachmentMetadata(
