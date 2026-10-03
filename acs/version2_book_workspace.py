@@ -261,7 +261,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             raise _BookSemanticProjectionError(
                 "semantic GameTree presenter data is invalid"
             ) from exc
-        if view.game_index != 0 or type(view.items) is not tuple:
+        if (
+            type(view.game_index) is not int
+            or view.game_index != 0
+            or type(view.items) is not tuple
+        ):
             raise _BookSemanticProjectionError("semantic GameTree view is unavailable")
         if len(view.items) > _MAX_BOOK_SEMANTIC_ITEMS:
             raise _BookSemanticProjectionError("semantic GameTree item limit exceeded")
