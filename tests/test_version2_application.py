@@ -103,6 +103,29 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.browser_command("books", "book.next_game")
         return book, self.app.reader.location()
 
+    def test_native_book_open_game_uses_canonical_board_workflow(self):
+        _book, origin = self._open_book_game()
+        self.projected_positions.clear()
+
+        opened = self.app.adapter.activate_action(
+            "book.open_game",
+            current_focus_id=f"book-block-{origin.index}",
+        )
+        self.assertEqual(opened.kind, "delegated")
+        self.assertEqual(opened.payload["action_id"], "book.open_game")
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.projected_positions[-1], Board.START)
+
+        returned = self.app.adapter.activate_action(
+            "book.return",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual(returned.kind, "delegated")
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.reader.location(), origin)
+
     def test_book_native_open_board_exact_return_and_persistent_resume(self):
         book, origin = self._open_book_game()
         self.projected_positions.clear()
