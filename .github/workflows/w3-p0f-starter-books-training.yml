@@ -130,6 +130,9 @@ jobs:
           acs/version2_education_mutation_release.py
           tests/test_training.py
           tests/test_d08_training_canonical_resume.py
+          tests/test_d08_book_training_contract.py
+          tests/test_w2_book_training_canonical_ingress.py
+          tests/test_w2_training_progress_crash_recovery.py
           tests/test_w3_p0f_starter_books_training_content.py
           tests/test_p0f_starter_training_canonical_legality.py
           tests/test_p0f_starter_structured_examples.py
@@ -138,6 +141,9 @@ jobs:
           python -m pytest -q
           tests/test_training.py
           tests/test_d08_training_canonical_resume.py
+          tests/test_d08_book_training_contract.py
+          tests/test_w2_book_training_canonical_ingress.py
+          tests/test_w2_training_progress_crash_recovery.py
           tests/test_w3_p0f_starter_books_training_content.py
           tests/test_p0f_starter_training_canonical_legality.py
           tests/test_p0f_starter_structured_examples.py
