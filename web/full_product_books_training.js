@@ -410,7 +410,7 @@
     return snapshot.document.lang;
   }
 
-  function validateTrainingSnapshot(snapshot, solution, requestedFocus) {
+  function validateTrainingSnapshot(snapshot, requestedFocus, solution) {
     if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
       throw new TypeError("Training snapshot is required");
     }
