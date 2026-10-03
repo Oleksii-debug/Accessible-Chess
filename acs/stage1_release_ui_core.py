@@ -950,7 +950,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self.redo_meta.clear()
         self.selected_source = None
         self._record_position_after_move(san, side)
-        self._play_latest_move()
+        if self._suppress_next_engine_move_sound_for_start:
+            self._suppress_next_engine_move_sound_for_start = False
+        else:
+            self._play_latest_move()
 
     def _finish_engine_game_from_board(self) -> Any | None:
         session = self._engine_session
@@ -1220,6 +1223,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         if snapshot.turn_state is EngineTurnState.ENGINE:
             self._suppress_next_engine_move_sound_for_start = True
             replied, message = self._request_engine_reply()
+            # If no engine move reached _commit_engine_move(), do not let the
+            # one-shot suppression leak into a later ordinary move.
+            self._suppress_next_engine_move_sound_for_start = False
             if not replied:
                 return self._error(f"{intro} {message}")
             return self._ok(f"{intro} {message}")
