@@ -730,6 +730,63 @@
     }
   }
 
+  function requireTrainingSolution(solution) {
+    if (solution === undefined) return [];
+    if (!Array.isArray(solution) ||
+        solution.length > MAX_TRAINING_SOLUTION_MOVES) {
+      throw new TypeError("Training solution payload is invalid");
+    }
+    for (let index = 0; index < solution.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(solution, index)) {
+        throw new TypeError("Training solution payload is invalid");
+      }
+      const move = solution[index];
+      if (typeof move !== "string" ||
+          !move ||
+          move.length > MAX_TRAINING_SOLUTION_TEXT ||
+          move.indexOf("\x00") >= 0) {
+        throw new TypeError("Training solution payload is invalid");
+      }
+    }
+    return solution;
+  }
+
+  function trainingActionFocusTarget(command) {
+    const targets = {
+      "training.hint": "training-action-hint",
+      "training.reveal": "training-action-reveal",
+      "training.retry": "training-action-retry",
+      "training.continue": "training-action-continue",
+      "training.reset.request": "training-action-reset"
+    };
+    return Object.prototype.hasOwnProperty.call(targets, command) ? targets[command] : "";
+  }
+
+  function canonicalTrainingFocusTarget(snapshot) {
+    if (!snapshot.answer.disabled) return "training-answer";
+    if (snapshot.actions[3].enabled) return "training-action-continue";
+    return "training-action-reset";
+  }
+
+  function requireTrainingFocusTarget(snapshot, target, solution) {
+    if (typeof target !== "string") {
+      throw new TypeError("Training render focus target is invalid");
+    }
+    const allowed = new Set([""]);
+    if (!snapshot.answer.disabled) allowed.add("training-answer");
+    snapshot.actions.forEach(function (action) {
+      if (!action.enabled) return;
+      const actionTarget = trainingActionFocusTarget(action.command);
+      if (actionTarget) allowed.add(actionTarget);
+    });
+    if (Array.isArray(solution) && solution.length) {
+      allowed.add("training-solution");
+    }
+    if (!allowed.has(target)) {
+      throw new TypeError("Training render focus target is invalid");
+    }
+  }
+
   function appendSemanticComments(host, comments) {
     comments.forEach(function (comment) {
       host.appendChild(node("p", comment));
@@ -1105,24 +1162,15 @@
     if (prior && typeof prior.value === "string") priorAnswer = prior.value;
     if (result.kind === "render") {
       requireTrainingSnapshot(payload.snapshot);
-      if (typeof payload.focus_target !== "string" ||
-          (payload.focus_target && payload.focus_target !== "training-answer")) {
-        throw new TypeError("Training render focus target is invalid");
-      }
       if (payload.clear_answer !== undefined && typeof payload.clear_answer !== "boolean") {
         throw new TypeError("Training clear-answer flag is invalid");
       }
-      if (payload.solution !== undefined &&
-          (!Array.isArray(payload.solution) ||
-           payload.solution.length > MAX_TRAINING_SOLUTION_MOVES ||
-           payload.solution.some(function (move) {
-             return typeof move !== "string" ||
-               !move ||
-               move.length > MAX_TRAINING_SOLUTION_TEXT ||
-               move.indexOf("\x00") >= 0;
-           }))) {
-        throw new TypeError("Training solution payload is invalid");
-      }
+      const safeSolution = requireTrainingSolution(payload.solution);
+      requireTrainingFocusTarget(
+        payload.snapshot,
+        payload.focus_target,
+        safeSolution
+      );
       renderTrainingSurface(
         root,
         payload.snapshot,
@@ -1130,7 +1178,7 @@
         announce,
         payload.focus_target,
         fallbackMessage,
-        payload.solution || []
+        safeSolution
       );
       if (!payload.clear_answer && priorAnswer) {
         const next = root.querySelector("#training-answer");
@@ -1151,6 +1199,13 @@
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Training snapshot is required");
     requireTrainingSnapshot(snapshot);
+    solution = requireTrainingSolution(solution);
+    const answerSpec = snapshot.answer || {};
+    let effectiveFocus = requestedFocus || "";
+    if (effectiveFocus === "training-answer" && answerSpec.disabled) {
+      effectiveFocus = canonicalTrainingFocusTarget(snapshot);
+    }
+    requireTrainingFocusTarget(snapshot, effectiveFocus, solution);
 
     const fragment = document.createDocumentFragment();
     const main = node("main");
@@ -1177,7 +1232,6 @@
       main.appendChild(message);
     }
 
-    const answerSpec = snapshot.answer || {};
     const form = node("form");
     const label = node("label", answerSpec.label || "");
     const input = node("input");
@@ -1204,7 +1258,12 @@
 
     if (Array.isArray(solution) && solution.length) {
       const solutionSection = node("section");
-      solutionSection.appendChild(node("h3", snapshot.solution_label || ""));
+      solutionSection.id = "training-solution";
+      solutionSection.tabIndex = -1;
+      const solutionHeading = node("h3", snapshot.solution_label || "");
+      solutionHeading.id = "training-solution-heading";
+      solutionSection.setAttribute("aria-labelledby", solutionHeading.id);
+      solutionSection.appendChild(solutionHeading);
       const list = node("ul");
       solution.forEach(function (move) { list.appendChild(node("li", move)); });
       solutionSection.appendChild(list);
@@ -1220,6 +1279,7 @@
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
       button.type = "button";
+      button.id = trainingActionFocusTarget(action.command);
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
         const command = String(action.command || "");
@@ -1242,7 +1302,7 @@
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     markRendered(root);
-    focusTarget(root, requestedFocus || "");
+    focusTarget(root, effectiveFocus);
   }
 
   global.AccessibleChessBookSurface = Object.freeze({ render: renderBookSurface });

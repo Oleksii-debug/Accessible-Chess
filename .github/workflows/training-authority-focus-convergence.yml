@@ -1,0 +1,93 @@
+name: Training Authority Focus Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'web/full_product_books_training.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/test_dev1_books_training_web_asset.py'
+      - 'tests/test_dev1_books_training_webview_projection.py'
+      - '.github/workflows/training-authority-focus-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-authority-focus-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      EXACT_PARENT: c3267ed9fc29c474a7fe20ff2bdbc5715d8e9a54
+      FOCUS_SOURCE_HEAD: 021ecc49fbfe1bab65053d0a4bf2aec6883cce5e
+      LEGACY_CORE_SOURCE_HEAD: 655574cbc621de33ae5ba58bc178f974198019ed
+      WEB_BLOB: 005199d5ed736fc4a8e328e77045e0a1e43e2300
+      DOM_TEST_BLOB: 5635c605c52f1eca40eaae7bc7b3eca23c58ad94
+      ASSET_TEST_BLOB: 4b2aaed73cd7c8ceae289318501144fa13c51d34
+      PROJECTION_TEST_BLOB: 136acfd9c0ca373b74d402629a3b8fdab19c8f8d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prove exact successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          git merge-base --is-ancestor "$FOCUS_SOURCE_HEAD" HEAD
+          git merge-base --is-ancestor "$LEGACY_CORE_SOURCE_HEAD" HEAD
+          test "$(git rev-parse "HEAD:web/full_product_books_training.js")" = "$WEB_BLOB"
+          test "$(git rev-parse "HEAD:tests/js/books_training_surface_dom_test.js")" = "$DOM_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_dev1_books_training_web_asset.py")" = "$ASSET_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_dev1_books_training_webview_projection.py")" = "$PROJECTION_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/training-authority-focus-convergence.yml' \
+            'tests/js/books_training_surface_dom_test.js' \
+            'tests/test_dev1_books_training_web_asset.py' \
+            'tests/test_dev1_books_training_webview_projection.py' \
+            'web/full_product_books_training.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+          echo "FOCUS_SOURCE_HEAD=$FOCUS_SOURCE_HEAD"
+
+      - name: Validate browser focus transaction
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - name: Validate host and whole-product Training contracts
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_web_asset
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_webview_atomicity
+          tests.test_books_training_ui_integration
+          tests.test_training_authority_convergence
+          tests.test_version2_training_current_runtime
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest

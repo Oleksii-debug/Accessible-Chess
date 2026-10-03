@@ -174,6 +174,15 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('throw new TypeError("Training completion state is inconsistent")', text)
         self.assertIn('throw new TypeError("Training render focus target is invalid")', text)
         self.assertIn('throw new TypeError("Training solution payload is invalid")', text)
+        self.assertIn('button.id = trainingActionFocusTarget(action.command)', text)
+        self.assertIn('solutionSection.id = "training-solution"', text)
+        self.assertIn('solutionSection.tabIndex = -1', text)
+        self.assertIn('solutionSection.setAttribute("aria-labelledby", solutionHeading.id)', text)
+        self.assertIn('function requireTrainingSolution(solution)', text)
+        self.assertIn('Object.prototype.hasOwnProperty.call(solution, index)', text)
+        self.assertIn('solution = requireTrainingSolution(solution)', text)
+        self.assertIn('canonicalTrainingFocusTarget(snapshot)', text)
+        self.assertIn('allowed.add("training-solution")', text)
         self.assertIn(
             'requireBoundedText(action.label, surface + " snapshot action label", false, 120)',
             text,
