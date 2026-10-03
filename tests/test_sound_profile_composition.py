@@ -487,7 +487,7 @@ class LocalSoundCompositionTests(unittest.TestCase):
             root = Path(raw)
             with mock.patch.object(
                 FilesystemSoundPackStore,
-                "installed",
+                "installed_audit",
                 side_effect=OSError("pack root unavailable"),
             ):
                 composition = create_local_sound_composition(
@@ -499,7 +499,7 @@ class LocalSoundCompositionTests(unittest.TestCase):
             self.assertEqual("classic", composition.profile_manager.current.pack_id)
             self.assertEqual((), composition.settings.snapshot(language="en")["packs"])
 
-    def test_composition_binds_settings_to_filtered_local_pack_provider(self) -> None:
+    def test_composition_binds_settings_to_one_coherent_installed_audit_provider(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-local-pack-provider-") as raw:
             root = Path(raw)
             composition = create_local_sound_composition(
@@ -507,12 +507,11 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 data_root=root / "data",
                 asset_playback=_Playback(),
             )
-            provider = composition.settings._installed_pack_provider
-            rights_provider = composition.settings._installed_rights_provider
-            self.assertTrue(callable(provider))
-            self.assertTrue(callable(rights_provider))
-            self.assertEqual({}, provider())
-            self.assertIsNone(rights_provider("missing.pack"))
+            audit_provider = composition.settings._installed_audit_provider
+            self.assertTrue(callable(audit_provider))
+            self.assertIsNone(composition.settings._installed_pack_provider)
+            self.assertIsNone(composition.settings._installed_rights_provider)
+            self.assertEqual({}, audit_provider())
 
     def test_optional_provider_install_survives_restart_and_local_uninstall_without_provider(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-provider-") as raw:
