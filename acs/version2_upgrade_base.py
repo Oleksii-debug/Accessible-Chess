@@ -81,10 +81,63 @@ def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
     if not tail.startswith(".json.") or not tail.endswith(".tmp"):
         return False
     unique = tail[len(".json.") : -len(".tmp")]
-    return bool(unique) and all(
-        character in "abcdefghijklmnopqrstuvwxyz0123456789_"
-        for character in unique
+    return _is_tempfile_token(unique)
+
+
+_TEMPFILE_TOKEN_CHARACTERS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz0123456789_"
+)
+_HEX_CHARACTERS = frozenset("0123456789abcdef")
+
+
+def _is_tempfile_token(value: str) -> bool:
+    return bool(value) and all(
+        character in _TEMPFILE_TOKEN_CHARACTERS for character in value
     )
+
+
+def _is_upgrade_generated_root_runtime_file(
+    relative_path: PurePosixPath,
+    *,
+    settings_name: str,
+    library_name: str,
+) -> bool:
+    """Classify exact-root residue created by Settings or the upgrade owner."""
+    if len(relative_path.parts) != 1:
+        return False
+
+    name = relative_path.parts[0].casefold()
+    settings = settings_name.casefold()
+    library = library_name.casefold()
+
+    # Settings.save() owns one fixed sibling temporary pathname.
+    if name == f"{settings}.tmp":
+        return True
+
+    # The upgrade owner's atomic byte writer uses tempfile.mkstemp with
+    # ".<target>.<token>.tmp".  The upgrade journal itself already starts
+    # with a dot, so its temporary path begins with two dots.
+    for target in (settings, ".v2-upgrade-state.json"):
+        prefix = f".{target}."
+        if name.startswith(prefix) and name.endswith(".tmp"):
+            token = name[len(prefix) : -len(".tmp")]
+            if _is_tempfile_token(token):
+                return True
+
+    # Publication guards are same-filesystem hard links to the authenticated
+    # pre-publication Settings/Library inode.  A crash may strand them, but
+    # they are coordination state and must never consume preservation quota.
+    for target in (settings, library):
+        prefix = f".{target}.publish-guard-"
+        if not name.startswith(prefix):
+            continue
+        token = name[len(prefix) :]
+        if len(token) == 12 and all(
+            character in _HEX_CHARACTERS for character in token
+        ):
+            return True
+
+    return False
 
 
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
@@ -714,6 +767,11 @@ class Version2UpgradeCoordinator:
             if (
                 _is_generated_root_runtime_file(relative_path)
                 or _is_generated_training_progress_file(relative_path)
+                or _is_upgrade_generated_root_runtime_file(
+                    relative_path,
+                    settings_name=self.layout.settings_name,
+                    library_name=self.layout.library_name,
+                )
             ):
                 continue
             folded = relative.casefold()
