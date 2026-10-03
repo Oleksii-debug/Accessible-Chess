@@ -249,6 +249,41 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             self.assertIsInstance(payload.get("schema_version"), str)
 
     @unittest.skipIf(os.name == "nt", "ordinary Windows test runners cannot create symlinks")
+    def test_symlinked_profile_directory_ancestor_is_rejected_without_following(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            outside = root / "outside"
+            outside.mkdir()
+            redirected = root / "redirected"
+            redirected.symlink_to(outside, target_is_directory=True)
+            path = redirected / "nested" / "sound-profile.json"
+            outside_nested = outside / "nested"
+            outside_nested.mkdir()
+            outside_profile = outside_nested / "sound-profile.json"
+            outside_profile.write_text(
+                json.dumps(SoundProfile().to_mapping()) + "\n",
+                encoding="utf-8",
+            )
+            storage = JsonSoundProfileStorage(path)
+
+            with self.assertRaisesRegex(
+                SoundProfileFileError,
+                "redirected or invalid",
+            ):
+                storage.read_profile()
+            with self.assertRaisesRegex(
+                SoundProfileFileError,
+                "redirected or invalid",
+            ):
+                storage.write_profile_atomically(SoundProfile().to_mapping())
+
+            self.assertEqual(
+                SoundProfile().to_mapping(),
+                json.loads(outside_profile.read_text(encoding="utf-8")),
+            )
+            self.assertFalse((outside_nested / "sound-profile.json.lock").exists())
+
+    @unittest.skipIf(os.name == "nt", "ordinary Windows test runners cannot create symlinks")
     def test_symlink_profile_target_is_rejected_without_following(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
