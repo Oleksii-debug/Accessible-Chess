@@ -519,6 +519,31 @@ def _publish_livekit_client_notices(product_dir: Path, notices_dir: Path) -> Non
     shutil.copyfile(provenance_path, notices_dir / _LIVEKIT_PROVENANCE_NOTICE)
 
 
+def _verify_livekit_tree_against_pinned_archive(
+    archive: Path,
+    product_dir: Path,
+) -> None:
+    try:
+        from scripts.stage_livekit_client_sdk import (
+            LiveKitClientSdkStageError,
+            verify_staged_livekit_client_sdk,
+        )
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise Version2ReleasePayloadError(
+            "LiveKit pinned-archive verifier is unavailable"
+        ) from exc
+
+    try:
+        verify_staged_livekit_client_sdk(
+            archive,
+            product_dir / _LIVEKIT_VENDOR_ROOT,
+        )
+    except LiveKitClientSdkStageError as exc:
+        raise Version2ReleasePayloadError(
+            "LiveKit packaged resources do not match the pinned npm archive"
+        ) from exc
+
+
 def _validate_sound_pack(product_dir: Path) -> None:
     manifest_path = product_dir / DEFAULT_SOUND_RELATIVE_DIR / DEFAULT_SOUND_MANIFEST
     try:
@@ -757,6 +782,8 @@ def prepare_version2_release_payload(
     stockfish_release_archive: str | Path,
     sound_pack_dir: str | Path,
     output_root: str | Path,
+    *,
+    livekit_client_archive: str | Path | None = None,
 ) -> PreparedVersion2ReleasePayload:
     """Atomically stage one complete runtime payload for the V2 package assembler.
 
@@ -770,6 +797,11 @@ def prepare_version2_release_payload(
     stockfish_archive = Path(stockfish_release_archive)
     sounds = Path(sound_pack_dir)
     output = Path(output_root)
+    livekit_archive = (
+        None
+        if livekit_client_archive is None
+        else Path(livekit_client_archive)
+    )
 
     if os.path.lexists(output):
         raise Version2ReleasePayloadError("output payload root already exists")
@@ -788,6 +820,8 @@ def prepare_version2_release_payload(
         product = staging / _PREPARED_PRODUCT_DIR
         notices = staging / _PREPARED_NOTICES_DIR
         _copy_tree_without_links(standalone, product)
+        if livekit_archive is not None:
+            _verify_livekit_tree_against_pinned_archive(livekit_archive, product)
         notices.mkdir()
         _publish_livekit_client_notices(product, notices)
 
@@ -808,6 +842,8 @@ def prepare_version2_release_payload(
                 "packaged Stockfish resolver disagrees with staged payload"
             )
         _reject_raw_source(product)
+        if livekit_archive is not None:
+            _verify_livekit_tree_against_pinned_archive(livekit_archive, product)
 
         if os.path.lexists(output):
             raise Version2ReleasePayloadError(
