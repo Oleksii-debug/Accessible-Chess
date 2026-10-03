@@ -213,7 +213,16 @@ class ClassroomFileServerSQLiteStore:
                     """,
                     (SERVER_SCHEMA_VERSION,),
                 )
+                self._verify_current_schema(db)
                 db.commit()
+            except ClassroomFileServerError:
+                db.rollback()
+                raise
+            except sqlite3.Error:
+                db.rollback()
+                raise ClassroomFileServerError(
+                    "classroom file-server schema migration failed"
+                ) from None
             except Exception:
                 db.rollback()
                 raise
@@ -221,6 +230,7 @@ class ClassroomFileServerSQLiteStore:
     @staticmethod
     def _verify_current_schema(db: sqlite3.Connection) -> None:
         required = {
+            "classroom_file_server_meta",
             "classroom_file_server_attachments",
             "classroom_file_server_state_updates",
         }
@@ -234,15 +244,151 @@ class ClassroomFileServerSQLiteStore:
             raise ClassroomFileServerError(
                 "classroom file-server schema is incomplete"
             )
+
+        expected_columns = {
+            "classroom_file_server_meta": (
+                ("key", "TEXT", 1),
+                ("value", "INTEGER", 0),
+            ),
+            "classroom_file_server_attachments": (
+                ("attachment_id", "TEXT", 1),
+                ("room_id", "TEXT", 0),
+                ("sender_id", "TEXT", 0),
+                ("sequence_no", "INTEGER", 0),
+                ("display_name", "TEXT", 0),
+                ("mime_type", "TEXT", 0),
+                ("size_bytes", "INTEGER", 0),
+                ("sha256", "TEXT", 0),
+                ("object_key", "TEXT", 0),
+                ("retention", "TEXT", 0),
+                ("transfer_state", "TEXT", 0),
+                ("scan_state", "TEXT", 0),
+                ("delete_completed", "INTEGER", 0),
+            ),
+            "classroom_file_server_state_updates": (
+                ("room_id", "TEXT", 1),
+                ("revision", "INTEGER", 2),
+                ("attachment_id", "TEXT", 0),
+                ("transfer_state", "TEXT", 0),
+                ("scan_state", "TEXT", 0),
+            ),
+        }
+        required_not_null = {
+            "classroom_file_server_meta": {"value"},
+            "classroom_file_server_attachments": {
+                "room_id", "sender_id", "display_name", "size_bytes", "sha256",
+                "object_key", "retention", "transfer_state", "scan_state",
+                "delete_completed",
+            },
+            "classroom_file_server_state_updates": {
+                "room_id", "revision", "attachment_id",
+                "transfer_state", "scan_state",
+            },
+        }
+        for table_name, expected in expected_columns.items():
+            rows = db.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+            actual = tuple(
+                (row["name"], str(row["type"]).upper(), int(row["pk"]))
+                for row in rows
+            )
+            if actual != expected:
+                raise ClassroomFileServerError(
+                    "classroom file-server schema columns are incompatible"
+                )
+            actual_not_null = {
+                row["name"] for row in rows if int(row["notnull"]) == 1
+            }
+            if not required_not_null[table_name].issubset(actual_not_null):
+                raise ClassroomFileServerError(
+                    "classroom file-server schema nullability is incompatible"
+                )
+
+        attachment_indexes = db.execute(
+            "PRAGMA index_list('classroom_file_server_attachments')"
+        ).fetchall()
+        sequence_index = next(
+            (
+                row for row in attachment_indexes
+                if row["name"] == "uq_classroom_file_server_room_sequence"
+            ),
+            None,
+        )
+        if (
+            sequence_index is None
+            or int(sequence_index["unique"]) != 1
+            or int(sequence_index["partial"]) != 1
+        ):
+            raise ClassroomFileServerError(
+                "classroom file-server sequence authority is invalid"
+            )
+        sequence_columns = tuple(
+            row["name"]
+            for row in db.execute(
+                "PRAGMA index_info('uq_classroom_file_server_room_sequence')"
+            )
+        )
+        if sequence_columns != ("room_id", "sequence_no"):
+            raise ClassroomFileServerError(
+                "classroom file-server sequence authority is invalid"
+            )
         index = db.execute(
             "SELECT sql FROM sqlite_master WHERE type='index' "
             "AND name='uq_classroom_file_server_room_sequence'"
         ).fetchone()
-        if index is None or "WHERE transfer_state IN ('stored','deleted')" not in (
-            " ".join(index["sql"].split()).replace(", ", ",")
+        if (
+            index is None
+            or type(index["sql"]) is not str
+            or "WHERE transfer_state IN ('stored','deleted')" not in (
+                " ".join(index["sql"].split()).replace(", ", ",")
+            )
         ):
             raise ClassroomFileServerError(
                 "classroom file-server sequence authority is invalid"
+            )
+
+        object_key_unique = False
+        for index_row in attachment_indexes:
+            if int(index_row["unique"]) != 1:
+                continue
+            columns = tuple(
+                row["name"]
+                for row in db.execute(
+                    f"PRAGMA index_info('{index_row['name']}')"
+                )
+            )
+            if columns == ("object_key",):
+                object_key_unique = True
+                break
+        if not object_key_unique:
+            raise ClassroomFileServerError(
+                "classroom file-server object namespace is not unique"
+            )
+
+        foreign_keys = db.execute(
+            "PRAGMA foreign_key_list('classroom_file_server_state_updates')"
+        ).fetchall()
+        if (
+            len(foreign_keys) != 1
+            or foreign_keys[0]["table"] != "classroom_file_server_attachments"
+            or foreign_keys[0]["from"] != "attachment_id"
+            or foreign_keys[0]["to"] != "attachment_id"
+        ):
+            raise ClassroomFileServerError(
+                "classroom file-server state authority is invalid"
+            )
+
+        attachment_sql = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name='classroom_file_server_attachments'"
+        ).fetchone()
+        normalized_attachment_sql = (
+            ""
+            if attachment_sql is None or type(attachment_sql["sql"]) is not str
+            else " ".join(attachment_sql["sql"].split()).replace(", ", ",")
+        )
+        if "CHECK(delete_completed IN (0,1))" not in normalized_attachment_sql:
+            raise ClassroomFileServerError(
+                "classroom file-server deletion authority is invalid"
             )
 
     @staticmethod
