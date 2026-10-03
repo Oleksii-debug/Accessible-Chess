@@ -89,8 +89,8 @@ jobs:
             'web/version2_release_bootstrap.js' | sort)"
           test "$changed" = "$expected"
 
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = '67cd47c361e617fa22a3029555af6fcdc572fab7'
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = 'f13f7764cc1d9f5c91ebf4d1351058ef6d456c1a'
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = 'd5186d07d0babb253cc50416827896bc203efa19'
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = '5fb66f636000f397d8ee3f91c658d02c9eee73da'
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '7bb116ea0587de51a191560cd39070aac9ead014'
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = '95419bcfb4962d6db9bf1d83d82b1aec070ca007'
           test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = '1e9b0e03c5c81ef187234a748bbd23c2759ad4cb'
