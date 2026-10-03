@@ -438,7 +438,12 @@ class ActionRegistry:
         if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
             raise ValueError("invalid keymap profile")
         registry = cls(definitions, bindings=bindings, aliases=aliases)
-        registry.validate()
+        conflicts = registry.validate()
+        errors = tuple(item for item in conflicts if item.severity == "error")
+        if errors:
+            raise ValueError(
+                "invalid keymap profile: " + "; ".join(item.message for item in errors)
+            )
         return registry
 
     @classmethod

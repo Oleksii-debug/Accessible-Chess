@@ -122,6 +122,32 @@ class ActionRegistryTests(unittest.TestCase):
             self.assertEqual(registry.get_binding("history.go_to_move"), "Ctrl+G")
             self.assertEqual(registry.get_alias("move.clear"), "c")
 
+    def test_conflicting_profile_is_rejected_and_disk_load_recovers(self):
+        profile = ActionRegistry().to_profile()
+        profile["bindings"]["history.next"] = "Shift+A"
+        with self.assertRaisesRegex(ValueError, "already assigned"):
+            ActionRegistry.from_profile(profile)
+
+        alias_profile = ActionRegistry().to_profile()
+        alias_profile["aliases"]["move.clear"] = "u"
+        with self.assertRaisesRegex(ValueError, "already assigned"):
+            ActionRegistry.from_profile(alias_profile)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keymap.json"
+            path.write_text(json.dumps(profile), encoding="utf-8")
+            registry, warning = ActionRegistry.load(path)
+            self.assertIsNotNone(warning)
+            self.assertEqual(registry.get_binding("history.previous"), "Shift+A")
+            self.assertEqual(registry.get_binding("history.next"), "Shift+D")
+
+    def test_warning_only_profile_remains_loadable(self):
+        profile = ActionRegistry().to_profile()
+        profile["bindings"]["history.go_to_move"] = "Alt+F4"
+        registry = ActionRegistry.from_profile(profile)
+        self.assertEqual(registry.get_binding("history.go_to_move"), "Alt+F4")
+        self.assertTrue(any(item.severity == "warning" for item in registry.validate()))
+
     def test_save_is_roundtrip_and_unknown_future_actions_are_ignored(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "keymap.json"
