@@ -130,6 +130,8 @@ class LibraryImportResult:
             raise ValueError("warning_count must be non-negative")
         if self.first_game_id > self.last_game_id:
             raise ValueError("first_game_id must not exceed last_game_id")
+        if self.game_count > self.last_game_id - self.first_game_id + 1:
+            raise ValueError("game_count exceeds inclusive game id span")
         if type(self.reused) is not bool:
             raise TypeError("reused must be a boolean")
 
