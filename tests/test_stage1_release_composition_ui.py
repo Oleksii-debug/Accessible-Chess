@@ -239,6 +239,38 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
+            with patch(
+                "acs.version2_release_app.WindowsSoundPlaybackAdapter",
+                _VariantPlayback,
+            ):
+                api2, _application_factory2, runtime2, _native_runtime_factory2 = (
+                    create_version2_release_application(
+                        application_dir=root,
+                        runtime_factory=_FakeRuntime,
+                        data_root=data_root,
+                        copy_text=lambda _value: None,
+                        defer_ui=True,
+                    )
+                )
+            try:
+                restored = api2.get_sound_settings()
+                self.assertEqual(
+                    restored["selectedVariants"][SoundEvent.MOVE.value],
+                    "2",
+                )
+
+                preview2 = api2.preview_sound("move")
+
+                self.assertTrue(preview2["ok"], preview2)
+                self.assertEqual(len(adapters), 2)
+                self.assertEqual(
+                    adapters[1].calls[-1],
+                    (SoundEvent.MOVE, 80, "2"),
+                )
+            finally:
+                api2.close_analysis()
+                runtime2.close()
+
     def test_packaged_composition_uses_one_stage1_api_for_engine_sound_and_user_flow(self) -> None:
         playback = _Playback()
         with tempfile.TemporaryDirectory() as td:
