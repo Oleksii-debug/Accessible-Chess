@@ -679,7 +679,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertIn("collaboration_attachment_deletions", tables)
         reopened.integrity_check()
 
-    def test_v7_upgrade_rejects_incompatible_preexisting_watermark_schema(self) -> None:
+    def test_v9_upgrade_rejects_incompatible_preexisting_watermark_schema(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
             db.execute(
                 "DROP INDEX idx_collaboration_attachment_snapshot_watermarks_room"
@@ -697,7 +697,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 """
             )
             db.execute(
-                "UPDATE collaboration_schema_meta SET value=6 "
+                "UPDATE collaboration_schema_meta SET value=8 "
                 "WHERE key='schema_version'"
             )
 
@@ -718,7 +718,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                     "PRAGMA table_info(collaboration_attachment_snapshot_watermarks)"
                 )
             }["revision"]
-        self.assertEqual(version, 6)
+        self.assertEqual(version, 8)
         self.assertEqual(revision_type.upper(), "TEXT")
 
     def test_attachment_snapshot_watermark_survives_reopen_and_skips_old_state_pages(self) -> None:
