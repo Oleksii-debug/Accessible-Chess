@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import struct
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -19,6 +21,8 @@ from acs.classroom_collaboration_webview import (
     ClassroomCollaborationWebView,
     ClassroomCollaborationWebViewEvent,
 )
+from acs.classroom_file_http_transport import ClassroomFileHttpRpcCall
+from acs.classroom_file_rpc import ClassroomFileRpcClient
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_final_product_application import Version2FinalProductApplication
 from tests.test_classroom_collaboration import FakeChat, FakeFiles, FakeFileStore, FakeRoster
@@ -187,6 +191,159 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         exposed = repr(bridged)
         self.assertNotIn(str(selected), exposed)
         self.assertNotIn("attachment-composition-", exposed)
+        self.assertNotIn("rooms/room-1", exposed)
+        self.assertNotIn("sha256", exposed.lower())
+
+    def test_bound_classes_upload_reaches_real_http_rpc_wire(self) -> None:
+        selected = Path(self.tmp.name) / "real-http-wire.bin"
+        selected.write_bytes(b"abcdef")
+        bearer_secret = "whole-stack-secret-token"
+        wire_observations: list[dict[str, object]] = []
+
+        class Response:
+            status = 200
+
+            def __init__(self, payload: dict[str, object]) -> None:
+                self._body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+
+            def getheaders(self):
+                return [
+                    ("Content-Type", "application/json; charset=utf-8"),
+                    ("Content-Length", str(len(self._body))),
+                ]
+
+            def read(self, limit):
+                return self._body[:limit]
+
+        class Connection:
+            instances = []
+
+            def __init__(self, host, port, timeout):
+                self.host = host
+                self.port = port
+                self.timeout = timeout
+                self.headers = []
+                self.sent_parts = []
+                self.closed = False
+                type(self).instances.append(self)
+
+            def putrequest(self, method, target, **kwargs):
+                self.request = (method, target, kwargs)
+
+            def putheader(self, name, value):
+                self.headers.append((name, value))
+
+            def endheaders(self):
+                return None
+
+            def send(self, data):
+                self.sent_parts.append(bytes(data))
+
+            def getresponse(self):
+                self.assert_wire()
+                envelope = json.loads(self.sent_parts[1].decode("utf-8"))
+                content = b"".join(self.sent_parts[2:])
+                metadata = dict(envelope["metadata"])
+                metadata["sequence_no"] = 0
+                metadata["transfer_state"] = "stored"
+                metadata["scan_state"] = "clean"
+                wire_observations.append(
+                    {
+                        "envelope": envelope,
+                        "content": content,
+                        "headers": tuple(self.headers),
+                    }
+                )
+                return Response(
+                    {
+                        "v": 1,
+                        "ok": True,
+                        "attachment": metadata,
+                    }
+                )
+
+            def assert_wire(self):
+                if len(self.sent_parts) < 2:
+                    raise AssertionError("HTTP file wire is incomplete")
+                (header_size,) = struct.unpack("!I", self.sent_parts[0])
+                if header_size != len(self.sent_parts[1]):
+                    raise AssertionError("HTTP file JSON framing length mismatch")
+
+            def close(self):
+                self.closed = True
+
+        transport = ClassroomFileHttpRpcCall(
+            endpoint_url="https://files.example.test/v1/classroom/files",
+            bearer_token_provider=lambda: bearer_secret,
+        )
+        file_client = ClassroomFileRpcClient(
+            room_id="room-1",
+            participant_id="student-1",
+            transport=transport,
+        )
+        controller = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-1",
+            roster=FakeRoster(),
+            chat=FakeChat(),
+            files=file_client,
+            store=self.store,
+            file_store=file_client,
+        )
+        view = ClassroomCollaborationWebView(
+            controller,
+            self.store,
+            lambda participant_id: participant_id,
+            language=UILanguage.EN,
+            file_picker=lambda: selected,
+            id_factory=lambda prefix: f"{prefix}-real-http",
+        )
+        bridged: list[dict[str, object]] = []
+        app = self.bare_app()
+
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+                Connection,
+            ),
+        ):
+            app.bind_classroom_collaboration(
+                view,
+                file_progress_event_sink=bridged.append,
+            )
+            result = app.browser_command(
+                "classes",
+                "collaboration.file.choose_upload",
+                {},
+            )
+            app.unbind_classroom_collaboration()
+
+        self.assertEqual("collaboration.file.sent", result["kind"])
+        self.assertEqual(1, len(wire_observations))
+        observed = wire_observations[0]
+        self.assertEqual(b"abcdef", observed["content"])
+        self.assertNotIn("content", observed["envelope"])
+        self.assertEqual("attachment-real-http", observed["envelope"]["metadata"]["attachment_id"])
+        self.assertEqual(
+            [0, 6, 6],
+            [
+                event["payload"]["file_progress"]["transferred_bytes"]
+                for event in bridged
+            ],
+        )
+        self.assertEqual(
+            [False, False, True],
+            [event["payload"]["file_progress"]["complete"] for event in bridged],
+        )
+        self.assertTrue(Connection.instances[0].closed)
+        exposed = repr((result, bridged, transport))
+        self.assertNotIn(bearer_secret, exposed)
+        self.assertNotIn(str(selected), exposed)
         self.assertNotIn("rooms/room-1", exposed)
         self.assertNotIn("sha256", exposed.lower())
 
