@@ -1170,6 +1170,22 @@ async function run() {
     "Board handoff failed"
   );
 
+  const lostVariationHandoff = bookSnapshot(49, "Lost variation Board handoff");
+  lostVariationHandoff.block.kind = "VariationTree";
+  lostVariationHandoff.block.role = "group";
+  lostVariationHandoff.block.title = "Lost variation Board handoff";
+  lostVariationHandoff.block.has_position = true;
+  lostVariationHandoff.semantic_tree = semanticBookTree("variation");
+  lostVariationHandoff.board_active = false;
+  lostVariationHandoff.actions[8].enabled = false;
+  lostVariationHandoff.actions[10].enabled = false;
+  await expectBookSnapshotRejected(
+    lostVariationHandoff,
+    49,
+    "readable VariationTree with disabled Board handoff",
+    "Variation Board handoff failed"
+  );
+
   const explicitContentFallbackRoot = new FakeElement("div");
   const explicitContentFallback = bookSnapshot(47, "Unavailable game content");
   explicitContentFallback.block.kind = "Game";
