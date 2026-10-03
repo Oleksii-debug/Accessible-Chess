@@ -251,6 +251,20 @@ jobs:
               raise SystemExit('USER_SOUND_PACK_MOVE_LAYER_INVALID')
           if layers['events']['capture']['1'][-1] != 'library/Board/CAPHIT1.WAV':
               raise SystemExit('USER_SOUND_PACK_CAPTURE_LAYER_INVALID')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          if manifest['files'].get('mate') != 'library/Server/Gong.WAV':
+              raise SystemExit('USER_SOUND_PACK_MATE_DEFAULT_INVALID')
+          if manifest['files'].get('draw') != 'library/Server/Gong.WAV':
+              raise SystemExit('USER_SOUND_PACK_DRAW_DEFAULT_INVALID')
+          mate_files = {item.get('file') for item in variants['events'].get('mate', [])}
+          draw_files = {item.get('file') for item in variants['events'].get('draw', [])}
+          if 'library/Russian/Notation/Mate.wav' not in mate_files:
+              raise SystemExit('USER_SOUND_PACK_MATE_VOICE_MISSING')
+          if {
+              'library/English/Draw.wav',
+              'library/Russian/Draw.wav',
+          } - draw_files:
+              raise SystemExit('USER_SOUND_PACK_DRAW_VOICES_MISSING')
           if impacts.get('schema_version') != 2:
               raise SystemExit('USER_SOUND_PACK_NEWGAME_TIMING_INVALID')
           if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
