@@ -46,12 +46,20 @@ class _RecordingGameSounds:
     def __init__(self) -> None:
         self.move_events = []
         self.end_events = 0
+        self.mate_events = 0
+        self.draw_events = 0
 
     def start(self) -> None:
         pass
 
     def move(self, facts) -> None:
         self.move_events.append(facts)
+
+    def checkmate(self) -> None:
+        self.mate_events += 1
+
+    def draw(self) -> None:
+        self.draw_events += 1
 
     def end(self) -> None:
         self.end_events += 1
