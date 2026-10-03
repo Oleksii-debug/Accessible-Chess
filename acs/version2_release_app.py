@@ -19,7 +19,7 @@ from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
-from .release_app import _sound_cache_dir, _user_root
+from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
@@ -409,16 +409,7 @@ def create_version2_release_application(
         except (TypeError, ValueError):
             language = UILanguage.UA
         sound_assets = PackagedSoundAssetResolver(app_dir)
-
-        def selected_sound_variant(event):
-            choice = str(settings.get(f"sound_{event.value}_variant", "1"))
-            try:
-                available = {
-                    option.variant_id for option in sound_assets.variants_for(event)
-                }
-            except Exception:
-                return "1"
-            return choice if choice in available else "1"
+        selected_sound_variant = _sound_variant_provider(settings, sound_assets)
 
         playback = sound_playback
         if playback is None:
