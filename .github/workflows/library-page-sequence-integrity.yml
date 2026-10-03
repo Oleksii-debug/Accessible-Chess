@@ -1,0 +1,75 @@
+name: Library Page Sequence Integrity
+
+on:
+  pull_request:
+    branches:
+      - 'fix/library-projection-transaction-atomicity-20261003'
+    paths:
+      - 'acs/full_product_presenters.py'
+      - 'tests/test_library_page_sequence_integrity.py'
+      - '.github/workflows/library-page-sequence-integrity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-page-sequence-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  page-sequence:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          parent_branch='fix/library-projection-transaction-atomicity-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+
+          live_ref="refs/remotes/origin/$parent_branch"
+          git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+          live_parent="$(git rev-parse "$live_ref")"
+          event_base='${{ github.event.pull_request.base.sha }}'
+          test -n "$event_base"
+          git cat-file -e "$event_base^{commit}"
+          git merge-base --is-ancestor "$event_base" "$live_parent"
+          git merge-base --is-ancestor "$live_parent" HEAD
+          test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+          changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/library-page-sequence-integrity.yml' \
+            'acs/full_product_presenters.py' \
+            'tests/test_library_page_sequence_integrity.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "28192e20afbf08ba57833a3b57e577e9ece5f10a"
+          test "$(git rev-parse HEAD:tests/test_library_page_sequence_integrity.py)" = "124b4ad4d97aff476c88d0a86d266781474bcb25"
+          git diff --check "$live_parent" HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Library page integrity boundary
+        run: >-
+          python -m compileall -q
+          acs/full_product_presenters.py
+          tests/test_library_page_sequence_integrity.py
+
+      - name: Prove malformed page rejection and retained Library transactions
+        run: >-
+          python -m unittest -v
+          tests.test_library_page_sequence_integrity
+          tests.test_library_projection_transaction_atomicity
+          tests.test_library_pagination_atomicity
+          tests.test_dev1_library_webview_projection
