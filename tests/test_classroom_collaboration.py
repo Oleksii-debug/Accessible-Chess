@@ -1931,6 +1931,52 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         with self.assertRaises(CollaborationError):
             AttachmentHistoryPage([safe], None)
 
+    def test_history_watermark_regression_fails_before_state_fetch(self):
+        current = AttachmentMetadata(
+            "watermark-regression", "room-1", "teacher-1", 0, "current.pgn",
+            "application/x-chess-pgn", 8, "9" * 64,
+            "rooms/room-1/watermark-regression", "stored", "persistent", "pending",
+        )
+        self.store.register_attachment(current)
+        self.store.apply_attachment_state_updates(
+            room_id="room-1",
+            updates=(
+                AttachmentStateUpdate(
+                    "room-1", current.attachment_id, 0, "stored", "clean"
+                ),
+                AttachmentStateUpdate(
+                    "room-1", current.attachment_id, 1, "deleted", "clean"
+                ),
+            ),
+        )
+        controller = self.controller("teacher-1")
+        self.files.history_override = ()
+
+        lower = AttachmentStateUpdate(
+            "room-1", current.attachment_id, 0, "stored", "clean"
+        )
+        for state_override in ((lower,), ()):
+            with self.subTest(state_override=state_override):
+                self.files.state_override = state_override
+                with patch.object(
+                    self.files,
+                    "state_updates_after",
+                    side_effect=AssertionError("state stream must not be read"),
+                ):
+                    with self.assertRaisesRegex(
+                        CollaborationError,
+                        "file history state watermark regressed",
+                    ):
+                        controller.sync_files()
+
+                persisted = self.store.room_attachments("room-1")
+                self.assertEqual(len(persisted), 1)
+                self.assertEqual(persisted[0].transfer_state, "deleted")
+                self.assertEqual(
+                    self.store.attachment_state_revision("room-1"),
+                    1,
+                )
+
     def test_history_watermark_prevents_tombstone_resurrection(self):
         tombstone = AttachmentMetadata(
             "watermarked-deleted", "room-1", "teacher-1", 0, "deleted.pgn",
