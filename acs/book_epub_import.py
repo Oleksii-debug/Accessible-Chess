@@ -376,6 +376,25 @@ def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
     return None
 
 
+def _required_unique_direct_child(
+    parent: ET.Element,
+    name: str,
+) -> ET.Element:
+    """Return the only direct OPF section with this local name."""
+    wanted = name.casefold()
+    matches = [
+        child
+        for child in parent
+        if _local_name(child.tag) == wanted
+    ]
+    if len(matches) != 1:
+        raise _error(
+            f"EPUB package must contain exactly one {name} section",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    return matches[0]
+
+
 def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
     if metadata is None:
         return []
@@ -474,12 +493,7 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
 
 
 def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
-    manifest = _direct_child(package, "manifest")
-    if manifest is None:
-        raise _error(
-            "EPUB package has no manifest",
-            BookEpubImportErrorCode.MALFORMED_PACKAGE,
-        )
+    manifest = _required_unique_direct_child(package, "manifest")
     output: dict[str, _ManifestItem] = {}
     resource_owners: dict[str, str] = {}
     for element in manifest:
@@ -542,12 +556,7 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
 
 
 def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
-    spine = _direct_child(package, "spine")
-    if spine is None:
-        raise _error(
-            "EPUB package has no reading spine",
-            BookEpubImportErrorCode.MALFORMED_PACKAGE,
-        )
+    spine = _required_unique_direct_child(package, "spine")
     ids: list[str] = []
     for element in spine:
         if _local_name(element.tag) != "itemref":
