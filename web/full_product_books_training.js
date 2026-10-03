@@ -2,6 +2,7 @@
   "use strict";
 
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
+  const MAX_BOOK_SEMANTIC_TAGS = 4096;
 
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
@@ -70,6 +71,36 @@
     container.appendChild(list);
   }
 
+  function appendSemanticMetadata(container, label, entries, headingId) {
+    if (entries === undefined || entries === null) return;
+    if (!Array.isArray(entries)) {
+      throw new TypeError("book semantic metadata must be an array");
+    }
+    if (entries.length > MAX_BOOK_SEMANTIC_TAGS) {
+      throw new TypeError("book semantic metadata limit exceeded");
+    }
+    if (!entries.length) return;
+    const heading = node("h4", label || "");
+    heading.id = headingId;
+    const list = node("dl");
+    list.setAttribute("aria-labelledby", heading.id);
+    entries.forEach(function (entry) {
+      if (!entry || typeof entry !== "object") {
+        throw new TypeError("book semantic metadata entry must be an object");
+      }
+      if (typeof entry.name !== "string" || !entry.name.trim()) {
+        throw new TypeError("book semantic metadata name is invalid");
+      }
+      if (typeof entry.value !== "string") {
+        throw new TypeError("book semantic metadata value must be text");
+      }
+      list.appendChild(node("dt", entry.name));
+      list.appendChild(node("dd", entry.value));
+    });
+    container.appendChild(heading);
+    container.appendChild(list);
+  }
+
   function renderBookSemanticTree(container, block) {
     const semantic = block.semantic_tree;
     if (!semantic || typeof semantic !== "object") {
@@ -90,6 +121,13 @@
     if (gameResult) {
       container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + gameResult));
     }
+
+    appendSemanticMetadata(
+      container,
+      semantic.metadata_label || "Game metadata",
+      semantic.metadata,
+      String(block.dom_id || "") + "-semantic-metadata-heading"
+    );
 
     appendSemanticTextList(
       container,
