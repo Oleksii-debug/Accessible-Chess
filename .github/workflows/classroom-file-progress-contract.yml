@@ -3,7 +3,7 @@ name: Classroom File Transfer Progress Contract
 on:
   pull_request:
     branches:
-      - feature/classroom-collaboration-contract-20260926
+      - converge/classroom-file-collaboration-stack-20261003
     paths:
       - 'acs/classroom_collaboration.py'
       - 'tests/test_classroom_collaboration.py'
@@ -40,7 +40,7 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          test "$BASE_REF" = "feature/classroom-collaboration-contract-20260926"
+          test "$BASE_REF" = "converge/classroom-file-collaboration-stack-20261003"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
 
           # A stacked base can advance while this PR remains open. Qualify the
