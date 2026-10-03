@@ -464,6 +464,28 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
                 type(self).touched = True
                 raise AssertionError("application must not hash command subclasses")
 
+        class HostileArea(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("application must not size area subclasses")
+
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("application must not compare area subclasses")
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("application must not hash area subclasses")
+
+        class HostilePayload(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("application must not size payload subclasses")
+
         with tempfile.TemporaryDirectory(prefix="training-app-command-") as raw:
             root = Path(raw)
             database = AcsDatabase(root / "library.acsdb")
@@ -497,6 +519,42 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
 
             book_reader_before = app.reader
             book_snapshot_before = app.reader.snapshot()
+
+            area_result = app.browser_command(HostileArea("books"), "book.next", {})
+            self.assertEqual("error", area_result["kind"])
+            self.assertFalse(HostileArea.touched)
+            self.assertIs(book_reader_before, app.reader)
+            self.assertEqual(book_snapshot_before, app.reader.snapshot())
+
+            shell_payload_result = app.browser_command(
+                "shell",
+                "screen.library",
+                HostilePayload(),
+            )
+            self.assertEqual("error", shell_payload_result["kind"])
+            self.assertFalse(HostilePayload.touched)
+            self.assertIs(book_reader_before, app.reader)
+            self.assertEqual(book_snapshot_before, app.reader.snapshot())
+
+            review_result = app.browser_command(
+                "review",
+                HostileCommand("pgn.return"),
+                {},
+            )
+            self.assertEqual("error", review_result["kind"])
+            self.assertFalse(HostileCommand.touched)
+            self.assertIs(book_reader_before, app.reader)
+            self.assertEqual(book_snapshot_before, app.reader.snapshot())
+
+            overlong_shell = app.browser_command(
+                "shell",
+                "screen." + ("x" * 80),
+                {},
+            )
+            self.assertEqual("error", overlong_shell["kind"])
+            self.assertIs(book_reader_before, app.reader)
+            self.assertEqual(book_snapshot_before, app.reader.snapshot())
+
             book_result = app.browser_command("books", HostileCommand("book.next"), {})
             self.assertEqual("error", book_result["kind"])
             self.assertFalse(HostileCommand.touched)
