@@ -49,6 +49,17 @@
     });
   }
 
+  function semanticOptionalText(value, name) {
+    if (value === undefined || value === null) return "";
+    if (typeof value !== "string") throw new TypeError(name + " must be text");
+    return value;
+  }
+
+  function semanticLabel(value, name, fallback) {
+    const text = semanticOptionalText(value, name);
+    return text || fallback || "";
+  }
+
   function semanticResult(value, name) {
     if (value === undefined || value === null || value === "") return "";
     if (typeof value !== "string") throw new TypeError(name + " must be text");
@@ -110,11 +121,53 @@
       throw new TypeError("book semantic tree kind is invalid");
     }
 
-    if (semantic.players) {
-      if (typeof semantic.players !== "string") {
-        throw new TypeError("book semantic players must be text");
-      }
-      container.appendChild(node("p", String(semantic.players_label || "Players") + ": " + semantic.players));
+    const players = semanticOptionalText(
+      semantic.players,
+      "book semantic players"
+    );
+    const playersLabel = semanticLabel(
+      semantic.players_label,
+      "book semantic players label",
+      "Players"
+    );
+    const resultLabel = semanticLabel(
+      semantic.result_label,
+      "book semantic result label",
+      "Result"
+    );
+    const metadataLabel = semanticLabel(
+      semantic.metadata_label,
+      "book semantic metadata label",
+      "Game metadata"
+    );
+    const commentsLabel = semanticLabel(
+      semantic.comments_label,
+      "book semantic comments label",
+      ""
+    );
+    const introCommentsLabel = semanticLabel(
+      semantic.intro_comments_label,
+      "book semantic intro comments label",
+      commentsLabel
+    );
+    const outroCommentsLabel = semanticLabel(
+      semantic.outro_comments_label,
+      "book semantic outro comments label",
+      commentsLabel
+    );
+    const warningsLabel = semanticLabel(
+      semantic.warnings_label,
+      "book semantic warnings label",
+      ""
+    );
+    const movesLabel = semanticLabel(
+      semantic.label,
+      "book semantic moves label",
+      ""
+    );
+
+    if (players) {
+      container.appendChild(node("p", playersLabel + ": " + players));
     }
 
     // Validate the root result before building the semantic move tree, but
@@ -123,19 +176,19 @@
 
     appendSemanticMetadata(
       container,
-      semantic.metadata_label || "Game metadata",
+      metadataLabel,
       semantic.metadata,
       String(block.dom_id || "") + "-semantic-metadata-heading"
     );
 
     appendSemanticTextList(
       container,
-      semantic.intro_comments_label || semantic.comments_label || "",
+      introCommentsLabel,
       semanticTextArray(semantic.intro_comments, "book semantic intro comments"),
       String(block.dom_id || "") + "-semantic-intro-heading"
     );
 
-    const heading = node("h4", semantic.label || "");
+    const heading = node("h4", movesLabel);
     heading.id = String(block.dom_id || "") + "-semantic-heading";
     container.appendChild(heading);
 
@@ -198,7 +251,7 @@
       function appendItemComments(values) {
         if (!values.length) return;
         const commentList = node("ul");
-        commentList.setAttribute("aria-label", semantic.comments_label || "");
+        commentList.setAttribute("aria-label", commentsLabel);
         values.forEach(function (comment) {
           commentList.appendChild(node("li", comment));
         });
@@ -242,12 +295,12 @@
       // order. Append only after the full depth walk has built the child list.
       if (entry.result) {
         entry.item.appendChild(
-          node("p", String(semantic.result_label || "Result") + ": " + entry.result)
+          node("p", resultLabel + ": " + entry.result)
         );
       }
       if (entry.comments.length) {
         const commentList = node("ul");
-        commentList.setAttribute("aria-label", semantic.comments_label || "");
+        commentList.setAttribute("aria-label", commentsLabel);
         entry.comments.forEach(function (comment) {
           commentList.appendChild(node("li", comment));
         });
@@ -258,20 +311,20 @@
 
     if (gameResult) {
       container.appendChild(
-        node("p", String(semantic.result_label || "Result") + ": " + gameResult)
+        node("p", resultLabel + ": " + gameResult)
       );
     }
 
     appendSemanticTextList(
       container,
-      semantic.outro_comments_label || semantic.comments_label || "",
+      outroCommentsLabel,
       semanticTextArray(semantic.outro_comments, "book semantic outro comments"),
       String(block.dom_id || "") + "-semantic-outro-heading"
     );
 
     appendSemanticTextList(
       container,
-      semantic.warnings_label || "",
+      warningsLabel,
       semanticTextArray(semantic.warnings, "book semantic warnings"),
       String(block.dom_id || "") + "-semantic-warnings-heading"
     );
