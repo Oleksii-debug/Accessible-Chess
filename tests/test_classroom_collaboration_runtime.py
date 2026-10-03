@@ -337,6 +337,100 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertNotIn("chat-final-secret", exposed)
         self.assertNotIn("Authorization", exposed)
 
+    def test_final_app_ambiguous_chat_ack_retries_same_logical_message(self) -> None:
+        attempts: list[dict[str, object]] = []
+        committed: dict[str, object] | None = None
+
+        class Response:
+            status = 200
+
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+
+            def getheaders(self):
+                return [
+                    ("Content-Type", "application/json; charset=utf-8"),
+                    ("Content-Length", str(len(self.body))),
+                ]
+
+            def read(self, limit):
+                return self.body[:limit]
+
+        class Connection:
+            def __init__(self, host, port, timeout):
+                self.request_data = None
+
+            def request(self, method, target, body, headers):
+                self.request_data = (method, target, bytes(body), dict(headers))
+
+            def getresponse(self):
+                nonlocal committed
+                if self.request_data is None:
+                    raise AssertionError("chat HTTP request was not sent")
+                method, target, body, headers = self.request_data
+                request = json.loads(body.decode("utf-8"))
+                message = dict(request["message"])
+                attempts.append(
+                    {
+                        "message_id": message["message_id"],
+                        "body": message["body"],
+                        "retention": message["retention"],
+                        "room_id": request["room_id"],
+                        "participant_id": request["participant_id"],
+                    }
+                )
+                authoritative = {
+                    "message_id": message["message_id"],
+                    "room_id": request["room_id"],
+                    "sender_id": request["participant_id"],
+                    "sequence_no": 0,
+                    "body": message["body"],
+                    "retention": message["retention"],
+                    "hidden": False,
+                    "sent_at_unix_ms": 1700000000000,
+                }
+                if committed is None:
+                    committed = authoritative
+                    raise OSError("chat acknowledgement lost after commit")
+                if authoritative != committed:
+                    raise AssertionError("retry changed committed chat identity")
+                return Response({"v": 1, "ok": True, "message": committed})
+
+            def close(self):
+                return None
+
+        app = self.bare_app()
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch(
+                "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+                Connection,
+            ),
+        ):
+            runtime = self.configure(
+                app,
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+            )
+            result = app.browser_command(
+                "classes",
+                "collaboration.chat.send",
+                {"body": "Exactly once chat"},
+            )
+
+        self.assertEqual("collaboration.chat.sent", result["kind"])
+        self.assertEqual(self.chat_token_calls, 2)
+        self.assertEqual(self.file_token_calls, 0)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0], attempts[1])
+        messages = runtime.store.room_messages("room-1")
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].message_id, attempts[0]["message_id"])
+        self.assertEqual(messages[0].body, "Exactly once chat")
+
     def test_final_app_file_upload_reaches_authenticated_http_wire(self) -> None:
         selected = self.root / "runtime-http-upload.bin"
         selected.write_bytes(b"abcdef")
