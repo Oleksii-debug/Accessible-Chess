@@ -45,6 +45,9 @@ _TRAINING_SNAPSHOT_V2_FIELDS = frozenset(
         "status",
     }
 )
+_MAX_TRAINING_SNAPSHOT_FIELD_CHARS = max(
+    len(field) for field in _TRAINING_SNAPSHOT_V4_FIELDS
+)
 
 
 class ExerciseStatus(str, Enum):
@@ -183,26 +186,33 @@ class ExerciseDefinition:
             raise TypeError("exercise metadata must map strings to strings") from exc
         if len(metadata_keys) != metadata_count:
             raise ValueError("exercise metadata changed while being read")
-        if any(type(key) is not str for key in metadata_keys):
-            raise TypeError("exercise metadata must map strings to strings")
-        if len(set(metadata_keys)) != len(metadata_keys):
-            raise ValueError("exercise metadata contains duplicate keys")
+        validated_metadata_keys: list[str] = []
+        seen_metadata_keys: set[str] = set()
+        for key in metadata_keys:
+            if type(key) is not str:
+                raise TypeError("exercise metadata must map strings to strings")
+            # Bound raw keys before hashing them for duplicate detection. The
+            # entry-count cap alone must not permit oversized attacker text to
+            # consume unbounded hashing work during definition construction.
+            if len(key) > _MAX_IDENTITY_TEXT:
+                raise ValueError("exercise metadata text is too long")
+            if key in seen_metadata_keys:
+                raise ValueError("exercise metadata contains duplicate keys")
+            seen_metadata_keys.add(key)
+            validated_metadata_keys.append(key)
         metadata: dict[str, str] = {}
         try:
-            for key in metadata_keys:
+            for key in validated_metadata_keys:
                 value = self.metadata[key]
                 if type(value) is not str:
                     raise TypeError("exercise metadata must map strings to strings")
+                if len(value) > _MAX_IDENTITY_TEXT:
+                    raise ValueError("exercise metadata text is too long")
                 metadata[key] = value
-        except TypeError:
+        except (TypeError, ValueError):
             raise
         except Exception as exc:
             raise TypeError("exercise metadata must map strings to strings") from exc
-        if any(
-            len(key) > _MAX_IDENTITY_TEXT or len(value) > _MAX_IDENTITY_TEXT
-            for key, value in metadata.items()
-        ):
-            raise ValueError("exercise metadata text is too long")
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
         object.__setattr__(self, "steps", steps)
@@ -458,6 +468,11 @@ class ExerciseSession:
             raise ValueError("exercise snapshot changed while being read")
         if any(type(key) is not str for key in snapshot_keys):
             raise TypeError("exercise snapshot field names must be strings")
+        if any(
+            len(key) > _MAX_TRAINING_SNAPSHOT_FIELD_CHARS
+            for key in snapshot_keys
+        ):
+            raise ValueError("exercise snapshot field name exceeds supported bound")
         if len(set(snapshot_keys)) != len(snapshot_keys):
             raise ValueError("exercise snapshot contains duplicate fields")
         snapshot_data: dict[str, object] = {}
