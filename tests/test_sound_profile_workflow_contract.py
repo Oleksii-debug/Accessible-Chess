@@ -43,8 +43,9 @@ class SoundProfileWorkflowContractTests(unittest.TestCase):
     def test_pinned_product_must_equal_fresh_live_base_branch(self) -> None:
         for name, text in self.texts.items():
             with self.subTest(workflow=name):
+                self.assertIn(f"product_ref='{PRODUCT_REF}'", text)
                 self.assertIn(
-                    'git fetch --no-tags origin "refs/heads/${{ github.event.pull_request.base.ref }}"',
+                    'git fetch --no-tags origin "refs/heads/$product_ref"',
                     text,
                 )
                 self.assertIn('live_product="$(git rev-parse FETCH_HEAD)"', text)
@@ -52,6 +53,23 @@ class SoundProfileWorkflowContractTests(unittest.TestCase):
                     'test "$live_product" = "$CURRENT_PRODUCT_BASE"',
                     text,
                 )
+
+    def test_manual_dispatch_keeps_the_same_candidate_and_product_proof(self) -> None:
+        for name, text in self.texts.items():
+            with self.subTest(workflow=name):
+                self.assertIn(
+                    "github.event.pull_request.head.sha || github.sha",
+                    text,
+                )
+                self.assertIn(
+                    "if [ '${{ github.event_name }}' = 'pull_request' ]; then",
+                    text,
+                )
+                if name != "current-sound-profiles-contract.yml":
+                    self.assertNotIn(
+                        "if: github.event_name == 'pull_request'",
+                        text,
+                    )
 
     def test_each_candidate_proves_its_pinned_product_ancestry(self) -> None:
         for name, text in self.texts.items():
