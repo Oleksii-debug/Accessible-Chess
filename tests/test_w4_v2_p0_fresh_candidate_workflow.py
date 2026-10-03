@@ -156,6 +156,23 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
             self.text,
         )
 
+    def test_pinned_livekit_is_reverified_immediately_before_payload_copy(self) -> None:
+        prepare_step = self.text.index(
+            "Prepare release payload and inject qualified P0-F package content"
+        )
+        verify = self.text.index(
+            "PREPARED_INPUT_PINNED_LIVEKIT_CLIENT_SDK=PASS",
+            prepare_step,
+        )
+        prepare_call = self.text.index("prepared = prepare_version2_release_payload(", prepare_step)
+        self.assertLess(verify, prepare_call)
+        between = self.text[prepare_step:prepare_call]
+        self.assertIn("--verify-existing", between)
+        self.assertIn(
+            "PREPARED_INPUT_PINNED_LIVEKIT_CLIENT_SDK_VERIFY_FAILURE",
+            between,
+        )
+
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
         self.assertIn("STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139", self.text)
