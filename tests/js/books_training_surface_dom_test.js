@@ -637,65 +637,65 @@ async function run() {
   check(document.activeElement === deferredSubmitRoot.querySelector("#training-answer"),
     "resolved Training submit must focus the new answer field");
 
-  const staleTrainingRoot = new FakeElement("div");
-  let staleTrainingReject = null;
-  const staleTrainingInvoke = () => new Promise(function (_resolve, reject) {
-    staleTrainingReject = reject;
+  const staleFailureTrainingRoot = new FakeElement("div");
+  let staleFailureTrainingReject = null;
+  const staleFailureTrainingInvoke = () => new Promise(function (_resolve, reject) {
+    staleFailureTrainingReject = reject;
   });
   window.AccessibleChessTrainingSurface.render(
-    staleTrainingRoot,
+    staleFailureTrainingRoot,
     trainingSnapshot(),
-    staleTrainingInvoke,
+    staleFailureTrainingInvoke,
     announce,
     "training-answer",
     "Action failed",
     []
   );
-  const staleTrainingAnswer = staleTrainingRoot.querySelector("#training-answer");
-  staleTrainingAnswer.value = "e4";
-  find(staleTrainingRoot, "FORM").listeners.submit({ preventDefault: () => {} });
-  check(staleTrainingRoot.attributes["aria-busy"] === "true",
+  const staleFailureTrainingAnswer = staleFailureTrainingRoot.querySelector("#training-answer");
+  staleFailureTrainingAnswer.value = "e4";
+  find(staleFailureTrainingRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  check(staleFailureTrainingRoot.attributes["aria-busy"] === "true",
     "pending stale Training command must expose aria-busy");
 
-  let currentTrainingResolve = null;
-  let currentTrainingCalls = 0;
-  const currentTrainingInvoke = () => {
-    currentTrainingCalls += 1;
+  let currentAfterStaleTrainingResolve = null;
+  let currentAfterStaleTrainingCalls = 0;
+  const currentAfterStaleTrainingInvoke = () => {
+    currentAfterStaleTrainingCalls += 1;
     return new Promise(function (resolve) {
-      currentTrainingResolve = resolve;
+      currentAfterStaleTrainingResolve = resolve;
     });
   };
   window.AccessibleChessTrainingSurface.render(
-    staleTrainingRoot,
+    staleFailureTrainingRoot,
     trainingSnapshot(),
-    currentTrainingInvoke,
+    currentAfterStaleTrainingInvoke,
     announce,
     "training-answer",
     "Action failed",
     []
   );
-  check(staleTrainingRoot.attributes["aria-busy"] === "false",
+  check(staleFailureTrainingRoot.attributes["aria-busy"] === "false",
     "committed Training rerender must invalidate prior busy state");
-  const currentTrainingAnswer = staleTrainingRoot.querySelector("#training-answer");
-  currentTrainingAnswer.value = "e4";
-  find(staleTrainingRoot, "FORM").listeners.submit({ preventDefault: () => {} });
-  check(currentTrainingCalls === 1,
+  const currentAfterStaleTrainingAnswer = staleFailureTrainingRoot.querySelector("#training-answer");
+  currentAfterStaleTrainingAnswer.value = "e4";
+  find(staleFailureTrainingRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  check(currentAfterStaleTrainingCalls === 1,
     "Training rerender must admit a command from the current DOM");
-  check(staleTrainingRoot.attributes["aria-busy"] === "true",
+  check(staleFailureTrainingRoot.attributes["aria-busy"] === "true",
     "current Training command must own aria-busy");
-  const staleTrainingFallbackCount = announcements.filter(
+  const staleFailureTrainingFallbackCount = announcements.filter(
     (message) => message === "Action failed"
   ).length;
-  staleTrainingReject(new Error("stale Training failure"));
+  staleFailureTrainingReject(new Error("stale Training failure"));
   await flushPromises();
-  check(staleTrainingRoot.attributes["aria-busy"] === "true",
+  check(staleFailureTrainingRoot.attributes["aria-busy"] === "true",
     "stale Training failure must not clear current aria-busy");
   check(
     announcements.filter((message) => message === "Action failed").length ===
-      staleTrainingFallbackCount,
+      staleFailureTrainingFallbackCount,
     "stale Training failure must not announce fallback text"
   );
-  currentTrainingResolve({
+  currentAfterStaleTrainingResolve({
     kind: "render",
     payload: {
       snapshot: trainingSnapshot(),
@@ -706,9 +706,9 @@ async function run() {
     }
   });
   await flushPromises();
-  check(staleTrainingRoot.attributes["aria-busy"] === "false",
+  check(staleFailureTrainingRoot.attributes["aria-busy"] === "false",
     "current Training completion must clear aria-busy");
-  check(document.activeElement === staleTrainingRoot.querySelector("#training-answer"),
+  check(document.activeElement === staleFailureTrainingRoot.querySelector("#training-answer"),
     "current Training completion must retain current-DOM focus");
 
   const staleTrainingRoot = new FakeElement("div");
@@ -1156,49 +1156,49 @@ async function run() {
   check(document.activeElement === deferredBookRoot.querySelector("#book-block-4"),
     "resolved Book navigation must focus the new reading block");
 
-  const staleBookRoot = new FakeElement("div");
-  let staleBookResolve = null;
-  const staleBookInvoke = () => new Promise(function (resolve) {
-    staleBookResolve = resolve;
+  const staleAdmissionBookRoot = new FakeElement("div");
+  let staleAdmissionBookResolve = null;
+  const staleAdmissionBookInvoke = () => new Promise(function (resolve) {
+    staleAdmissionBookResolve = resolve;
   });
   window.AccessibleChessBookSurface.render(
-    staleBookRoot,
+    staleAdmissionBookRoot,
     bookSnapshot(3, "Stale source Book"),
-    staleBookInvoke,
+    staleAdmissionBookInvoke,
     announce,
     "book-block-3",
     "Action failed"
   );
-  find(staleBookRoot, "BUTTON", "Next").listeners.click();
-  check(staleBookRoot.attributes["aria-busy"] === "true",
+  find(staleAdmissionBookRoot, "BUTTON", "Next").listeners.click();
+  check(staleAdmissionBookRoot.attributes["aria-busy"] === "true",
     "pending stale Book command must expose aria-busy");
 
-  let currentBookCalls = 0;
-  const currentBookInvoke = () => {
-    currentBookCalls += 1;
+  let currentAfterStaleBookCalls = 0;
+  const currentAfterStaleBookInvoke = () => {
+    currentAfterStaleBookCalls += 1;
     return {
       kind: "error",
       payload: { message: "Current Book command handled" }
     };
   };
   window.AccessibleChessBookSurface.render(
-    staleBookRoot,
+    staleAdmissionBookRoot,
     bookSnapshot(4, "Current Book"),
-    currentBookInvoke,
+    currentAfterStaleBookInvoke,
     announce,
     "book-block-4",
     "Action failed"
   );
-  const currentBookReplaceCount = staleBookRoot.replaceChildrenCalls;
-  const currentBookFocus = staleBookRoot.querySelector("#book-block-4");
-  check(staleBookRoot.attributes["aria-busy"] === "false",
+  const currentAfterStaleBookReplaceCount = staleAdmissionBookRoot.replaceChildrenCalls;
+  const currentAfterStaleBookFocus = staleAdmissionBookRoot.querySelector("#book-block-4");
+  check(staleAdmissionBookRoot.attributes["aria-busy"] === "false",
     "committed Book rerender must invalidate prior busy state");
-  check(document.activeElement === currentBookFocus,
+  check(document.activeElement === currentAfterStaleBookFocus,
     "committed Book rerender must focus the current reading block");
-  const staleBookAnnouncementCount = announcements.filter(
+  const staleAdmissionBookAnnouncementCount = announcements.filter(
     (message) => message === "Stale Book response"
   ).length;
-  staleBookResolve({
+  staleAdmissionBookResolve({
     kind: "render",
     payload: {
       snapshot: bookSnapshot(3, "Stale Book result"),
@@ -1207,20 +1207,20 @@ async function run() {
     }
   });
   await flushPromises();
-  check(staleBookRoot.replaceChildrenCalls === currentBookReplaceCount,
+  check(staleAdmissionBookRoot.replaceChildrenCalls === currentAfterStaleBookReplaceCount,
     "stale Book completion must not replace the current readable DOM");
-  check(document.activeElement === currentBookFocus,
+  check(document.activeElement === currentAfterStaleBookFocus,
     "stale Book completion must not steal current reading focus");
   check(
     announcements.filter((message) => message === "Stale Book response").length ===
-      staleBookAnnouncementCount,
+      staleAdmissionBookAnnouncementCount,
     "stale Book completion must not announce obsolete content"
   );
-  find(staleBookRoot, "BUTTON", "Next").listeners.click();
+  find(staleAdmissionBookRoot, "BUTTON", "Next").listeners.click();
   await flushPromises();
-  check(currentBookCalls === 1,
+  check(currentAfterStaleBookCalls === 1,
     "Book rerender must admit a command from the current DOM");
-  check(staleBookRoot.attributes["aria-busy"] === "false",
+  check(staleAdmissionBookRoot.attributes["aria-busy"] === "false",
     "current Book completion must release aria-busy");
 
   const staleBookRoot = new FakeElement("div");
