@@ -56,8 +56,8 @@ jobs:
             'acs/book_webview_projection.py' \
             'tests/test_dev1_books_training_webview_projection.py' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "0d8f82aa3ce6cfdb627e3eeaa6c696274321bd70"
-          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "de9fa0191da79792e4b57aab896762c33305ec7c"
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "3200f7c037d11f5194b4068667c1b056a2539806"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "b94d879690c6b236efaff6cd1fca8b6342e5b4d0"
           git diff --check "$live_parent" HEAD
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
