@@ -7,13 +7,19 @@ EducationLedger in one filesystem replacement. It is intentionally separate
 from D07 ACSDB storage and D09 live Classroom transport/session state.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Mapping
+from typing import Iterator, Mapping
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from .education_workspace import (
     EducationWorkspace,
@@ -47,21 +53,51 @@ class LoadedEducationWorkspace:
 
 
 def _canonical_bytes(payload: Mapping[str, object]) -> bytes:
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    data = bytearray()
     try:
-        text = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        data = text.encode("utf-8")
+        for chunk in encoder.iterencode(payload):
+            encoded = chunk.encode("utf-8")
+            if len(data) + len(encoded) > MAX_WORKSPACE_STORE_BYTES:
+                raise EducationWorkspaceStoreError(
+                    "education workspace store exceeds size limit"
+                )
+            data.extend(encoded)
+    except EducationWorkspaceStoreError:
+        raise
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise EducationWorkspaceStoreError(
             "education workspace cannot be serialized for durable storage"
         ) from exc
-    if len(data) > MAX_WORKSPACE_STORE_BYTES:
-        raise EducationWorkspaceStoreError("education workspace store exceeds size limit")
-    return data
+    return bytes(data)
+
+
+def _sync_published_path(path: Path) -> None:
+    """Confirm the replaced namespace entry is on stable storage.
+
+    The temporary file is fsynced before replacement.  Windows has no portable
+    directory-fsync primitive, so FlushFileBuffers is requested through
+    os.fsync() on the reopened destination.  POSIX additionally fsyncs the
+    containing directory so the rename itself is durability-confirmed.
+    """
+
+    if os.name == "nt":
+        with path.open("rb") as handle:
+            os.fsync(handle.fileno())
+        return
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(os.fspath(path.parent), flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _revision(data: bytes) -> str:
@@ -115,6 +151,14 @@ def _parse_wire_integer(value: str) -> int:
     return parsed
 
 
+class EducationWorkspaceDurabilityError(RuntimeError):
+    """Raised after replace when stable publication could not be confirmed.
+
+    The new file may already be visible.  Callers must reload before deciding
+    whether a retry is safe.
+    """
+
+
 class EducationWorkspaceStore:
     """Atomic file store with exact file-level CAS.
 
@@ -130,6 +174,62 @@ class EducationWorkspaceStore:
         if str(self.path) in {"", "."}:
             raise ValueError("path must identify an education workspace file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
+
+    @contextmanager
+    def _peer_lock(self) -> Iterator[None]:
+        """Acquire a process-owned non-blocking publication lock.
+
+        Kernel advisory locks are released automatically if the writer process
+        crashes.  The tiny lock file intentionally remains in place; unlinking
+        it after unlock would introduce an inode-replacement race that could let
+        two writers hold locks on different files with the same path.
+        """
+
+        try:
+            handle = self._lock_path.open("a+b")
+        except OSError as exc:
+            if self._lock_path.is_dir():
+                raise EducationWorkspaceBusyError(
+                    "education workspace store has a legacy peer lock directory"
+                ) from exc
+            raise
+
+        acquired = False
+        try:
+            if os.name == "nt":
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"\0")
+                    handle.flush()
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError as exc:
+                    raise EducationWorkspaceBusyError(
+                        "education workspace store is busy"
+                    ) from exc
+            else:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    raise EducationWorkspaceBusyError(
+                        "education workspace store is busy"
+                    ) from exc
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                try:
+                    if os.name == "nt":
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    # Closing the descriptor releases process-owned locks even
+                    # if an explicit unlock syscall reports a cleanup error.
+                    pass
+            handle.close()
 
     def _read_current_bytes(self) -> bytes | None:
         try:
@@ -210,48 +310,45 @@ class EducationWorkspaceStore:
         new_revision = _revision(data)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            self._lock_path.mkdir()
-        except FileExistsError as exc:
-            raise EducationWorkspaceBusyError(
-                "education workspace store is busy"
-            ) from exc
-
         temporary: Path | None = None
-        try:
-            current_data = self._read_current_bytes()
-            current_revision = (
-                None if current_data is None else _revision(current_data)
-            )
-            if current_revision != expected:
-                raise EducationWorkspaceConflictError(
-                    "education workspace changed since the caller last observed it"
+        with self._peer_lock():
+            try:
+                current_data = self._read_current_bytes()
+                current_revision = (
+                    None if current_data is None else _revision(current_data)
                 )
+                if current_revision != expected:
+                    raise EducationWorkspaceConflictError(
+                        "education workspace changed since the caller last observed it"
+                    )
 
-            fd, raw_path = tempfile.mkstemp(
-                prefix=f".{self.path.name}.",
-                suffix=".tmp",
-                dir=str(self.path.parent),
-            )
-            temporary = Path(raw_path)
-            try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(data)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-            except Exception:
-                if temporary.exists():
-                    temporary.unlink()
+                fd, raw_path = tempfile.mkstemp(
+                    prefix=f".{self.path.name}.",
+                    suffix=".tmp",
+                    dir=str(self.path.parent),
+                )
+                temporary = Path(raw_path)
+                try:
+                    with os.fdopen(fd, "wb") as handle:
+                        handle.write(data)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                except Exception:
+                    if temporary.exists():
+                        temporary.unlink()
+                    temporary = None
+                    raise
+
+                os.replace(temporary, self.path)
                 temporary = None
-                raise
-
-            os.replace(temporary, self.path)
-            temporary = None
-            return new_revision
-        finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
-            try:
-                self._lock_path.rmdir()
-            except FileNotFoundError:
-                pass
+                try:
+                    _sync_published_path(self.path)
+                except OSError as exc:
+                    raise EducationWorkspaceDurabilityError(
+                        "workspace was replaced but durable publication could not "
+                        "be confirmed; reload before retrying"
+                    ) from exc
+                return new_revision
+            finally:
+                if temporary is not None and temporary.exists():
+                    temporary.unlink()
