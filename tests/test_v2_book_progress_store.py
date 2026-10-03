@@ -209,6 +209,87 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse((outside / f"{self.path.name}.lock").exists())
         self.assertFalse((outside / f"{self.path.name}.bak").exists())
 
+    def test_storage_directory_swap_before_lock_open_fails_closed(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        displaced = Path(self.tempdir.name) / "state-before-lock-swap"
+        original_open = self.store._open_lock_descriptor
+        swapped = False
+
+        def swap_then_open(*, expected_directory_identity=None):
+            nonlocal swapped
+            if not swapped:
+                self.path.parent.rename(displaced)
+                self.path.parent.mkdir()
+                swapped = True
+            return original_open(
+                expected_directory_identity=expected_directory_identity
+            )
+
+        with mock.patch.object(
+            self.store,
+            "_open_lock_descriptor",
+            side_effect=swap_then_open,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:directory-swap-before-lock",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.store.backup_path.exists())
+        self.assertFalse(self.store._lock_path.exists())
+        self.assertTrue(displaced.is_dir())
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "renaming a directory that contains the open lock is not portable on Windows",
+    )
+    def test_storage_directory_swap_during_temp_creation_fails_before_publication(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        displaced = Path(self.tempdir.name) / "state-during-publish-swap"
+        real_mkstemp = tempfile.mkstemp
+        swapped = False
+
+        def swap_then_create_temp(*args, **kwargs):
+            nonlocal swapped
+            if not swapped:
+                self.path.parent.rename(displaced)
+                self.path.parent.mkdir()
+                swapped = True
+            return real_mkstemp(*args, **kwargs)
+
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=swap_then_create_temp,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:directory-swap-during-publish",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.store.backup_path.exists())
+        self.assertFalse(self.store._lock_path.exists())
+        self.assertEqual(
+            [],
+            [
+                item.name
+                for item in self.path.parent.iterdir()
+                if item.name.startswith(f".{self.path.name}.")
+            ],
+        )
+        self.assertTrue((displaced / f"{self.path.name}.lock").exists())
+
     def test_invalid_book_keys_fail_before_any_file_mutation(self) -> None:
         reader = BookReader(self.original_document())
         bad = [
