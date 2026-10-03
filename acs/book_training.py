@@ -721,6 +721,22 @@ def restore_book_training_material(
         )
     origin = BookTrainingOrigin.from_dict(origin_value)
     definition = _definition_from_dict(definition_value)
+    # Persisted Book/Training material is a canonical wire contract, not a
+    # permissive authoring surface. Constructors normalize harmless-looking
+    # whitespace, duplicate accepted moves, and tag spelling for in-memory
+    # authoring convenience; accepting those normalizations here would let
+    # modified persisted bytes become an equivalent second representation.
+    # Require the exact canonical representation before source revalidation.
+    if dict(origin_value) != origin.as_dict():
+        raise BookTrainingError(
+            "book training origin is not in canonical wire form",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if dict(definition_value) != _definition_to_dict(definition):
+        raise BookTrainingError(
+            "book training definition is not in canonical wire form",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
     resolve_book_training_origin(document, origin)
     expected = build_book_training_material(document, origin.target_key)
     if _definition_to_dict(definition) != _definition_to_dict(expected.definition):
