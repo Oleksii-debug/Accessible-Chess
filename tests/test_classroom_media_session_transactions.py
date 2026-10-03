@@ -83,7 +83,7 @@ def provider_snapshot(
 
 
 class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
-    def make_composition(self, *, session_id=None, host_id=None):
+    def make_composition(self, *, session_id=None, host_id=None, clock=None):
         roster = FakeRoster()
         session_port = ClassroomMediaSessionTransactionPort()
         outer_port = ClassroomMediaHostTransactionPort(session_port=session_port)
@@ -119,6 +119,7 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
             session_port,
             nonsecret,
             transaction_id_factory=session_id or next_session_id,
+            clock=clock or (lambda: NOW + timedelta(seconds=2)),
         )
         return controller, roster, gate, nonsecret, sessions
 
@@ -205,6 +206,49 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
             controller.join(credential(), now=NOW + timedelta(seconds=1))
 
         self.assertEqual(controller.state, before)
+
+    def test_expired_between_prepare_and_handoff_never_exposes_token(self):
+        current = {"value": NOW + timedelta(seconds=1)}
+        controller, _roster, gate, _nonsecret, sessions = self.make_composition(
+            clock=lambda: current["value"],
+        )
+        value = credential(
+            issued_at=NOW,
+            expires_at=NOW + timedelta(seconds=5),
+        )
+        effect = sessions.prepare_join(value, now=NOW + timedelta(seconds=1))
+        current["value"] = NOW + timedelta(seconds=6)
+
+        with self.assertRaisesRegex(
+            ClassroomMediaError,
+            "not currently valid",
+        ):
+            sessions.take_credential(effect.transaction_id)
+
+        self.assertIsNone(sessions.pending_effect)
+        self.assertFalse(gate.occupied)
+        self.assertEqual(controller.state.room_id, None)
+        self.assertNotIn(TOKEN, repr(sessions))
+
+    def test_clock_failure_before_handoff_is_sanitized_and_releases_gate(self):
+        def broken_clock():
+            raise RuntimeError("private clock detail")
+
+        _controller, _roster, gate, _nonsecret, sessions = self.make_composition(
+            clock=broken_clock,
+        )
+        effect = sessions.prepare_join(credential(), now=NOW + timedelta(seconds=1))
+
+        with self.assertRaisesRegex(
+            MediaHostTransactionError,
+            "^media session credential clock failed$",
+        ) as caught:
+            sessions.take_credential(effect.transaction_id)
+
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertIsNone(sessions.pending_effect)
+        self.assertFalse(gate.occupied)
+        self.assertNotIn("private clock detail", str(caught.exception))
 
     def test_provider_not_started_is_safe_only_before_secret_handoff(self):
         controller, _roster, gate, _nonsecret, sessions = self.make_composition()
@@ -541,6 +585,7 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
                 session_a,
                 host_b,
                 transaction_id_factory=lambda: "session-" + "e" * 32,
+                clock=lambda: NOW + timedelta(seconds=2),
             )
 
         sessions = ClassroomMediaSessionHostTransactions(
@@ -549,6 +594,7 @@ class ClassroomMediaSessionHostTransactionTests(unittest.TestCase):
             session_a,
             host_a,
             transaction_id_factory=lambda: "session-" + "f" * 32,
+            clock=lambda: NOW + timedelta(seconds=2),
         )
         self.assertIsNone(sessions.pending_effect)
         self.assertIs(sessions._activity_gate, host_a.activity_gate)
