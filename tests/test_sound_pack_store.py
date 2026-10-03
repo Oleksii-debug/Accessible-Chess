@@ -332,6 +332,58 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 ),
             )
 
+    def test_failed_corrupt_version_repair_restores_original_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest(version="2.0.0")
+            downloaded, _ = _staged_download(root, manifest, seed=b"r")
+            store.install_atomically(downloaded)
+
+            version_dir = store._version_dir(manifest.pack_id, manifest.version)
+            damaged = version_dir / manifest.files["move"]
+            damaged_bytes = b"tampered-original-that-must-survive"
+            damaged.write_bytes(damaged_bytes)
+            real_replace = os.replace
+
+            def fail_only_staged_repair_publish(source, destination):
+                source_path = Path(source)
+                destination_path = Path(destination)
+                if (
+                    destination_path == version_dir
+                    and source_path.parent == version_dir.parent
+                    and source_path.name.startswith(
+                        f".{manifest.pack_id}-{manifest.version}-"
+                    )
+                    and "-repair-" not in source_path.name
+                ):
+                    raise OSError("injected repair publication failure")
+                return real_replace(source, destination)
+
+            with mock.patch(
+                "acs.sound_pack_store.os.replace",
+                side_effect=fail_only_staged_repair_publish,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "could not be published atomically",
+            ):
+                store.install_atomically(downloaded)
+
+            self.assertTrue(version_dir.is_dir())
+            self.assertEqual(
+                damaged_bytes,
+                damaged.read_bytes(),
+                "failed repair must restore the quarantined original version",
+            )
+            self.assertEqual(
+                (manifest.pack_id, manifest.version),
+                FilesystemSoundPackStore._read_active(store.root / manifest.pack_id),
+            )
+            self.assertFalse(
+                any("-repair-" in child.name for child in version_dir.parent.iterdir()),
+                "successful restoration must not leave a duplicate quarantine tree",
+            )
+
     def test_valid_same_version_different_bytes_are_never_treated_as_corrupt_repair(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
