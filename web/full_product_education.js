@@ -214,22 +214,14 @@
     if (status) status.textContent = String(message || "");
   }
 
-  function applyCollaborationFileProgress(root, progressInfo) {
+  function renderCollaborationFileProgress(container, sessionKey, progressInfo) {
     if (
-      !root ||
-      !progressInfo ||
-      typeof progressInfo !== "object" ||
-      typeof root.querySelector !== "function"
-    ) {
-      return false;
-    }
-    const wrapper = root.querySelector("#classroom-collaboration");
-    if (!wrapper) return false;
-    const sessionKey = progressInfo.session_key;
-    if (
+      !container ||
+      typeof container.replaceChildren !== "function" ||
       typeof sessionKey !== "string" ||
       !sessionKey ||
-      wrapper.getAttribute("data-collaboration-session") !== sessionKey
+      !progressInfo ||
+      typeof progressInfo !== "object"
     ) {
       return false;
     }
@@ -252,8 +244,6 @@
     ) {
       return false;
     }
-    const container = wrapper.querySelector("#collaboration-file-transfer-progress");
-    if (!container || typeof container.replaceChildren !== "function") return false;
     const previousSession = container.getAttribute("data-progress-session");
     if (previousSession === sessionKey) {
       const previousTransferred = Number(
@@ -297,6 +287,29 @@
     container.setAttribute("data-progress-complete", complete ? "true" : "false");
     container.replaceChildren(meter, document.createTextNode(" "), text);
     return true;
+  }
+
+  function applyCollaborationFileProgress(root, progressInfo) {
+    if (
+      !root ||
+      !progressInfo ||
+      typeof progressInfo !== "object" ||
+      typeof root.querySelector !== "function"
+    ) {
+      return false;
+    }
+    const wrapper = root.querySelector("#classroom-collaboration");
+    if (!wrapper) return false;
+    const sessionKey = progressInfo.session_key;
+    if (
+      typeof sessionKey !== "string" ||
+      !sessionKey ||
+      wrapper.getAttribute("data-collaboration-session") !== sessionKey
+    ) {
+      return false;
+    }
+    const container = wrapper.querySelector("#collaboration-file-transfer-progress");
+    return renderCollaborationFileProgress(container, sessionKey, progressInfo);
   }
 
   function applyEducationEvent(
@@ -1005,6 +1018,17 @@
       files.progress_label || "File transfer progress"
     );
     fileSection.appendChild(transferProgress);
+    if (
+      files.transfer_progress &&
+      typeof files.transfer_progress === "object" &&
+      typeof snapshot.session_key === "string"
+    ) {
+      renderCollaborationFileProgress(
+        transferProgress,
+        snapshot.session_key,
+        files.transfer_progress
+      );
+    }
     const olderFiles = node("button", files.older_label || "Older files");
     olderFiles.id = "collaboration-file-older";
     olderFiles.type = "button";
