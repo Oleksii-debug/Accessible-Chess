@@ -577,6 +577,42 @@ class ClassroomFileHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual({"error": "file_request_rejected"}, payload)
         self.assertEqual([], self.backend.upload_calls)
 
+    async def test_authentication_failure_does_not_consume_request_body(self):
+        raw = frame(upload_request(b"secret-body-must-not-be-read"))
+        self.auth.fail = True
+        receive_calls = 0
+        sent = []
+
+        async def receive():
+            nonlocal receive_calls
+            receive_calls += 1
+            raise AssertionError("unauthenticated request body was consumed")
+
+        async def send(event):
+            sent.append(event)
+
+        scope = {
+            "type": "http",
+            "scheme": "https",
+            "http_version": "1.1",
+            "method": "POST",
+            "path": FILE_RPC_PATH,
+            "raw_path": FILE_RPC_PATH.encode("ascii"),
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer invalid-token"),
+                (b"content-type", FILE_RPC_CONTENT_TYPE.encode("ascii")),
+                (b"content-length", str(len(raw)).encode("ascii")),
+            ],
+            "server": ("203.0.113.5", 443),
+            "client": ("198.51.100.7", 43120),
+        }
+
+        await self.endpoint(scope, receive, send)
+        self.assertEqual(0, receive_calls)
+        self.assertEqual(401, self.response(sent)[0])
+        self.assertEqual([], self.backend.upload_calls)
+
     async def test_authentication_identity_tls_route_and_headers_fail_before_backend(self):
         self.auth.identity = ("bad room", STUDENT)
         sent = await self.invoke()
