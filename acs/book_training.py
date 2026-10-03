@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from enum import Enum
 import hashlib
 import json
-from typing import Mapping
 
 from .book_index import AmbiguousBookTargetError, BookIndex
 from .bookdocument import BookDocument, Exercise
@@ -137,7 +136,7 @@ def _require_sha256(value: object, name: str) -> str:
 
 
 def _require_exact_fields(
-    payload: Mapping[str, object],
+    payload: dict[str, object],
     expected: frozenset[str],
     name: str,
 ) -> None:
@@ -230,10 +229,10 @@ class BookTrainingOrigin:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, object]) -> "BookTrainingOrigin":
-        if not isinstance(payload, Mapping):
+    def from_dict(cls, payload: dict[str, object]) -> "BookTrainingOrigin":
+        if type(payload) is not dict:
             raise BookTrainingError(
-                "book training origin must be a mapping",
+                "book training origin must be an exact object",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
         _require_exact_fields(payload, _ORIGIN_FIELDS, "book training origin")
@@ -265,10 +264,10 @@ class BookTrainingMaterial:
     definition: ExerciseDefinition
 
     def __post_init__(self) -> None:
-        if not isinstance(self.origin, BookTrainingOrigin):
-            raise TypeError("origin must be a BookTrainingOrigin")
-        if not isinstance(self.definition, ExerciseDefinition):
-            raise TypeError("definition must be an ExerciseDefinition")
+        if type(self.origin) is not BookTrainingOrigin:
+            raise TypeError("origin must be an exact BookTrainingOrigin")
+        if type(self.definition) is not ExerciseDefinition:
+            raise TypeError("definition must be an exact ExerciseDefinition")
 
     def as_dict(self) -> dict[str, object]:
         # Rebuild the definition through the strict wire decoder so a caller that
@@ -283,48 +282,136 @@ class BookTrainingMaterial:
 
 
 def _definition_to_dict(definition: ExerciseDefinition) -> dict[str, object]:
-    if not isinstance(definition, ExerciseDefinition):
-        raise TypeError("definition must be an ExerciseDefinition")
-    if type(definition.title) is not str:
-        raise BookTrainingError(
-            "exercise title must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if type(definition.tags) is not tuple or any(type(tag) is not str for tag in definition.tags):
-        raise BookTrainingError(
-            "exercise tags must be a tuple of text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if not isinstance(definition.metadata, Mapping) or any(
-        type(key) is not str or type(value) is not str
-        for key, value in definition.metadata.items()
+    if type(definition) is not ExerciseDefinition:
+        raise TypeError("definition must be an exact ExerciseDefinition")
+    if (
+        type(definition.exercise_id) is not str
+        or type(definition.start_fen) is not str
+        or len(definition.exercise_id) > _MAX_DEFINITION_AUX_TEXT
+        or len(definition.start_fen) > _MAX_DEFINITION_AUX_TEXT
     ):
         raise BookTrainingError(
-            "exercise metadata must map text keys to text values",
+            "exercise identity and start_fen must be bounded text",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    return {
-        "exercise_id": definition.exercise_id,
-        "start_fen": definition.start_fen,
-        "steps": [
+    if type(definition.title) is not str or len(definition.title) > _MAX_DEFINITION_AUX_TEXT:
+        raise BookTrainingError(
+            "exercise title must be bounded text",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if (
+        definition.source_id is not None
+        and (
+            type(definition.source_id) is not str
+            or len(definition.source_id) > _MAX_DEFINITION_AUX_TEXT
+        )
+    ):
+        raise BookTrainingError(
+            "exercise source_id must be bounded text or null",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if type(definition.tags) is not tuple or len(definition.tags) > _MAX_DEFINITION_TAGS:
+        raise BookTrainingError(
+            "exercise tags must be a bounded tuple",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for tag in definition.tags:
+        if type(tag) is not str or len(tag) > _MAX_DEFINITION_AUX_TEXT:
+            raise BookTrainingError(
+                "exercise tags must contain bounded text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+    if (
+        type(definition.steps) is not tuple
+        or not definition.steps
+        or len(definition.steps) > _MAX_EXERCISE_STEPS
+    ):
+        raise BookTrainingError(
+            "exercise steps must be a bounded non-empty tuple",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    wire_steps: list[dict[str, object]] = []
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise BookTrainingError(
+                "exercise steps must contain exact ExerciseStep values",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        accepted = step.accepted_moves
+        if (
+            type(accepted) is not frozenset
+            or not accepted
+            or len(accepted) > _MAX_ACCEPTED_MOVES_PER_STEP
+        ):
+            raise BookTrainingError(
+                "exercise accepted_moves must be a bounded frozenset",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        for move in accepted:
+            if type(move) is not str or len(move) > _MAX_MOVE_TEXT:
+                raise BookTrainingError(
+                    "exercise accepted_moves must contain bounded text",
+                    code=BookTrainingErrorCode.INVALID_FIELD,
+                )
+        for value, name in (
+            (step.hint, "exercise hint"),
+            (step.explanation, "exercise explanation"),
+        ):
+            if (
+                value is not None
+                and (
+                    type(value) is not str
+                    or len(value) > _MAX_DEFINITION_AUX_TEXT
+                )
+            ):
+                raise BookTrainingError(
+                    f"{name} must be bounded text or null",
+                    code=BookTrainingErrorCode.INVALID_FIELD,
+                )
+        wire_steps.append(
             {
-                "accepted_moves": sorted(step.accepted_moves),
+                "accepted_moves": sorted(accepted),
                 "hint": step.hint,
                 "explanation": step.explanation,
             }
-            for step in definition.steps
-        ],
+        )
+
+    metadata = definition.metadata
+    if type(metadata) is not dict:
+        raise BookTrainingError(
+            "exercise metadata must be an exact object",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if len(metadata) > _MAX_DEFINITION_METADATA_ITEMS:
+        raise BookTrainingError(
+            "exercise metadata exceeds the item limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for key, value in metadata.items():
+        if (
+            type(key) is not str
+            or type(value) is not str
+            or len(key) > _MAX_DEFINITION_AUX_TEXT
+            or len(value) > _MAX_DEFINITION_AUX_TEXT
+        ):
+            raise BookTrainingError(
+                "exercise metadata must map bounded text to bounded text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+    return {
+        "exercise_id": definition.exercise_id,
+        "start_fen": definition.start_fen,
+        "steps": wire_steps,
         "title": definition.title,
         "tags": list(definition.tags),
         "source_id": definition.source_id,
-        "metadata": dict(sorted(definition.metadata.items())),
+        "metadata": dict(sorted(metadata.items())),
     }
 
-
-def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
-    if not isinstance(payload, Mapping):
+def _definition_from_dict(payload: dict[str, object]) -> ExerciseDefinition:
+    if type(payload) is not dict:
         raise BookTrainingError(
-            "book training definition must be a mapping",
+            "book training definition must be an exact object",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     _require_exact_fields(payload, _DEFINITION_FIELDS, "book training definition")
@@ -336,9 +423,9 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
         )
     steps: list[ExerciseStep] = []
     for raw_step in steps_value:
-        if not isinstance(raw_step, Mapping):
+        if type(raw_step) is not dict:
             raise BookTrainingError(
-                "book training step must be a mapping",
+                "book training step must be an exact object",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
         _require_exact_fields(raw_step, _STEP_FIELDS, "book training step")
@@ -402,9 +489,9 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
                 "book training tags must contain bounded text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
-    if not isinstance(metadata, Mapping):
+    if type(metadata) is not dict:
         raise BookTrainingError(
-            "book training metadata must be a mapping",
+            "book training metadata must be an exact object",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     try:
@@ -775,7 +862,7 @@ def return_reader_to_book_training_origin(
 
 def restore_book_training_material(
     document: BookDocument,
-    payload: Mapping[str, object],
+    payload: dict[str, object],
 ) -> BookTrainingMaterial:
     """Restore a versioned exported material and prove it still matches source.
 
@@ -783,9 +870,9 @@ def restore_book_training_material(
     resolved back to BookDocument and the canonical definition is regenerated;
     any stale/tampered definition fails closed.
     """
-    if not isinstance(payload, Mapping):
+    if type(payload) is not dict:
         raise BookTrainingError(
-            "book training material must be a mapping",
+            "book training material must be an exact object",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     _require_exact_fields(payload, _MATERIAL_FIELDS, "book training material")
@@ -802,9 +889,9 @@ def restore_book_training_material(
         )
     origin_value = payload["origin"]
     definition_value = payload["definition"]
-    if not isinstance(origin_value, Mapping) or not isinstance(definition_value, Mapping):
+    if type(origin_value) is not dict or type(definition_value) is not dict:
         raise BookTrainingError(
-            "book training origin and definition must be mappings",
+            "book training origin and definition must be exact objects",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     origin = BookTrainingOrigin.from_dict(origin_value)
