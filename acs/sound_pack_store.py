@@ -1266,25 +1266,36 @@ class FilesystemSoundPackStore:
         pack_dir, versions_dir = self._ensure_pack_parent(manifest.pack_id)
         destination = versions_dir / manifest.version
 
+        repair_existing = False
         if destination.exists():
-            existing_manifest, existing_digests, existing_rights = self._verify_version(
-                destination,
-                expected_pack_id=manifest.pack_id,
-                expected_version=manifest.version,
-            )
-            if (
-                existing_manifest != manifest
-                or existing_digests != digests
-                or existing_rights != downloaded.rights_evidence
-            ):
-                raise SoundPackStoreError(
-                    "sound pack version already exists with different content"
+            try:
+                existing_manifest, existing_digests, existing_rights = self._verify_version(
+                    destination,
+                    expected_pack_id=manifest.pack_id,
+                    expected_version=manifest.version,
                 )
-            _fsync_directory(versions_dir)
-            self._publish_active(
-                pack_dir, manifest.pack_id, manifest.version
-            )
-            return
+            except (TypeError, ValueError, SoundPackStoreError):
+                # A corrupt version is not an installed authority, and the
+                # application correctly projects its catalog entry as
+                # installable again. Stage replacement bytes first; immediately
+                # before publication we re-check that this path is still corrupt
+                # so a concurrently repaired/valid immutable version is never
+                # deleted.
+                repair_existing = True
+            else:
+                if (
+                    existing_manifest != manifest
+                    or existing_digests != digests
+                    or existing_rights != downloaded.rights_evidence
+                ):
+                    raise SoundPackStoreError(
+                        "sound pack version already exists with different content"
+                    )
+                _fsync_directory(versions_dir)
+                self._publish_active(
+                    pack_dir, manifest.pack_id, manifest.version
+                )
+                return
 
         try:
             staging = Path(
@@ -1364,6 +1375,33 @@ class FilesystemSoundPackStore:
                     )
                 ),
             )
+
+            if repair_existing and os.path.lexists(destination):
+                try:
+                    current_manifest, current_digests, current_rights = self._verify_version(
+                        destination,
+                        expected_pack_id=manifest.pack_id,
+                        expected_version=manifest.version,
+                    )
+                except (TypeError, ValueError, SoundPackStoreError):
+                    self._remove_without_following(destination)
+                    _fsync_directory(versions_dir)
+                else:
+                    if (
+                        current_manifest == manifest
+                        and current_digests == digests
+                        and current_rights == downloaded.rights_evidence
+                    ):
+                        _fsync_directory(versions_dir)
+                        self._publish_active(
+                            pack_dir,
+                            manifest.pack_id,
+                            manifest.version,
+                        )
+                        return
+                    raise SoundPackStoreError(
+                        "sound pack version already exists with different content"
+                    )
 
             try:
                 os.replace(staging, destination)
