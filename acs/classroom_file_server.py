@@ -18,6 +18,7 @@ from typing import Callable, Protocol
 from .classroom_domain import MAX_WIRE_INTEGER
 from .classroom_collaboration import (
     MAX_DOWNLOAD_TOKEN_CHARS,
+    AttachmentHistoryPage,
     MAX_SYNC_ATTACHMENTS,
     FileQuotaPolicy,
     FileTransferProgress,
@@ -35,6 +36,7 @@ from .classroom_collaboration_storage import (
 
 
 SERVER_SCHEMA_VERSION = 1
+_FILE_READ_CHUNK_BYTES = 1024 * 1024
 
 
 class ClassroomFileServerError(RuntimeError):
@@ -846,7 +848,8 @@ class ClassroomFileServerSQLiteStore:
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
+        """Read attachment snapshots and their mutable-state watermark atomically."""
         room = _server_id(room_id, "room id")
         after = _bounded_cursor(after_sequence, "attachment sequence cursor")
         count = _bounded_limit(limit)
@@ -860,8 +863,56 @@ class ClassroomFileServerSQLiteStore:
             args.append(after)
         query += "ORDER BY sequence_no LIMIT ?"
         args.append(count)
+
         with closing(self._connect()) as db:
-            rows = db.execute(query, tuple(args)).fetchall()
+            try:
+                # Explicit read transaction is required: the attachment rows and
+                # the room-wide revision watermark must describe one SQLite
+                # snapshot. Two autocommit SELECTs could otherwise straddle a
+                # concurrent cancellation and let reconnect skip mutable state.
+                db.execute("BEGIN")
+                rows = db.execute(query, tuple(args)).fetchall()
+                revision_stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count,
+                           MAX(revision) AS last_revision
+                    FROM classroom_file_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                item_count = revision_stats["item_count"]
+                last_revision = revision_stats["last_revision"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomFileServerError(
+                        "authoritative attachment state count is corrupt"
+                    )
+                if last_revision is None:
+                    if item_count != 0:
+                        raise ClassroomFileServerError(
+                            "authoritative attachment state revision has a gap"
+                        )
+                    snapshot_state_revision = None
+                elif (
+                    type(last_revision) is int
+                    and 0 <= last_revision <= MAX_WIRE_INTEGER
+                    and last_revision + 1 == item_count
+                ):
+                    snapshot_state_revision = last_revision
+                else:
+                    raise ClassroomFileServerError(
+                        "authoritative attachment state revision has a gap"
+                    )
+                db.commit()
+            except ClassroomFileServerError:
+                db.rollback()
+                raise
+            except sqlite3.Error:
+                db.rollback()
+                raise ClassroomFileServerError(
+                    "classroom file history read failed"
+                ) from None
+
         items = tuple(self._terminal_from_row(row) for row in rows)
         expected_sequence = 0 if after is None else after + 1
         for item in items:
@@ -870,7 +921,7 @@ class ClassroomFileServerSQLiteStore:
                     "authoritative file history has a sequence gap"
                 )
             expected_sequence += 1
-        return items
+        return AttachmentHistoryPage(items, snapshot_state_revision)
 
     def state_updates_after(
         self,
@@ -1350,7 +1401,7 @@ class ClassroomFileServerService:
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
         caller = _server_id(trusted_caller_identity, "trusted caller identity")
         room = _server_id(room_id, "room id")
         self._authorize(caller=caller, room_id=room, action="history")
@@ -1561,41 +1612,56 @@ class ClassroomFileServerClient:
         )
 
     @staticmethod
-    def _read_prepared(prepared: PreparedFile) -> bytes:
+    def _read_prepared(
+        prepared: PreparedFile,
+        on_progress: Callable[[FileTransferProgress], None] | None,
+    ) -> bytes:
         if type(prepared) is not PreparedFile:
             raise ClassroomFileServerError("file transfer requires PreparedFile")
+        if on_progress is not None and not callable(on_progress):
+            raise ClassroomFileServerError("file progress consumer must be callable")
+
+        expected_size = prepared.metadata.size_bytes
+        remaining = expected_size
+        transferred = 0
+        digest = hashlib.sha256()
+        content = bytearray()
+        extra = b""
         try:
-            content = Path(prepared.local_path).read_bytes()
-        except OSError as error:
+            with Path(prepared.local_path).open("rb") as source:
+                while remaining:
+                    chunk = source.read(min(_FILE_READ_CHUNK_BYTES, remaining))
+                    if not chunk:
+                        break
+                    content.extend(chunk)
+                    digest.update(chunk)
+                    transferred += len(chunk)
+                    remaining -= len(chunk)
+                    if on_progress is not None:
+                        on_progress(
+                            FileTransferProgress(
+                                prepared.metadata.attachment_id,
+                                transferred,
+                                expected_size,
+                            )
+                        )
+                # Bound the read to the prepared size while still detecting a
+                # file that grew between preparation and upload.
+                extra = source.read(1)
+        except OSError:
             raise ClassroomFileServerError(
                 "selected file could not be read for upload"
             ) from None
+
         if (
-            len(content) != prepared.metadata.size_bytes
-            or hashlib.sha256(content).hexdigest() != prepared.metadata.sha256
+            remaining != 0
+            or extra
+            or digest.hexdigest() != prepared.metadata.sha256
         ):
             raise ClassroomFileServerError(
                 "selected file changed before server upload"
             )
-        return content
-
-    @staticmethod
-    def _report_progress(
-        prepared: PreparedFile,
-        result: AttachmentMetadata,
-        on_progress: Callable[[FileTransferProgress], None] | None,
-    ) -> None:
-        if on_progress is None:
-            return
-        if not callable(on_progress):
-            raise ClassroomFileServerError("file progress consumer must be callable")
-        on_progress(
-            FileTransferProgress(
-                result.attachment_id,
-                prepared.metadata.size_bytes,
-                prepared.metadata.size_bytes,
-            )
-        )
+        return bytes(content)
 
     def upload(
         self,
@@ -1605,13 +1671,12 @@ class ClassroomFileServerClient:
     ) -> AttachmentMetadata:
         if on_progress is not None and not callable(on_progress):
             raise ClassroomFileServerError("file progress consumer must be callable")
-        result = self._service.upload(
+        content = self._read_prepared(prepared, on_progress)
+        return self._service.upload(
             trusted_caller_identity=self._caller,
             metadata=prepared.metadata,
-            content=self._read_prepared(prepared),
+            content=content,
         )
-        self._report_progress(prepared, result, on_progress)
-        return result
 
     def retry(
         self,
@@ -1633,7 +1698,7 @@ class ClassroomFileServerClient:
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
         return self._service.history_after(
             trusted_caller_identity=self._caller,
             room_id=room_id,
