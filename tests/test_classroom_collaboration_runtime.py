@@ -696,6 +696,7 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         room = "room-1"
         selected = self.root / "two-client-shared.pgn"
         selected.write_bytes(b"1. e4 e5 *")
+        saved: list[tuple[str, str]] = []
 
         class ChatAuthorization:
             def __init__(self, members):
@@ -971,6 +972,7 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 file_endpoint_url="https://files.example.test/v1/classroom/files",
                 chat_bearer_token_provider=lambda: "chat-student-2",
                 file_bearer_token_provider=lambda: "file-student-2",
+                file_saver=lambda token, name: saved.append((token, name)),
                 allow_insecure_loopback=False,
             )
 
@@ -989,6 +991,13 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             )
             self.assertEqual("collaboration.file.sent", uploaded["kind"])
             second.refresh_classroom_files()
+            second_file = second_runtime.webview.safe_snapshot()["files"]["items"][0]
+            self.assertTrue(second_file["can_save"])
+            saved_result = second.browser_command(
+                "classes",
+                "collaboration.file.save",
+                {"file_key": second_file["file_key"]},
+            )
 
             first.unbind_classroom_collaboration()
             second.unbind_classroom_collaboration()
@@ -1006,6 +1015,13 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertEqual("stored", remote_files[0].transfer_state)
         self.assertEqual("clean", remote_files[0].scan_state)
         self.assertEqual(b"1. e4 e5 *", object_store.objects[remote_files[0].object_key])
+        self.assertEqual("collaboration.file.saved", saved_result["kind"])
+        self.assertEqual(
+            [("read-student-2-300", "two-client-shared.pgn")],
+            saved,
+        )
+        self.assertNotIn("read-student-2-300", repr(saved_result))
+        self.assertNotIn(remote_files[0].object_key, repr(saved_result))
         self.assertIn("chat-student-1", chat_auth.calls)
         self.assertIn("chat-student-2", chat_auth.calls)
         self.assertIn("file-student-1", file_auth.calls)
