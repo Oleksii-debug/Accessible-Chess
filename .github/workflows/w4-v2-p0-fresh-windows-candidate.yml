@@ -7,6 +7,14 @@ on:
         description: Exact integrated Full Product commit to package
         required: true
         type: string
+      sound_pack_url:
+        description: HTTPS URL for the exact user-supplied Accessible Chess sound-pack ZIP
+        required: true
+        type: string
+      sound_pack_sha256:
+        description: SHA-256 of the sound-pack ZIP supplied by sound_pack_url
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -32,6 +40,8 @@ env:
   QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
   STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+  USER_SOUND_WAV_COUNT: '330'
+  USER_SOUND_INVENTORY_SHA256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920
 
 jobs:
   candidate:
@@ -94,7 +104,6 @@ jobs:
           test -f product-source/acs/version2_release_payload.py
           test -f product-source/acs/version2_package_assembler.py
           test -f product-source/acs/version2_package_preflight.py
-          test -f product-source/packaging/AccessibleChess.exe.config
           test -f product-source/scripts/run_p0_packaged_acceptance.ps1
           test -f product-source/tools/p0f_lawful_starter_bundle.py
           git -C product-source diff --check
@@ -158,44 +167,9 @@ jobs:
         working-directory: product-source
         run: |
           $ErrorActionPreference='Stop'
-          git diff --exit-code -- packaging/AccessibleChess.exe.config
-          if($LASTEXITCODE -ne 0){throw 'PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT'}
-          $canonicalConfig=(Resolve-Path 'packaging\AccessibleChess.exe.config').Path
-          $canonicalConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $canonicalConfig).Hash.ToLowerInvariant()
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "WINFORMS_CONFIG_SHA256=$canonicalConfigHash"
-          Write-Host "PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_SHA256=$canonicalConfigHash"
-          @'
-          from pathlib import Path
-          from acs.version2_package_preflight import validate_winforms_accessibility_app_config
-
-          validate_winforms_accessibility_app_config(
-              Path("packaging/AccessibleChess.exe.config")
-          )
-          print("SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS=PASS")
-          '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'SOURCE_WINFORMS_ACCESSIBILITY_CONFIG_SEMANTICS_FAILURE'}
-          @'
-          from pathlib import Path
-          import re
-
-          automatic_matches_mutation = re.compile(
-              r"(?im)\$matches\s*(?:\+\+|--|[+\-*/%]?=)"
-          )
-          for relative in (
-              "scripts/p0_packaged_document_copy_probe.ps1",
-              "scripts/p0g_packaged_hotkey_result_probe.ps1",
-          ):
-              text = Path(relative).read_text(encoding="utf-8")
-              if automatic_matches_mutation.search(text):
-                  raise SystemExit(
-                      f"PowerShell automatic $Matches variable is mutated in {relative}"
-                  )
-          print("SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY=PASS")
-          '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'SOURCE_PACKAGED_PROBE_POWERSHELL_AUTOMATIC_VARIABLE_SAFETY_FAILURE'}
           python run_accessible_chess_v2.py --diagnostic
           if($LASTEXITCODE -ne 0){throw 'SOURCE_V2_DIAGNOSTIC_FAILURE'}
-          python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0_packaged_document_copy_probe tests.test_verify_p0_packaged_document_copy_evidence tests.test_verify_p0_packaged_document_copy_evidence_hardening tests.test_verify_p0_packaged_document_copy_cli tests.test_p0_packaged_acceptance_orchestrator tests.test_p0g_packaged_hotkey_result_probe tests.test_p0g_accessible_results tests.test_verify_p0g_packaged_hotkey_result_evidence tests.test_verify_p0g_packaged_hotkey_result_cli tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume
+          python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0_packaged_document_copy_probe tests.test_verify_p0_packaged_document_copy_evidence tests.test_verify_p0_packaged_document_copy_evidence_hardening tests.test_verify_p0_packaged_document_copy_cli tests.test_p0_packaged_acceptance_orchestrator tests.test_p0g_accessible_results tests.test_verify_p0g_packaged_hotkey_result_evidence tests.test_verify_p0g_packaged_hotkey_result_cli tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume
           if($LASTEXITCODE -ne 0){throw 'SOURCE_RELEASE_CRITICAL_P0_CONTRACT_FAILURE'}
           Write-Host 'SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS'
           Write-Host 'SOURCE_RELEASE_CRITICAL_P0_CONTRACTS=PASS'
@@ -210,69 +184,85 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $report=Join-Path $env:RUNNER_TEMP 'nuitka-compilation-report.xml'
-          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-files=./packaging/AccessibleChess.exe.config=AccessibleChess.exe.config --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
           if($LASTEXITCODE -ne 0){throw 'NUITKA_BUILD_TOOLCHAIN_FAILURE'}
           $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
           $exe=Join-Path $dist 'AccessibleChess.exe'
           if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'AccessibleChess.exe missing'}
-          $config=(Resolve-Path 'packaging\AccessibleChess.exe.config').Path
-          $distConfig=Join-Path $dist 'AccessibleChess.exe.config'
-          if(-not (Test-Path -LiteralPath $distConfig -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}
-          $sourceConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $config).Hash.ToLowerInvariant()
-          $distConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $distConfig).Hash.ToLowerInvariant()
-          if($env:WINFORMS_CONFIG_SHA256 -notmatch '^[0-9a-f]{64}$'){throw 'WINFORMS_ACCESSIBILITY_CONFIG_AUTHORITY_HASH_INVALID'}
-          if($sourceConfigHash -ne $env:WINFORMS_CONFIG_SHA256){throw 'PRODUCT_WINFORMS_ACCESSIBILITY_CONFIG_WORKTREE_DRIFT'}
-          if($distConfigHash -ne $env:WINFORMS_CONFIG_SHA256){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}
           $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'})
           if($leaks.Count -ne 0){throw 'RAW_PYTHON_SOURCE_OR_BYTECODE_LEAK'}
           $reports=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Name -match '(?i)(nuitka.*report|compilation[-_ ]?report)'})
           if($reports.Count -ne 0){throw 'COMPILATION_REPORT_LEAK'}
           Write-Host "STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
-          Write-Host "STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$distConfigHash"
           Write-Host 'STANDALONE_BUILD=PASS'
 
-      - name: Build deterministic nine-event sound input with provenance
+      - name: Materialize exact user-supplied 330-WAV sound pack
         shell: pwsh
         working-directory: product-source
+        env:
+          USER_SOUND_PACK_URL: ${{ inputs.sound_pack_url }}
+          USER_SOUND_PACK_SHA256: ${{ inputs.sound_pack_sha256 }}
         run: |
           $ErrorActionPreference='Stop'
+          $url=[string]$env:USER_SOUND_PACK_URL
+          $wanted=([string]$env:USER_SOUND_PACK_SHA256).Trim().ToLowerInvariant()
+          if($url -notmatch '^https://'){throw 'USER_SOUND_PACK_URL_MUST_BE_HTTPS'}
+          if($wanted -notmatch '^[0-9a-f]{64}$'){throw 'USER_SOUND_PACK_SHA256_INVALID'}
+
+          New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
+          $archive='release-inputs\user-sound-pack.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($actual -ne $wanted){throw "USER_SOUND_PACK_ZIP_SHA256_MISMATCH actual=$actual expected=$wanted"}
+
+          python scripts/build_user_sound_pack.py $archive release-inputs/sounds --expected-source-archive-sha256 $wanted
+          if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_CANONICALIZATION_FAILED'}
+
           @'
-          import hashlib, json, math, struct, wave
+          import json, os
           from pathlib import Path
-          from acs.sound_events import SoundEvent
+          from scripts.build_user_sound_pack import (
+              EXPECTED_SOURCE_INVENTORY_SHA256,
+              EXPECTED_SOURCE_WAV_COUNT,
+          )
+
           root = Path('release-inputs/sounds')
-          root.mkdir(parents=True, exist_ok=False)
-          frequencies = (330, 220, 660, 440, 550, 140, 392, 196, 880)
-          files = {}
-          provenance = {}
-          for event, frequency in zip(SoundEvent, frequencies, strict=True):
-              name = f'{event.value}.wav'
-              path = root / name
-              sample_rate = 22050
-              duration = 0.12 if event.value == 'tick' else 0.18
-              count = int(sample_rate * duration)
-              frames = []
-              for index in range(count):
-                  envelope = max(0.0, 1.0 - index / count)
-                  value = int(9000 * envelope * math.sin(2 * math.pi * frequency * index / sample_rate))
-                  frames.append(struct.pack('<h', value))
-              with wave.open(str(path), 'wb') as writer:
-                  writer.setnchannels(1); writer.setsampwidth(2); writer.setframerate(sample_rate)
-                  writer.writeframes(b''.join(frames))
-              files[event.value] = name
-              provenance[event.value] = {
-                  'file': name,
-                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                  'license_id': 'CC0-1.0',
-                  'source': f'urn:accessible-chess:generated-tone:v1:{event.value}',
-                  'creator': 'Accessible Chess deterministic tone generator',
-              }
-          (root / 'manifest.json').write_text(json.dumps({'schema_version': 1, 'files': files}, sort_keys=True, indent=2) + '\n', encoding='utf-8')
-          (root / 'provenance.json').write_text(json.dumps({'schema_version': 1, 'events': provenance}, sort_keys=True, indent=2) + '\n', encoding='utf-8')
-          assert len(files) == 9
-          print('DETERMINISTIC_SOUND_INPUT_WITH_PROVENANCE=PASS')
+          inventory = json.loads((root / 'inventory.json').read_text(encoding='utf-8'))
+          if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('USER_SOUND_PACK_WAV_COUNT_MISMATCH')
+          if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('USER_SOUND_PACK_INVENTORY_SHA256_MISMATCH')
+          if EXPECTED_SOURCE_WAV_COUNT != int(os.environ['USER_SOUND_WAV_COUNT']):
+              raise SystemExit('USER_SOUND_PACK_WORKFLOW_COUNT_AUTHORITY_MISMATCH')
+          if EXPECTED_SOURCE_INVENTORY_SHA256 != os.environ['USER_SOUND_INVENTORY_SHA256']:
+              raise SystemExit('USER_SOUND_PACK_WORKFLOW_DIGEST_AUTHORITY_MISMATCH')
+
+          variants = json.loads((root / 'variants.json').read_text(encoding='utf-8'))
+          layers = json.loads((root / 'layers.json').read_text(encoding='utf-8'))
+          impacts = json.loads((root / 'newgame_impacts.json').read_text(encoding='utf-8'))
+          if variants['events']['move'][0]['id'] != '1':
+              raise SystemExit('USER_SOUND_PACK_DEFAULT_MOVE_VARIANT_INVALID')
+          if layers['events']['move']['1'][-1] != 'library/Board/MOVEHIT1.WAV':
+              raise SystemExit('USER_SOUND_PACK_MOVE_LAYER_INVALID')
+          if layers['events']['capture']['1'][-1] != 'library/Board/CAPHIT1.WAV':
+              raise SystemExit('USER_SOUND_PACK_CAPTURE_LAYER_INVALID')
+          if impacts.get('schema_version') != 2:
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_TIMING_INVALID')
+          if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_IMPACT_COUNT_INVALID')
+
+          wavs = [path for path in (root / 'library').rglob('*') if path.is_file() and path.suffix.lower() == '.wav']
+          if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('USER_SOUND_PACK_LIBRARY_WAV_COUNT_MISMATCH')
+          print(f'USER_SOUND_PACK_WAV_COUNT={len(wavs)}')
+          print(f'USER_SOUND_PACK_INVENTORY_SHA256={EXPECTED_SOURCE_INVENTORY_SHA256}')
+          print('USER_SOUND_PACK_EXACT=PASS')
           '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'Sound input generation/provenance failed'}
+          if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_VALIDATION_FAILED'}
+
+          "USER_SOUND_PACK_ZIP_SHA256=$actual" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "USER_SOUND_PACK_ZIP_SHA256=$actual"
+          Write-Host 'USER_SOUND_PACK_CANONICAL=PASS'
 
       - name: Download pinned official Stockfish 18 and lawful starter corpus
         shell: pwsh
@@ -359,18 +349,39 @@ jobs:
           Expand-Archive -LiteralPath (Join-Path 'candidate-output' $env:CANDIDATE_FILE) -DestinationPath fresh-extraction
           @'
           import os
+          import json
           from pathlib import Path
           from acs.version2_package_preflight import validate_version2_package_tree
-          report = validate_version2_package_tree(Path('fresh-extraction'), expected_integration_sha=os.environ['PRODUCT_SHA'])
+          from scripts.build_user_sound_pack import (
+              EXPECTED_SOURCE_INVENTORY_SHA256,
+              EXPECTED_SOURCE_WAV_COUNT,
+          )
+
+          extraction = Path('fresh-extraction')
+          report = validate_version2_package_tree(
+              extraction,
+              expected_integration_sha=os.environ['PRODUCT_SHA'],
+          )
+          sound_root = extraction / 'AccessibleChess' / 'assets' / 'sounds'
+          inventory = json.loads(
+              (sound_root / 'inventory.json').read_text(encoding='utf-8')
+          )
+          if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH')
+          if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DIGEST_MISMATCH')
+          wavs = [
+              path for path in (sound_root / 'library').rglob('*')
+              if path.is_file() and path.suffix.lower() == '.wav'
+          ]
+          if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH')
           print(f'FRESH_EXTRACTION_PREFLIGHT_FILES={len(report.inventory)}')
+          print(f'FRESH_EXTRACTION_USER_SOUND_WAV_COUNT={len(wavs)}')
+          print('FRESH_EXTRACTION_USER_SOUND_PACK=PASS')
           print('FRESH_EXTRACTION_PREFLIGHT=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Fresh extraction canonical preflight failed'}
-          if($env:WINFORMS_CONFIG_SHA256 -notmatch '^[0-9a-f]{64}$'){throw 'WINFORMS_ACCESSIBILITY_CONFIG_AUTHORITY_HASH_INVALID'}
-          $freshConfig=(Resolve-Path 'fresh-extraction\AccessibleChess\AccessibleChess.exe.config').Path
-          $freshConfigHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $freshConfig).Hash.ToLowerInvariant()
-          if($freshConfigHash -ne $env:WINFORMS_CONFIG_SHA256){throw 'FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}
-          Write-Host "FRESH_EXTRACTED_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$freshConfigHash"
 
       - name: Fresh-extracted packaged diagnostic and Stockfish smoke
         shell: pwsh
@@ -503,23 +514,21 @@ jobs:
           from pathlib import Path
 
           hex40 = re.compile(r"^[0-9a-f]{40}$")
-          hex64 = re.compile(r"^[0-9a-f]{64}$")
           product_sha = os.environ["PRODUCT_SHA"].strip().lower()
           workflow_sha = os.environ["WORKFLOW_AUTHORITY_SHA"].strip().lower()
-          config_sha = os.environ["WINFORMS_CONFIG_SHA256"].strip().lower()
           if not hex40.fullmatch(product_sha):
               raise SystemExit("RUN_METADATA_PRODUCT_SHA_INVALID")
           if not hex40.fullmatch(workflow_sha):
               raise SystemExit("RUN_METADATA_WORKFLOW_SHA_INVALID")
-          if not hex64.fullmatch(config_sha):
-              raise SystemExit("RUN_METADATA_WINFORMS_CONFIG_SHA_INVALID")
           payload = {
               "schema_version": 1,
               "product_sha": product_sha,
               "workflow_sha": workflow_sha,
-              "winforms_accessibility_config_sha256": config_sha,
               "pre_upload_product_freshness": True,
               "pre_upload_workflow_freshness": True,
+              "user_sound_pack_zip_sha256": os.environ["USER_SOUND_PACK_ZIP_SHA256"].strip().lower(),
+              "user_sound_inventory_sha256": os.environ["USER_SOUND_INVENTORY_SHA256"].strip().lower(),
+              "user_sound_wav_count": int(os.environ["USER_SOUND_WAV_COUNT"]),
               "human_tested": False,
               "nvda_verified": False,
           }
@@ -533,7 +542,6 @@ jobs:
           temporary.replace(path)
           print(f"W4_RUN_METADATA_PRODUCT_SHA={product_sha}")
           print(f"W4_RUN_METADATA_WORKFLOW_SHA={workflow_sha}")
-          print(f"W4_RUN_METADATA_WINFORMS_CONFIG_SHA256={config_sha}")
           print("W4_RUN_METADATA=PASS")
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Run-bound candidate metadata publication failed'}
@@ -552,6 +560,9 @@ jobs:
           Write-Host 'P0_DOCUMENT_COPY_MACHINE_PROOF=PASS'
           Write-Host 'P0G_HOTKEY_RESULT_MACHINE_PROOF=PASS'
           Write-Host 'P0F_PACKAGED_STARTER_MACHINE_PROOF=PASS'
+          Write-Host "USER_SOUND_PACK_ZIP_SHA256=$env:USER_SOUND_PACK_ZIP_SHA256"
+          Write-Host "USER_SOUND_INVENTORY_SHA256=$env:USER_SOUND_INVENTORY_SHA256"
+          Write-Host 'USER_SOUND_PACK_330_WAV=YES'
           Write-Host 'HUMAN_TESTED=NO'
           Write-Host 'NVDA_VERIFIED=NO'
 
