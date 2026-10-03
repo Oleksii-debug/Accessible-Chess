@@ -444,6 +444,93 @@ class LiveKitModerationServiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await runtime.aclose()
         self.assertTrue(runtime.closed)
 
+    async def test_cancelled_connect_requires_cleanup_before_reuse(self):
+        connect_started = asyncio.Event()
+
+        class CancellableConnectRoom(FakeRoom):
+            instances = []
+
+            async def connect(self, url, token, *, options=None):
+                self.connect_calls.append((url, token, options))
+                # Model the provider having crossed its network-effect boundary
+                # before the host task is cancelled.
+                self.connected = True
+                connect_started.set()
+                await asyncio.Future()
+
+        class CancellableConnectRtc(FakeRtc):
+            Room = CancellableConnectRoom
+
+        runtime = self.runtime(
+            rtc_module=CancellableConnectRtc,
+            sdk_version=LIVEKIT_RTC_VERSION,
+        )
+        room = CancellableConnectRoom.instances[-1]
+        connecting = asyncio.create_task(runtime.connect(service_token=TOKEN))
+        await connect_started.wait()
+        connecting.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await connecting
+
+        self.assertFalse(runtime.closed)
+        self.assertTrue(runtime.cleanup_required)
+        self.assertFalse(runtime.ready)
+        self.assertTrue(room.connected)
+        with self.assertRaisesRegex(
+            LiveKitModerationServiceRuntimeError,
+            "requires cleanup",
+        ):
+            await runtime.connect(service_token=TOKEN)
+
+        await runtime.aclose()
+        self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
+        self.assertFalse(room.connected)
+        self.assertEqual(room.disconnect_calls, 1)
+
+    async def test_cancelled_disconnect_requires_cleanup_until_retry_succeeds(self):
+        disconnect_started = asyncio.Event()
+
+        class CancellableDisconnectRoom(FakeRoom):
+            instances = []
+
+            async def disconnect(self):
+                self.disconnect_calls += 1
+                if self.disconnect_calls == 1:
+                    disconnect_started.set()
+                    await asyncio.Future()
+                self.connected = False
+
+        class CancellableDisconnectRtc(FakeRtc):
+            Room = CancellableDisconnectRoom
+
+        runtime = await self.connect(
+            rtc_module=CancellableDisconnectRtc,
+            sdk_version=LIVEKIT_RTC_VERSION,
+        )
+        room = CancellableDisconnectRoom.instances[-1]
+        closing = asyncio.create_task(runtime.aclose())
+        await disconnect_started.wait()
+        closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+
+        self.assertFalse(runtime.closed)
+        self.assertTrue(runtime.cleanup_required)
+        self.assertFalse(runtime.ready)
+        self.assertTrue(room.connected)
+        with self.assertRaisesRegex(
+            LiveKitModerationServiceRuntimeError,
+            "runtime is not ready",
+        ):
+            _ = runtime.moderation_transport
+
+        await runtime.aclose()
+        self.assertTrue(runtime.closed)
+        self.assertFalse(runtime.cleanup_required)
+        self.assertFalse(room.connected)
+        self.assertEqual(room.disconnect_calls, 2)
+
     async def test_concurrent_connects_serialize_to_one_provider_effect(self):
         runtime = self.runtime()
         room = FakeRoom.instances[-1]
