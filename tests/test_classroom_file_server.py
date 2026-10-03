@@ -422,7 +422,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                 room_id="room-1",
                 after_sequence=None,
                 limit=100,
-            ),
+            ).attachments,
             (),
         )
 
@@ -544,7 +544,7 @@ class ClassroomFileServerTests(unittest.TestCase):
                     room_id="room-1",
                     after_sequence=None,
                     limit=100,
-                )
+                ).attachments
             ),
             1,
         )
@@ -745,7 +745,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             limit=100,
         )
         self.assertEqual(
-            tuple(item.sequence_no for item in history),
+            tuple(item.sequence_no for item in history.attachments),
             (0, 1),
         )
         self.service.integrity_check()
@@ -777,6 +777,28 @@ class ClassroomFileServerTests(unittest.TestCase):
             1,
         )
 
+    def test_history_page_carries_authoritative_state_watermark(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="watermark-a0")
+        )
+        initial = self.student2.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=100,
+        )
+        self.assertEqual(initial.attachments, (stored,))
+        self.assertIsNone(initial.snapshot_state_revision)
+
+        self.student1.cancel(attachment_id=stored.attachment_id)
+        after_cancel = self.student2.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=100,
+        )
+        self.assertEqual(len(after_cancel.attachments), 1)
+        self.assertEqual(after_cancel.attachments[0].transfer_state, "deleted")
+        self.assertEqual(after_cancel.snapshot_state_revision, 0)
+
     def test_cancel_after_accepted_upload_tombstones_and_is_idempotent(self):
         stored = self.student1.upload(
             self.prepared(attachment_id="cancel-a0")
@@ -790,8 +812,9 @@ class ClassroomFileServerTests(unittest.TestCase):
             after_sequence=None,
             limit=100,
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].transfer_state, "deleted")
+        self.assertEqual(len(history.attachments), 1)
+        self.assertEqual(history.attachments[0].transfer_state, "deleted")
+        self.assertEqual(history.snapshot_state_revision, 0)
         updates = self.student2.state_updates_after(
             room_id="room-1",
             after_revision=None,
@@ -819,7 +842,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             room_id="room-1",
             after_sequence=None,
             limit=100,
-        )[0]
+        ).attachments[0]
         self.assertEqual(tombstone.transfer_state, "deleted")
         reopened_store = ClassroomFileServerSQLiteStore(str(self.db_path))
         reopened = ClassroomFileServerService(
