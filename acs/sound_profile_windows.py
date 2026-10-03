@@ -367,6 +367,7 @@ class ProfiledWindowsSoundPlaybackAdapter:
             try:
                 self._lock_descriptor(descriptor)
                 acquired = True
+                _require_real_cache_directory_chain(self._cache_dir)
                 yield
             finally:
                 if acquired:
