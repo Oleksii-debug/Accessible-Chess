@@ -77,9 +77,17 @@ class LibraryWebViewBridge:
             return 50
         if type(value) is int:
             integer = value
-        elif isinstance(value, str) and value.isascii() and value.isdecimal():
+        elif (
+            isinstance(value, str)
+            and len(value) <= 19
+            and value.isascii()
+            and value.isdecimal()
+        ):
             integer = int(value)
         else:
+            # Bound text before integer conversion. Browser payloads are
+            # untrusted presentation input and must not trigger arbitrarily
+            # expensive bigint parsing merely to reject a page-size control.
             raise ValueError("invalid limit")
         if not 1 <= integer <= 200:
             raise ValueError("invalid limit")
