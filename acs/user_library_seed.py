@@ -235,39 +235,41 @@ def _verified_source_bytes(manifest: UserLibrarySeedManifest, entry: UserLibrary
     return payload
 
 
-def _prepare_user_library_seed_sources(
-    manifest: UserLibrarySeedManifest,
-) -> list[tuple[UserLibrarySeedEntry, object]]:
-    """Validate every packaged source before any canonical Library publication.
+def _validated_seed_games(manifest: UserLibrarySeedManifest, entry: UserLibrarySeedEntry):
+    payload = _verified_source_bytes(manifest, entry)
+    try:
+        text = payload.decode("utf-8-sig", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise UserLibrarySeedError("user Library seed PGN is not UTF-8") from exc
+    try:
+        games = parse_pgn_text(text, strict=True)
+    except Exception as exc:
+        raise UserLibrarySeedError("user Library seed PGN is not canonical") from exc
+    if not games:
+        raise UserLibrarySeedError("user Library seed PGN contains no games")
+    return games
 
-    The package is a single startup input. If a later source is malformed or
-    tampered, no earlier source from that package may already have become durable.
-    The existing strict PGN parser remains the sole PGN semantic authority.
+
+def _preflight_user_library_seed(manifest: UserLibrarySeedManifest) -> None:
+    """Validate the complete static package before any ACSDB publication.
+
+    Parsed GameTrees are deliberately discarded between sources so package
+    validation remains bounded to one source at a time. Publication re-verifies
+    and re-parses each source immediately before handing it to the canonical
+    atomic per-source Library service.
     """
 
-    prepared: list[tuple[UserLibrarySeedEntry, object]] = []
     for entry in manifest.entries:
-        payload = _verified_source_bytes(manifest, entry)
-        try:
-            text = payload.decode("utf-8-sig", errors="strict")
-        except UnicodeDecodeError as exc:
-            raise UserLibrarySeedError("user Library seed PGN is not UTF-8") from exc
-        try:
-            games = parse_pgn_text(text, strict=True)
-        except Exception as exc:
-            raise UserLibrarySeedError("user Library seed PGN is not canonical") from exc
-        if not games:
-            raise UserLibrarySeedError("user Library seed PGN contains no games")
-        prepared.append((entry, games))
-    return prepared
+        _validated_seed_games(manifest, entry)
 
 
 def import_user_library_seed(database, manifest: UserLibrarySeedManifest) -> UserLibrarySeedSummary:
-    prepared = _prepare_user_library_seed_sources(manifest)
+    _preflight_user_library_seed(manifest)
     importer = LibraryImportService(database)
     game_count = 0
     reused = 0
-    for entry, games in prepared:
+    for entry in manifest.entries:
+        games = _validated_seed_games(manifest, entry)
         result = importer.import_games(
             games,
             source_name=entry.display_name,
