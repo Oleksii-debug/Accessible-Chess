@@ -410,6 +410,19 @@ async function run() {
   const rootMoves = find(semanticBlock, "OL");
   check(rootMoves !== null && rootMoves.children.length === 2,
     "main-line move order/list semantics are wrong");
+  const rootResult = semanticBlock.children.find(function (item) {
+    return item.tagName === "P" && item.textContent === "Result: *";
+  }) || null;
+  const outroHeading = semanticBlock.children.find(function (item) {
+    return item.tagName === "H4" && item.textContent === "Comments after moves";
+  }) || null;
+  check(rootResult !== null, "root game result is not visible");
+  check(outroHeading !== null, "root outro heading is missing");
+  check(
+    semanticBlock.children.indexOf(rootResult) > semanticBlock.children.indexOf(rootMoves)
+      && semanticBlock.children.indexOf(rootResult) < semanticBlock.children.indexOf(outroHeading),
+    "root result must follow root moves and precede root outro comments"
+  );
   const e4Item = rootMoves.children[0];
   check(e4Item.children[0].tagName === "UL",
     "before-move comments must precede the move label");
@@ -483,6 +496,70 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed semantic render must not steal reading focus");
 
+  const malformedSemanticTreeShape = semanticGameSnapshot();
+  malformedSemanticTreeShape.block.semantic_tree = "not-an-object";
+  let malformedSemanticTreeShapeRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedSemanticTreeShape,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedSemanticTreeShapeRejected = true;
+  }
+  check(malformedSemanticTreeShapeRejected,
+    "non-object semantic tree must fail closed instead of downgrading to a plain block");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed semantic tree must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed semantic tree must not steal reading focus");
+
+  const semanticTreeArray = semanticGameSnapshot();
+  semanticTreeArray.block.semantic_tree = [];
+  let semanticTreeArrayRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      semanticTreeArray,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    semanticTreeArrayRejected = true;
+  }
+  check(semanticTreeArrayRejected, "array semantic tree must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "array semantic tree must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "array semantic tree must not steal reading focus");
+
+  const coercedDepth = semanticGameSnapshot();
+  coercedDepth.block.semantic_tree.items[0].depth = "0";
+  let coercedDepthRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      coercedDepth,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    coercedDepthRejected = true;
+  }
+  check(coercedDepthRejected, "text semantic depth must not be coerced");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "coerced depth must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "coerced depth must not steal reading focus");
+
   const malformedItems = semanticGameSnapshot();
   malformedItems.block.semantic_tree.items = {};
   let malformedItemsRejected = false;
@@ -524,6 +601,50 @@ async function run() {
     "malformed trailing comments must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed trailing comments must not steal reading focus");
+
+  const moveWithLineTail = semanticGameSnapshot();
+  moveWithLineTail.block.semantic_tree.items[0].trailing_comments = ["misplaced"];
+  let moveWithLineTailRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      moveWithLineTail,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    moveWithLineTailRejected = true;
+  }
+  check(moveWithLineTailRejected,
+    "move carrying line trailing comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "move line tail must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "move line tail must not steal reading focus");
+
+  const variationWithMoveComments = semanticGameSnapshot();
+  variationWithMoveComments.block.semantic_tree.items[1].comments_before = ["misplaced"];
+  let variationWithMoveCommentsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      variationWithMoveComments,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    variationWithMoveCommentsRejected = true;
+  }
+  check(variationWithMoveCommentsRejected,
+    "variation marker carrying move comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "variation move-comment slots must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "variation move-comment slots must not steal reading focus");
 
   const malformedResultType = semanticGameSnapshot();
   malformedResultType.block.semantic_tree.items[1].result = { value: "*" };
