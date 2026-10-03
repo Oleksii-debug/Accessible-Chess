@@ -448,6 +448,41 @@ async function clickRoute(routeId) {
   const profileSkip = documentRef.getElementById("v2-profile-skip");
   const boardNav = documentRef.getElementById("v2-nav-board");
   check(profileSkip && boardNav, "first-launch profile controls are missing");
+
+  profileSnapshot = {
+    ok: true,
+    exists: false,
+    displayName: "",
+    generatedAlias: false,
+    recoveryRequired: false,
+    announcement: ""
+  };
+  windowObject.pywebview.api.profile_create = () => Promise.resolve({
+    ok: true,
+    exists: true,
+    displayName: "Recovered elsewhere",
+    generatedAlias: false,
+    recoveryRequired: true,
+    revision: 3,
+    announcement: "Current profile loaded"
+  });
+  profileButton.disabled = false;
+  profileButton.focus();
+  profileButton.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "concurrent-create profile dialog did not open");
+  profileSkip.listeners.click({});
+  await flush();
+  await flush();
+  check(profileDialog.open === true, "recovery-required concurrent create incorrectly closed the profile dialog");
+  check(profileSkip.hidden === true, "concurrent create did not retire the obsolete Skip action");
+  check(profileRepair.hidden === false, "concurrent create did not expose the required Repair action");
+  check(documentRef.activeElement === profileRepair, "concurrent create left focus on an obsolete action instead of Repair");
+  profileClose.listeners.click({});
+  check(profileDialog.open === false, "concurrent-create recovery dialog did not close");
+  delete windowObject.pywebview.api.profile_create;
+
   currentRoute = "board";
   profileSnapshot = {
     ok: true,
