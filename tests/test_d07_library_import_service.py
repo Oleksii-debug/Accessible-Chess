@@ -9,6 +9,7 @@ from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportControlError,
     LibraryImportProgress,
+    LibraryImportResult,
     LibraryImportService,
     LibraryImportStorageError,
 )
@@ -298,6 +299,58 @@ class D07LibraryImportServiceTests(unittest.TestCase):
         finally:
             if os.path.exists(path):
                 os.unlink(path)
+
+    def test_result_dto_rejects_coercion_and_impossible_identities(self) -> None:
+        canonical = LibraryImportResult(
+            attempt_id=1,
+            source_id=2,
+            game_count=3,
+            warning_count=0,
+            first_game_id=10,
+            last_game_id=12,
+            reused=False,
+        )
+        self.assertEqual(canonical.game_count, 3)
+        self.assertFalse(canonical.reused)
+
+        coercive = (
+            {"attempt_id": True},
+            {"source_id": 2.0},
+            {"game_count": "3"},
+            {"warning_count": False},
+            {"first_game_id": 10.0},
+            {"last_game_id": "12"},
+            {"reused": 1},
+        )
+        defaults = {
+            "attempt_id": 1,
+            "source_id": 2,
+            "game_count": 3,
+            "warning_count": 0,
+            "first_game_id": 10,
+            "last_game_id": 12,
+            "reused": False,
+        }
+        for override in coercive:
+            with self.subTest(override=override):
+                with self.assertRaises(TypeError):
+                    LibraryImportResult(**(defaults | override))
+
+        invalid = (
+            {"attempt_id": 0},
+            {"source_id": -1},
+            {"game_count": 0},
+            {"warning_count": -1},
+            {"first_game_id": 0},
+            {"last_game_id": 0},
+            {"first_game_id": 13, "last_game_id": 12},
+            {"attempt_id": 2**63},
+            {"warning_count": 2**63},
+        )
+        for override in invalid:
+            with self.subTest(override=override):
+                with self.assertRaises(ValueError):
+                    LibraryImportResult(**(defaults | override))
 
     def test_progress_dto_rejects_coercion_and_impossible_counts(self) -> None:
         for args, error_type in (
