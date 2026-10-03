@@ -26,6 +26,9 @@ _CONTEXT_LABELS_UK = {
     BindingContext.ENGINE_GAME.value: "Гра з рушієм",
     BindingContext.DATABASE.value: "База даних",
     BindingContext.BOOK_READER.value: "Читання книги",
+    BindingContext.PGN_TREE.value: "Дерево PGN",
+    BindingContext.LIBRARY_RESULTS.value: "Результати бібліотеки",
+    BindingContext.EDUCATION_LIST.value: "Навчальний список",
 }
 
 _CONTEXT_LABELS_EN = {
@@ -39,6 +42,9 @@ _CONTEXT_LABELS_EN = {
     BindingContext.ENGINE_GAME.value: "Engine game",
     BindingContext.DATABASE.value: "Database",
     BindingContext.BOOK_READER.value: "Book reader",
+    BindingContext.PGN_TREE.value: "PGN tree",
+    BindingContext.LIBRARY_RESULTS.value: "Library results",
+    BindingContext.EDUCATION_LIST.value: "Education list",
 }
 
 

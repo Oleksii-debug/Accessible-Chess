@@ -93,6 +93,15 @@ _UK_LABELS = {
     "move.clear": "Команда очищення дошки",
     "move.standard": "Команда стандартної позиції",
     "move.empty": "Команда порожньої позиції",
+    "pgn.previous_item": "Попередній елемент дерева PGN",
+    "pgn.next_item": "Наступний елемент дерева PGN",
+    "pgn.parent_variation": "Повернутися до батьківського варіанта",
+    "library.previous_result": "Попередній результат бібліотеки",
+    "library.next_result": "Наступний результат бібліотеки",
+    "library.open_game": "Відкрити вибрану партію з бібліотеки",
+    "education.previous_item": "Попередній навчальний елемент",
+    "education.next_item": "Наступний навчальний елемент",
+    "education.open_selected": "Відкрити вибраний навчальний елемент",
 }
 
 _EN_LABELS: dict[str, str] = {

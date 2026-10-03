@@ -7,6 +7,7 @@ import unittest
 
 from acs.full_product_actions import build_full_product_action_registry
 from acs.ui_keymap_adapter import build_web_keymap
+from acs.ui_keymap_editor import KeymapEditorModel
 from acs.version2_profile import build_version2_action_registry
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
@@ -73,6 +74,34 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
                 item = by_id[action_id]
                 self.assertEqual(item["registryContext"], registry_context)
                 self.assertEqual(item["context"], ui_context)
+
+    def test_terminal_widget_keymap_editor_uses_localized_user_facing_labels(self):
+        registry = build_full_product_action_registry()
+        model = KeymapEditorModel(registry, lang="uk")
+        rows = {row.action_id: row for row in model.rows()}
+        expected_uk = {
+            "pgn.next_item": ("Наступний елемент дерева PGN", "Дерево PGN"),
+            "library.next_result": ("Наступний результат бібліотеки", "Результати бібліотеки"),
+            "education.next_item": ("Наступний навчальний елемент", "Навчальний список"),
+        }
+        for action_id, (label, context_label) in expected_uk.items():
+            with self.subTest(action_id=action_id, language="uk"):
+                self.assertEqual(rows[action_id].label, label)
+                self.assertEqual(rows[action_id].context_label, context_label)
+                self.assertNotIn("_", rows[action_id].context_label)
+
+        model.set_language("en")
+        rows = {row.action_id: row for row in model.rows()}
+        expected_en = {
+            "pgn.next_item": ("Next GameTree item", "PGN tree"),
+            "library.next_result": ("Next library result", "Library results"),
+            "education.next_item": ("Next education item", "Education list"),
+        }
+        for action_id, (label, context_label) in expected_en.items():
+            with self.subTest(action_id=action_id, language="en"):
+                self.assertEqual(rows[action_id].label, label)
+                self.assertEqual(rows[action_id].context_label, context_label)
+                self.assertNotIn("_", rows[action_id].context_label)
 
     def test_board_grid_remap_uses_same_persisted_registry(self):
         with tempfile.TemporaryDirectory() as td:
