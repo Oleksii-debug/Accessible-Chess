@@ -9,6 +9,7 @@ on:
       - 'acs/book_text_import.py'
       - 'acs/book_html_import.py'
       - 'tests/test_legacy_text_encoding.py'
+      - 'tests/test_legacy_book_utf16_integration.py'
       - 'tests/test_v2_book_text_import.py'
       - 'tests/test_v2_book_html_import.py'
       - '.github/workflows/current-legacy-book-encoding.yml'
@@ -18,6 +19,7 @@ on:
       - 'acs/book_text_import.py'
       - 'acs/book_html_import.py'
       - 'tests/test_legacy_text_encoding.py'
+      - 'tests/test_legacy_book_utf16_integration.py'
       - 'tests/test_v2_book_text_import.py'
       - 'tests/test_v2_book_html_import.py'
       - '.github/workflows/current-legacy-book-encoding.yml'
@@ -54,6 +56,7 @@ jobs:
           acs/book_text_import.py
           acs/book_html_import.py
           tests/test_legacy_text_encoding.py
+          tests/test_legacy_book_utf16_integration.py
           tests/test_v2_book_text_import.py
           tests/test_v2_book_html_import.py
 
@@ -61,6 +64,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_legacy_text_encoding
+          tests.test_legacy_book_utf16_integration
           tests.test_v2_book_text_import
           tests.test_v2_book_html_import
 
