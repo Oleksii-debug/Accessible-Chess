@@ -338,6 +338,66 @@ class ExerciseSessionTests(unittest.TestCase):
             ExerciseSession.restore(definition, snapshot).snapshot(),
         )
 
+    def test_restore_rejects_mismatched_path_before_tuple_materialization(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        snapshot = session.snapshot()
+        snapshot["accepted_path"] = ["e4"] * 2049
+
+        definition_digest = training_module._definition_digest(definition)
+        with patch.object(
+            training_module,
+            "tuple",
+            side_effect=AssertionError(
+                "mismatched accepted_path must be rejected before tuple materialization"
+            ),
+            create=True,
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "accepted_path does not match step_index",
+            ):
+                ExerciseSession._restore_path_snapshot(
+                    definition,
+                    snapshot,
+                    expected_fields=training_module._TRAINING_SNAPSHOT_V4_FIELDS,
+                    expected_definition_digest=definition_digest,
+                    session_definition_digest=definition_digest,
+                )
+
+    def test_restore_detects_path_length_change_during_bounded_snapshot(self):
+        definition = self.make_definition()
+        source = ExerciseSession(definition)
+        source.submit("e4")
+        snapshot = source.snapshot()
+        path = snapshot["accepted_path"]
+        self.assertIsInstance(path, list)
+        definition_digest = training_module._definition_digest(definition)
+        real_tuple = tuple
+
+        def mutate_while_materializing(value):
+            if value is path:
+                path.append("e5")
+            return real_tuple(value)
+
+        with patch.object(
+            training_module,
+            "tuple",
+            side_effect=mutate_while_materializing,
+            create=True,
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "accepted_path changed while being read",
+            ):
+                ExerciseSession._restore_path_snapshot(
+                    definition,
+                    snapshot,
+                    expected_fields=training_module._TRAINING_SNAPSHOT_V4_FIELDS,
+                    expected_definition_digest=definition_digest,
+                    session_definition_digest=definition_digest,
+                )
+
     def test_restore_freezes_accepted_path_before_semantic_replay(self):
         definition = self.make_definition()
         source = ExerciseSession(definition)
