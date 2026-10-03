@@ -630,7 +630,8 @@ jobs:
           )
 
           expected_calls = 0
-          expected_async_calls = 0
+          expected_async_flags = []
+          expected_call_labels = []
           for event in SoundEvent:
               options = resolver.variants_for(event)
               if not options:
@@ -639,12 +640,18 @@ jobs:
                   selected[event] = option.variant_id
                   sequence = resolver.resolve_sequence(event, variant_id=option.variant_id)
                   expected_calls += len(sequence)
-                  if event in ASYNC_SOUND_EVENTS:
-                      if len(sequence) != 1:
-                          raise SystemExit(
-                              f'FRESH_PACKAGED_SOUND_ASYNC_LAYER_INVALID event={event.value}'
-                          )
-                      expected_async_calls += 1
+                  is_async = event in ASYNC_SOUND_EVENTS
+                  if is_async and len(sequence) != 1:
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_ASYNC_LAYER_INVALID event={event.value}'
+                      )
+                  expected_async_flags.extend([is_async] * len(sequence))
+                  expected_call_labels.extend(
+                      [
+                          f'{event.value}:{option.variant_id}:{index}'
+                          for index in range(len(sequence))
+                      ]
+                  )
                   adapter.play(event, volume=80)
 
           if len(calls) != expected_calls:
@@ -652,8 +659,10 @@ jobs:
                   f'FRESH_PACKAGED_SOUND_RUNTIME_CALL_COUNT_MISMATCH '
                   f'actual={len(calls)} expected={expected_calls}'
               )
+          if len(expected_async_flags) != len(calls):
+              raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_EXPECTATION_COUNT_MISMATCH')
           async_calls = 0
-          for playable_text, flags in calls:
+          for index, (playable_text, flags) in enumerate(calls):
               playable = Path(playable_text).resolve()
               try:
                   playable.relative_to(cache)
@@ -669,7 +678,15 @@ jobs:
                   raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_FILENAME_FLAG_MISSING')
               if not flags & fake_winsound.SND_NODEFAULT:
                   raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_NODEFAULT_FLAG_MISSING')
-              if flags & fake_winsound.SND_ASYNC:
+              actual_async = bool(flags & fake_winsound.SND_ASYNC)
+              expected_async = expected_async_flags[index]
+              if actual_async != expected_async:
+                  raise SystemExit(
+                      f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_FLAG_MISMATCH '
+                      f'call={expected_call_labels[index]} '
+                      f'actual={actual_async} expected={expected_async}'
+                  )
+              if actual_async:
                   async_calls += 1
               with wave.open(str(playable), 'rb') as reader:
                   if reader.getcomptype() != 'NONE':
@@ -685,6 +702,7 @@ jobs:
                       raise SystemExit(
                           f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_EMPTY {playable}'
                       )
+          expected_async_calls = sum(expected_async_flags)
           if async_calls != expected_async_calls:
               raise SystemExit(
                   f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_COUNT_MISMATCH '
