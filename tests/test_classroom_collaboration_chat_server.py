@@ -297,6 +297,55 @@ class ClassroomChatServerTests(unittest.TestCase):
         ):
             self.store.integrity_check()
 
+    def test_live_history_rejects_hidden_message_without_state_event(self) -> None:
+        sent = self.send(self.draft("hidden-history-without-state"))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                UPDATE classroom_chat_server_messages
+                SET hidden=1
+                WHERE message_id=?
+                """,
+                (sent.message_id,),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored hidden message state is inconsistent",
+        ):
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored hidden message state is inconsistent",
+        ):
+            self.send(self.draft("hidden-history-without-state"))
+
+    def test_live_state_history_rejects_orphan_moderation_event(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, "orphan-live-state"),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored moderation state is inconsistent",
+        ):
+            self.store.state_updates_after(
+                room_id=ROOM,
+                after_revision=None,
+                limit=10,
+            )
+
     def test_hide_rejects_hidden_target_without_state_event(self) -> None:
         sent = self.send(self.draft("hidden-without-write-event"))
         with closing(sqlite3.connect(self.path)) as db, db:
