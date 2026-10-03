@@ -1142,6 +1142,53 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             second.payload["collaboration"]["files"]["transfer_progress"]["total_bytes"],
         )
 
+    def test_partial_upload_failure_clears_progress_before_retry(self) -> None:
+        self.selected_file = self.root / "partial-retry.pgn"
+        self.selected_file.write_bytes(b"0123456789")
+        progress_events = []
+        view = self.webview(file_progress_event_sink=progress_events.append)
+
+        def fail_after_partial(prepared, *, on_progress):
+            on_progress(
+                FileTransferProgress(
+                    prepared.metadata.attachment_id,
+                    4,
+                    prepared.metadata.size_bytes,
+                )
+            )
+            raise RuntimeError("provider failed after partial transfer")
+
+        with mock.patch.object(self.files, "upload", side_effect=fail_after_partial):
+            failed = view.dispatch("collaboration.file.choose_upload", {})
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual([0, 4], [
+            event.payload["file_progress"]["transferred_bytes"]
+            for event in progress_events
+        ])
+        self.assertIsNone(
+            failed.payload["collaboration"]["files"]["transfer_progress"]
+        )
+        self.assertIsNone(view._file_progress)
+        failed_item = failed.payload["collaboration"]["files"]["items"][0]
+        self.assertTrue(failed_item["can_retry"])
+
+        progress_events.clear()
+        retried = view.dispatch(
+            "collaboration.file.retry",
+            {"file_key": failed_item["file_key"]},
+        )
+        self.assertEqual("collaboration.file.retried", retried.kind)
+        self.assertEqual(
+            0,
+            progress_events[0].payload["file_progress"]["transferred_bytes"],
+        )
+        self.assertTrue(progress_events[-1].payload["file_progress"]["complete"])
+        self.assertEqual(
+            retried.payload["collaboration"]["files"]["transfer_progress"]["transfer_key"],
+            progress_events[-1].payload["file_progress"]["transfer_key"],
+        )
+
     def test_broken_file_progress_sink_cannot_turn_valid_upload_into_failure(self) -> None:
         self.selected_file = self.root / "progress-sink-failure.pgn"
         self.selected_file.write_bytes(b"abc")
