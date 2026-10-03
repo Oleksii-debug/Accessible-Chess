@@ -200,6 +200,40 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
+    def test_live_clock_sound_uses_long_tick_segment_and_policy(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                started = api.start_engine_game("white", 5, 1, 0)
+                self.assertTrue(started["ok"], started)
+
+                first = api.clock_sound_pulse()
+                self.assertTrue(first["ok"], first)
+                self.assertTrue(first["played"], first)
+                self.assertEqual(playback.calls[-1], (SoundEvent.TICK, 80))
+
+                before = len(playback.calls)
+                api._settings.set("tick_last_seconds", 10)
+                limited = api.clock_sound_pulse()
+                self.assertTrue(limited["ok"], limited)
+                self.assertFalse(limited["played"], limited)
+                self.assertEqual(len(playback.calls), before)
+
+                api._settings.set("tick_policy", "off")
+                disabled = api.clock_sound_pulse()
+                self.assertTrue(disabled["disabled"], disabled)
+                self.assertEqual(len(playback.calls), before)
+            finally:
+                api.close_analysis()
+                runtime.close()
+
+    def test_clock_sound_pump_is_non_announcing_and_segment_sized(self) -> None:
+        text = self.bootstrap
+        self.assertIn("a.clock_sound_pulse()", text)
+        self.assertIn("}, 3400);", text)
+        self.assertIn("clockSoundPulseInFlight", text)
+
     def test_engine_resignation_emits_one_game_end_sound(self) -> None:
         playback = _Playback()
         with tempfile.TemporaryDirectory() as td:
