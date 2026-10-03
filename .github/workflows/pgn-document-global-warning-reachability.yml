@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      STACK_PARENT_SHA: ede120c612f22156e0583f396197d0bc5cb27fea
+      STACK_PARENT_SHA: 38633cf9317974c66dc78a6a1909ffce4fc3884a
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
