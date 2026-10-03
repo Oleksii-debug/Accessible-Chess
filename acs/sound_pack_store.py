@@ -718,32 +718,70 @@ class FilesystemSoundPackStore:
             ) from exc
         _require_real_dir(destination.parent, "sound pack destination directory")
 
+        flags = os.O_RDONLY
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
+        try:
+            descriptor = os.open(source, flags)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "downloaded sound asset could not be opened safely"
+            ) from exc
+
         sha = hashlib.sha256()
         size = 0
         prefix = bytearray()
         try:
-            with source.open("rb") as reader, destination.open("xb") as writer:
-                while True:
-                    chunk = reader.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    if len(prefix) < 16:
-                        prefix.extend(chunk[: 16 - len(prefix)])
-                    size += len(chunk)
-                    if size > digest.size_bytes:
-                        raise SoundPackStoreError(
-                            "downloaded sound asset exceeds declared size"
-                        )
-                    sha.update(chunk)
-                    writer.write(chunk)
-                writer.flush()
-                os.fsync(writer.fileno())
-        except SoundPackStoreError:
-            raise
-        except OSError as exc:
-            raise SoundPackStoreError(
-                "sound pack asset could not be staged locally"
-            ) from exc
+            opened = os.fstat(descriptor)
+            if (
+                stat.S_ISLNK(opened.st_mode)
+                or _is_reparse_point(opened)
+                or not stat.S_ISREG(opened.st_mode)
+            ):
+                raise SoundPackStoreError(
+                    "downloaded sound asset is not a regular file"
+                )
+            if _regular_identity(opened) != _regular_identity(metadata):
+                raise SoundPackStoreError(
+                    "downloaded sound asset changed before secure copy"
+                )
+            if opened.st_size != digest.size_bytes:
+                raise SoundPackStoreError("downloaded sound asset size mismatch")
+
+            try:
+                with destination.open("xb") as writer:
+                    while True:
+                        chunk = os.read(descriptor, 1024 * 1024)
+                        if not chunk:
+                            break
+                        if len(prefix) < 16:
+                            prefix.extend(chunk[: 16 - len(prefix)])
+                        size += len(chunk)
+                        if size > digest.size_bytes:
+                            raise SoundPackStoreError(
+                                "downloaded sound asset exceeds declared size"
+                            )
+                        sha.update(chunk)
+                        writer.write(chunk)
+                    writer.flush()
+                    os.fsync(writer.fileno())
+            except SoundPackStoreError:
+                raise
+            except OSError as exc:
+                raise SoundPackStoreError(
+                    "sound pack asset could not be staged locally"
+                ) from exc
+
+            after = os.fstat(descriptor)
+            if _regular_identity(after) != _regular_identity(opened):
+                raise SoundPackStoreError(
+                    "downloaded sound asset changed during secure copy"
+                )
+        finally:
+            os.close(descriptor)
 
         if size != digest.size_bytes:
             raise SoundPackStoreError("downloaded sound asset size mismatch")
