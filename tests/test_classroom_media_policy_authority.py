@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
 import traceback
 import unittest
 from unittest.mock import patch
@@ -673,6 +674,36 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
         provider_allows = MediaSource.MICROPHONE in provider.sources
         self.assertEqual(provider.max_active, 1)
         self.assertEqual(provider_allows, durable_allows)
+
+    def test_cancelled_effect_lock_waiter_preserves_cancellation_if_acquire_fails(self):
+        authority = self.authority()
+        entered = threading.Event()
+        finish = threading.Event()
+
+        def failing_acquire(_path, _timeout_seconds):
+            entered.set()
+            finish.wait(timeout=2.0)
+            raise ClassroomMediaPolicyError("private delayed acquisition failure")
+
+        async def exercise():
+            scope = authority.provider_effect_scope(
+                room_id="room-1",
+                participant_id="student-1",
+            )
+            with patch(
+                "acs.classroom_media_policy_authority._acquire_effect_lock",
+                side_effect=failing_acquire,
+            ):
+                waiter = asyncio.create_task(scope.__aenter__())
+                while not entered.is_set():
+                    await asyncio.sleep(0)
+                waiter.cancel()
+                finish.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await asyncio.wait_for(waiter, timeout=2.0)
+            self.assertIsNone(scope._connection)
+
+        asyncio.run(exercise())
 
     def test_cancelled_effect_lock_waiter_cannot_strand_future_moderation(self):
         first = self.authority()
