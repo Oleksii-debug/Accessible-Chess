@@ -39,6 +39,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
+            self.assertIn("redacted", columns)
             index_row = db.execute(
                 "SELECT sql FROM sqlite_master "
                 "WHERE type='index' AND name='uq_collaboration_attachments_authoritative_sequence'"
@@ -956,6 +957,225 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Changed"))
         with self.assertRaises(CollaborationConflictError):
             self.store.append_message(ChatMessageMetadata("m2", "room", "student", 0, "Collision"))
+
+    def test_retention_redaction_clears_body_without_breaking_room_sequence(self) -> None:
+        original = ChatMessageMetadata(
+            "m-redact",
+            "room",
+            "teacher",
+            0,
+            "Private session text",
+            "session",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(
+                ChatMessageStateUpdate(
+                    "room",
+                    original.message_id,
+                    0,
+                    hidden=False,
+                    redacted=True,
+                ),
+            ),
+        )
+
+        redacted = self.store.room_messages("room", include_hidden=True)[0]
+        self.assertEqual("", redacted.body)
+        self.assertTrue(redacted.redacted)
+        self.assertFalse(redacted.hidden)
+        self.assertEqual(0, redacted.sequence_no)
+        self.assertEqual(1700000000000, redacted.sent_at_unix_ms)
+        self.assertEqual(0, self.store.chat_state_revision("room"))
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        durable = reopened.room_messages("room", include_hidden=True)[0]
+        self.assertEqual("", durable.body)
+        self.assertTrue(durable.redacted)
+
+        # Authoritative history replay may retain the original body upstream,
+        # but a client that already applied retention redaction must never
+        # resurrect expired content from that immutable-history record.
+        replayed = reopened.append_message(original)
+        self.assertEqual("", replayed.body)
+        self.assertTrue(replayed.redacted)
+        self.assertEqual(0, replayed.sequence_no)
+
+    def test_retention_redaction_erases_payload_bytes_from_local_sqlite(self) -> None:
+        secret = (
+            "LOCAL-RETENTION-SECRET-"
+            + "nvda-private-classroom-chat-" * 16
+        )
+        secret_bytes = secret.encode("utf-8")
+        original = ChatMessageMetadata(
+            "m-physical-redact",
+            "room",
+            "teacher",
+            0,
+            secret,
+            "session",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+        self.assertIn(secret_bytes, self.db_path.read_bytes())
+
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(
+                ChatMessageStateUpdate(
+                    "room",
+                    original.message_id,
+                    0,
+                    hidden=False,
+                    redacted=True,
+                ),
+            ),
+        )
+
+        self.assertNotIn(secret_bytes, self.db_path.read_bytes())
+        durable = self.store.room_messages("room", include_hidden=True)[0]
+        self.assertTrue(durable.redacted)
+        self.assertEqual("", durable.body)
+
+    def test_persistent_message_rejects_retention_redaction_atomically(self) -> None:
+        persistent = ChatMessageMetadata(
+            "m-persistent",
+            "room",
+            "teacher",
+            0,
+            "Persistent classroom record",
+            "persistent",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(persistent)
+        update = ChatMessageStateUpdate(
+            "room",
+            persistent.message_id,
+            0,
+            hidden=False,
+            redacted=True,
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "persistent chat content cannot be retention-redacted",
+        ):
+            self.store.apply_message_state_updates(
+                room_id="room",
+                updates=(update,),
+            )
+        self.assertEqual(
+            (persistent,),
+            self.store.room_messages("room", include_hidden=True),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room"))
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "persistent chat content cannot be retention-redacted",
+        ):
+            self.store.reconcile_message_sync_atomic(
+                room_id="room",
+                messages=(),
+                updates=(update,),
+            )
+        self.assertEqual(
+            (persistent,),
+            self.store.room_messages("room", include_hidden=True),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room"))
+
+    def test_chat_state_update_can_combine_hide_and_retention_redaction(self) -> None:
+        original = ChatMessageMetadata(
+            "m-hide-redact",
+            "room",
+            "teacher",
+            0,
+            "Remove this content",
+            "transient",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(
+                ChatMessageStateUpdate(
+                    "room",
+                    original.message_id,
+                    0,
+                    hidden=True,
+                    redacted=True,
+                ),
+            ),
+        )
+        stored = self.store.room_messages("room", include_hidden=True)[0]
+        self.assertTrue(stored.hidden)
+        self.assertTrue(stored.redacted)
+        self.assertEqual("", stored.body)
+        self.assertEqual((), self.store.room_messages("room"))
+
+    def test_redaction_wire_shapes_fail_closed(self) -> None:
+        ChatMessageMetadata(
+            "m-redacted",
+            "room",
+            "teacher",
+            0,
+            "",
+            "session",
+            sent_at_unix_ms=1700000000000,
+            redacted=True,
+        )
+        ChatMessageStateUpdate(
+            "room",
+            "m-redacted",
+            0,
+            hidden=False,
+            redacted=True,
+        )
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata(
+                "m-not-redacted",
+                "room",
+                "teacher",
+                0,
+                "",
+                sent_at_unix_ms=1700000000000,
+            )
+        with self.assertRaises(ValueError):
+            ChatMessageMetadata(
+                "m-bad-redacted",
+                "room",
+                "teacher",
+                0,
+                "still present",
+                sent_at_unix_ms=1700000000000,
+                redacted=True,
+            )
+        with self.assertRaises(ValueError):
+            ChatMessageStateUpdate(
+                "room",
+                "m-redacted",
+                0,
+                hidden=False,
+                redacted=False,
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "persistent chat content cannot be retention-redacted",
+        ):
+            ChatMessageMetadata(
+                "m-persistent-redacted",
+                "room",
+                "teacher",
+                0,
+                "",
+                "persistent",
+                sent_at_unix_ms=1700000000000,
+                redacted=True,
+            )
 
     def test_hidden_message_is_retained_but_removed_from_default_active_view(self) -> None:
         self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated"))
