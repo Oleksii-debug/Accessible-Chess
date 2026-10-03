@@ -297,6 +297,41 @@ class SoundProfileManagerTests(unittest.TestCase):
         store.raise_after_commit = False
         self.assertEqual(31, manager.current.master_volume_percent)
 
+    def test_initial_recovery_post_commit_failure_requires_reload_before_direct_save(self) -> None:
+        store = CommitThenRaiseProfileStore()
+        store.raise_after_commit = True
+        manager = SoundProfileManager(store, FakePackResolver())
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.load()
+
+        self.assertEqual(SoundProfile().to_mapping(), store.payload)
+        store.raise_after_commit = False
+        saved = manager.save(SoundProfile(master_volume_percent=26))
+        self.assertEqual(26, saved.master_volume_percent)
+        self.assertEqual(26, store.payload["master_volume_percent"])
+
+    def test_direct_save_cannot_bypass_required_refresh_after_failed_readback(self) -> None:
+        store = CommitThenRaiseProfileStore(SoundProfile().to_mapping())
+        manager = SoundProfileManager(store, FakePackResolver())
+        manager.load()
+        store.raise_after_commit = True
+        store.fail_reads = True
+
+        with self.assertRaisesRegex(OSError, "post-commit readback failed"):
+            manager.set_master(volume_percent=31)
+
+        writes_before = len(store.writes)
+        with self.assertRaisesRegex(OSError, "readback unavailable"):
+            manager.save(SoundProfile(master_volume_percent=22))
+        self.assertEqual(writes_before, len(store.writes))
+        self.assertEqual(31, store.payload["master_volume_percent"])
+
+        store.fail_reads = False
+        store.raise_after_commit = False
+        saved = manager.save(SoundProfile(master_volume_percent=22))
+        self.assertEqual(22, saved.master_volume_percent)
+
     def test_future_replacement_post_commit_failure_refreshes_write_block_state(self) -> None:
         raw = {"schema_version": 999, "pack_id": "future.pack", "opaque": {"x": 1}}
         store = CommitThenRaiseProfileStore(raw)
