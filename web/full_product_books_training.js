@@ -37,15 +37,50 @@
     });
   }
 
+  function semanticTextArray(value, name) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new TypeError(name + " must be an array");
+    return value.map(function (item) {
+      if (typeof item !== "string") throw new TypeError(name + " must contain text");
+      return item;
+    });
+  }
+
+  function appendSemanticTextList(container, label, items, headingId) {
+    if (!items.length) return;
+    const heading = node("h4", label || "");
+    heading.id = headingId;
+    const list = node("ul");
+    list.setAttribute("aria-labelledby", heading.id);
+    items.forEach(function (item) {
+      list.appendChild(node("li", item));
+    });
+    container.appendChild(heading);
+    container.appendChild(list);
+  }
+
   function renderBookSemanticTree(container, block) {
     const semantic = block.semantic_tree;
     if (!semantic || typeof semantic !== "object") {
       throw new TypeError("book semantic tree must be an object");
     }
+    if (semantic.kind !== "game" && semantic.kind !== "variation") {
+      throw new TypeError("book semantic tree kind is invalid");
+    }
 
     if (semantic.result) {
+      if (typeof semantic.result !== "string") {
+        throw new TypeError("book semantic result must be text");
+      }
       container.appendChild(node("p", String(semantic.result_label || "Result") + ": " + String(semantic.result)));
     }
+
+    appendSemanticTextList(
+      container,
+      semantic.intro_comments_label || semantic.comments_label || "",
+      semanticTextArray(semantic.intro_comments, "book semantic intro comments"),
+      String(block.dom_id || "") + "-semantic-intro-heading"
+    );
 
     const heading = node("h4", semantic.label || "");
     heading.id = String(block.dom_id || "") + "-semantic-heading";
@@ -64,6 +99,12 @@
       if (!item || typeof item !== "object") {
         throw new TypeError("book semantic item must be an object");
       }
+      if (item.kind !== "move" && item.kind !== "variation") {
+        throw new TypeError("book semantic item kind is invalid");
+      }
+      if (typeof item.label !== "string" || !item.label.trim()) {
+        throw new TypeError("book semantic item label is invalid");
+      }
       const depth = Number(item.depth);
       if (!Number.isSafeInteger(depth) || depth < 0) {
         throw new TypeError("book semantic item depth is invalid");
@@ -81,8 +122,8 @@
       }
 
       const listItem = node("li");
-      listItem.appendChild(node("span", item.label || ""));
-      const comments = Array.isArray(item.comments) ? item.comments : [];
+      listItem.appendChild(node("span", item.label));
+      const comments = semanticTextArray(item.comments, "book semantic item comments");
       if (comments.length) {
         const commentList = node("ul");
         commentList.setAttribute("aria-label", semantic.comments_label || "");
@@ -97,16 +138,19 @@
       previousDepth = depth;
     });
 
-    const warnings = Array.isArray(semantic.warnings) ? semantic.warnings : [];
-    if (warnings.length) {
-      const warningsHeading = node("h4", semantic.warnings_label || "");
-      const warningsList = node("ul");
-      warnings.forEach(function (warning) {
-        warningsList.appendChild(node("li", warning));
-      });
-      container.appendChild(warningsHeading);
-      container.appendChild(warningsList);
-    }
+    appendSemanticTextList(
+      container,
+      semantic.outro_comments_label || semantic.comments_label || "",
+      semanticTextArray(semantic.outro_comments, "book semantic outro comments"),
+      String(block.dom_id || "") + "-semantic-outro-heading"
+    );
+
+    appendSemanticTextList(
+      container,
+      semantic.warnings_label || "",
+      semanticTextArray(semantic.warnings, "book semantic warnings"),
+      String(block.dom_id || "") + "-semantic-warnings-heading"
+    );
   }
 
   function renderBookBlock(host, block) {

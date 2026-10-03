@@ -159,6 +159,10 @@ function semanticGameSnapshot() {
     result_label: "Result",
     result: "*",
     comments_label: "Comments",
+    intro_comments_label: "Comments before moves",
+    intro_comments: ["Opening <script>bad()</script>"],
+    outro_comments_label: "Comments after moves",
+    outro_comments: ["Closing <img onerror=bad()>"],
     warnings_label: "Recovery warnings",
     warnings: ["Recovered safely"],
     items: [
@@ -380,10 +384,39 @@ async function run() {
     "semantic comment must remain literal selectable text");
   check(semanticBlock.descendants().every((item) => item.tagName !== "IMG"),
     "semantic comment text must never become executable markup");
+  check(find(semanticBlock, "LI", "Opening <script>bad()</script>") !== null,
+    "semantic leading comment is not visible literal text");
+  check(find(semanticBlock, "LI", "Closing <img onerror=bad()>") !== null,
+    "semantic trailing comment is not visible literal text");
   check(find(semanticBlock, "LI", "Recovered safely") !== null,
     "canonical recovery warning is not visible");
+  check(semanticBlock.descendants().every((item) => item.tagName !== "SCRIPT"),
+    "semantic leading comment text must never become executable markup");
   check(document.activeElement === semanticBlock,
     "semantic Game reading focus was not restored");
+
+  const replaceCountBeforeMalformed = bookRoot.replaceChildrenCalls;
+  const focusBeforeMalformed = document.activeElement;
+  const malformedSemantic = semanticGameSnapshot();
+  malformedSemantic.block.semantic_tree.items[0].kind = "unknown";
+  let malformedRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedSemantic,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedRejected = true;
+  }
+  check(malformedRejected, "malformed semantic item kind must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed semantic render must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed semantic render must not steal reading focus");
 
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {

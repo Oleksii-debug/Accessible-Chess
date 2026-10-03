@@ -32,6 +32,8 @@ _SEMANTIC_TREE_LABELS = {
         "moves": "Ходи та варіанти",
         "result": "Результат",
         "comments": "Коментарі",
+        "intro_comments": "Коментарі перед ходами",
+        "outro_comments": "Коментарі після ходів",
         "warnings": "Попередження відновлення",
         "unavailable": "Вміст партії недоступний або некоректний; ходи не показано.",
     },
@@ -39,6 +41,8 @@ _SEMANTIC_TREE_LABELS = {
         "moves": "Moves and variations",
         "result": "Result",
         "comments": "Comments",
+        "intro_comments": "Comments before moves",
+        "outro_comments": "Comments after moves",
         "warnings": "Recovery warnings",
         "unavailable": "Game content is unavailable or invalid; moves are not shown.",
     },
@@ -84,6 +88,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise ValueError("book semantic GameTree exceeds the visible-text budget")
             return text
 
+        labels = _SEMANTIC_TREE_LABELS[self.language]
+        intro_comments = tuple(
+            comment
+            for comment in (safe(raw.text) for raw in game.line.leading_comments)
+            if comment
+        )
+
         rendered_items: list[dict[str, object]] = []
         previous_depth = 0
         for position, item in enumerate(view.items):
@@ -113,7 +124,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             )
             previous_depth = item.depth
 
-        labels = _SEMANTIC_TREE_LABELS[self.language]
+        outro_comments = tuple(
+            comment
+            for comment in (safe(raw.text) for raw in game.line.trailing_comments)
+            if comment
+        )
         warnings = tuple(
             warning
             for warning in (safe(raw) for raw in workflow_warnings)
@@ -125,6 +140,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "result_label": labels["result"],
             "result": safe(view.result),
             "comments_label": labels["comments"],
+            "intro_comments_label": labels["intro_comments"],
+            "intro_comments": intro_comments,
+            "outro_comments_label": labels["outro_comments"],
+            "outro_comments": outro_comments,
             "warnings_label": labels["warnings"],
             "warnings": warnings,
             "items": tuple(rendered_items),
