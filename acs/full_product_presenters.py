@@ -306,6 +306,7 @@ class _LibraryPresenterState:
     pages: tuple[tuple[GameSearchQuery, GameSearchPage], ...]
     page_index: int
     selected_game_id: int | None
+    selected_by_page: tuple[tuple[int, int | None], ...]
     status: SurfaceStatus
     message: str
 
@@ -324,6 +325,7 @@ class LibraryPresenter:
         self._pages: list[tuple[GameSearchQuery, GameSearchPage]] = []
         self._page_index = -1
         self._selected_game_id: int | None = None
+        self._selected_by_page: dict[int, int | None] = {}
         self._status = SurfaceStatus.EMPTY
         self._message = ""
 
@@ -340,6 +342,7 @@ class LibraryPresenter:
             pages=tuple(self._pages),
             page_index=self._page_index,
             selected_game_id=self._selected_game_id,
+            selected_by_page=tuple(sorted(self._selected_by_page.items())),
             status=self._status,
             message=self._message,
         )
@@ -350,6 +353,7 @@ class LibraryPresenter:
         self._pages = list(state.pages)
         self._page_index = state.page_index
         self._selected_game_id = state.selected_game_id
+        self._selected_by_page = dict(state.selected_by_page)
         self._status = state.status
         self._message = state.message
 
@@ -436,6 +440,7 @@ class LibraryPresenter:
             )
         self._pages = [(q, page)]
         self._page_index = 0
+        self._selected_by_page = {}
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
         self._message = ""
         self._stabilize_selection(page)
@@ -443,8 +448,12 @@ class LibraryPresenter:
 
     def _stabilize_selection(self, page: GameSearchPage) -> None:
         ids = {item.game_id for item in page.items}
-        if self._selected_game_id not in ids:
+        saved = self._selected_by_page.get(self._page_index)
+        if saved in ids:
+            self._selected_game_id = saved
+        elif self._selected_game_id not in ids:
             self._selected_game_id = page.items[0].game_id if page.items else None
+        self._selected_by_page[self._page_index] = self._selected_game_id
 
     def current_page(self) -> GameSearchPage | None:
         if self._page_index < 0:
@@ -504,6 +513,7 @@ class LibraryPresenter:
         if page is None or game_id not in {item.game_id for item in page.items}:
             raise LookupError("Game is not present on the current library page")
         self._selected_game_id = game_id
+        self._selected_by_page[self._page_index] = game_id
         return self.view()
 
     def selected_item(self) -> GameSearchItem | None:
