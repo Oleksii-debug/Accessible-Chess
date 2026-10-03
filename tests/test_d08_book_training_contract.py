@@ -525,6 +525,38 @@ class BookTrainingWireContractTests(unittest.TestCase):
             restore_book_training_material(self.book, tampered_origin)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
 
+    def test_mutated_origin_is_revalidated_before_export_materialization(self):
+        origin = self.material.origin
+        original_heading_path = origin.heading_path
+        original_target_key = origin.target_key
+
+        class HostileTuple(tuple):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile origin tuple length must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile origin tuple iteration must not execute")
+
+        try:
+            object.__setattr__(origin, "heading_path", HostileTuple(("Heading",)))
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+            self.assertFalse(HostileTuple.touched)
+
+            object.__setattr__(origin, "heading_path", original_heading_path)
+            object.__setattr__(origin, "target_key", "x" * 4_097)
+            with self.assertRaises(BookTrainingError) as caught:
+                self.material.as_dict()
+            self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+        finally:
+            object.__setattr__(origin, "heading_path", original_heading_path)
+            object.__setattr__(origin, "target_key", original_target_key)
+
     def test_mutated_definition_collections_fail_before_export_materialization(self):
         definition = self.material.definition
         original_steps = definition.steps
@@ -611,33 +643,7 @@ class BookTrainingWireContractTests(unittest.TestCase):
             with self.assertRaises(BookTrainingError) as caught:
                 self.material.as_dict()
         finally:
-            object.__setattr__(
-                self.material.definition,
-                "metadata",
-                original_metadata,
-            )
-        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
-
-    def test_export_revalidates_mutated_origin_before_string_hooks(self):
-        class HostileText(str):
-            def strip(self, *args, **kwargs):
-                raise AssertionError("origin string subclass strip hook must not execute")
-
-        original_heading_path = self.material.origin.heading_path
-        try:
-            object.__setattr__(
-                self.material.origin,
-                "heading_path",
-                (HostileText("Hostile heading"),),
-            )
-            with self.assertRaises(BookTrainingError) as caught:
-                self.material.as_dict()
-        finally:
-            object.__setattr__(
-                self.material.origin,
-                "heading_path",
-                original_heading_path,
-            )
+            object.__setattr__(self.material.definition, "metadata", original_metadata)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
 
     def test_export_rejects_substituted_definition_authority(self):
@@ -659,11 +665,7 @@ class BookTrainingWireContractTests(unittest.TestCase):
             with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
                 self.material.as_dict()
         finally:
-            object.__setattr__(
-                self.material,
-                "definition",
-                original_definition,
-            )
+            object.__setattr__(self.material, "definition", original_definition)
 
     def test_mutated_definition_metadata_cannot_be_exported_as_false_valid(self):
         # ExerciseDefinition is frozen, but its copied Mapping is intentionally a
