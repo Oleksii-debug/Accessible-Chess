@@ -27,6 +27,11 @@ from acs.classroom_realtime_media import (
     JoinCredential,
     MediaSource,
 )
+from acs.classroom_media_webview_projection import ClassroomMediaWebViewProjection
+from acs.classroom_media_webview_transactions import (
+    ClassroomMediaBrowserProviderConfig,
+    ClassroomMediaTransactionalWebView,
+)
 
 
 NOW = datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)
@@ -440,6 +445,47 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         )
         self.assertIsNotNone(retry)
         binder.provider_not_started(retry.transaction_id)
+
+    def test_duplicate_callback_preserves_existing_recovery_for_browser(self):
+        controller, roster, _host, _sessions, _arbiter, binder = self.make_composition()
+        self.join(controller, roster, binder)
+        projection = ClassroomMediaWebViewProjection(
+            controller,
+            lambda: {
+                participant_id: participant_id
+                for participant_id in roster.participant_ids()
+            },
+        )
+        transactions = ClassroomMediaTransactionalWebView(
+            projection,
+            binder,
+            ClassroomMediaBrowserProviderConfig(
+                "wss://media.example.test",
+                "moderation-bot",
+            ),
+        )
+
+        dispatch = transactions.set_local_source(
+            MediaSource.CAMERA,
+            True,
+            focus_target="classroom-media-heading",
+        )
+        transaction_id = dispatch.payload["transaction_id"]
+        binder.mark_provider_dispatched(transaction_id)
+        binder.provider_failed(transaction_id)
+        self.assertIsNotNone(binder.recovery_status)
+
+        duplicate = transactions.dispatch_provider(
+            "media.provider_not_started",
+            {"transaction_id": transaction_id},
+        )
+
+        self.assertEqual(duplicate.kind, "error")
+        self.assertIsNone(duplicate.payload["snapshot"])
+        self.assertTrue(duplicate.payload["recovery_required"])
+        self.assertEqual(duplicate.payload["transaction_id"], transaction_id)
+        self.assertIsNotNone(binder.recovery_status)
+        binder.resolve_recovery(transaction_id)
 
     def test_provider_failure_latches_global_recovery_and_blocks_other_owner(self):
         controller, roster, _host, _sessions, arbiter, binder = self.make_composition()
