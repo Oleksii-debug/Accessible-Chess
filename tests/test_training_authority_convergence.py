@@ -45,6 +45,37 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
         self.assertEqual({"origin": "book"}, session.canonical_definition.metadata)
         self.assertTrue(session.submit("e4").completed)
 
+    def test_session_rejects_post_construction_container_substitution_before_hooks(self) -> None:
+        class HostileSteps:
+            touched = False
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile steps iterator must not execute")
+
+        class HostileMetadata(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile metadata len must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("hostile metadata items must not execute")
+
+        definition = self.definition()
+        object.__setattr__(definition, "steps", HostileSteps())
+        with self.assertRaisesRegex(TypeError, "exact tuple"):
+            ExerciseSession(definition)
+        self.assertFalse(HostileSteps.touched)
+
+        definition = self.definition()
+        object.__setattr__(definition, "metadata", HostileMetadata({"x": "y"}))
+        with self.assertRaisesRegex(TypeError, "exact dict"):
+            ExerciseSession(definition)
+        self.assertFalse(HostileMetadata.touched)
+
     def test_session_detaches_from_caller_owned_step_mutation(self) -> None:
         step = ExerciseStep(frozenset({"e4"}))
         definition = ExerciseDefinition("detached", Board.START, (step,))
