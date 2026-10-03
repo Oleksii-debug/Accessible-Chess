@@ -125,6 +125,45 @@ class SoundPackCatalogTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             downloaded.assets["x.wav"] = next(iter(entry.assets.values()))  # type: ignore[index]
 
+    def test_downloaded_pack_constructor_rejects_invalid_scalar_and_digest_shapes(self):
+        entry = make_entry()
+        with self.assertRaisesRegex(TypeError, "manifest"):
+            DownloadedSoundPack(
+                manifest=object(),  # type: ignore[arg-type]
+                assets=entry.assets,
+                total_bytes=entry.total_bytes,
+                payload_ref=object(),
+            )
+        for value in (True, "10"):
+            with self.subTest(total_bytes=value), self.assertRaisesRegex(
+                TypeError,
+                "total_bytes",
+            ):
+                DownloadedSoundPack(
+                    manifest=entry.manifest,
+                    assets=entry.assets,
+                    total_bytes=value,  # type: ignore[arg-type]
+                    payload_ref=object(),
+                )
+        with self.assertRaisesRegex(ValueError, "cannot be negative"):
+            DownloadedSoundPack(
+                manifest=entry.manifest,
+                assets=entry.assets,
+                total_bytes=-1,
+                payload_ref=object(),
+            )
+        with self.assertRaisesRegex(TypeError, "SoundAssetDigest"):
+            DownloadedSoundPack(
+                manifest=entry.manifest,
+                assets={"audio/move.wav": object()},  # type: ignore[dict-item]
+                total_bytes=1,
+                payload_ref=object(),
+            )
+
+    def test_catalog_signature_is_resource_bounded(self):
+        with self.assertRaisesRegex(ValueError, "signature exceeds"):
+            make_entry(signature="s" * (16 * 1024 + 1))
+
     def test_valid_pack_is_verified_before_atomic_install(self):
         entry = make_entry()
         downloaded = make_download(entry)
