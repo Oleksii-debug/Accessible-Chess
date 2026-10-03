@@ -582,6 +582,99 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertEqual(payload, settings.read_bytes())
 
+    def test_library_prepare_rejects_same_state_inode_swap_during_connect(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+            replacement = root / "replacement-library.acsdb"
+            shutil.copyfile(library, replacement)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            expected = upgrade_base_module._library_state_sha256(
+                library,
+                schema_validator=coordinator._validate_library_schema,
+            )
+            real_connect = upgrade_base_module.sqlite3.connect
+            injected = False
+
+            def swap_before_connect(database, *args, **kwargs):
+                nonlocal injected
+                raw = os.fspath(database)
+                if raw == str(library) and not injected:
+                    os.replace(replacement, library)
+                    injected = True
+                return real_connect(database, *args, **kwargs)
+
+            with mock.patch.object(
+                upgrade_base_module.sqlite3,
+                "connect",
+                side_effect=swap_before_connect,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "library publication target changed during preparation",
+                ):
+                    coordinator._prepare_library_publication(expected)
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                expected,
+                upgrade_base_module._library_state_sha256(
+                    library,
+                    schema_validator=coordinator._validate_library_schema,
+                ),
+            )
+
+    def test_sidecar_cleanup_rejects_library_owner_swap_before_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+            original_identity = upgrade_base_module._stat_identity(
+                library.lstat()
+            )
+            replacement = root / "replacement-library.acsdb"
+            shutil.copyfile(library, replacement)
+            wal = Path(str(library) + "-wal")
+            wal_bytes = b"preserve-sidecar-on-owner-swap"
+            wal.write_bytes(wal_bytes)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            real_safe_stat = upgrade_base_module._safe_stat
+            owner_checks = 0
+            injected = False
+
+            def swap_on_second_owner_check(path, label):
+                nonlocal owner_checks, injected
+                if (
+                    Path(path) == library
+                    and label == "library sidecar owner"
+                ):
+                    owner_checks += 1
+                    if owner_checks == 2 and not injected:
+                        os.replace(replacement, library)
+                        injected = True
+                return real_safe_stat(path, label)
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_safe_stat",
+                side_effect=swap_on_second_owner_check,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "library changed during sidecar cleanup",
+                ):
+                    coordinator._clear_library_sidecars(
+                        expected_library_identity=original_identity,
+                    )
+
+            self.assertTrue(injected)
+            self.assertEqual(wal_bytes, wal.read_bytes())
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
