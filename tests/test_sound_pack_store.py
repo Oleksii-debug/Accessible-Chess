@@ -300,6 +300,62 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 reopened.rights_evidence(manifest.pack_id),
             )
 
+    def test_corrupt_same_catalog_version_can_be_repaired_without_uninstall(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest(version="2.0.0")
+            downloaded, payloads = _staged_download(root, manifest, seed=b"r")
+            downloaded = _with_rights(downloaded, source_suffix="repair")
+            store.install_atomically(downloaded)
+
+            version_dir = store._version_dir(manifest.pack_id, manifest.version)
+            damaged = version_dir / manifest.files["move"]
+            damaged.write_bytes(b"tampered-but-present")
+            self.assertNotIn(manifest.pack_id, store.installed())
+
+            store.install_atomically(downloaded)
+
+            self.assertEqual(manifest, store.installed()[manifest.pack_id])
+            self.assertEqual(
+                downloaded.rights_evidence,
+                store.rights_evidence(manifest.pack_id),
+            )
+            self.assertEqual(
+                payloads[manifest.files["move"]],
+                damaged.read_bytes(),
+            )
+            self.assertEqual(
+                (manifest.pack_id, manifest.version),
+                FilesystemSoundPackStore._read_active(
+                    store.root / manifest.pack_id
+                ),
+            )
+
+    def test_valid_same_version_different_bytes_are_never_treated_as_corrupt_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            manifest = _manifest(version="2.0.0")
+            first, first_payloads = _staged_download(root, manifest, seed=b"a")
+            second, _second_payloads = _staged_download(root, manifest, seed=b"b")
+            store.install_atomically(first)
+
+            with self.assertRaisesRegex(
+                SoundPackStoreError,
+                "already exists with different content",
+            ):
+                store.install_atomically(second)
+
+            resolved = store.read_asset_snapshot(manifest.pack_id, "move")
+            self.assertIsNotNone(resolved)
+            assert resolved is not None
+            self.assertEqual(
+                first_payloads[manifest.files["move"]],
+                resolved.content,
+                "a valid immutable version must never be overwritten as a repair",
+            )
+
     def test_same_version_cannot_equivocate_durable_rights_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
