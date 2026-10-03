@@ -482,18 +482,21 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         for name in (
             "full_product_classroom_media.js",
             "livekit_classroom_media.js",
-            "livekit_classroom_media_runtime.js",
+            "classroom_media_host_executor.js",
+            "classroom_media_provider_runtime.js",
         ):
             self.assertIn(name, payload)
             self.assertIn(name, preflight)
 
         sdk = release.index("LiveKit browser SDK")
         adapter = release.index("Classroom LiveKit media adapter")
-        runtime = release.index("Classroom LiveKit transactional runtime")
+        executor = release.index("Classroom media host executor")
+        runtime = release.index("Classroom media provider runtime")
         surface = release.index("V2 Classroom media surface")
         bootstrap = release.index("V2 final-product bootstrap")
         self.assertLess(sdk, adapter)
-        self.assertLess(adapter, runtime)
+        self.assertLess(adapter, executor)
+        self.assertLess(executor, runtime)
         self.assertLess(runtime, surface)
         self.assertLess(surface, bootstrap)
 
@@ -533,24 +536,33 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIn("function executeMediaProviderEvent(event)", source)
         self.assertIn("function mediaProviderBoundaryCrossed(event)", source)
         self.assertIn("function retireMediaProviderRuntimeFailure(event, invoke)", source)
-        self.assertIn("function mediaInvoke(command, payload)", source)
-        self.assertIn("AccessibleChessClassroomMediaProviderRuntime", source)
+        self.assertIn("AccessibleChessClassroomMediaSurface", source)
+        self.assertIn("mediaSurface.executeProvider(event, invoke)", source)
+        self.assertNotIn("function mediaInvoke(command, payload)", source)
         self.assertIn('event.kind === "provider-dispatch"', source)
         self.assertIn("media.provider_not_started", source)
         self.assertIn("media.provider_outcome_unknown", source)
-        self.assertIn("snapshot.media || null,\n          mediaInvoke,", source)
+        self.assertIn('snapshot.media || null,\n          areaInvoke("media"),', source)
+
+        surface_source = (
+            Path(__file__).resolve().parents[1]
+            / "web"
+            / "full_product_classroom_media.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ClassroomMediaProviderRuntime", surface_source)
+        self.assertIn("executeProvider", surface_source)
+        self.assertIn("media.provider_not_started", surface_source)
 
         runtime_source = (
             Path(__file__).resolve().parents[1]
             / "web"
-            / "livekit_classroom_media_runtime.js"
+            / "classroom_media_provider_runtime.js"
         ).read_text(encoding="utf-8")
-        self.assertIn("Object.seal(", runtime_source)
-        self.assertNotIn(
-            "Object.freeze(\n    new ClassroomMediaProviderRuntime()",
-            runtime_source,
-        )
+        self.assertIn("class ClassroomMediaProviderRuntime", runtime_source)
         self.assertIn("media.provider_outcome_unknown", runtime_source)
+        self.assertIn("media.provider_take_credential", runtime_source)
+        self.assertNotIn("localStorage", runtime_source)
+        self.assertNotIn("sessionStorage", runtime_source)
 
 
 if __name__ == "__main__":
