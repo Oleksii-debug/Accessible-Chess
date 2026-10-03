@@ -34,6 +34,22 @@ def _settings_path() -> Path:
     return _user_root() / "settings.json"
 
 
+def _sound_variant_provider(settings: Settings, sound_assets: PackagedSoundAssetResolver):
+    """Return the one fail-safe persisted variant selector used by Stage 1 and V2."""
+
+    def selected_sound_variant(event):
+        choice = str(settings.get(f"sound_{event.value}_variant", "1"))
+        try:
+            available = {
+                option.variant_id for option in sound_assets.variants_for(event)
+            }
+        except Exception:
+            return "1"
+        return choice if choice in available else "1"
+
+    return selected_sound_variant
+
+
 def create_release_api(
     *,
     application_dir: str | Path | None = None,
@@ -55,14 +71,7 @@ def create_release_api(
 
     settings = Settings(Path(settings_path) if settings_path is not None else _settings_path())
     sound_assets = PackagedSoundAssetResolver(app_dir)
-
-    def selected_sound_variant(event):
-        choice = str(settings.get(f"sound_{event.value}_variant", "1"))
-        try:
-            available = {option.variant_id for option in sound_assets.variants_for(event)}
-        except Exception:
-            return "1"
-        return choice if choice in available else "1"
+    selected_sound_variant = _sound_variant_provider(settings, sound_assets)
 
     playback = sound_playback
     if playback is None:
