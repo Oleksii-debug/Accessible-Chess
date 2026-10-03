@@ -113,6 +113,59 @@ def _with_rights(
 
 class FilesystemSoundPackStoreTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
+    def test_nested_asset_staging_rejects_redirected_parent_before_escape_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            source = root / "source.wav"
+            payload = _wav(b"x")
+            source.write_bytes(payload)
+            digest = SoundAssetDigest(
+                "audio/nested/move.wav",
+                len(payload),
+                hashlib.sha256(payload).hexdigest(),
+            )
+            staging = root / "staging"
+            staging.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            (staging / "audio").symlink_to(outside, target_is_directory=True)
+            escaped_parent = outside / "nested"
+
+            with self.assertRaisesRegex(SoundPackStoreError, "redirected"):
+                FilesystemSoundPackStore._copy_verified(
+                    source,
+                    staging / digest.path,
+                    digest,
+                )
+
+            self.assertFalse(
+                escaped_parent.exists(),
+                "redirect validation must precede mkdir for nested staged assets",
+            )
+
+    @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
+    def test_metadata_writer_rejects_redirected_parent_before_escape_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            staging = root / "staging"
+            staging.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            (staging / "metadata").symlink_to(outside, target_is_directory=True)
+            escaped_parent = outside / "nested"
+
+            with self.assertRaisesRegex(SoundPackStoreError, "redirected"):
+                FilesystemSoundPackStore._write_new(
+                    staging / "metadata" / "nested" / "proof.json",
+                    b"{}\n",
+                )
+
+            self.assertFalse(
+                escaped_parent.exists(),
+                "redirect validation must precede mkdir for nested metadata",
+            )
+
+    @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
     def test_redirected_store_ancestor_is_rejected_for_reads_and_writes(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
