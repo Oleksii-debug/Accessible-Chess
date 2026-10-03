@@ -17,6 +17,7 @@ from .training import ExerciseStatus
 
 _MAX_ANSWER = 128
 _MAX_SOLUTION_MOVES = 64
+_MAX_SAFE_INTEGER = (1 << 53) - 1
 
 _LABELS = {
     UILanguage.UA: {
@@ -210,7 +211,10 @@ class TrainingWebViewProjection:
         if not isinstance(view.status, ExerciseStatus):
             raise ValueError("training status is invalid")
         exact_ints = (view.step_number, view.total_steps, view.attempts, view.mistakes, view.hints_used)
-        if any(type(value) is not int or value < 0 for value in exact_ints):
+        if any(
+            type(value) is not int or not 0 <= value <= _MAX_SAFE_INTEGER
+            for value in exact_ints
+        ):
             raise ValueError("training counters are invalid")
         if view.total_steps < 1 or not 1 <= view.step_number <= view.total_steps:
             raise ValueError("training step counters are inconsistent")
