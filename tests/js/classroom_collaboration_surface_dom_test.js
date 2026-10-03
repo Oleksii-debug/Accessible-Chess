@@ -201,6 +201,13 @@ window.AccessibleChessEducationSurface.render(
 
 const collaborationRoot = root.querySelector("#classroom-collaboration");
 check(collaborationRoot !== null, "collaboration section must be rendered inside Classes");
+const collaborationStatus = root.querySelector("#classroom-collaboration-status");
+check(
+  collaborationStatus !== null &&
+  collaborationStatus.textContent === "" &&
+  collaborationStatus.getAttribute("aria-live") === "off",
+  "available collaboration must expose a visible non-live status transcript"
+);
 check(
   root.querySelector("#collaboration-chat-retention-policy").textContent ===
     "New message retention: session" &&
@@ -551,6 +558,12 @@ check(
   "pending send must announce one concise progress phase and suppress duplicate progress spam"
 );
 check(
+  throwingRoot.querySelector("#classroom-collaboration-status").textContent ===
+    "Sending message…" &&
+  throwingRoot.querySelector("#classroom-collaboration-status").getAttribute("aria-live") === "off",
+  "pending send progress must remain visible and selectable without becoming a second live region"
+);
+check(
   throwingInput.readOnly &&
   throwingSend.disabled &&
   throwingSend.getAttribute("aria-disabled") === "true" &&
@@ -588,6 +601,11 @@ check(
   fileProgressRoot.querySelector("#collaboration-file-choose").disabled &&
   fileProgressRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "true",
   "pending file refresh must retain its active focus anchor while all other actions are natively disabled"
+);
+check(
+  fileProgressRoot.querySelector("#classroom-collaboration-status").textContent ===
+    "Refreshing files…",
+  "pending file refresh must remain visible for review as well as announced"
 );
 window.AccessibleChessEducationSurface.apply(
   fileProgressRoot,
@@ -1067,6 +1085,12 @@ setImmediate(() => {
     check(
       bridgeInvokeCount === 1,
       "pending send must suppress duplicate submissions before the host result"
+    );
+    check(
+      throwingRoot.querySelector("#classroom-collaboration-status").textContent ===
+        "Action failed" &&
+      throwingRoot.querySelector("#classroom-collaboration-status").getAttribute("aria-live") === "off",
+      "bridge failure must remain visible and selectable after its live announcement"
     );
     check(
       !throwingInput.readOnly &&
