@@ -1197,6 +1197,21 @@ class BookProgressStore:
                 )
             if active_directory is not None:
                 self._require_storage_directory_unlocked(active_directory)
+            # The final guard/orphan/temp checks above open another race window
+            # after the earlier target CAS. Re-read the canonical target as the
+            # last pathname precondition before atomic replace so a
+            # non-cooperating writer cannot advance it and then be clobbered.
+            final_target_raw = self._read_raw_file_unlocked(
+                target,
+                missing_ok=True,
+            )
+            if final_target_raw != publication_base_raw:
+                raise BookProgressStoreError(
+                    "book progress changed immediately before publication",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
+            if active_directory is not None:
+                self._require_storage_directory_unlocked(active_directory)
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
