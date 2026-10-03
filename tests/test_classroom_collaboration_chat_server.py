@@ -2415,6 +2415,23 @@ class ClassroomChatServerTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute(
                 """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,1,?)
+                """,
+                (
+                    "historical-max-revision",
+                    ROOM,
+                    STUDENT,
+                    1,
+                    "Already hidden at maximum revision",
+                    "session",
+                    1700000001000,
+                ),
+            )
+            db.execute(
+                """
                 INSERT INTO classroom_chat_server_state_updates(
                     room_id, revision, message_id, hidden
                 ) VALUES(?,?,?,1)
