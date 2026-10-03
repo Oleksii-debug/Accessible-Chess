@@ -42,6 +42,7 @@ class SoundScaledCacheIntegrityWorkflowTests(unittest.TestCase):
             "acs/settings.py",
             "acs/stage1_release_ui_core.py",
             "tests/test_sound_runtime.py",
+            "tests/test_sound_events.py",
             "tests/test_settings.py",
             "tests/test_stage1_engine_play_ui.py",
             "tests/test_sound_scaled_cache_integrity_workflow.py",
