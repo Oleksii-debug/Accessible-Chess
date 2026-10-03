@@ -215,15 +215,17 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
     def test_generated_snapshot_cannot_publish_beyond_store_bound(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "training-progress.json"
-            definition = ExerciseDefinition(
-                "x" * (MAX_TRAINING_PROGRESS_BYTES + 1),
-                Board.START,
-                (ExerciseStep(frozenset({"e4"})),),
-            )
+            session = ExerciseSession(self._definition())
+            oversized_snapshot = session.snapshot()
+            # Canonical Training now rejects over-budget definition identifiers
+            # before a session exists. Exercise the storage boundary directly so
+            # its independent 1 MiB publication guard remains proven.
+            oversized_snapshot["exercise_id"] = "x" * (MAX_TRAINING_PROGRESS_BYTES + 1)
             store = TrainingProgressStore(path)
 
-            with self.assertRaises(TrainingProgressResourceError):
-                store.save(ExerciseSession(definition), expected_revision=None)
+            with mock.patch.object(session, "snapshot", return_value=oversized_snapshot):
+                with self.assertRaises(TrainingProgressResourceError):
+                    store.save(session, expected_revision=None)
             self.assertFalse(path.exists())
 
     def test_duplicate_json_object_keys_are_rejected(self) -> None:
