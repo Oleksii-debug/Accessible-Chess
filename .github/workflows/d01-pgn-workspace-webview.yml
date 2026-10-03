@@ -168,7 +168,8 @@ jobs:
           esac
 
           actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ]; then
+          if [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ] \
+             || [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-ci-recovery-20261003" ]; then
             test "$actions_actual" = 8f331bbf722e5e859a153ebd1582ed0711bc490b
           else
             case "$actions_actual" in
@@ -186,7 +187,8 @@ jobs:
           stage1_core_actual="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
           if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
             test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
-          elif [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ]; then
+          elif [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ] \
+             || [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-ci-recovery-20261003" ]; then
             test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
           else
             test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
@@ -223,7 +225,8 @@ jobs:
           # exact pre-sanitizer blob or the canonical #456/#609 sanitizer blob
           # during current-runtime convergence; any third identity fails closed.
           shell_actual="$(git rev-parse HEAD:acs/full_product_ui_shell.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ]; then
+          if [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ] \
+             || [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-ci-recovery-20261003" ]; then
             test "$shell_actual" = 4607b6621146a6d4c75627c4dc753d62557f88e9
           else
             case "$shell_actual" in
