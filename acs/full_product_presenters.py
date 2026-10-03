@@ -325,20 +325,23 @@ class LibraryPresenter:
 
     def search(self, query: GameSearchQuery | None = None) -> LibraryView:
         q = (query or GameSearchQuery()).normalized()
-        self._status = SurfaceStatus.LOADING
-        self._message = ""
+        previous = self.view()
         try:
             page = self._service.search(q)
         except Exception as exc:
-            self._pages = []
-            self._page_index = -1
-            self._selected_game_id = None
-            self._status = SurfaceStatus.ERROR
-            self._message = concise_user_error(exc, language=self._language)
-            return self.view()
+            # Search is synchronous.  Publish one transient error view while
+            # retaining the last committed page/selection/status as the durable
+            # presenter state so a failed global/native search cannot erase the
+            # user's Library context.
+            return replace(
+                previous,
+                status=SurfaceStatus.ERROR,
+                message=concise_user_error(exc, language=self._language),
+            )
         self._pages = [(q, page)]
         self._page_index = 0
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
+        self._message = ""
         self._stabilize_selection(page)
         return self.view()
 
