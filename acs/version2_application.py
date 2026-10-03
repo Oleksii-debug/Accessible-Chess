@@ -154,7 +154,7 @@ class Version2Application:
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
         self.session, self.pgn = session, PgnWebViewBridge(projection)
         self.pgn_board_active = False
-        self.shell.open_route("pgn")
+        self._focus = self.shell.open_route("pgn")
 
     def open_book(self, source: Path):
         self._assert_thread()
@@ -194,7 +194,7 @@ class Version2Application:
         self._persist_book_progress(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
-        self.shell.open_route("books")
+        self._focus = self.shell.open_route("books")
         return len(imported.warnings)
 
     def _persist_book_progress(self, book_key, reader):
@@ -254,6 +254,9 @@ class Version2Application:
         training_message_key = (
             None if workspace is None else workspace.presenter_message_key
         )
+        book_board_was_active = (
+            self.book_workflow is not None and self.book_workflow.active
+        )
         if reader is not None and books is not None and key is not None:
             language = books.projection.language
             bookmark_name = books.projection.bookmark_name
@@ -268,6 +271,18 @@ class Version2Application:
                     training_message=training_message,
                     training_message_key=training_message_key,
                 )
+                # Book Board is transient state over the replaced reader/workflow
+                # and is not represented by the durable BookReader snapshot.
+                # Never leave keyboard/NVDA focus on a visible Board route whose
+                # canonical owner was discarded by ambiguity recovery.
+                if (
+                    book_board_was_active
+                    and self.shell.current_route.route_id == "board"
+                ):
+                    self._focus = self.shell.open_route("books")
+                    self._events.append(
+                        {"kind": "route", "payload": {"route_id": "books"}}
+                    )
                 return
             except Exception:
                 pass
@@ -282,7 +297,10 @@ class Version2Application:
         self.books = None
         self.training_workspace = None
         self.training = None
-        if self.shell.current_route.route_id in {"books", "training"}:
+        current_route = self.shell.current_route.route_id
+        if current_route in {"books", "training"} or (
+            current_route == "board" and book_board_was_active
+        ):
             self._focus = self.shell.open_route("library")
             self._events.append(
                 {"kind": "route", "payload": {"route_id": "library"}}
@@ -512,16 +530,24 @@ class Version2Application:
             # Book position/game from Library, PGN, Settings, or another route.
             if self.shell.current_route.route_id != "books":
                 return self.books.projection.generic_error()
+            # A shell modal owns keyboard/focus authority over the Books route.
+            # Do not publish progress or open Board underneath that modal.
+            if self.shell.active_dialog_id is not None:
+                return self.books.projection.generic_error()
             # Once Book Board owns an origin, only its explicit return path may
             # release that ownership; a second open must not replace it.
             if self.book_workflow is not None and self.book_workflow.active:
                 return self.books.projection.generic_error()
-            # The canonical BookBoard delegate owns board-opening publication.
+            # The router delegate below is the one durability owner for
+            # browser, native-menu and NVDA ingress. Do not pre-save here: the
+            # Book WebView dispatches its open through that same delegate, and a
+            # second write would advance BookProgress twice for one transition.
             return self.books.dispatch(command_id, payload)
         if command_id == "book.return_from_board":
-            # Board review is read-only with respect to BookReader progress.
-            # Open already committed the exact origin before Board publication,
-            # so Return must not perform a redundant durable write.
+            # The canonical workflow unwinds through the shared router delegate,
+            # which re-publishes the exact Book origin once after safe Return.
+            # Keeping persistence in that one owner also makes browser/native
+            # failure behavior identical.
             return self.books.dispatch(command_id, payload)
         if command_id in self._BOOK_PROGRESS_COMMANDS:
             # Native menu actions are globally reachable even though the keymap
@@ -596,11 +622,19 @@ class Version2Application:
         # has projected the canonical BookBoard FEN into the real release board.
         if event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
             # BookBoardWorkflow guarantees that read-only Board review and exact
-            # Return preserve the BookReader snapshot. The origin was durably
-            # committed before Board publication, so Return has no new progress
-            # generation to write and must remain available during transient I/O
-            # failure.
-            self.shell.open_route("books")
+            # Return preserve the BookReader snapshot. This observer owns only
+            # route publication; the browser/native command boundary that caused
+            # the explicit Return re-publishes the canonical origin durably after
+            # the safe workflow unwind. Emergency projection-failure unwind stays
+            # storage-independent in _recover_book_projection_failure().
+            self._focus = self.shell.open_route("books")
+            # Route ownership changed synchronously inside the domain workflow.
+            # Publish one V2 refresh request even if the caller subsequently
+            # reports a persistence error, so the visible/NVDA surface cannot
+            # remain on a Board whose Book workflow has already unwound.
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "books"}}
+            )
         elif event.kind is BookBoardUiEventKind.FAILED:
             self._events.append(self._error())
 
@@ -639,7 +673,10 @@ class Version2Application:
                 self.book_workflow.return_to_book()
             except Exception:
                 return
-            self.shell.open_route("books")
+            self._focus = self.shell.open_route("books")
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "books"}}
+            )
 
     def _delegate(self, action, payload):
         # Route-changing delegated PGN actions must respect modal focus before
@@ -655,12 +692,12 @@ class Version2Application:
             if payload: raise ValueError("PGN board accepts no payload")
             self._project_pgn_position()
             self.pgn_board_active = True
-            self.shell.open_route("board")
+            self._focus = self.shell.open_route("board")
             return None
         if action == "pgn.return":
             if payload: raise ValueError("PGN return accepts no payload")
             self.pgn_board_active = False
-            self.shell.open_route("pgn")
+            self._focus = self.shell.open_route("pgn")
             return None
         if action in {"pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation"}:
             if payload or not self.pgn_board_active: raise ValueError("no PGN board review")
@@ -698,7 +735,7 @@ class Version2Application:
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
         if action in {"library.search", "library.reset_filters"}:
-            self.shell.open_route("library")
+            self._focus = self.shell.open_route("library")
             return self.library.projection.search(self.library.projection.query) if action.endswith("search") else self.library.projection.reset_filters()
         if action == "library.next_page": return self.library.projection.next_page()
         if action == "library.previous_page": return self.library.projection.previous_page()
@@ -737,6 +774,13 @@ class Version2Application:
                         raise ValueError("book board open requires the visible Book reader")
                     if self.book_workflow is not None and self.book_workflow.active:
                         raise ValueError("book board review is already active")
+                # Native menu/NVDA activation reaches this delegate directly,
+                # bypassing _dispatch_book_surface_command(). Apply the same
+                # durability boundary as the Book WebView: the exact reading
+                # origin must be accepted by BookProgress before Board ownership
+                # can become active.
+                if opening_board:
+                    self.save_book_progress()
                 before_view = self.book_delegate.view() if self.book_workflow.active else None
                 result = self.book_delegate(action, payload)
                 if result.kind is BookBoardUiEventKind.FAILED:
@@ -750,9 +794,23 @@ class Version2Application:
                         self._recover_book_projection_failure(before_view)
                         raise
                     self.pgn_board_active = False
-                    self.shell.open_route("board")
+                    self._focus = self.shell.open_route("board")
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED:
+                        # The repaint event and native application focus token
+                        # must agree immediately. A second keyboard/menu action
+                        # before WebView focusin must not write stale Book focus
+                        # into the Board route's focus history.
+                        self.shell.record_focus("board-launcher")
+                        self._focus = "board-launcher"
                         self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
+                if result.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
+                    # Returning already discarded only transient Board review and
+                    # restored the exact BookReader origin. Re-publish that
+                    # canonical origin through the same durability boundary as
+                    # browser Return. If persistence fails, the safe return stays
+                    # completed while the UI boundary projects only a sanitized
+                    # error.
+                    self.save_book_progress()
                 return result
             command = {"book.previous_block": "book.previous", "book.next_block": "book.next", "book.bookmark": "book.bookmark.save"}.get(action, action)
             result = self._dispatch_book_surface_command(
@@ -814,6 +872,11 @@ class Version2Application:
                     if not self._start_training_from_current_book():
                         raise ValueError("Training exercise is unavailable")
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
+                if value.kind == "route":
+                    # Router dispatch has already changed shell ownership.
+                    # Synchronize before another keyboard/native action can
+                    # reuse the previous route's focus token.
+                    self._focus = self.shell.restore_focus_target()
                 return asdict(value)
             if area == "training":
                 try:
@@ -882,6 +945,11 @@ class Version2Application:
                     )
                 self._events.append(self._error())
                 return False
+        if value.kind == "route":
+            # Native menu/key routing changes the shell before the queued event
+            # reaches this application boundary. Bind the application token to
+            # the exact new route focus before another native action can arrive.
+            self._focus = self.shell.restore_focus_target()
         event = asdict(value)
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")

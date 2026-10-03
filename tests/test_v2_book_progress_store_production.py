@@ -271,13 +271,9 @@ class BookProgressProductionTests(unittest.TestCase):
         original_publish = store._atomic_publish_bytes_unlocked
         injected = False
 
-        backup_expected_target_raw = []
-
-        def publish(target: Path, encoded: bytes, **kwargs: object) -> None:
+        def publish(target: Path, encoded: bytes, **kwargs) -> None:
             nonlocal injected
             original_publish(target, encoded, **kwargs)
-            if target == store.backup_path:
-                backup_expected_target_raw.append(kwargs.get("expected_target_raw", object()))
             if target == store.backup_path and not injected:
                 injected = True
                 self.path.write_bytes(external_bytes)
@@ -286,7 +282,6 @@ class BookProgressProductionTests(unittest.TestCase):
         with self.assertRaises(BookProgressStoreError) as caught:
             store.save("book:two", _reader(2))
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
-        self.assertEqual(backup_expected_target_raw, [None])
         self.assertEqual(self.path.read_bytes(), external_bytes)
         self.assertEqual(set(json.loads(self.path.read_text())["entries"]), {"book:one", "book:external"})
 
@@ -301,7 +296,7 @@ class BookProgressProductionTests(unittest.TestCase):
             store.restore("book:stable", _document(include_after=False))
         self.assertEqual(self.path.read_bytes(), persisted)
 
-    def test_stale_temp_files_are_cleaned_before_next_access(self) -> None:
+    def test_cross_run_temp_lookalikes_are_preserved_before_next_access(self) -> None:
         store = BookProgressStore(self.path)
         self.path.parent.mkdir(parents=True)
         stale_primary = self.path.parent / f".{self.path.name}.dead.tmp"
@@ -310,8 +305,11 @@ class BookProgressProductionTests(unittest.TestCase):
         stale_backup.write_bytes(b"partial")
 
         store.save("book:one", _reader(1))
-        self.assertFalse(stale_primary.exists())
-        self.assertFalse(stale_backup.exists())
+        # Cross-run pathname ownership cannot be proven safely. Preserve
+        # crash-looking files rather than deleting potentially substituted or
+        # user-owned bytes; the active writer cleans only its own bound temp.
+        self.assertEqual(stale_primary.read_bytes(), b"partial")
+        self.assertEqual(stale_backup.read_bytes(), b"partial")
         self.assertEqual(store.restore("book:one", _document()).index, 1)
 
 

@@ -65,7 +65,7 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
 
     def test_transport_rejection_is_caught_without_error_object_projection(self) -> None:
         text = self.text
-        self.assertIn('.catch(function ()', text)
+        self.assertIn('Promise.resolve(result).then(onResult).catch(fail)', text)
         self.assertIn('announce(String(fallbackMessage))', text)
         self.assertNotIn("error.message", text)
         self.assertNotIn("String(error)", text)
