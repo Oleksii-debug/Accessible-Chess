@@ -960,8 +960,11 @@
     }
     content.id = String(block.dom_id || "");
     content.tabIndex = -1;
-    host.appendChild(content);
 
+    // Heading ancestry is reading context for the focused block, so keep the
+    // breadcrumb before the canonical block in document order. The block keeps
+    // the same stable DOM id/focus target; only screen-reader reading order
+    // changes from "content, then context" to "context, then content".
     const headingPath = Array.isArray(block.heading_path) ? block.heading_path : [];
     if (headingPath.length) {
       const nav = node("nav");
@@ -971,6 +974,7 @@
       nav.appendChild(list);
       host.appendChild(nav);
     }
+    host.appendChild(content);
     if (block.source_anchor) {
       host.appendChild(node("p", (block.source_label || "") + ": " + block.source_anchor));
     }

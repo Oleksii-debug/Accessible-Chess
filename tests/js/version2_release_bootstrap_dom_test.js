@@ -97,6 +97,7 @@ const documentRef = {
 global.document = documentRef;
 
 let currentRoute = "board";
+let boardFocus = "move-input";
 let libraryAvailable = false;
 let booksAvailable = false;
 let trainingAvailable = false;
@@ -117,7 +118,7 @@ const recordedFocus = [];
 
 function snapshot(route) {
   const focus = {
-    board: "move-input",
+    board: boardFocus,
     analysis: "",
     pgn: "pgn-game-list",
     library: "library-search-player",
@@ -497,6 +498,61 @@ async function clickRoute(routeId) {
     "oversized native event batch changed keyboard focus"
   );
 
+  const beforeUnknownEventSnapshots = snapshotCalls;
+  const beforeUnknownEventRefreshes = stage1RefreshCalls;
+  let unknownKindCoercionTouched = false;
+  eventQueue = [
+    {
+      kind: {
+        toString() {
+          unknownKindCoercionTouched = true;
+          return "route";
+        }
+      },
+      payload: { route_id: "board", focus_target: "board-launcher" }
+    },
+    { kind: "unknown-native-kind", payload: { focus_target: "board-launcher" } },
+    { kind: "route", payload: [] },
+    { kind: "delegated", payload: { action_id: "x".repeat(129) } }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(!unknownKindCoercionTouched, "unknown native event kind reached coercion");
+  check(
+    snapshotCalls === beforeUnknownEventSnapshots,
+    "malformed or unknown native event triggered a V2 snapshot"
+  );
+  check(
+    stage1RefreshCalls === beforeUnknownEventRefreshes,
+    "malformed or unknown native event triggered Stage 1 repaint work"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "malformed or unknown native event moved keyboard focus"
+  );
+
+  const beforeRawFocusOverrideSnapshots = snapshotCalls;
+  currentRoute = "board";
+  boardFocus = "move-input";
+  eventQueue = [
+    {
+      kind: "route",
+      payload: { route_id: "board", focus_target: "board-launcher" }
+    }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    snapshotCalls === beforeRawFocusOverrideSnapshots + 1,
+    "valid route event did not request one canonical snapshot"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "raw native event focus_target overrode canonical snapshot focus"
+  );
+
   const beforeSerializedDrainCalls = drainCalls;
   holdNextDrain = true;
   eventQueue = [{ kind: "status", payload: { announcement: "First serialized event." } }];
@@ -555,6 +611,7 @@ async function clickRoute(routeId) {
   const beforeOrderedStage1Snapshots = snapshotCalls;
   holdNextStage1Refresh = true;
   currentRoute = "board";
+  boardFocus = "board-launcher";
   eventQueue = [
     { kind: "delegated", payload: { action_id: "edit.undo" } },
     { kind: "book-board", payload: { focus_target: "board-launcher" } }
@@ -587,6 +644,7 @@ async function clickRoute(routeId) {
   );
 
   currentRoute = "board";
+  boardFocus = "board-launcher";
   eventQueue = [
     { kind: "book-board", payload: { focus_target: "board-launcher" } },
     { kind: "delegated", payload: { action_id: "book.open_position" } }
@@ -600,6 +658,7 @@ async function clickRoute(routeId) {
 
   const beforeMalformedFocusSnapshots = snapshotCalls;
   currentRoute = "board";
+  boardFocus = "move-input";
   eventQueue = [
     { kind: "book-board", payload: { focus_target: "malformed.focus" } }
   ];
@@ -661,6 +720,7 @@ async function clickRoute(routeId) {
   const beforeNativePgnBoardSnapshots = snapshotCalls;
   const beforeNativePgnBoardRefreshes = stage1RefreshCalls;
   currentRoute = "board";
+  boardFocus = "move-input";
   eventQueue = [
     { kind: "delegated", payload: { action_id: "pgn.open_on_board" } }
   ];

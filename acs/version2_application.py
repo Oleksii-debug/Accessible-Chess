@@ -74,6 +74,12 @@ class Version2Application:
             "book.board_analyze",
         }
     )
+    _BOOK_PROGRESS_RELOAD_CODES = frozenset(
+        {
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        }
+    )
 
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
@@ -256,7 +262,7 @@ class Version2Application:
             try:
                 self._persist_book_progress(self.book_key, self.reader)
             except BookProgressStoreError as error:
-                if error.code == BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                if error.code in self._BOOK_PROGRESS_RELOAD_CODES:
                     self._reload_book_progress_after_durability_ambiguity()
                 raise
 
@@ -283,7 +289,13 @@ class Version2Application:
         self._focus = canonical
 
     def _reload_book_progress_after_durability_ambiguity(self):
-        """Rebind Books/Training to the canonical primary after uncertain commit."""
+        """Rebind Books/Training after ambiguous durability or a stale write.
+
+        Both conditions mean local speculative reader state is no longer the
+        storage authority: DURABILITY_UNKNOWN may have published it, while
+        STALE_WRITE proves a different canonical generation won. In either case
+        only the current primary is safe to project back into Books/Training.
+        """
 
         reader = self.reader
         books = self.books
@@ -535,7 +547,7 @@ class Version2Application:
             try:
                 self.save_book_progress()
             except BookProgressStoreError as error:
-                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                if error.code not in self._BOOK_PROGRESS_RELOAD_CODES:
                     self._restore_book_progress(
                         before_reader,
                         language=language,
@@ -545,9 +557,9 @@ class Version2Application:
                         training_message=training_message,
                         training_message_key=training_message_key,
                     )
-                # DURABILITY_UNKNOWN already rebound to the canonical primary (or
-                # failed Books/Training closed). Never overwrite that authority
-                # with the pre-Continue snapshot.
+                # Storage-authority conflicts already rebound to the canonical
+                # primary (or failed Books/Training closed). Never overwrite
+                # that authority with the pre-Continue snapshot.
                 raise
             except Exception:
                 self._restore_book_progress(
@@ -660,14 +672,15 @@ class Version2Application:
             try:
                 self.save_book_progress()
             except BookProgressStoreError as error:
-                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                if error.code not in self._BOOK_PROGRESS_RELOAD_CODES:
                     self._restore_book_progress(
                         before,
                         language=language,
                         bookmark_name=bookmark_name,
                     )
-                # On ambiguous durability the save path already rebound to the
-                # visible canonical primary. Do not restore speculative history.
+                # On durability/stale-generation conflicts the save path already
+                # rebound to the visible canonical primary. Do not restore
+                # speculative history over the generation that actually won.
                 if self.books is None:
                     return self._error()
                 return self.books.projection.generic_error()

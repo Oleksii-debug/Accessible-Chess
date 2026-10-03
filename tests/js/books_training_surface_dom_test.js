@@ -758,9 +758,11 @@ async function run() {
       }
     };
   };
+  const contextualBookSnapshot = bookSnapshot(2, "Exercise");
+  contextualBookSnapshot.block.heading_path = ["Chapter 1", "Tactical motifs"];
   window.AccessibleChessBookSurface.render(
     bookRoot,
-    bookSnapshot(2, "Exercise"),
+    contextualBookSnapshot,
     bookInvoke,
     announce,
     "book-block-2",
@@ -769,7 +771,24 @@ async function run() {
   const bookMain = find(bookRoot, "MAIN");
   check(bookMain !== null, "book main landmark missing");
   check(bookMain.attributes.lang === "en", "book document language missing");
-  check(document.activeElement === bookRoot.querySelector("#book-block-2"), "book focus missing");
+  const focusedBookBlock = bookRoot.querySelector("#book-block-2");
+  check(document.activeElement === focusedBookBlock, "book focus missing");
+  const headingPathNav = find(bookRoot, "NAV");
+  check(headingPathNav !== null, "Book heading-path navigation missing");
+  check(
+    headingPathNav.getAttribute("aria-label") === "Heading path",
+    "Book heading-path navigation lost its accessible name"
+  );
+  check(
+    bookMain.children.indexOf(headingPathNav) >= 0 &&
+      bookMain.children.indexOf(headingPathNav) < bookMain.children.indexOf(focusedBookBlock),
+    "Book heading ancestry is not before the focused block in reading order"
+  );
+  check(
+    find(headingPathNav, "LI", "Chapter 1") !== null &&
+      find(headingPathNav, "LI", "Tactical motifs") !== null,
+    "Book heading ancestry lost visible semantic parts"
+  );
   const bookToolbar = findRole(bookRoot, "toolbar");
   check(bookToolbar !== null, "book toolbar missing");
   check(

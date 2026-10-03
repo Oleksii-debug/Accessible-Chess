@@ -20,6 +20,17 @@
   const MAX_NAVIGATION_LABEL = 240;
   const MAX_SCREEN_HEADING = 600;
   const MAX_ANNOUNCEMENT_TEXT = 1200;
+  const NATIVE_EVENT_KINDS = new Set([
+    "route",
+    "delegated",
+    "book-board",
+    "render-import",
+    "status",
+    "error",
+    "render",
+    "dialog-open",
+    "dialog-close"
+  ]);
 
   function validFocusId(value) {
     return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
@@ -39,6 +50,10 @@
       value.indexOf("\x00") < 0
       ? value
       : "";
+  }
+
+  function plainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
   }
 
   function uiTextFor(language, uk, en) {
@@ -442,8 +457,11 @@
   }
 
   function applyQueuedEvent(event, orderedStage1Refreshes) {
-    if (!event || typeof event !== "object") return false;
-    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    if (!plainObject(event) || !NATIVE_EVENT_KINDS.has(event.kind)) return false;
+    if (!plainObject(event.payload)) return false;
+    const payload = event.payload;
+    if (event.kind === "route" && !validRouteId(payload.route_id)) return false;
+    if (event.kind === "delegated" && !validActionId(payload.action_id)) return false;
     if (event.kind === "render-import") {
       if (currentRouteId === "library" && global.AccessibleChessLibrarySurface &&
           typeof global.AccessibleChessLibrarySurface.apply === "function") {
@@ -458,7 +476,7 @@
       return false;
     }
     if (event.kind === "delegated") {
-      const actionId = typeof payload.action_id === "string" ? payload.action_id : "";
+      const actionId = payload.action_id;
       if (delegatedHasOwnPresentationEvent(actionId)) return false;
       if (actionId === "pgn.open_on_board") {
         orderedStage1Refreshes.push(refreshStage1Surface);
@@ -502,24 +520,20 @@
     Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
       let needsRefresh = false;
-      let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
         const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
-        if (!refreshRequired) return;
-        needsRefresh = true;
-        const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        const candidate = payload.focus_target;
-        if (validFocusId(candidate)) queuedFocusTarget = candidate;
+        if (refreshRequired) needsRefresh = true;
       });
       if (!needsRefresh && !orderedStage1Refreshes.length) return;
       const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {
         return chain.then(function () { return refreshStage1(); });
       }, Promise.resolve());
       return repaintBarrier.then(function () {
+        // refresh(true) is the only focus authority. Native event payloads may
+        // request canonical re-rendering, but never apply a second raw DOM
+        // focus target after the snapshot has restored focus.
         return needsRefresh ? refresh(true) : undefined;
-      }).then(function () {
-        if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);
       });
     }).then(finishEventDrain, finishEventDrain);
   }
