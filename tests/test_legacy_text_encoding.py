@@ -4,7 +4,7 @@ import unicodedata
 import unittest
 
 import acs.legacy_text_encoding as legacy_text_encoding
-from acs.legacy_text_encoding import decode_book_text_bytes
+from acs.legacy_text_encoding import LegacyTextEncodingError, decode_book_text_bytes
 
 
 class LegacyTextEncodingTests(unittest.TestCase):
@@ -46,6 +46,37 @@ class LegacyTextEncodingTests(unittest.TestCase):
         self.assertEqual(decoded.encoding, "utf-8")
         self.assertFalse(decoded.legacy)
         self.assertEqual(decoded.text, text)
+
+    def test_bom_utf16_little_and_big_endian_decode_deterministically(self) -> None:
+        text = "Українська книга — позиції та аналіз"
+        payloads = (
+            b"\xff\xfe" + text.encode("utf-16-le"),
+            b"\xfe\xff" + text.encode("utf-16-be"),
+        )
+        for payload in payloads:
+            with self.subTest(bom=payload[:2]):
+                decoded = decode_book_text_bytes(payload)
+                self.assertEqual(decoded.encoding, "utf-16")
+                self.assertFalse(decoded.legacy)
+                self.assertEqual(decoded.text, text)
+
+    def test_bom_utf16_html_uses_same_decoder(self) -> None:
+        text = "<html><body><p>Українська книга</p></body></html>"
+        payload = b"\xff\xfe" + text.encode("utf-16-le")
+
+        decoded = decode_book_text_bytes(payload, html=True)
+
+        self.assertEqual(decoded.encoding, "utf-16")
+        self.assertEqual(decoded.text, text)
+
+    def test_malformed_bom_utf16_does_not_fall_through_to_cp1251(self) -> None:
+        with self.assertRaises(LegacyTextEncodingError):
+            decode_book_text_bytes(b"\xff\xfeA")
+
+    def test_utf32_bom_is_rejected_instead_of_misread_as_utf16(self) -> None:
+        payload = "Книга".encode("utf-32")
+        with self.assertRaises(LegacyTextEncodingError):
+            decode_book_text_bytes(payload)
 
 
 if __name__ == "__main__":
