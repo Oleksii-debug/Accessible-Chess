@@ -489,8 +489,8 @@
     classicPack.disabled = writesBlocked || busy;
     setStatus(writesBlocked
       ? text(
-          "Цей профіль створено новішою версією. Зміни заблоковано, щоб не пошкодити дані.",
-          "This profile was created by a newer version. Changes are blocked to protect the data."
+          "Цей профіль створено новішою версією. Зміни заблоковано, а звук вимкнено для безпеки, щоб не пошкодити або неправильно витлумачити дані.",
+          "This profile was created by a newer version. Changes are blocked and sound is muted for safety so the data is not damaged or misinterpreted."
         )
       : text(
           "Активний набір: " + String(snapshot.active_pack_id || "classic") + ".",
