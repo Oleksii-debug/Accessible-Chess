@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from acs.full_product_ui_shell import UILanguage
 from acs.pgn_webview_projection import _bounded_text
@@ -38,6 +39,31 @@ class V2PgnWebViewPathPrivacyTests(unittest.TestCase):
                 projected = self._project(f"Parser note: {token}")
                 self.assertIn("[local path hidden]", projected)
                 self.assertNotIn(private_component, projected)
+
+    def test_d01_gate_uses_reviewed_stage1_blobs_not_historical_branch_name(self):
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "d01-pgn-workspace-webview.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|"
+            "b579ca0f59ba20f6b69b3a4b7d89589256d54852",
+            workflow,
+        )
+        self.assertNotIn(
+            "integration/clock-engine-serial-intake-20261002",
+            workflow,
+        )
+        self.assertIn(
+            "acs/presentation_privacy.py=e30c873e8e9aeca414334a6cc1db5ac7a92fac7f",
+            workflow,
+        )
+        self.assertIn(
+            "tests.test_v2_shared_presentation_path_privacy",
+            workflow,
+        )
 
     def test_ukrainian_projection_uses_localized_redaction_marker(self):
         projected = self._project(
