@@ -259,7 +259,14 @@ function startNewGameVisualSequence() {
         finishNewGameVisualSequence();
         return false;
     }
-    if (currentSoundState && currentSoundState.newGameAnimation === false) {
+    if (!currentSoundState) {
+        // Never guess the timing variant: persisted audio may already be 3D.
+        // Skipping a too-early visual effect is safer than desynchronizing it
+        // from the long NEWGAME sound.
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (currentSoundState.newGameAnimation === false) {
         finishNewGameVisualSequence();
         return false;
     }
@@ -637,6 +644,7 @@ function text() {
 }
 
 let currentSoundState = null;
+let soundStateLoadPromise = Promise.resolve();
 
 function renderSoundVariants() {
     const eventSelect = byId('sound-preview-event');
@@ -1039,7 +1047,7 @@ function installSoundSettings() {
     });
 
     applySoundLanguage();
-    loadSoundState();
+    soundStateLoadPromise = loadSoundState();
 }
 
 function refreshReleaseLanguageSemantics() {
@@ -1052,6 +1060,7 @@ async function markReady() {
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
+    try { await soundStateLoadPromise; } catch (_) {}
     stabilizeMoveEntryUiaSemantics();
     stabilizeBoardUiaSemantics();
     // Do not mark the whole main document aria-busy while WebView2 is building
