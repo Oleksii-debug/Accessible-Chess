@@ -227,6 +227,124 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertEqual(self.app.shell.current_route.route_id, "library")
 
+    def test_native_library_pagination_commits_route_only_after_valid_render(self):
+        for action, method_name in (
+            ("library.next_page", "next_page"),
+            ("library.previous_page", "previous_page"),
+        ):
+            with self.subTest(action=action):
+                self.app.shell.open_route("board")
+                self.app.shell.record_focus("board-square-e4")
+                projected = SimpleNamespace(
+                    kind="render",
+                    payload={"snapshot": {"status": "ready"}},
+                )
+                with patch.object(
+                    self.app.library.projection,
+                    method_name,
+                    return_value=projected,
+                ):
+                    result = self.app.router.dispatch(
+                        action,
+                        current_focus_id="board-square-e4",
+                    )
+
+                self.assertIs(result.value, projected)
+                self.assertEqual(self.app.shell.current_route.route_id, "library")
+
+    def test_modal_library_pagination_fails_before_projection_mutation(self):
+        for action, method_name in (
+            ("library.next_page", "next_page"),
+            ("library.previous_page", "previous_page"),
+        ):
+            with self.subTest(action=action):
+                self.app.shell.open_route("board")
+                self.app.shell.open_dialog(
+                    "test-dialog",
+                    opener_focus_id="move-input",
+                    initial_focus_id="test-dialog-confirm",
+                )
+                with patch.object(self.app.library.projection, method_name) as method:
+                    with self.assertRaises(ValueError):
+                        self.app.router.dispatch(
+                            action,
+                            current_focus_id="test-dialog-confirm",
+                        )
+                method.assert_not_called()
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(self.app.shell.active_dialog_id, "test-dialog")
+                self.app.shell.close_dialog("test-dialog")
+
+    def test_library_pagination_error_render_preserves_route_and_focus(self):
+        for action, method_name in (
+            ("library.next_page", "next_page"),
+            ("library.previous_page", "previous_page"),
+        ):
+            with self.subTest(action=action):
+                self.app.shell.open_route("board")
+                self.app.record_focus("board-square-e4")
+                projected = SimpleNamespace(
+                    kind="render",
+                    payload={
+                        "snapshot": {
+                            "status": "error",
+                            "message": r"C:\\Users\\BlindTeacher\\private-library.sqlite",
+                        }
+                    },
+                )
+                with patch.object(
+                    self.app.library.projection,
+                    method_name,
+                    return_value=projected,
+                ):
+                    command = self.app.adapter.activate_action(
+                        action,
+                        current_focus_id="board-square-e4",
+                    )
+
+                self.assertEqual(command.kind, "error")
+                self.assertNotIn("BlindTeacher", command.payload["message"])
+                self.assertNotIn("private-library", command.payload["message"])
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(
+                    self.app.shell.restore_focus_target(),
+                    "board-square-e4",
+                )
+
+    def test_library_pagination_malformed_render_fails_closed_before_route_commit(self):
+        invalid_results = (
+            SimpleNamespace(kind="delegated", payload={}),
+            SimpleNamespace(kind="render", payload={}),
+            SimpleNamespace(kind="render", payload={"snapshot": {"status": "loading"}}),
+        )
+        for action, method_name in (
+            ("library.next_page", "next_page"),
+            ("library.previous_page", "previous_page"),
+        ):
+            for projected in invalid_results:
+                with self.subTest(
+                    action=action,
+                    kind=projected.kind,
+                    payload=projected.payload,
+                ):
+                    self.app.shell.open_route("board")
+                    self.app.record_focus("move-input")
+                    with patch.object(
+                        self.app.library.projection,
+                        method_name,
+                        return_value=projected,
+                    ):
+                        command = self.app.adapter.activate_action(
+                            action,
+                            current_focus_id="move-input",
+                        )
+                    self.assertEqual(command.kind, "error")
+                    self.assertEqual(self.app.shell.current_route.route_id, "board")
+                    self.assertEqual(
+                        self.app.shell.restore_focus_target(),
+                        "move-input",
+                    )
+
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
