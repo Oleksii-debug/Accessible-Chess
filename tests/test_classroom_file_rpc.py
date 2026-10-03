@@ -219,11 +219,21 @@ class BoundCall:
         self.participant_id = participant_id
         self.calls = []
         self.fail = False
+        self.progress_script = None
 
-    def call(self, request):
+    def call(self, request, *, on_upload_progress=None):
         self.calls.append(dict(request))
         if self.fail:
             raise RuntimeError("transport bearer supersecret")
+        content = request.get("content")
+        if type(content) is bytes and on_upload_progress is not None:
+            samples = (
+                (0, len(content) // 2, len(content))
+                if self.progress_script is None
+                else tuple(self.progress_script)
+            )
+            for transferred in samples:
+                on_upload_progress(transferred)
         return self.service.handle(
             dict(request),
             authenticated_room_id=self.room_id,
@@ -235,7 +245,10 @@ class StaticCall:
     def __init__(self, response):
         self.response = response
 
-    def call(self, request):
+    def call(self, request, *, on_upload_progress=None):
+        content = request.get("content")
+        if type(content) is bytes and on_upload_progress is not None:
+            on_upload_progress(len(content))
         return self.response
 
 
@@ -470,25 +483,88 @@ class ClassroomFileRpcTests(unittest.TestCase):
             "stored",
         )
 
-    def test_upload_is_binary_exact_idempotent_and_reports_canonical_progress(self):
+    def test_upload_is_binary_exact_idempotent_and_reports_transport_progress(self):
         prepared = self.prepared(content=b"\x00\x01\xfe\xffbinary")
+        total = prepared.metadata.size_bytes
+        midpoint = total // 2
+        self.call.progress_script = (0, midpoint, midpoint, total)
         samples = []
+
         first = self.client.upload(prepared, on_progress=samples.append)
         second = self.client.retry(prepared, on_progress=samples.append)
+
         self.assertEqual(first, second)
-        self.assertEqual(
-            samples,
-            [
-                FileTransferProgress("att-1", prepared.metadata.size_bytes, prepared.metadata.size_bytes),
-                FileTransferProgress("att-1", prepared.metadata.size_bytes, prepared.metadata.size_bytes),
-            ],
-        )
+        expected = [
+            FileTransferProgress("att-1", 0, total),
+            FileTransferProgress("att-1", midpoint, total),
+            FileTransferProgress("att-1", total, total),
+        ]
+        self.assertEqual(samples, expected + expected)
+        self.assertTrue(all(not sample.complete for sample in samples))
         self.assertEqual(len(self.backend.upload_calls), 2)
-        self.assertEqual(self.backend.upload_calls[0][2], prepared.local_path.read_bytes())
+        self.assertEqual(
+            self.backend.upload_calls[0][2],
+            prepared.local_path.read_bytes(),
+        )
         request = self.call.calls[0]
         self.assertIs(type(request["content"]), bytes)
         self.assertNotIn("local_path", request)
         self.assertNotIn(str(prepared.local_path), repr(request["metadata"]))
+
+    def test_transport_progress_rejects_invalid_or_backward_samples_before_backend(self):
+        cases = (
+            ("negative", (-1,)),
+            ("boolean", (True,)),
+            ("overflow", (999,)),
+            ("backward", (0, 5, 4)),
+        )
+        for index, (label, script) in enumerate(cases):
+            with self.subTest(label=label):
+                self.call.progress_script = script
+                before = len(self.backend.upload_calls)
+                with self.assertRaises(ClassroomFileRpcError):
+                    self.client.upload(
+                        self.prepared(
+                            attachment_id=f"bad-progress-{index}",
+                            content=b"12345678",
+                        )
+                    )
+                self.assertEqual(len(self.backend.upload_calls), before)
+
+    def test_missing_final_transport_progress_is_ambiguous_and_exact_retry_converges(self):
+        prepared = self.prepared(
+            attachment_id="ambiguous-progress",
+            content=b"exactly-once-progress",
+        )
+        self.call.progress_script = (0, 2)
+
+        with self.assertRaisesRegex(
+            ClassroomFileRpcError,
+            "omitted final upload progress",
+        ):
+            self.client.upload(prepared)
+
+        self.assertEqual(len(self.backend.upload_calls), 1)
+        self.assertEqual(len(self.backend._stored), 1)
+
+        self.call.progress_script = (0, prepared.metadata.size_bytes)
+        replayed = self.client.retry(prepared)
+        self.assertEqual(replayed, self.backend._stored[0])
+        self.assertEqual(len(self.backend._stored), 1)
+
+    def test_progress_consumer_failure_is_presentation_only(self):
+        prepared = self.prepared(
+            attachment_id="broken-progress-consumer",
+            content=b"observer-only",
+        )
+
+        def broken(_sample):
+            raise RuntimeError("presentation callback failed")
+
+        stored = self.client.upload(prepared, on_progress=broken)
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(self.backend.upload_calls), 1)
 
     def test_client_revalidates_changed_file_before_transport(self):
         prepared = self.prepared(content=b"before")
