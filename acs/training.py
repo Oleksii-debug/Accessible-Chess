@@ -56,6 +56,9 @@ class ExerciseStatus(str, Enum):
     COMPLETED = "completed"
 
 
+_MAX_TRAINING_STATUS_CHARS = max(len(status.value) for status in ExerciseStatus)
+
+
 class ExerciseContentError(ValueError):
     """Raised when authored exercise chess content is invalid for canonical state."""
 
@@ -659,6 +662,11 @@ def _restore_common(
     status_value = snapshot["status"]
     if type(status_value) is not str:
         raise TypeError("exercise snapshot status must be a string")
+    # ExerciseStatus resolves hashable values through Enum's value lookup.
+    # Bound hostile persisted text before that fixed-domain lookup so malformed
+    # storage cannot trigger unbounded string hashing ahead of validation.
+    if len(status_value) > _MAX_TRAINING_STATUS_CHARS:
+        raise ValueError("exercise snapshot status text is too long")
     try:
         status = ExerciseStatus(status_value)
     except ValueError as exc:
