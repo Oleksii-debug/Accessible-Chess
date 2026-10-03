@@ -872,6 +872,33 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual(manifest.files["move"], snapshot.relative_path)
             self.assertEqual(payloads[manifest.files["move"]], snapshot.content)
 
+    def test_asset_lookup_distinguishes_undeclared_sound_from_verified_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, payloads = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+
+            declared = store.read_asset_lookup(manifest.pack_id, "move")
+            missing = store.read_asset_lookup(manifest.pack_id, "future.event")
+
+            self.assertTrue(declared.pack_available)
+            self.assertTrue(declared.sound_declared)
+            self.assertIsNotNone(declared.snapshot)
+            assert declared.snapshot is not None
+            self.assertEqual(
+                payloads[manifest.files["move"]],
+                declared.snapshot.content,
+            )
+            self.assertTrue(missing.pack_available)
+            self.assertFalse(missing.sound_declared)
+            self.assertIsNone(missing.snapshot)
+            self.assertEqual(
+                declared.snapshot,
+                store.read_asset_snapshot(manifest.pack_id, "move"),
+            )
+
     def test_asset_replacement_after_manifest_verification_never_escapes_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
