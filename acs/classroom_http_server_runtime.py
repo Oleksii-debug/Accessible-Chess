@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-"""Trusted deployment composition for classroom chat + file HTTP services.
+"""Trusted deployment composition for classroom collaboration HTTP services.
 
-This module owns startup ordering only. Chat/file authorization, persistence,
-retention policy, scanning, object storage, RPC semantics, HTTP framing and
-authentication remain in their existing canonical owners.
+This module owns startup ordering only. Chat/file durable authorities are built
+here; an optional already-canonical join credential service can be composed into
+the same ASGI application without moving caller identity, media policy or token
+issuance into this runtime.
 """
 
 from dataclasses import dataclass
@@ -30,6 +31,8 @@ from .classroom_http_application import (
     ClassroomCollaborationHttpApplication,
     ClassroomCollaborationHttpAuthenticatorPort,
 )
+from .classroom_join_credentials import ClassroomJoinCredentialService
+from .classroom_join_http_endpoint import ClassroomJoinHttpAuthenticatorPort
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -42,6 +45,7 @@ class ClassroomCollaborationHttpServerRuntime:
     file_service: ClassroomFileServerService
     chat_rpc: ClassroomChatRpcService
     file_rpc: ClassroomFileRpcService
+    join_service: ClassroomJoinCredentialService | None
     application: ClassroomCollaborationHttpApplication
 
     def __repr__(self) -> str:
@@ -80,6 +84,8 @@ def build_classroom_collaboration_http_server_runtime(
     clock_unix_ms: Callable[[], int],
     chat_retention_policy: Callable[[str], str] | None = None,
     file_quota: FileQuotaPolicy = FileQuotaPolicy(),
+    join_service: ClassroomJoinCredentialService | None = None,
+    join_authenticator: ClassroomJoinHttpAuthenticatorPort | None = None,
     allow_insecure_loopback: bool = False,
 ) -> ClassroomCollaborationHttpServerRuntime:
     """Build a recovered server runtime before exposing its ASGI application.
@@ -112,6 +118,21 @@ def build_classroom_collaboration_http_server_runtime(
         raise TypeError("chat_retention_policy must be callable or None")
     if type(file_quota) is not FileQuotaPolicy:
         raise TypeError("file_quota must be FileQuotaPolicy")
+    if (join_service is None) != (join_authenticator is None):
+        raise ValueError(
+            "join service and join authenticator must be configured together"
+        )
+    if join_service is not None and not isinstance(
+        join_service,
+        ClassroomJoinCredentialService,
+    ):
+        raise TypeError("join_service must be ClassroomJoinCredentialService")
+    if join_authenticator is not None:
+        _require_callable(
+            join_authenticator,
+            "authenticate_bearer",
+            "join authenticator",
+        )
     if file_quota.max_file_bytes > MAX_RPC_UPLOAD_BYTES:
         raise ValueError("file_quota exceeds authenticated RPC upload limit")
     if type(allow_insecure_loopback) is not bool:
@@ -161,6 +182,8 @@ def build_classroom_collaboration_http_server_runtime(
         chat_service=chat_rpc,
         file_service=file_rpc,
         authenticator=authenticator,
+        join_service=join_service,
+        join_authenticator=join_authenticator,
         allow_insecure_loopback=allow_insecure_loopback,
     )
 
@@ -171,6 +194,7 @@ def build_classroom_collaboration_http_server_runtime(
         file_service=file_service,
         chat_rpc=chat_rpc,
         file_rpc=file_rpc,
+        join_service=join_service,
         application=application,
     )
 
