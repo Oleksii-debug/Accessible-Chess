@@ -178,7 +178,9 @@ class TrainingWebViewProjection:
         return self._presenter.message_key
 
     def set_language(self, language: UILanguage | str) -> TrainingWebViewEvent:
-        if isinstance(language, str):
+        if type(language) is str:
+            if len(language) > 8:
+                raise ValueError("unsupported UI language")
             try:
                 language = UILanguage(language.strip().lower())
             except ValueError:
