@@ -971,6 +971,27 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.student1.cancel(attachment_id="never-accepted")
         self.assertEqual(self.objects.delete_calls, [])
 
+    def test_membership_revoked_during_download_status_cannot_mint_token(self):
+        stored = self.student1.upload(
+            self.prepared(attachment_id="download-revoked-status-a0")
+        )
+        self.objects.after_status = lambda: self.auth.members.discard(
+            ("student-2", "room-1")
+        )
+        token_calls = len(self.objects.token_calls)
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "not authorized",
+        ):
+            self.student2.issue_read_token(
+                object_key=stored.object_key,
+                participant_id="student-2",
+                ttl_seconds=60,
+            )
+
+        self.assertEqual(len(self.objects.token_calls), token_calls)
+
     def test_read_token_rejects_durable_bytes_that_no_longer_match_metadata(self):
         stored = self.student1.upload(
             self.prepared(
