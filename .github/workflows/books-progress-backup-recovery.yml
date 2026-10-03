@@ -113,9 +113,9 @@ jobs:
               'tests/test_version2_application.py' | sort)"
             if [ "$books_delta" = "$books_expected" ]; then
               test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "7337c31a5dab35ddb976f4b1cd2fbbb676c81072"
-              test "$(git rev-parse HEAD:acs/version2_application.py)" = "a54e1ceb5102d13d6439ab82c686679ee061fade"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "07c6a2251746cfbb7c9c271f63bb9ecf3bb2dcb4"
               test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "1cdc8a819677382697c531702a746ba68c9f2812"
-              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "bef9a71645fa3ecef6b62dacf121ccd7cf725c1b"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "e564af1433e69af29794ca2b095dbcd5eb48fcad"
               current_books_recovery=true
             fi
           fi
@@ -146,9 +146,9 @@ jobs:
             test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "0546dcb2d5dfad7c378d29a1c7c680a890b3d0f9"
             test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "445ea81503fedce46a6df0d43f5312514fbd7acb"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "7337c31a5dab35ddb976f4b1cd2fbbb676c81072"
-            test "$(git rev-parse HEAD:acs/version2_application.py)" = "a54e1ceb5102d13d6439ab82c686679ee061fade"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "07c6a2251746cfbb7c9c271f63bb9ecf3bb2dcb4"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "1cdc8a819677382697c531702a746ba68c9f2812"
-            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "bef9a71645fa3ecef6b62dacf121ccd7cf725c1b"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "e564af1433e69af29794ca2b095dbcd5eb48fcad"
             orphan_backup_successor=true
           fi
 
