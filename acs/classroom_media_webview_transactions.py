@@ -75,6 +75,11 @@ class ClassroomMediaTransactionalWebView:
             raise TypeError("media transactional binder is invalid")
         if not isinstance(provider_config, ClassroomMediaBrowserProviderConfig):
             raise TypeError("media browser provider config is invalid")
+        host_owner = getattr(binder, "_host", None)
+        if getattr(host_owner, "_controller", None) is not projection.controller:
+            raise ValueError(
+                "media transactional binder must own the projection controller"
+            )
         self._projection = projection
         self._binder = binder
         self._provider_config = provider_config
