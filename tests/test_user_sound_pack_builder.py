@@ -236,11 +236,11 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             )
             self.assertEqual(
                 variants["events"]["low_time"][0]["file"],
-                "library/Board/coach.wav",
+                "library/Server/aooga.wav",
             )
             self.assertEqual(
                 variants["events"]["low_time"][1]["file"],
-                "library/Board/failhigh.wav",
+                "library/Server/ping.wav",
             )
             self.assertEqual(
                 layers["events"]["move"]["1"],
