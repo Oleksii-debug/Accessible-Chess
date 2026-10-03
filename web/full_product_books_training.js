@@ -392,6 +392,145 @@
     return snapshot.document.lang;
   }
 
+  function validateTrainingSnapshot(snapshot, requestedFocus, solution) {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new TypeError("Training snapshot is required");
+    }
+    if (
+      !snapshot.document ||
+      typeof snapshot.document !== "object" ||
+      Array.isArray(snapshot.document) ||
+      (snapshot.document.lang !== "en" && snapshot.document.lang !== "uk")
+    ) {
+      throw new TypeError("Training document language is invalid");
+    }
+    requiredUiText(snapshot.heading, "Training heading", 360);
+    requiredUiText(snapshot.title, "Training title", 360);
+    if (
+      snapshot.status !== "ready" &&
+      snapshot.status !== "in_progress" &&
+      snapshot.status !== "completed"
+    ) {
+      throw new TypeError("Training status is invalid");
+    }
+    if (typeof snapshot.message !== "string" || snapshot.message.length > 1200) {
+      throw new TypeError("Training message is invalid");
+    }
+
+    const progress = snapshot.progress;
+    if (!progress || typeof progress !== "object" || Array.isArray(progress)) {
+      throw new TypeError("Training progress is invalid");
+    }
+    ["step_label", "of_label", "attempts_label", "mistakes_label", "hints_label"].forEach(
+      function (name) {
+        requiredUiText(progress[name], "Training progress label", 160);
+      }
+    );
+    ["step", "total", "attempts", "mistakes", "hints_used"].forEach(function (name) {
+      if (!Number.isSafeInteger(progress[name]) || progress[name] < 0) {
+        throw new TypeError("Training progress counter is invalid");
+      }
+    });
+    if (
+      progress.total < 1 ||
+      progress.step < 1 ||
+      progress.step > progress.total ||
+      progress.mistakes > progress.attempts ||
+      typeof progress.completed !== "boolean" ||
+      progress.completed !== (snapshot.status === "completed")
+    ) {
+      throw new TypeError("Training progress state is inconsistent");
+    }
+
+    const answer = snapshot.answer;
+    if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
+      throw new TypeError("Training answer specification is invalid");
+    }
+    requiredUiText(answer.label, "Training answer label", 160);
+    requiredUiText(answer.submit_label, "Training submit label", 160);
+    if (
+      answer.max_length !== 128 ||
+      typeof answer.disabled !== "boolean" ||
+      answer.disabled !== progress.completed
+    ) {
+      throw new TypeError("Training answer state is inconsistent");
+    }
+
+    if (!Array.isArray(snapshot.actions) || snapshot.actions.length !== 5) {
+      throw new TypeError("Training actions are invalid");
+    }
+    const expectedCommands = [
+      "training.hint",
+      "training.reveal",
+      "training.retry",
+      "training.continue",
+      "training.reset.request"
+    ];
+    const actions = [];
+    for (let index = 0; index < expectedCommands.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(snapshot.actions, index)) {
+        throw new TypeError("Training actions must be dense");
+      }
+      const action = snapshot.actions[index];
+      if (!action || typeof action !== "object" || Array.isArray(action)) {
+        throw new TypeError("Training action must be an object");
+      }
+      if (action.command !== expectedCommands[index]) {
+        throw new TypeError("Training action order/identity is invalid");
+      }
+      requiredUiText(action.label, "Training action label", 160);
+      if (typeof action.enabled !== "boolean") {
+        throw new TypeError("Training action enabled state is invalid");
+      }
+      actions.push(action);
+    }
+    const expectedExerciseEnabled = !progress.completed;
+    if (
+      actions[0].enabled !== expectedExerciseEnabled ||
+      actions[1].enabled !== expectedExerciseEnabled ||
+      actions[2].enabled !== expectedExerciseEnabled ||
+      actions[4].enabled !== true ||
+      (!progress.completed && actions[3].enabled)
+    ) {
+      throw new TypeError("Training action availability is inconsistent");
+    }
+
+    const reset = snapshot.reset_dialog;
+    if (!reset || typeof reset !== "object" || Array.isArray(reset)) {
+      throw new TypeError("Training reset dialog is invalid");
+    }
+    ["title", "text", "confirm_label", "cancel_label"].forEach(function (name) {
+      requiredUiText(reset[name], "Training reset dialog text", 600);
+    });
+    requiredUiText(snapshot.solution_label, "Training solution label", 160);
+
+    const allowedFocus = Object.create(null);
+    allowedFocus[""] = true;
+    if (!answer.disabled) allowedFocus["training-answer"] = true;
+    if (solution.length) allowedFocus["training-solution"] = true;
+    actions.forEach(function (action) {
+      if (
+        action.enabled &&
+        Object.prototype.hasOwnProperty.call(TRAINING_ACTION_IDS, action.command)
+      ) {
+        allowedFocus[TRAINING_ACTION_IDS[action.command]] = true;
+      }
+    });
+    if (
+      typeof requestedFocus !== "string" ||
+      !Object.prototype.hasOwnProperty.call(allowedFocus, requestedFocus)
+    ) {
+      throw new TypeError("Training focus target is invalid");
+    }
+
+    return {
+      progress: progress,
+      answer: answer,
+      actions: actions,
+      reset_dialog: reset
+    };
+  }
+
   function appendSemanticDetails(container, label, items, headingId) {
     if (!items.length) return;
     const heading = node("h4", label);
@@ -1033,7 +1172,8 @@
     }
     requireFunction(invoke, "Training invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
-    if (!snapshot || typeof snapshot !== "object") throw new TypeError("Training snapshot is required");
+    if (!Array.isArray(solution)) throw new TypeError("Training solution is required");
+    const validated = validateTrainingSnapshot(snapshot, requestedFocus, solution);
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
@@ -1041,7 +1181,7 @@
     main.appendChild(node("h2", snapshot.heading || ""));
     main.appendChild(node("h3", snapshot.title || ""));
 
-    const progress = snapshot.progress || {};
+    const progress = validated.progress;
     const stats = node("dl");
     [
       [progress.step_label, String(progress.step || 0) + " " + (progress.of_label || "") + " " + String(progress.total || 0)],
@@ -1060,7 +1200,7 @@
       main.appendChild(message);
     }
 
-    const answerSpec = snapshot.answer || {};
+    const answerSpec = validated.answer;
     const form = node("form");
     const label = node("label", answerSpec.label || "");
     const input = node("input");
@@ -1099,10 +1239,10 @@
       main.appendChild(solutionSection);
     }
 
-    const resetDialog = buildResetDialog(root, snapshot.reset_dialog || {}, invoke, announce, fallbackMessage);
+    const resetDialog = buildResetDialog(root, validated.reset_dialog, invoke, announce, fallbackMessage);
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
-    const actions = Array.isArray(snapshot.actions) ? snapshot.actions : [];
+    const actions = validated.actions;
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
       button.type = "button";
