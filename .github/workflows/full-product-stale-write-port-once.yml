@@ -1,0 +1,124 @@
+name: Full Product Stale Write Port Once
+
+on:
+  push:
+    branches:
+      - integration/full-product-convergence-20261004
+    paths:
+      - '.github/workflows/full-product-stale-write-port-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: full-product-stale-write-port-once
+  cancel-in-progress: false
+
+jobs:
+  port:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact convergence branch
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify one-shot starting geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline='7ee97ba74a538f0cbc8b501bf3f63581b6fdbcc6'
+          test "${GITHUB_REF_NAME}" = 'integration/full-product-convergence-20261004'
+          git merge-base --is-ancestor "$baseline" HEAD
+          changed="$(git diff --name-only "$baseline" HEAD | sort)"
+          test "$changed" = '.github/workflows/full-product-stale-write-port-once.yml'
+
+      - name: Configure convergence commit identity
+        shell: bash
+        run: |
+          git config user.name 'Accessible Chess convergence bot'
+          git config user.email 'actions@users.noreply.github.com'
+
+      - name: Restore canonical Book Board active-command authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('acs/version2_application.py')
+          text = path.read_text(encoding='utf-8')
+          if '_BOOK_BOARD_ACTIVE_COMMANDS = frozenset(' in text:
+              raise SystemExit('active-command authority already exists; one-shot assumptions changed')
+          anchor = '    _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})\n'
+          replacement = anchor + '''    _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(\n        {\n            "book.board_next_move",\n            "book.board_previous_move",\n            "book.board_enter_variation",\n            "book.board_leave_variation",\n            "book.board_analyze",\n        }\n    )\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit('Book Board open-command anchor changed')
+          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
+          git add acs/version2_application.py
+          git commit -m 'Fix convergence Book Board active command authority'
+
+      - name: Port exact stale-write authority commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cherry-pick \
+            4d10e406b36a6efe528e966a2ef9f65eb39b9440 \
+            de956934f8c1ef7e648a72d83ffba186d27c47b9 \
+            326560696b43e0709ab5e5d24a29367bbaacbba9
+
+      - name: Compile convergence surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_application.py
+          tests/test_version2_application.py
+
+      - name: Run Book progress and whole-application regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+
+      - name: Run core selftest
+        run: python -m acs.selftest
+
+      - name: Verify bounded final semantic delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline='7ee97ba74a538f0cbc8b501bf3f63581b6fdbcc6'
+          git diff --check "$baseline" HEAD
+          python - <<'PY'
+          from acs.book_progress_store import BookProgressStoreErrorCode
+          from acs.version2_application import Version2Application
+
+          expected_active = frozenset({
+              'book.board_next_move',
+              'book.board_previous_move',
+              'book.board_enter_variation',
+              'book.board_leave_variation',
+              'book.board_analyze',
+          })
+          assert Version2Application._BOOK_BOARD_ACTIVE_COMMANDS == expected_active
+          assert Version2Application._BOOK_PROGRESS_RELOAD_CODES == frozenset({
+              BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+              BookProgressStoreErrorCode.STALE_WRITE,
+          })
+          PY
+
+      - name: Remove one-shot workflow and push verified convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline='7ee97ba74a538f0cbc8b501bf3f63581b6fdbcc6'
+          rm .github/workflows/full-product-stale-write-port-once.yml
+          git add -A
+          git commit -m 'CI: retire one-shot stale-write convergence porter'
+          changed="$(git diff --name-only "$baseline" HEAD | sort)"
+          expected="$(printf '%s\n' 'acs/version2_application.py' 'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+          git push origin HEAD:integration/full-product-convergence-20261004
