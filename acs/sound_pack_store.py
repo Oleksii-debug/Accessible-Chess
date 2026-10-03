@@ -1244,7 +1244,17 @@ class FilesystemSoundPackStore:
         source: Path,
     ) -> None:
         manifest = downloaded.manifest
-        current_version = self.active_version(manifest.pack_id)
+        pack_dir = self._pack_dir(manifest.pack_id)
+        current_version: str | None = None
+        if os.path.lexists(pack_dir):
+            _require_real_dir(pack_dir, "sound pack identity directory")
+            active_path = pack_dir / _ACTIVE_NAME
+            if os.path.lexists(active_path):
+                active_id, current_version = self._read_active(pack_dir)
+                if active_id != manifest.pack_id:
+                    raise SoundPackStoreError(
+                        "sound pack active pointer id does not match directory"
+                    )
         if (
             current_version is not None
             and _semantic_version_key(current_version)
