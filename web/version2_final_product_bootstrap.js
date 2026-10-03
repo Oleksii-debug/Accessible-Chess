@@ -385,30 +385,37 @@
     return /^(?:host|session)-[0-9a-f]{32}$/.test(value) ? value : "";
   }
 
+  function mediaProviderBoundaryCrossed(event) {
+    const payload = event && event.payload && typeof event.payload === "object"
+      ? event.payload
+      : {};
+    return payload.provider_boundary_crossed === true;
+  }
+
+  function retireMediaProviderRuntimeFailure(event, invoke) {
+    const transactionId = mediaTransactionId(event);
+    if (!transactionId) {
+      return Promise.reject(new Error("media provider transaction is invalid"));
+    }
+    const command = mediaProviderBoundaryCrossed(event)
+      ? "media.provider_outcome_unknown"
+      : "media.provider_not_started";
+    return invoke(command, { transaction_id: transactionId });
+  }
+
   function executeMediaProviderEvent(event) {
     const invoke = areaInvoke("media");
-    const transactionId = mediaTransactionId(event);
     const runtime = global.AccessibleChessClassroomMediaProviderRuntime;
     if (!runtime || typeof runtime.execute !== "function") {
-      if (!transactionId) {
-        return Promise.reject(new Error("media provider transaction is invalid"));
-      }
-      return invoke("media.provider_not_started", {
-        transaction_id: transactionId
-      });
+      return retireMediaProviderRuntimeFailure(event, invoke);
     }
     return Promise.resolve(runtime.execute(event, invoke)).then(function (result) {
       if (!result || typeof result !== "object") {
-        throw new TypeError("media provider runtime result is invalid");
+        return retireMediaProviderRuntimeFailure(event, invoke);
       }
       return result;
-    }, function () {
-      if (!transactionId) {
-        throw new Error("media provider runtime failed");
-      }
-      return invoke("media.provider_not_started", {
-        transaction_id: transactionId
-      });
+    }).catch(function () {
+      return retireMediaProviderRuntimeFailure(event, invoke);
     });
   }
 
