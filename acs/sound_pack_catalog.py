@@ -223,6 +223,15 @@ class SoundPackManager:
             if received.sha256 != expected.sha256:
                 raise SoundPackInstallError("downloaded asset checksum verification failed")
 
+    def installed_manifest(self, pack_id: str) -> SoundPackManifest | None:
+        """Return the storage-verified active manifest for one installed pack."""
+
+        requested = SoundProfile(pack_id=pack_id).pack_id
+        current = dict(self._storage.installed()).get(requested)
+        if current is not None and not isinstance(current, SoundPackManifest):
+            raise SoundPackInstallError("installed sound pack metadata is invalid")
+        return current
+
     def resolve_usable_pack(self, requested_pack_id: str) -> str:
         """Implement the neutral resolver port consumed by SoundProfileManager."""
 
