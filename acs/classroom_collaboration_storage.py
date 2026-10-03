@@ -673,11 +673,50 @@ class ClassroomCollaborationSQLiteStore:
                 # moderation hide. Redaction clears the replicated body while
                 # preserving message identity, sequence and timestamp so
                 # reconnect remains gap-free without retaining expired content.
-                db.execute(
-                    "ALTER TABLE collaboration_messages "
-                    "ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0 "
-                    "CHECK(redacted IN (0,1))"
-                )
+                #
+                # A crash or a restored backup can leave the physical v9 column
+                # present while the durable version marker still names an older
+                # schema. Treat that as a resumable partial migration only when
+                # the existing column has the exact safe scalar shape; never
+                # blindly ADD COLUMN and brick reopen with a duplicate name.
+                message_columns = {
+                    row["name"]: row
+                    for row in db.execute(
+                        "PRAGMA table_info(collaboration_messages)"
+                    )
+                }
+                redacted_column = message_columns.get("redacted")
+                if redacted_column is None:
+                    db.execute(
+                        "ALTER TABLE collaboration_messages "
+                        "ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0 "
+                        "CHECK(redacted IN (0,1))"
+                    )
+                else:
+                    declared_type = redacted_column["type"]
+                    default_value = redacted_column["dflt_value"]
+                    if (
+                        type(declared_type) is not str
+                        or declared_type.upper() != "INTEGER"
+                        or redacted_column["notnull"] != 1
+                        or default_value not in {"0", "(0)"}
+                        or redacted_column["pk"] != 0
+                    ):
+                        raise CollaborationStorageError(
+                            "partial redaction schema is incompatible"
+                        )
+                    invalid_redaction = db.execute(
+                        """
+                        SELECT 1 FROM collaboration_messages
+                        WHERE typeof(redacted) != 'integer'
+                           OR redacted NOT IN (0,1)
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    if invalid_redaction is not None:
+                        raise CollaborationStorageError(
+                            "partial redaction state is invalid"
+                        )
                 db.execute(
                     "UPDATE collaboration_schema_meta SET value=9 WHERE key='schema_version'"
                 )
