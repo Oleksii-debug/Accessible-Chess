@@ -8,6 +8,7 @@ surface and keeps the resume file outside browser-owned state.
 """
 
 import os
+import secrets
 from pathlib import Path
 import stat
 
@@ -28,6 +29,8 @@ from .pgn_workspace import PgnWorkspace
 
 _DISCARD_GUARD_DIRECTORY = ".gametree-resume-discard"
 _DISCARD_GUARD_SUFFIX = ".guard"
+_DISCARD_TOMBSTONE_SUFFIX = ".discarding"
+_DISCARD_TOMBSTONE_NONCE_HEX = 24
 _DISCARD_GUARD_RESERVATION = b"AccessibleChess GameTree discard reservation\n"
 
 
@@ -70,14 +73,7 @@ class Version2GameTreeResumeCoordinator:
         return self.store.path.parent / _DISCARD_GUARD_DIRECTORY
 
     @staticmethod
-    def _discard_guard_token(path: Path) -> str:
-        name = path.name
-        if not name.endswith(_DISCARD_GUARD_SUFFIX):
-            raise GameTreeResumeError(
-                "resume discard guard name is invalid",
-                code=GameTreeResumeCode.IO_FAILURE,
-            )
-        token = name[: -len(_DISCARD_GUARD_SUFFIX)]
+    def _validate_discard_token(token: str) -> str:
         if (
             len(token) != 64
             or any(character not in "0123456789abcdef" for character in token)
@@ -87,6 +83,54 @@ class Version2GameTreeResumeCoordinator:
                 code=GameTreeResumeCode.IO_FAILURE,
             )
         return token
+
+    @classmethod
+    def _discard_guard_token(cls, path: Path) -> str:
+        name = path.name
+        if not name.endswith(_DISCARD_GUARD_SUFFIX):
+            raise GameTreeResumeError(
+                "resume discard guard name is invalid",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        return cls._validate_discard_token(name[: -len(_DISCARD_GUARD_SUFFIX)])
+
+    @classmethod
+    def _discard_tombstone_token(cls, path: Path) -> str:
+        name = path.name
+        if not name.endswith(_DISCARD_TOMBSTONE_SUFFIX):
+            raise GameTreeResumeError(
+                "resume discard tombstone name is invalid",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        stem = name[: -len(_DISCARD_TOMBSTONE_SUFFIX)]
+        try:
+            token, nonce = stem.rsplit(".", 1)
+        except ValueError as error:
+            raise GameTreeResumeError(
+                "resume discard tombstone name is invalid",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+        cls._validate_discard_token(token)
+        if (
+            len(nonce) != _DISCARD_TOMBSTONE_NONCE_HEX
+            or any(character not in "0123456789abcdef" for character in nonce)
+        ):
+            raise GameTreeResumeError(
+                "resume discard tombstone nonce is invalid",
+                code=GameTreeResumeCode.IO_FAILURE,
+            )
+        return token
+
+    @classmethod
+    def _discard_entry_token(cls, path: Path) -> str:
+        if path.name.endswith(_DISCARD_GUARD_SUFFIX):
+            return cls._discard_guard_token(path)
+        if path.name.endswith(_DISCARD_TOMBSTONE_SUFFIX):
+            return cls._discard_tombstone_token(path)
+        raise GameTreeResumeError(
+            "resume discard control entry name is invalid",
+            code=GameTreeResumeCode.IO_FAILURE,
+        )
 
     def _require_discard_guard_directory(self, *, create: bool) -> Path | None:
         directory = self._discard_guard_directory
@@ -157,7 +201,7 @@ class Version2GameTreeResumeCoordinator:
                 code=GameTreeResumeCode.STALE_WRITER,
             )
         if entries:
-            self._discard_guard_token(entries[0])
+            self._discard_entry_token(entries[0])
         return entries
 
     def _cleanup_discard_guard_directory_locked(self) -> None:
@@ -197,17 +241,52 @@ class Version2GameTreeResumeCoordinator:
                 code=GameTreeResumeCode.IO_FAILURE,
             ) from error
 
-    def _remove_discard_guard_locked(self, guard: Path) -> None:
-        _validate_regular_path(guard, allow_missing=False)
+    def _remove_discard_tombstone_locked(
+        self,
+        tombstone: Path,
+        *,
+        expected_payload: bytes,
+    ) -> None:
+        moved_payload = _read_store_bytes(tombstone)
+        if moved_payload != expected_payload:
+            raise GameTreeResumeError(
+                "resume discard control state changed before deletion",
+                code=GameTreeResumeCode.STALE_WRITER,
+            )
         try:
-            guard.unlink()
+            tombstone.unlink()
         except OSError as error:
             raise GameTreeResumeError(
-                "resume discard guard could not be removed",
+                "resume discard tombstone could not be removed",
+                code=GameTreeResumeCode.IO_FAILURE,
+            ) from error
+        _fsync_directory(tombstone.parent)
+        self._cleanup_discard_guard_directory_locked()
+
+    def _remove_discard_guard_locked(
+        self,
+        guard: Path,
+        *,
+        expected_payload: bytes,
+    ) -> None:
+        intended_token = self._discard_guard_token(guard)
+        _read_store_bytes(guard)
+        tombstone = guard.parent / (
+            f"{intended_token}.{secrets.token_hex(_DISCARD_TOMBSTONE_NONCE_HEX // 2)}"
+            f"{_DISCARD_TOMBSTONE_SUFFIX}"
+        )
+        try:
+            os.replace(guard, tombstone)
+        except OSError as error:
+            raise GameTreeResumeError(
+                "resume discard guard could not enter deletion quarantine",
                 code=GameTreeResumeCode.IO_FAILURE,
             ) from error
         _fsync_directory(guard.parent)
-        self._cleanup_discard_guard_directory_locked()
+        self._remove_discard_tombstone_locked(
+            tombstone,
+            expected_payload=expected_payload,
+        )
 
     def _reserve_discard_guard_locked(self, guard: Path) -> None:
         flags = (
@@ -267,8 +346,10 @@ class Version2GameTreeResumeCoordinator:
 
         _fsync_directory(path.parent)
         try:
-            canonical_token = _token_for_bytes(_read_store_bytes(path))
-            guard_token = _token_for_bytes(_read_store_bytes(guard))
+            canonical_payload = _read_store_bytes(path)
+            guard_payload = _read_store_bytes(guard)
+            canonical_token = _token_for_bytes(canonical_payload)
+            guard_token = _token_for_bytes(guard_payload)
         except GameTreeResumeError:
             raise
         if canonical_token != expected_token or guard_token != expected_token:
@@ -276,7 +357,79 @@ class Version2GameTreeResumeCoordinator:
                 "resume discard recovery readback mismatch",
                 code=GameTreeResumeCode.STALE_WRITER,
             )
-        self._remove_discard_guard_locked(guard)
+        self._remove_discard_guard_locked(
+            guard,
+            expected_payload=guard_payload,
+        )
+
+    def _reconcile_discard_tombstone_locked(
+        self,
+        tombstone: Path,
+        *,
+        intended_token: str,
+        tombstone_payload: bytes,
+    ) -> None:
+        path = self.store.path
+        canonical_exists = _validate_regular_path(path, allow_missing=True)
+
+        if tombstone_payload == _DISCARD_GUARD_RESERVATION:
+            if not canonical_exists:
+                raise GameTreeResumeError(
+                    "resume discard reservation tombstone exists without canonical state",
+                    code=GameTreeResumeCode.IO_FAILURE,
+                )
+            self._remove_discard_tombstone_locked(
+                tombstone,
+                expected_payload=tombstone_payload,
+            )
+            return
+
+        tombstone_token = _token_for_bytes(tombstone_payload)
+        if tombstone_token == intended_token:
+            self._remove_discard_tombstone_locked(
+                tombstone,
+                expected_payload=tombstone_payload,
+            )
+            return
+
+        if not canonical_exists:
+            try:
+                os.link(tombstone, path)
+            except FileExistsError as error:
+                raise GameTreeResumeError(
+                    "resume discard tombstone recovery found a competing canonical state",
+                    code=GameTreeResumeCode.STALE_WRITER,
+                ) from error
+            except OSError as error:
+                raise GameTreeResumeError(
+                    "resume discard tombstone recovery could not preserve raced state",
+                    code=GameTreeResumeCode.IO_FAILURE,
+                ) from error
+            _fsync_directory(path.parent)
+            canonical_payload = _read_store_bytes(path)
+            if canonical_payload != tombstone_payload:
+                raise GameTreeResumeError(
+                    "resume discard tombstone recovery readback mismatch",
+                    code=GameTreeResumeCode.STALE_WRITER,
+                )
+            self._remove_discard_tombstone_locked(
+                tombstone,
+                expected_payload=tombstone_payload,
+            )
+            return
+
+        canonical_payload = _read_store_bytes(path)
+        if canonical_payload == tombstone_payload:
+            self._remove_discard_tombstone_locked(
+                tombstone,
+                expected_payload=tombstone_payload,
+            )
+            return
+
+        raise GameTreeResumeError(
+            "resume discard tombstone recovery found divergent durable states",
+            code=GameTreeResumeCode.STALE_WRITER,
+        )
 
     def _reconcile_discard_guard_locked(self) -> None:
         entries = self._discard_guard_entries_locked()
@@ -285,8 +438,15 @@ class Version2GameTreeResumeCoordinator:
             return
 
         guard = entries[0]
-        intended_token = self._discard_guard_token(guard)
+        intended_token = self._discard_entry_token(guard)
         guard_payload = _read_store_bytes(guard)
+        if guard.name.endswith(_DISCARD_TOMBSTONE_SUFFIX):
+            self._reconcile_discard_tombstone_locked(
+                guard,
+                intended_token=intended_token,
+                tombstone_payload=guard_payload,
+            )
+            return
         path = self.store.path
         canonical_exists = _validate_regular_path(path, allow_missing=True)
 
@@ -298,7 +458,10 @@ class Version2GameTreeResumeCoordinator:
                     "resume discard reservation exists without canonical state",
                     code=GameTreeResumeCode.IO_FAILURE,
                 )
-            self._remove_discard_guard_locked(guard)
+            self._remove_discard_guard_locked(
+                guard,
+                expected_payload=guard_payload,
+            )
             return
 
         guard_token = _token_for_bytes(guard_payload)
@@ -314,7 +477,10 @@ class Version2GameTreeResumeCoordinator:
                         "resume discard recovery found duplicate claimed state",
                         code=GameTreeResumeCode.STALE_WRITER,
                     )
-            self._remove_discard_guard_locked(guard)
+            self._remove_discard_guard_locked(
+                guard,
+                expected_payload=guard_payload,
+            )
             return
 
         if not canonical_exists:
@@ -329,7 +495,10 @@ class Version2GameTreeResumeCoordinator:
         canonical_token = _token_for_bytes(_read_store_bytes(path))
         if canonical_token == guard_token:
             # Crash after no-clobber restoration but before guard cleanup.
-            self._remove_discard_guard_locked(guard)
+            self._remove_discard_guard_locked(
+                guard,
+                expected_payload=guard_payload,
+            )
             return
 
         # Two different valid pathnames are safer than choosing a winner. Leave
@@ -415,7 +584,8 @@ class Version2GameTreeResumeCoordinator:
             _fsync_directory(path.parent)
             _fsync_directory(directory)
 
-            moved_token = _token_for_bytes(_read_store_bytes(guard))
+            moved_payload = _read_store_bytes(guard)
+            moved_token = _token_for_bytes(moved_payload)
             if moved_token != claimed_token:
                 # The canonical pathname changed after authentication but before
                 # the atomic move. Never discard those newer bytes.
@@ -427,7 +597,10 @@ class Version2GameTreeResumeCoordinator:
                 else:
                     canonical_token = _token_for_bytes(_read_store_bytes(path))
                     if canonical_token == moved_token:
-                        self._remove_discard_guard_locked(guard)
+                        self._remove_discard_guard_locked(
+                            guard,
+                            expected_payload=moved_payload,
+                        )
                 raise GameTreeResumeError(
                     "resume store changed during discard publication",
                     code=GameTreeResumeCode.STALE_WRITER,
@@ -435,7 +608,10 @@ class Version2GameTreeResumeCoordinator:
 
             # Only the exact claimed bytes are now in the reserved guard. Their
             # deletion cannot target a concurrently recreated canonical pathname.
-            self._remove_discard_guard_locked(guard)
+            self._remove_discard_guard_locked(
+                            guard,
+                            expected_payload=moved_payload,
+                        )
             self._token = None
             if _validate_regular_path(path, allow_missing=True):
                 raise GameTreeResumeError(
