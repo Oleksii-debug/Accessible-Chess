@@ -251,6 +251,7 @@
     if (typeof block.role !== "string" || roles.indexOf(block.role) < 0) {
       throw new TypeError("Book snapshot block role is invalid");
     }
+    requireBoundedText(block.kind, "Book snapshot block kind", false, 80);
     const roleByKind = {
       Heading: "heading",
       Paragraph: "paragraph",
@@ -266,7 +267,6 @@
         roleByKind[block.kind] !== block.role) {
       throw new TypeError("Book snapshot block kind/role is inconsistent");
     }
-    requireBoundedText(block.kind, "Book snapshot block kind", true, 80);
     requireBoundedText(block.title, "Book snapshot block title", true, 360);
     requireBoundedText(
       block.text,
