@@ -186,6 +186,29 @@ class BookProgressStoreTests(unittest.TestCase):
                 with self.assertRaises(BookProgressStoreError):
                     self.store.has("book:one")
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "Windows symlink creation requires environment-specific privileges",
+    )
+    def test_symlinked_storage_directory_fails_closed_before_lock_or_progress_write(self) -> None:
+        outside = Path(self.tempdir.name) / "outside-progress-directory"
+        outside.mkdir()
+        self.path.parent.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save(
+                "book:symlinked-parent",
+                BookReader(self.original_document()),
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse((outside / self.path.name).exists())
+        self.assertFalse((outside / f"{self.path.name}.lock").exists())
+        self.assertFalse((outside / f"{self.path.name}.bak").exists())
+
     def test_invalid_book_keys_fail_before_any_file_mutation(self) -> None:
         reader = BookReader(self.original_document())
         bad = [
