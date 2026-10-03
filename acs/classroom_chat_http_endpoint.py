@@ -364,14 +364,25 @@ def _validated_client_endpoint(
         raise ValueError("chat HTTP endpoint URL is invalid")
     scheme = parsed.scheme.lower()
     host = parsed.hostname
+    try:
+        host_ascii = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        raise ValueError("chat HTTP endpoint URL is invalid") from None
+    if (
+        not host_ascii
+        or len(host_ascii) > 253
+        or any(ord(ch) <= 32 or ord(ch) == 127 for ch in host_ascii)
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ValueError("chat HTTP endpoint URL is invalid")
     if scheme == "https":
-        return scheme, host, 443 if port is None else port
+        return scheme, host_ascii, 443 if port is None else port
     if (
         scheme == "http"
         and allow_insecure_loopback
-        and _host_is_literal_loopback(host)
+        and _host_is_literal_loopback(host_ascii)
     ):
-        return scheme, host, 80 if port is None else port
+        return scheme, host_ascii, 80 if port is None else port
     raise ValueError("chat HTTP endpoint must use HTTPS")
 
 
@@ -437,11 +448,20 @@ def _read_client_response(response: object) -> dict[str, object]:
             )
         name, value = entry
         try:
-            header_bytes += len(name.encode("ascii")) + len(value.encode("latin1"))
+            name_bytes = name.encode("ascii")
+            value_bytes = value.encode("latin1")
         except UnicodeEncodeError:
             raise ClassroomChatHttpClientError(
                 "classroom chat HTTP response headers are invalid"
             ) from None
+        if (
+            _HEADER_NAME_RE.fullmatch(name_bytes) is None
+            or any(byte < 32 or byte == 127 for byte in value_bytes)
+        ):
+            raise ClassroomChatHttpClientError(
+                "classroom chat HTTP response headers are invalid"
+            )
+        header_bytes += len(name_bytes) + len(value_bytes)
         if header_bytes > MAX_REQUEST_HEADER_BYTES:
             raise ClassroomChatHttpClientError(
                 "classroom chat HTTP response headers are too large"
