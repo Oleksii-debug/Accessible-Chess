@@ -289,6 +289,11 @@ def _validated_headers(
         if _HEADER_NAME_RE.fullmatch(lowered) is None:
             raise _HttpReject(400, "invalid_headers")
         if any(byte < 32 or byte == 127 for byte in value):
+            # Authorization credential syntax is an authentication failure, not
+            # a generic request-shape oracle. Keep the same Bearer challenge for
+            # every malformed credential while retaining 400 for other headers.
+            if lowered == b"authorization":
+                raise _unauthorized()
             raise _HttpReject(400, "invalid_headers")
         grouped.setdefault(lowered, []).append(value)
 
