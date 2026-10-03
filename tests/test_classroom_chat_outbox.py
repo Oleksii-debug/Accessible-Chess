@@ -33,6 +33,7 @@ class ClassroomChatOutboxTests(unittest.TestCase):
         self.secrets = MemorySecretStore()
         self.outbox = SecretStoreChatOutbox(
             self.secrets,
+            SCOPE,
             "room-1",
             "student-1",
         )
@@ -44,6 +45,7 @@ class ClassroomChatOutboxTests(unittest.TestCase):
         self.assertNotIn("student-1", slot)
         self.assertEqual(slot, SecretStoreChatOutbox(
             self.secrets,
+            SCOPE,
             "room-1",
             "student-1",
         ).slot_name)
