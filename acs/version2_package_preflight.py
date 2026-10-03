@@ -1297,6 +1297,9 @@ def validate_version2_package_tree(
         _fail("release manifest integration_sha does not match expected integration authority")
     checksums = _checksums(root, inventory)
     _scan_text_hygiene(root, inventory, limits)
+    final_checksums = _checksums(root, inventory)
+    if final_checksums != checksums:
+        _fail("package checksum authority changed during final validation")
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
         inventory=inventory,
