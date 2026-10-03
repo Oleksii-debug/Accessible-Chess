@@ -374,6 +374,16 @@ class ClassroomMediaHostTransactionPort:
 
 
 @dataclass(frozen=True, slots=True)
+class MediaHostRecoveryStatus:
+    """Exact provider progress retained while canonical state is recovery-blocked."""
+
+    effect: MediaProviderEffect
+    confirmed_chunk_count: int
+    total_chunk_count: int
+    provider_outcome_unknown: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _PendingTransaction:
     effect: MediaProviderEffect
     base_revision: int
@@ -428,6 +438,7 @@ class ClassroomMediaHostTransactions:
         self._owner_thread_id = owner_thread_id
         self._pending: _PendingTransaction | None = None
         self._recovery: _PendingTransaction | None = None
+        self._recovery_provider_outcome_unknown = False
         port._bind_coordinator()
 
     @property
@@ -439,6 +450,26 @@ class ClassroomMediaHostTransactions:
     def recovery_effect(self) -> MediaProviderEffect | None:
         with self._lock:
             return None if self._recovery is None else self._recovery.effect
+
+    @property
+    def recovery_status(self) -> MediaHostRecoveryStatus | None:
+        """Expose enough provider progress for deterministic reconciliation."""
+
+        with self._lock:
+            if self._recovery is None:
+                return None
+            total_chunk_count = self._recovery.effect.browser_payload_count()
+            confirmed_chunk_count = self._recovery.next_chunk_index
+            if not 0 <= confirmed_chunk_count <= total_chunk_count:
+                raise MediaHostTransactionError(
+                    "media recovery provider progress is internally inconsistent"
+                )
+            return MediaHostRecoveryStatus(
+                effect=self._recovery.effect,
+                confirmed_chunk_count=confirmed_chunk_count,
+                total_chunk_count=total_chunk_count,
+                provider_outcome_unknown=self._recovery_provider_outcome_unknown,
+            )
 
     @property
     def pending_browser_payload(self) -> Mapping[str, object] | None:
@@ -640,6 +671,7 @@ class ClassroomMediaHostTransactions:
             if pending.next_chunk_index != 0:
                 self._pending = None
                 self._recovery = pending
+                self._recovery_provider_outcome_unknown = False
                 raise MediaHostRecoveryRequired(
                     "media provider transaction is already partially applied"
                 )
@@ -658,6 +690,7 @@ class ClassroomMediaHostTransactions:
             pending = self._require_pending(transaction_id)
             self._pending = None
             self._recovery = pending
+            self._recovery_provider_outcome_unknown = True
 
     def acknowledge_provider_chunk_success(
         self,
@@ -679,6 +712,7 @@ class ClassroomMediaHostTransactions:
                     )
                 self._pending = None
                 self._recovery = pending
+                self._recovery_provider_outcome_unknown = True
                 raise MediaHostRecoveryRequired(
                     "media provider chunks completed out of order"
                 )
@@ -691,9 +725,14 @@ class ClassroomMediaHostTransactions:
                 )
                 return None
 
+            provider_complete = replace(
+                pending,
+                next_chunk_index=chunk_count,
+            )
             if self._controller.state.revision != pending.base_revision:
                 self._pending = None
-                self._recovery = pending
+                self._recovery = provider_complete
+                self._recovery_provider_outcome_unknown = False
                 raise MediaHostRecoveryRequired(
                     "canonical media state changed before provider acknowledgement"
                 )
@@ -701,7 +740,8 @@ class ClassroomMediaHostTransactions:
                 result = self._port._commit(pending.effect, pending.replay)
             except Exception as exc:
                 self._pending = None
-                self._recovery = pending
+                self._recovery = provider_complete
+                self._recovery_provider_outcome_unknown = False
                 raise MediaHostRecoveryRequired(
                     "provider succeeded but canonical media commit requires recovery"
                 ) from exc
@@ -731,6 +771,7 @@ class ClassroomMediaHostTransactions:
             ):
                 raise MediaHostTransactionError("media recovery transaction is unknown")
             self._recovery = None
+            self._recovery_provider_outcome_unknown = False
 
     def _require_pending(self, transaction_id: str) -> _PendingTransaction:
         if type(transaction_id) is not str or _TRANSACTION_RE.fullmatch(transaction_id) is None:
@@ -744,6 +785,7 @@ __all__ = [
     "ClassroomMediaHostTransactionPort",
     "ClassroomMediaHostTransactions",
     "MediaHostRecoveryRequired",
+    "MediaHostRecoveryStatus",
     "MediaHostTransactionError",
     "MediaProviderEffect",
     "MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK",
