@@ -2801,6 +2801,37 @@ class ClassroomChatServerTests(unittest.TestCase):
             )[0].body,
         )
 
+    def test_retention_redaction_erases_payload_bytes_from_sqlite_free_space(self) -> None:
+        secret = (
+            "PHYSICAL-RETENTION-SECRET-"
+            + "blind-chess-private-session-" * 16
+        )
+        secret_bytes = secret.encode("utf-8")
+        self.send(
+            self.draft(
+                "physical-retention-redaction",
+                secret,
+            )
+        )
+        before = self.path.read_bytes()
+        self.assertIn(secret_bytes, before)
+
+        self.service.redact_retention(
+            room_id=ROOM,
+            retentions=("session",),
+        )
+
+        after = self.path.read_bytes()
+        self.assertNotIn(secret_bytes, after)
+        self.assertEqual(
+            "",
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )[0].body,
+        )
+
     def test_hide_then_retention_redaction_preserves_both_monotonic_states(self) -> None:
         sent = self.send(
             self.draft(
