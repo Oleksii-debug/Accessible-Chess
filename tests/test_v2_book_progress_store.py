@@ -1583,6 +1583,66 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertEqual(self.path.read_bytes(), external)
 
+    def test_post_replace_backup_guard_change_reports_durability_unknown(self) -> None:
+        reader = BookReader(self.original_document())
+        self.store.save("book:post-replace-guard", reader)
+        external_backup = b'{"entries":{},"generation":77,"schema_version":2}'
+        injected = False
+
+        def mutate_guard_after_primary_sync(path: Path) -> None:
+            nonlocal injected
+            if Path(path) == self.path:
+                self.store.backup_path.write_bytes(external_backup)
+                injected = True
+
+        reader.go_to(1)
+        with mock.patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=mutate_guard_after_primary_sync,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:post-replace-guard", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(self.store.backup_path.read_bytes(), external_backup)
+        restored = self.store.restore_primary(
+            "book:post-replace-guard",
+            self.original_document(),
+        )
+        self.assertEqual(restored.current_index, 1)
+
+    def test_post_replace_orphan_backup_appearance_reports_durability_unknown(self) -> None:
+        orphan_backup = b'{"entries":{},"generation":19,"schema_version":2}'
+        injected = False
+
+        def create_orphan_after_primary_sync(path: Path) -> None:
+            nonlocal injected
+            if Path(path) == self.path:
+                self.store.backup_path.write_bytes(orphan_backup)
+                injected = True
+
+        with mock.patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=create_orphan_after_primary_sync,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:post-replace-orphan",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertTrue(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), orphan_backup)
+
     def test_post_replace_same_bytes_substitution_during_sync_reports_durability_unknown(self) -> None:
         injected = False
 
@@ -2204,6 +2264,45 @@ class BookProgressStoreTests(unittest.TestCase):
                 self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
         self.assertFalse(self.path.exists())
+
+    def test_transaction_revalidates_canonical_lock_after_entry(self) -> None:
+        real_require = self.store._require_lock_descriptor_current
+        checks = 0
+
+        def fail_second_lock_check(descriptor: int) -> None:
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                raise BookProgressStoreError(
+                    "book progress storage lock changed during the transaction",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            real_require(descriptor)
+
+        with mock.patch.object(
+            self.store,
+            "_require_lock_descriptor_current",
+            side_effect=fail_second_lock_check,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:lock-continuity",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertEqual(checks, 2)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertIsNone(self.store._active_lock_descriptor)
+
+        self.store.save(
+            "book:lock-continuity",
+            BookReader(self.original_document()),
+        )
+        self.assertTrue(self.store.has("book:lock-continuity"))
 
     def test_descriptor_read_oserror_is_stable_storage_error(self) -> None:
         self.path.parent.mkdir(parents=True)
