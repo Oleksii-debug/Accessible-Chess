@@ -287,6 +287,19 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                     adapters[1].calls[-1],
                     (SoundEvent.START, 80, "3d"),
                 )
+
+                api2._settings.set("sound_move_variant", "missing")
+                invalid_state = api2.get_sound_settings()
+                self.assertEqual(
+                    invalid_state["selectedVariants"][SoundEvent.MOVE.value],
+                    "1",
+                )
+                invalid_preview = api2.preview_sound("move")
+                self.assertTrue(invalid_preview["ok"], invalid_preview)
+                self.assertEqual(
+                    adapters[1].calls[-1],
+                    (SoundEvent.MOVE, 80, "1"),
+                )
             finally:
                 api2.close_analysis()
                 runtime2.close()
