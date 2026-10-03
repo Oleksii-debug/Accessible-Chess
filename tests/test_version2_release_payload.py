@@ -108,7 +108,14 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             "_LIVEKIT_CLIENT_BUNDLE_SHA256",
             hashlib.sha256(livekit_bundle).hexdigest(),
         )
+        notice_pin = patch.object(
+            payload,
+            "_LIVEKIT_CLIENT_NOTICE_SHA256",
+            hashlib.sha256(livekit_notice).hexdigest(),
+        )
         bundle_pin.start()
+        notice_pin.start()
+        self.addCleanup(notice_pin.stop)
         self.addCleanup(bundle_pin.stop)
 
         self.sounds = self.root / "sounds"
