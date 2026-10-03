@@ -345,12 +345,45 @@ class EducationWorkspaceStoreTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original)
 
             changed = submit(workspace)
-            with patch("acs.education_workspace_store.os.replace", side_effect=OSError("boom")):
+            with patch(
+                "acs.education_workspace_store._replace_published_path",
+                side_effect=OSError("boom"),
+            ):
                 with self.assertRaises(OSError):
                     store.save(changed, expected_revision=revision)
             self.assertEqual(path.read_bytes(), original)
             self.assertTrue(store._lock_path.is_file())
             self.assertEqual(list(Path(tmp).glob(".education-workspace.json.*.tmp")), [])
+
+    def test_store_publication_uses_write_through_boundary_on_windows_only(self):
+        source = Path("prepared.tmp")
+        destination = Path("education-workspace.json")
+
+        with (
+            patch.object(ews.os, "name", "nt"),
+            patch.object(ews, "_windows_replace_write_through") as windows_replace,
+            patch.object(ews.os, "replace") as posix_replace,
+        ):
+            ews._replace_published_path(source, destination)
+        windows_replace.assert_called_once_with(source, destination)
+        posix_replace.assert_not_called()
+
+        with (
+            patch.object(ews.os, "name", "posix"),
+            patch.object(ews, "_windows_replace_write_through") as windows_replace,
+            patch.object(ews.os, "replace") as posix_replace,
+        ):
+            ews._replace_published_path(source, destination)
+        posix_replace.assert_called_once_with(source, destination)
+        windows_replace.assert_not_called()
+
+    def test_store_windows_write_through_flags_include_replace_and_durability(self):
+        self.assertEqual(ews._MOVEFILE_REPLACE_EXISTING, 0x00000001)
+        self.assertEqual(ews._MOVEFILE_WRITE_THROUGH, 0x00000008)
+        self.assertEqual(
+            ews._MOVEFILE_REPLACE_EXISTING | ews._MOVEFILE_WRITE_THROUGH,
+            0x00000009,
+        )
 
     def test_store_rejects_hardlinked_peer_lock_without_touching_target(self):
         with tempfile.TemporaryDirectory() as tmp:
