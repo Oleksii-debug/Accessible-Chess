@@ -1537,6 +1537,75 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.assertTrue(reopened.room_messages(ROOM, include_hidden=True)[0].hidden)
         self.assertEqual(0, reopened.chat_state_revision(ROOM))
 
+    def test_two_client_controller_mute_is_server_authoritative(self) -> None:
+        roster = SharedRoster()
+        teacher = ClassroomCollaborationController(
+            room_id=ROOM,
+            local_participant_id=TEACHER,
+            roster=roster,
+            chat=BoundChatTransport(self.service, TEACHER),
+            files=object(),
+            store=ClassroomCollaborationSQLiteStore(
+                str(Path(self.tmp.name) / "teacher-mute-client.sqlite3")
+            ),
+        )
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(Path(self.tmp.name) / "student-mute-client.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id=ROOM,
+            local_participant_id=STUDENT,
+            roster=roster,
+            chat=BoundChatTransport(self.service, STUDENT),
+            files=object(),
+            store=student_store,
+        )
+
+        teacher.set_chat_send_permission(
+            actor_id=TEACHER,
+            target_id=STUDENT,
+            allowed=False,
+            operation_id="two-client-mute",
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "disabled",
+        ):
+            student.send_chat(
+                message_id="blocked-by-server",
+                body="Must not be accepted",
+            )
+        self.assertEqual((), student_store.room_messages(ROOM))
+        self.assertEqual(
+            (),
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            ),
+        )
+
+        teacher.set_chat_send_permission(
+            actor_id=TEACHER,
+            target_id=STUDENT,
+            allowed=True,
+            operation_id="two-client-unmute",
+        )
+        sent = student.send_chat(
+            message_id="allowed-by-server",
+            body="Allowed again",
+        )
+        self.assertEqual("allowed-by-server", sent.message_id)
+        self.assertEqual((sent,), student_store.room_messages(ROOM))
+        self.assertEqual(
+            (sent,),
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            ),
+        )
+
     def test_send_assigns_server_sequence_and_time_and_retry_is_stable(self) -> None:
         draft = self.draft("m1")
         first = self.send(draft)
