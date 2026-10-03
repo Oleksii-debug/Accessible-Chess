@@ -126,6 +126,7 @@ class DurableChatOutboxTests(unittest.TestCase):
             secret_store=self.secrets,
             room_id="room-1",
             participant_id="student-1",
+            storage_scope=str(self.path.resolve()),
             message_lookup=self.lookup,
         )
 
@@ -288,6 +289,25 @@ class DurableChatOutboxTests(unittest.TestCase):
                     body="x",
                 )
             )
+
+    def test_storage_scope_isolates_same_room_participant_slots(self) -> None:
+        first = DurableChatDraftOutbox(
+            secret_store=self.secrets,
+            room_id="room-1",
+            participant_id="student-1",
+            storage_scope="profile-a",
+            message_lookup=self.lookup,
+        )
+        second = DurableChatDraftOutbox(
+            secret_store=self.secrets,
+            room_id="room-1",
+            participant_id="student-1",
+            storage_scope="profile-b",
+            message_lookup=self.lookup,
+        )
+        self.assertNotEqual(first._slot(0), second._slot(0))
+        self.assertNotIn("profile-a", first._slot(0))
+        self.assertNotIn("profile-b", second._slot(0))
 
     def test_fixed_slot_names_do_not_encode_body_or_message_identity(self) -> None:
         outbox = self.outbox()
