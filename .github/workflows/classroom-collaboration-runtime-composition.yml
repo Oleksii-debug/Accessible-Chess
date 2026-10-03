@@ -95,6 +95,12 @@ jobs:
           tests.test_classroom_file_server
           tests.test_classroom_collaboration
           tests.test_classroom_collaboration_storage
+          tests.test_version2_education_class_create
+
+      - name: Run accessible collaboration DOM regressions
+        run: |
+          node tests/js/classroom_collaboration_surface_dom_test.js
+          node tests/js/education_surface_dom_test.js
 
       - name: Core selftest
         run: python -m acs.selftest
