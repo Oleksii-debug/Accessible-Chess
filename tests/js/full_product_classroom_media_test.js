@@ -336,15 +336,24 @@ async function run() {
   deviceRoot.id = "v2-workspace";
   deviceDocument.root = deviceRoot;
   let enumerateCalls = 0;
+  let deviceEnumerationMode = "normal";
   const mediaDevices = {
     enumerateDevices: () => {
       enumerateCalls += 1;
-      return Promise.resolve([
+      if (deviceEnumerationMode === "failure") {
+        return Promise.reject(new Error("private device backend detail"));
+      }
+      const devices = [
         { kind: "audioinput", deviceId: "mic-device-2", label: "USB microphone" },
         { kind: "audiooutput", deviceId: "speaker-device-2", label: "" },
         { kind: "videoinput", deviceId: "camera-device-2", label: "USB camera" },
         { kind: "videoinput", deviceId: "x".repeat(513), label: "Invalid camera" }
-      ]);
+      ];
+      return Promise.resolve(
+        deviceEnumerationMode === "no-microphone"
+          ? devices.filter((item) => item.kind !== "audioinput")
+          : devices
+      );
     }
   };
   const deviceSurface = loadSurface(deviceDocument, mediaDevices);
@@ -415,7 +424,47 @@ async function run() {
   assert.ok(refresh);
   refresh.click();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(enumerateCalls, 2);
+  assert.equal(enumerateCalls, 3);
+
+  // If the selected microphone disappears during refresh, disabling that
+  // focused native select must move focus to a stable semantic heading first.
+  const currentMicSelect = deviceRoot.querySelector(
+    "#classroom-media-device-microphone"
+  );
+  currentMicSelect.focus();
+  deviceEnumerationMode = "no-microphone";
+  refresh.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(enumerateCalls, 4);
+  assert.equal(
+    deviceDocument.activeElement,
+    deviceRoot.querySelector("#classroom-media-devices-heading")
+  );
+  assert.equal(
+    deviceRoot.querySelector("#classroom-media-device-microphone").disabled,
+    true
+  );
+
+  // An enumeration failure uses the same stable focus fallback and never
+  // exposes provider/browser error detail to visible text.
+  deviceEnumerationMode = "normal";
+  refresh.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(enumerateCalls, 5);
+  const restoredMicSelect = deviceRoot.querySelector(
+    "#classroom-media-device-microphone"
+  );
+  restoredMicSelect.focus();
+  deviceEnumerationMode = "failure";
+  refresh.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(enumerateCalls, 6);
+  assert.equal(
+    deviceDocument.activeElement,
+    deviceRoot.querySelector("#classroom-media-devices-heading")
+  );
+  assert.match(deviceRoot.textContent, /Could not list media devices/);
+  assert.doesNotMatch(deviceRoot.textContent, /private device backend detail/);
 
   const disconnectedDocument = new FakeDocument();
   const disconnectedRoot = disconnectedDocument.createElement("main");
