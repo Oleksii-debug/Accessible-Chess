@@ -404,7 +404,9 @@
       throw new TypeError("Training completion state is inconsistent");
     }
     ["step_label", "of_label", "attempts_label", "mistakes_label", "hints_label"].forEach(
-      function (field) { requireText(progress[field], "Training progress label", false); }
+      function (field) {
+        requireBoundedText(progress[field], "Training progress label", false, 120);
+      }
     );
     requireBoundedText(answer.label, "Training answer label", false, 120);
     requireBoundedText(answer.submit_label, "Training submit label", false, 120);
