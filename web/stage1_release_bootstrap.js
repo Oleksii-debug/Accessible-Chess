@@ -241,10 +241,12 @@ function startNewGameVisualSequence() {
     const grid = byId('board-grid');
     if (!grid || !board || board.hidden) return false;
     const currentState = typeof state !== 'undefined' ? state : null;
+    const announcement = String(currentState && currentState.announcement || '');
     if (
         !currentState
         || Number(currentState.historyLength) !== 0
         || String(currentState.fen || '') !== STANDARD_START_FEN
+        || !['Стандартну позицію встановлено.', 'Standard position loaded.'].includes(announcement)
     ) {
         finishNewGameVisualSequence();
         return false;
