@@ -6,10 +6,12 @@ import tempfile
 import unittest
 from unittest import mock
 
+from acs.classroom_collaboration import CollaborationError, FileQuotaPolicy
 from acs.classroom_collaboration_runtime import (
     ClassroomCollaborationRuntime,
     build_classroom_collaboration_http_runtime,
 )
+from acs.classroom_file_rpc import MAX_RPC_UPLOAD_BYTES
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_application import Version2Application
 from acs.version2_final_product_application import Version2FinalProductApplication
@@ -126,6 +128,35 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
             allow_insecure_loopback=False,
         )
         self.assertIsInstance(runtime, ClassroomCollaborationRuntime)
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
+    def test_smaller_local_file_quota_is_shared_by_controller_and_rpc_client(self) -> None:
+        quota = FileQuotaPolicy(max_file_bytes=3, max_room_bytes=10)
+        runtime = self.build(local_quota=quota)
+
+        self.assertIs(runtime.controller._quota, quota)
+        self.assertEqual(runtime.file_client._max_upload_bytes, 3)
+        selected = self.root / "too-large-for-room.bin"
+        selected.write_bytes(b"four")
+        with self.assertRaises(CollaborationError):
+            runtime.controller.prepare_file(
+                attachment_id="quota-test",
+                local_path=selected,
+                sequence_no=0,
+            )
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
+    def test_local_file_quota_cannot_exceed_authenticated_rpc_limit(self) -> None:
+        path = self.root / "quota-mismatch-must-not-exist.sqlite3"
+        quota = FileQuotaPolicy(max_file_bytes=MAX_RPC_UPLOAD_BYTES + 1)
+        with self.assertRaisesRegex(ValueError, "RPC upload limit"):
+            self.build(
+                store_path=path,
+                local_quota=quota,
+            )
+        self.assertFalse(path.exists())
         self.assertEqual(self.chat_token_calls, 0)
         self.assertEqual(self.file_token_calls, 0)
 
