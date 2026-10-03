@@ -295,6 +295,9 @@ class Version2FinalProductApplication(Version2Application):
         """Remove the presentation binding without mutating durable collaboration data."""
 
         self._assert_thread()
+        collaboration = self.collaboration
+        if collaboration is not None:
+            collaboration.retire_browser_session()
         self.collaboration = None
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
