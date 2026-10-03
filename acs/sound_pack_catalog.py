@@ -11,6 +11,7 @@ commit a pack. Playback remains owned by ``SoundRuntime``/``GameSoundRuntime``.
 from dataclasses import dataclass, replace
 from enum import Enum
 import re
+from types import MappingProxyType
 from typing import Mapping, Protocol
 
 from .sound_profiles import SoundPackManifest, SoundProfile, _safe_audio_path
@@ -86,7 +87,7 @@ class SoundPackCatalogEntry:
         signature = None if self.signature is None else self.signature.strip()
         if signature == "":
             raise ValueError("signature cannot be blank")
-        object.__setattr__(self, "assets", normalized)
+        object.__setattr__(self, "assets", MappingProxyType(normalized))
         object.__setattr__(self, "signature", signature)
 
 
@@ -98,6 +99,15 @@ class DownloadedSoundPack:
     assets: Mapping[str, SoundAssetDigest]
     total_bytes: int
     payload_ref: object
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.assets, Mapping):
+            raise TypeError("downloaded assets must be a mapping")
+        object.__setattr__(
+            self,
+            "assets",
+            MappingProxyType(dict(self.assets)),
+        )
 
 
 class SoundPackDownloadPort(Protocol):
