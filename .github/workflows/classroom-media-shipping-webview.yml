@@ -9,6 +9,7 @@ on:
       - integrate/classroom-livekit-presentation-20261003
     paths:
       - '.github/workflows/classroom-media-shipping-webview.yml'
+      - 'acs/classroom_media_provider_binder.py'
       - 'acs/classroom_media_webview_bridge.py'
       - 'acs/classroom_media_webview_projection.py'
       - 'acs/classroom_media_webview_transactions.py'
@@ -19,6 +20,7 @@ on:
       - 'acs/version2_release_payload.py'
       - 'tests/js/livekit_classroom_media_adapter_test.js'
       - 'tests/js/livekit_classroom_media_runtime_test.js'
+      - 'tests/test_classroom_media_provider_binder.py'
       - 'tests/test_classroom_media_shipping_webview.py'
       - 'tests/test_p0g_final_product_runtime_reachability.py'
       - 'tests/test_version2_final_release_binding.py'
@@ -74,6 +76,7 @@ jobs:
           mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-media-shipping-webview.yml'
+            'acs/classroom_media_provider_binder.py'
             'acs/classroom_media_webview_bridge.py'
             'acs/classroom_media_webview_projection.py'
             'acs/classroom_media_webview_transactions.py'
@@ -84,6 +87,7 @@ jobs:
             'acs/version2_release_payload.py'
             'tests/js/livekit_classroom_media_adapter_test.js'
             'tests/js/livekit_classroom_media_runtime_test.js'
+            'tests/test_classroom_media_provider_binder.py'
             'tests/test_classroom_media_shipping_webview.py'
             'tests/test_p0g_final_product_runtime_reachability.py'
             'tests/test_version2_final_release_binding.py'
@@ -125,6 +129,7 @@ jobs:
       - name: Compile shipping media composition
         run: >-
           python -m compileall -q
+          acs/classroom_media_provider_binder.py
           acs/classroom_media_webview_bridge.py
           acs/classroom_media_webview_projection.py
           acs/classroom_media_webview_transactions.py
@@ -133,6 +138,7 @@ jobs:
           acs/version2_package_preflight.py
           acs/version2_release_app.py
           acs/version2_release_payload.py
+          tests/test_classroom_media_provider_binder.py
           tests/test_classroom_media_shipping_webview.py
 
       - name: Run transactional media, release and package qualification
