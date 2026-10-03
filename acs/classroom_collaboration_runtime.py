@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+"""Trusted desktop composition for authenticated classroom collaboration.
+
+This module owns wiring only. Chat/file protocol semantics, durable server
+authority, room membership, authorization, persistence, scanning, object storage
+and browser presentation remain in their existing canonical owners.
+"""
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .classroom_chat_http_endpoint import ClassroomChatHttpRpcCall
+from .classroom_chat_rpc import ClassroomChatRpcClient
+from .classroom_collaboration import (
+    ClassroomCollaborationController,
+    FileQuotaPolicy,
+)
+from .classroom_collaboration_storage import ClassroomCollaborationSQLiteStore
+from .classroom_collaboration_webview import (
+    ClassroomCollaborationWebView,
+    ClassroomCollaborationWebViewEvent,
+)
+from .classroom_file_http_transport import ClassroomFileHttpRpcCall
+from .classroom_file_rpc import ClassroomFileRpcClient
+from .classroom_realtime_media import ClassroomMediaController, ClassroomRosterPort
+from .full_product_ui_shell import UILanguage
+
+
+@dataclass(frozen=True, slots=True)
+class ClassroomCollaborationRuntime:
+    """Owned local objects for one authenticated room/participant binding."""
+
+    store: ClassroomCollaborationSQLiteStore = field(repr=False)
+    controller: ClassroomCollaborationController = field(repr=False)
+    webview: ClassroomCollaborationWebView = field(repr=False)
+    chat_client: ClassroomChatRpcClient = field(repr=False)
+    file_client: ClassroomFileRpcClient = field(repr=False)
+
+    def __repr__(self) -> str:
+        return "ClassroomCollaborationRuntime(<bound>)"
+
+
+def build_classroom_collaboration_http_runtime(
+    *,
+    room_id: str,
+    participant_id: str,
+    roster: ClassroomRosterPort,
+    store_path: str | Path,
+    chat_endpoint_url: str,
+    file_endpoint_url: str,
+    chat_bearer_token_provider: Callable[[], str],
+    file_bearer_token_provider: Callable[[], str],
+    participant_label: Callable[[str], str],
+    language: UILanguage = UILanguage.UA,
+    file_picker: Callable[[], Path | None] | None = None,
+    file_saver: Callable[[str, str], object] | None = None,
+    file_opener: Callable[[str, str], object] | None = None,
+    file_progress_event_sink: (
+        Callable[[ClassroomCollaborationWebViewEvent], object] | None
+    ) = None,
+    moderation_allowed: Callable[[], bool] | None = None,
+    participant_moderation: ClassroomMediaController | None = None,
+    chat_retention: str = "session",
+    file_retention: str = "session",
+    local_quota: FileQuotaPolicy | None = None,
+    chat_timeout_seconds: float = 15.0,
+    file_timeout_seconds: float = 30.0,
+    allow_insecure_loopback: bool = False,
+) -> ClassroomCollaborationRuntime:
+    """Compose the existing HTTPS/RPC/core/UI owners without adding authority.
+
+    Bearer suppliers are injected separately and are called only by the HTTP
+    transports for an actual request. No ambient environment credential is read
+    or retained by this composition layer. The file RPC client supplies both the
+    canonical transfer and short-lived read/delete store ports; server-side
+    authority remains the trusted file server behind that RPC.
+    """
+
+    if not callable(chat_bearer_token_provider):
+        raise TypeError("chat bearer token provider must be callable")
+    if not callable(file_bearer_token_provider):
+        raise TypeError("file bearer token provider must be callable")
+    if not callable(participant_label):
+        raise TypeError("participant_label must be callable")
+    if not isinstance(language, UILanguage):
+        raise TypeError("language must be UILanguage")
+    if type(allow_insecure_loopback) is not bool:
+        raise TypeError("allow_insecure_loopback must be bool")
+    if local_quota is not None and not isinstance(local_quota, FileQuotaPolicy):
+        raise TypeError("local_quota must be FileQuotaPolicy")
+
+    if isinstance(store_path, Path):
+        path = store_path
+    elif type(store_path) is str and store_path:
+        path = Path(store_path)
+    else:
+        raise TypeError("store_path must be a non-empty path")
+
+    # Validate every network/identity input before opening the local SQLite store.
+    chat_call = ClassroomChatHttpRpcCall(
+        endpoint_url=chat_endpoint_url,
+        bearer_token_provider=chat_bearer_token_provider,
+        timeout_seconds=chat_timeout_seconds,
+        allow_insecure_loopback=allow_insecure_loopback,
+    )
+    chat_client = ClassroomChatRpcClient(
+        room_id=room_id,
+        participant_id=participant_id,
+        transport=chat_call,
+    )
+    file_call = ClassroomFileHttpRpcCall(
+        endpoint_url=file_endpoint_url,
+        bearer_token_provider=file_bearer_token_provider,
+        timeout_seconds=file_timeout_seconds,
+        allow_insecure_loopback=allow_insecure_loopback,
+    )
+    file_client = ClassroomFileRpcClient(
+        room_id=room_id,
+        participant_id=participant_id,
+        transport=file_call,
+    )
+
+    store = ClassroomCollaborationSQLiteStore(str(path))
+    controller = ClassroomCollaborationController(
+        room_id=room_id,
+        local_participant_id=participant_id,
+        roster=roster,
+        chat=chat_client,
+        files=file_client,
+        store=store,
+        file_store=file_client,
+        quota=local_quota or FileQuotaPolicy(),
+    )
+    webview = ClassroomCollaborationWebView(
+        controller,
+        store,
+        participant_label,
+        language=language,
+        file_picker=file_picker,
+        file_saver=file_saver,
+        file_opener=file_opener,
+        file_progress_event_sink=file_progress_event_sink,
+        moderation_allowed=moderation_allowed,
+        participant_moderation=participant_moderation,
+        chat_retention=chat_retention,
+        file_retention=file_retention,
+    )
+    return ClassroomCollaborationRuntime(
+        store=store,
+        controller=controller,
+        webview=webview,
+        chat_client=chat_client,
+        file_client=file_client,
+    )
+
+
+__all__ = [
+    "ClassroomCollaborationRuntime",
+    "build_classroom_collaboration_http_runtime",
+]
