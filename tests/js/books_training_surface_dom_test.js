@@ -600,6 +600,68 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "sparse semantic comments must not steal reading focus");
 
+  const stringDepth = semanticGameSnapshot();
+  stringDepth.block.semantic_tree.items[0].depth = "0";
+  let stringDepthRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      stringDepth,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    stringDepthRejected = true;
+  }
+  check(stringDepthRejected, "string semantic depth must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "string semantic depth must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "string semantic depth must not steal reading focus");
+
+  const mismatchedBlockIdentity = semanticGameSnapshot();
+  mismatchedBlockIdentity.block.dom_id = "book-block-500";
+  let mismatchedBlockIdentityRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      mismatchedBlockIdentity,
+      bookInvoke,
+      announce,
+      "book-block-500",
+      "Action failed"
+    );
+  } catch (error) {
+    mismatchedBlockIdentityRejected = true;
+  }
+  check(mismatchedBlockIdentityRejected, "mismatched Book block identity must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "mismatched Book block identity must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "mismatched Book block identity must not steal reading focus");
+
+  const staleFocusTarget = semanticGameSnapshot();
+  let staleFocusTargetRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      staleFocusTarget,
+      bookInvoke,
+      announce,
+      "book-block-999",
+      "Action failed"
+    );
+  } catch (error) {
+    staleFocusTargetRejected = true;
+  }
+  check(staleFocusTargetRejected, "stale Book focus target must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "stale Book focus target must preserve the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "stale Book focus target must preserve reading focus");
+
   const malformedSemanticTree = semanticGameSnapshot();
   malformedSemanticTree.block.semantic_tree = "not-an-object";
   let malformedSemanticTreeRejected = false;

@@ -236,7 +236,7 @@
       if (typeof item.label !== "string" || !item.label.trim()) {
         throw new TypeError("book semantic item label is invalid");
       }
-      const depth = Number(item.depth);
+      const depth = item.depth;
       if (!Number.isSafeInteger(depth) || depth < 0) {
         throw new TypeError("book semantic item depth is invalid");
       }
@@ -517,8 +517,15 @@
     if (!snapshot.block || typeof snapshot.block !== "object" || Array.isArray(snapshot.block)) {
       throw new TypeError("Book snapshot block is required");
     }
-    if (typeof snapshot.block.dom_id !== "string" || !snapshot.block.dom_id.trim()) {
-      throw new TypeError("Book snapshot block identity is required");
+    if (!Number.isSafeInteger(snapshot.block.index) || snapshot.block.index < 0) {
+      throw new TypeError("Book snapshot block index is invalid");
+    }
+    const expectedBlockId = "book-block-" + String(snapshot.block.index);
+    if (snapshot.block.dom_id !== expectedBlockId) {
+      throw new TypeError("Book snapshot block identity is invalid");
+    }
+    if (requestedFocus && requestedFocus !== expectedBlockId) {
+      throw new TypeError("Book focus target does not match the rendered block");
     }
 
     const fragment = document.createDocumentFragment();
