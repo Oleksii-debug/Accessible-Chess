@@ -137,6 +137,9 @@ jobs:
           grep -Fq 'api_key=key' acs/livekit_classroom_server_runtime.py
           grep -Fq 'api_secret=secret' acs/livekit_classroom_server_runtime.py
           grep -Fq 'await close()' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'cleanup_runtime' acs/livekit_classroom_server_runtime.py
+          grep -Fq 'LiveKitClassroomServerCleanupCancelled' acs/livekit_classroom_server_runtime.py
+          ! grep -Fq 'host.lower() == "localhost"' acs/livekit_classroom_server_runtime.py
           ! grep -Eq 'os\.(environ|getenv)|LIVEKIT_API_SECRET|LIVEKIT_API_KEY|LIVEKIT_URL' \
             acs/livekit_classroom_server_runtime.py
           ! grep -Eq 'web/|pywebview|version2_release_app|stage1_release' \
