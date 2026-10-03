@@ -43,6 +43,23 @@ class ExerciseSessionTests(unittest.TestCase):
         self.assertEqual(definition.tags, ("opening", "calculation"))
         self.assertEqual(definition.source_id, "local-pack-1")
 
+    def test_session_revalidates_and_snapshots_mutated_definition_metadata(self):
+        definition = self.make_definition()
+        definition.metadata["difficulty"] = 7  # type: ignore[index]
+        with self.assertRaisesRegex(TypeError, "metadata"):
+            ExerciseSession(definition)
+
+        definition = self.make_definition()
+        definition.metadata.clear()
+        definition.metadata.update({f"k{index}": "v" for index in range(65)})
+        with self.assertRaisesRegex(ValueError, "too many entries"):
+            ExerciseSession(definition)
+
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        definition.metadata["difficulty"] = "forged"
+        self.assertEqual("starter", session.definition.metadata["difficulty"])
+
     def test_session_definition_reference_cannot_be_reassigned(self):
         definition = self.make_definition()
         session = ExerciseSession(definition)
@@ -56,7 +73,8 @@ class ExerciseSessionTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             session.definition = replacement  # type: ignore[misc]
 
-        self.assertIs(definition, session.definition)
+        self.assertEqual(definition, session.definition)
+        self.assertIsNot(definition, session.definition)
         self.assertEqual(before, session.snapshot())
 
     def test_correct_move_advances_exactly_one_step(self):
