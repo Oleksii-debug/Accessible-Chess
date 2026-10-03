@@ -543,6 +543,16 @@ class ClassroomMediaWebViewProjection:
             "all_student_actions": self._all_student_actions(local),
         }
 
+    def updated_event(self, *, focus_target: str = "") -> ClassroomMediaWebViewEvent:
+        """Render the canonical successful media-update presentation."""
+
+        return self._success(focus_target=focus_target)
+
+    def error_event(self, *, focus_target: str = "") -> ClassroomMediaWebViewEvent:
+        """Render the canonical sanitized media failure presentation."""
+
+        return self._error(focus_target=focus_target)
+
     def _success(self, *, focus_target: str = "") -> ClassroomMediaWebViewEvent:
         try:
             snapshot: dict[str, object] | None = self.snapshot()
