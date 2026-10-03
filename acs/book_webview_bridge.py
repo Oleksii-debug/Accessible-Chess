@@ -1,8 +1,6 @@
 """Strict browser-command bridge for the accessible BookReader WebView surface."""
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from .book_webview_projection import BookWebViewEvent, BookWebViewProjection
 
 
@@ -20,8 +18,8 @@ class BookWebViewBridge:
     def _payload(value: object) -> dict[str, object]:
         if value is None:
             return {}
-        if not isinstance(value, Mapping):
-            raise TypeError("book browser payload must be a mapping")
+        if type(value) is not dict:
+            raise TypeError("book browser payload must be an exact object")
         if len(value) > 2:
             raise ValueError("book browser payload has too many fields")
         out: dict[str, object] = {}
@@ -37,14 +35,14 @@ class BookWebViewBridge:
         return out
 
     @staticmethod
-    def _exact(payload: Mapping[str, object], allowed: set[str]) -> None:
+    def _exact(payload: dict[str, object], allowed: set[str]) -> None:
         if set(payload) != allowed:
             raise ValueError("book browser payload fields are invalid")
 
     def dispatch(
         self,
         command: object,
-        payload: Mapping[str, object] | None = None,
+        payload: dict[str, object] | None = None,
     ) -> BookWebViewEvent:
         try:
             if type(command) is not str:
