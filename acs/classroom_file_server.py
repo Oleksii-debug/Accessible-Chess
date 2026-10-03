@@ -1426,6 +1426,17 @@ class ClassroomFileServerService:
             raise CollaborationConflictError(
                 "durable object integrity conflicts with attachment metadata"
             )
+        current = self._store.attachment_for_object_key(attachment.object_key)
+        if (
+            current is None
+            or current.transfer_state != "stored"
+            or current.scan_state != "clean"
+            or current.sha256 != attachment.sha256
+        ):
+            raise ClassroomFileServerError(
+                "attachment is no longer cleared for download"
+            )
+        attachment = current
         # Status verification can cross a slow provider boundary. Recheck the
         # canonical room policy immediately before minting a new read token so
         # revocation during integrity verification cannot leak fresh access.
