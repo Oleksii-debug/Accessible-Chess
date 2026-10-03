@@ -541,6 +541,30 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed trailing comments must not steal reading focus");
 
+  const excessiveSemanticComments = semanticGameSnapshot();
+  excessiveSemanticComments.block.semantic_tree.intro_comments = new Array(10001).fill(
+    "bounded comment"
+  );
+  let excessiveSemanticCommentsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      excessiveSemanticComments,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    excessiveSemanticCommentsRejected = true;
+  }
+  check(excessiveSemanticCommentsRejected,
+    "excessive semantic comment entries must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive semantic comments must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive semantic comments must not steal reading focus");
+
   const malformedRootResult = semanticGameSnapshot();
   malformedRootResult.block.semantic_tree.result = "invented";
   let malformedRootResultRejected = false;
