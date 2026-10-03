@@ -32,6 +32,7 @@ _CONTROL_NAMES = {
     ".v2-upgrade-state.json",
     "profile.json.lock",
     "gametree-resume.json.lock",
+    "book-progress.json.lock",
     "sound-profile.json.lock",
     "sound-packs.lock",
 }
