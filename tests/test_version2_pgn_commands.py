@@ -25,6 +25,7 @@ class PgnCommandsTests(unittest.TestCase):
             ),
             "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
             "expected_record_digest": view.current_record_digest,
+            "expected_content_digest": view.content_digest,
             "content_revision": view.content_revision,
         }
 
@@ -102,6 +103,37 @@ class PgnCommandsTests(unittest.TestCase):
         commands("pgn.previous_game", self._navigation_target(workspace))
         self.assertEqual(0, workspace.selected_game_index)
         self.assertEqual(GameTreeCursor(), workspace.cursor)
+
+    def test_game_navigation_cas_rejects_replaced_document_with_same_current_game(self):
+        original = PgnDocumentSession.from_text(
+            '[Event "Same"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "Original next"]\n[Result "*"]\n\n1. d4 *\n'
+        )
+        replacement = PgnDocumentSession.from_text(
+            '[Event "Same"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "Replacement next"]\n[Result "*"]\n\n1. c4 *\n'
+        )
+        stale = self._navigation_target(original.workspace)
+        original_view = original.workspace.view()
+        replacement_view = replacement.workspace.view()
+
+        self.assertEqual(
+            original_view.current_record_digest,
+            replacement_view.current_record_digest,
+        )
+        self.assertEqual(
+            original_view.selected_game_index,
+            replacement_view.selected_game_index,
+        )
+        self.assertEqual(original_view.content_revision, replacement_view.content_revision)
+        self.assertNotEqual(original_view.content_digest, replacement_view.content_digest)
+
+        commands = Version2PgnCommands(lambda: replacement)
+        with self.assertRaisesRegex(ValueError, "document is stale"):
+            commands("pgn.next_game", stale)
+
+        self.assertEqual(0, replacement.workspace.selected_game_index)
+        self.assertEqual(GameTreeCursor(), replacement.workspace.cursor)
 
     def test_game_navigation_cas_rejects_concurrent_cursor_change(self):
         session = PgnDocumentSession.from_text(
