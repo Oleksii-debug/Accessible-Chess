@@ -76,7 +76,9 @@
 
   function invokeCommand(root, invoke, announce, snapshot, command, payload) {
     const generic = snapshot && snapshot.transport_error_message ? String(snapshot.transport_error_message) : "";
-    return Promise.resolve().then(function () {
+    const pending = root.__accessibleChessLibraryCommandQueue;
+    const gate = pending && typeof pending.then === "function" ? pending : Promise.resolve();
+    const current = gate.then(function () {
       return invoke(command, payload || {});
     }).then(function (result) {
       applyEvent(root, result, invoke, announce);
@@ -85,6 +87,15 @@
       if (generic) announce(generic);
       return null;
     });
+    // Commands mutate one canonical Library presenter. Keep invocation and
+    // render application strictly ordered so a slower earlier Promise cannot
+    // overwrite newer selection/query/focus state. The settled tail never
+    // poisons later commands after a transport or render failure.
+    root.__accessibleChessLibraryCommandQueue = current.then(
+      function () { return null; },
+      function () { return null; }
+    );
+    return current;
   }
 
   function appendOptions(select, options, selectedValue) {
