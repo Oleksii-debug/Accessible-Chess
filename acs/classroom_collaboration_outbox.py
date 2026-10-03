@@ -225,10 +225,11 @@ class DurableChatDraftOutbox:
             seen_message_ids.add(stored.message_id)
             persisted = self._lookup_persisted(stored)
 
-            same_logical_draft = (
-                stored.body == candidate.body
-                and stored.retention == candidate.retention
-            )
+            # Mirror the existing WebView pending-draft identity: body text is
+            # the logical retry key.  If retention changed while an ambiguous
+            # send was unresolved, retry the exact stored draft (including its
+            # original retention) rather than minting a second message.
+            same_logical_draft = stored.body == candidate.body
             if same_logical_draft:
                 if matching is not None:
                     raise DurableChatOutboxError(
