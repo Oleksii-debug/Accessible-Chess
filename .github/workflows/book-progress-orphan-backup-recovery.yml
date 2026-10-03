@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - work/books-bidirectional-semantic-navigation-20260927
     paths:
       - 'acs/book_progress_store.py'
       - 'tests/test_v2_book_progress_store.py'
@@ -25,6 +26,8 @@ concurrency:
 
 env:
   PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+  BOOKS_BRANCH: work/books-bidirectional-semantic-navigation-20260927
+  PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
   PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
 jobs:
@@ -57,15 +60,37 @@ jobs:
           git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:$product_ref"
           product="$(git rev-parse "$product_ref")"
           git cat-file -e "$product^{commit}"
+
+          scope_base="$product"
+          topology='PRODUCT'
           if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test -n "$PR_BASE_REF"
             test -n "$PR_BASE_SHA"
             git cat-file -e "$PR_BASE_SHA^{commit}"
-            git merge-base --is-ancestor "$PR_BASE_SHA" "$product"
+            case "$PR_BASE_REF" in
+              "$PRODUCT_BRANCH"|"$BOOKS_BRANCH")
+                ;;
+              *)
+                echo "Unsupported Book progress recovery base: $PR_BASE_REF" >&2
+                exit 1
+                ;;
+            esac
+            live_base_ref="refs/remotes/origin/$PR_BASE_REF"
+            git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:$live_base_ref"
+            live_base="$(git rev-parse "$live_base_ref")"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            scope_base="$live_base"
+            if [ "$PR_BASE_REF" = "$BOOKS_BRANCH" ]; then
+              topology='CURRENT_BOOKS'
+            fi
           fi
-          git merge-base --is-ancestor "$product" HEAD
-          test "$(git merge-base "$product" HEAD)" = "$product"
-          git diff --check "$product" HEAD
-          changed="$(git diff --name-only "$product" HEAD | sort)"
+
+          git merge-base --is-ancestor "$product" "$scope_base"
+          git merge-base --is-ancestor "$scope_base" HEAD
+          git diff --check "$scope_base" HEAD
+          changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/book-progress-orphan-backup-recovery.yml' \
             '.github/workflows/books-progress-backup-recovery.yml' \
@@ -74,6 +99,7 @@ jobs:
             'tests/test_v2_book_progress_store.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
+          echo "BOOK_PROGRESS_ORPHAN_BACKUP_TOPOLOGY=$topology"
           echo 'BOOK_PROGRESS_ORPHAN_BACKUP_SCOPE=PASS'
 
       - name: Compile progress persistence surface
