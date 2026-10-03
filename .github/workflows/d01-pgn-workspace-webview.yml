@@ -154,9 +154,9 @@ jobs:
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-          # Book reverse semantic navigation and the reviewed Training
-          # presentation-feedback successor share this presenter boundary.
-          # Accept only exact reviewed identities; every other blob fails closed.
+          # Shared presenter/action routing may be Product, reviewed Books,
+          # canonical Training feedback, or the exact PGN new-position successor.
+          # Every other identity remains fail-closed.
           presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
           case "$presenter_actual" in
             a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|45cd79cbdd26ab6215d15a522b2690aa109bf592)
@@ -169,7 +169,7 @@ jobs:
 
           actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
           case "$actions_actual" in
-            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c)
+            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c|934c090270c73e287e4cb0beb8066dd14097db8c)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
