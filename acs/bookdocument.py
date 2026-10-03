@@ -376,6 +376,9 @@ class BookDocument:
         self.warnings = list(self.warnings)
 
     def append(self, block: SemanticBlock) -> SemanticBlock:
+        # Mutation is allowed only from a valid live document. Do not let a new
+        # block publication hide pre-existing metadata/container corruption.
+        self._validate_export_state()
         if not isinstance(block, _SEMANTIC_BLOCK_TYPES):
             raise BookDocumentError(
                 "Book block type is unsupported",
@@ -386,6 +389,7 @@ class BookDocument:
         return block
 
     def extend(self, blocks: Iterable[SemanticBlock]) -> None:
+        self._validate_export_state()
         additions = list(blocks)
         if not all(isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in additions):
             raise BookDocumentError(
@@ -397,18 +401,19 @@ class BookDocument:
         self.blocks.extend(additions)
 
     def iter_kind(self, kind: type[SemanticBlock]) -> Iterator[SemanticBlock]:
+        self._validate_export_state()
         for block in self.blocks:
             if isinstance(block, kind):
                 yield block
 
     def headings(self) -> list[Heading]:
-        return [block for block in self.blocks if isinstance(block, Heading)]
+        return list(self.iter_kind(Heading))
 
     def lists(self) -> list[ListBlock]:
-        return [block for block in self.blocks if isinstance(block, ListBlock)]
+        return list(self.iter_kind(ListBlock))
 
     def exercises(self) -> list[Exercise]:
-        return [block for block in self.blocks if isinstance(block, Exercise)]
+        return list(self.iter_kind(Exercise))
 
     def validate_structure(self) -> list[str]:
         """Return non-destructive semantic warnings suitable for import reports."""
