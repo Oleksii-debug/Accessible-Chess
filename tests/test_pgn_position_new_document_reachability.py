@@ -196,6 +196,34 @@ class PgnPositionNewDocumentReachabilityTests(unittest.TestCase):
         self.assertIs(self.app.session, existing)
         self.assertIn('[Event "Keep me"]', existing.copy_pgn())
 
+    def test_positionstate_subclass_provider_is_rejected_before_custom_method_dispatch(self) -> None:
+        existing = PgnDocumentSession.new_game({"Event": "Keep exact provider authority"})
+        self.app.set_document(existing)
+        self.app.shell.open_route("board")
+        self.app.confirm_document_replace = lambda: True
+        canonical = standard_position()
+
+        class ForgedPosition(PositionState):
+            def to_fen(self) -> str:
+                raise AssertionError("subclass to_fen must not execute")
+
+        forged = ForgedPosition(
+            canonical.pieces,
+            turn=canonical.turn,
+            castling=canonical.castling,
+            en_passant=canonical.en_passant,
+            halfmove=canonical.halfmove,
+            fullmove=canonical.fullmove,
+        )
+        self.app._board_position_provider = lambda: forged
+
+        with self.assertRaisesRegex(TypeError, "invalid state"):
+            self.app.router.dispatch("pgn.new_from_position")
+
+        self.assertIs(self.app.session, existing)
+        self.assertIn('[Event "Keep exact provider authority"]', existing.copy_pgn())
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+
     def test_provider_failure_never_replaces_document(self) -> None:
         existing = PgnDocumentSession.new_game({"Event": "Keep me"})
         self.app.set_document(existing)
