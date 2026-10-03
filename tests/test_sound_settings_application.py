@@ -44,8 +44,11 @@ class _PackStorage:
         self.installed_payloads = []
         self.uninstalled = []
         self.fail_uninstall = False
+        self.fail_inventory = False
 
     def installed(self):
+        if self.fail_inventory:
+            raise OSError("inventory unavailable")
         return dict(self.manifests)
 
     def install_atomically(self, downloaded: DownloadedSoundPack) -> None:
@@ -1121,6 +1124,50 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertIsNone(pref.sound_id)
         self.assertEqual(["soft"], pack_storage.uninstalled)
 
+
+    def test_active_uninstall_plan_failure_preserves_current_pack_selection(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {
+                    "move": {
+                        "enabled": False,
+                        "volume_percent": 41,
+                        "sound_id": "capture",
+                    }
+                },
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={"soft": entry},
+            installed_pack_provider=lambda: {"soft": soft},
+        )
+        pack_storage.fail_inventory = True
+
+        with self.assertRaisesRegex(OSError, "inventory unavailable"):
+            app.uninstall_pack("soft", language="en")
+
+        self.assertEqual("soft", profiles.current.pack_id)
+        self.assertEqual("soft", profile_storage.payload["pack_id"])
+        pref = profiles.current.preference_for("move")
+        self.assertFalse(pref.enabled)
+        self.assertEqual(41, pref.volume_percent)
+        self.assertEqual("capture", pref.sound_id)
+        self.assertEqual([], pack_storage.uninstalled)
 
     def test_active_uninstall_delete_failure_leaves_safe_normalized_classic_profile(self) -> None:
         classic = _manifest("classic")
