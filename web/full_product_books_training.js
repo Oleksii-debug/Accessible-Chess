@@ -225,6 +225,12 @@
       if ((index === 0 && depth !== 0) || (index > 0 && depth > previousDepth + 1)) {
         throw new TypeError("book semantic item depth is not contiguous");
       }
+      if (
+        (item.kind === "move" && depth % 2 !== 0)
+        || (item.kind === "variation" && depth % 2 !== 1)
+      ) {
+        throw new TypeError("book semantic item kind/depth topology is invalid");
+      }
       while (lists.length > depth + 1) lists.pop();
       while (lists.length < depth + 1) {
         const parent = lastItems[lists.length - 1];
@@ -270,6 +276,15 @@
         item.trailing_comments,
         "book semantic item trailing comments"
       );
+      if (
+        item.kind === "variation"
+        && (commentsBefore.length || commentsAfter.length)
+      ) {
+        throw new TypeError("book semantic variation must not carry move comment slots");
+      }
+      if (item.kind === "move" && trailingComments.length) {
+        throw new TypeError("book semantic move must not carry line trailing comments");
+      }
       const itemResult = semanticResult(
         item.result,
         "book semantic item result"
