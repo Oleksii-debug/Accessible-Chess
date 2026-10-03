@@ -227,38 +227,59 @@
       return this._adapter === null ? null : this._adapter.snapshot();
     }
 
+    _scheduleExistingAdapterCleanup() {
+      if (this._adapter === null) return;
+      try {
+        const snapshot = this._adapter.snapshot();
+        if (isCleanDisconnectedSnapshot(snapshot)) return;
+        if (!this._rememberTransportLossSnapshot(snapshot)) {
+          this._cleanupRetryPending = true;
+          this._transportRetryAt = 0;
+        }
+      } catch (_error) {
+        this._cleanupRetryPending = true;
+        this._transportRetryAt = 0;
+      }
+    }
+
     async _configure(invoke) {
       // Provider configuration belongs to the current trusted Python binding,
       // not to the lifetime of this WebView. Re-read it before every provider
       // transaction so a clean unbind/rebind cannot reuse a stale room URL or
       // moderation identity.
-      const result = await invoke("media.provider_config", {});
-      if (!result || result.kind !== "provider-config") {
-        throw new Error("media provider config is unavailable");
-      }
-      const payload = result.payload && typeof result.payload === "object"
-        ? result.payload
-        : {};
-      const config = payload.config;
-      exactKeys(
-        config,
-        ["server_url", "moderation_participant_identity"],
-        "media provider config"
-      );
-      if (typeof config.server_url !== "string" ||
-          typeof config.moderation_participant_identity !== "string") {
-        throw new TypeError("media provider config is invalid");
-      }
-      if (!global.LivekitClient || typeof global.LivekitClient.Room !== "function" ||
-          !global.AccessibleChessLiveKitMedia ||
-          typeof global.AccessibleChessLiveKitMedia.LiveKitClassroomMediaAdapter !== "function") {
-        throw new Error("packaged LiveKit media runtime is unavailable");
-      }
+      let nextConfig;
+      try {
+        const result = await invoke("media.provider_config", {});
+        if (!result || result.kind !== "provider-config") {
+          throw new Error("media provider config is unavailable");
+        }
+        const payload = result.payload && typeof result.payload === "object"
+          ? result.payload
+          : {};
+        const config = payload.config;
+        exactKeys(
+          config,
+          ["server_url", "moderation_participant_identity"],
+          "media provider config"
+        );
+        if (typeof config.server_url !== "string" ||
+            typeof config.moderation_participant_identity !== "string") {
+          throw new TypeError("media provider config is invalid");
+        }
+        if (!global.LivekitClient || typeof global.LivekitClient.Room !== "function" ||
+            !global.AccessibleChessLiveKitMedia ||
+            typeof global.AccessibleChessLiveKitMedia.LiveKitClassroomMediaAdapter !== "function") {
+          throw new Error("packaged LiveKit media runtime is unavailable");
+        }
 
-      const nextConfig = Object.freeze({
-        server_url: config.server_url,
-        moderation_participant_identity: config.moderation_participant_identity
-      });
+        nextConfig = Object.freeze({
+          server_url: config.server_url,
+          moderation_participant_identity: config.moderation_participant_identity
+        });
+      } catch (error) {
+        this._scheduleExistingAdapterCleanup();
+        throw error;
+      }
       if (this._adapter !== null && this._config !== null) {
         const unchanged =
           this._config.server_url === nextConfig.server_url &&
@@ -302,6 +323,7 @@
             previous.microphone_enabled !== false ||
             previous.camera_enabled !== false ||
             previous.screen_share_enabled !== false) {
+          this._rememberTransportLossSnapshot(previous);
           throw new Error(
             "media provider configuration changed while prior adapter is active"
           );
