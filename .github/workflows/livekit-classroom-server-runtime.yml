@@ -45,20 +45,15 @@ jobs:
           test "$EXPECTED_BASE_REF" = "feature/livekit-classroom-moderation-admin-20261002"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
           git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          git fetch --no-tags origin "$EXPECTED_BASE_REF"
-          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
-          if ! git merge-base --is-ancestor "$base" HEAD; then
-            echo "Current LiveKit moderation owner $base is not an ancestor of HEAD; synchronize the stacked PR."
-            exit 1
-          fi
-          git diff --check "$base...HEAD"
-          changed="$(git diff --name-only "$base...HEAD" | sort)"
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
           allowed="$(printf '%s\n' \
             '.github/workflows/livekit-classroom-server-runtime.yml' \
             'acs/livekit_classroom_server_runtime.py' \
             'tests/test_livekit_classroom_server_runtime.py' | sort)"
           test "$changed" = "$allowed"
-          git diff --quiet "$base" HEAD -- \
+          git diff --quiet "$EVENT_BASE_SHA" HEAD -- \
             acs/livekit_classroom_moderation_admin.py \
             acs/classroom_moderation_rpc.py \
             acs/classroom_realtime_media.py \
