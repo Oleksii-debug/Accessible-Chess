@@ -90,9 +90,19 @@ class BookIndex:
     @staticmethod
     def _target(index: int, block) -> BookTarget:
         if block.block_id:
-            key = f"block:{block.block_id}"
+            prefix = "block:"
+            if len(block.block_id) > _MAX_BOOK_TARGET_KEY_CHARS - len(prefix):
+                raise ValueError(
+                    f"Book target key exceeds {_MAX_BOOK_TARGET_KEY_CHARS} characters"
+                )
+            key = prefix + block.block_id
         elif block.source_anchor:
-            key = f"source:{block.source_anchor}"
+            prefix = "source:"
+            if len(block.source_anchor) > _MAX_BOOK_TARGET_KEY_CHARS - len(prefix):
+                raise ValueError(
+                    f"Book target key exceeds {_MAX_BOOK_TARGET_KEY_CHARS} characters"
+                )
+            key = prefix + block.source_anchor
         else:
             key = f"index:{index}"
         return BookTarget(key, index, block.block_id, block.source_anchor)

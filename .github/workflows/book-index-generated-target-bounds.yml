@@ -1,0 +1,84 @@
+name: BookIndex Generated Target Bounds
+
+on:
+  pull_request:
+    branches:
+      - 'fix/book-index-query-target-raw-bounds-20261003'
+    paths:
+      - 'acs/book_index.py'
+      - 'tests/test_book_index.py'
+      - '.github/workflows/book-index-generated-target-bounds.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-index-generated-target-bounds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generated-target-bounds:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          parent_branch='fix/book-index-query-target-raw-bounds-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+            live_ref="refs/remotes/origin/$parent_branch"
+            git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+            live_parent="$(git rev-parse "$live_ref")"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_parent"
+            git merge-base --is-ancestor "$live_parent" HEAD
+            test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+            changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/book-index-generated-target-bounds.yml' \
+              'acs/book_index.py' \
+              'tests/test_book_index.py' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_parent" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/book_index.py)" = "a9bfd2212d312b486886dc7d38256fa10a65e023"
+          test "$(git rev-parse HEAD:tests/test_book_index.py)" = "4a8adf9834eb47b84b60180b3c72e73b1c0f3941"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile BookIndex target boundary
+        run: >-
+          python -m compileall -q
+          acs/book_index.py
+          tests/test_book_index.py
+
+      - name: Prove generated target bounds and retained Books flow
+        run: >-
+          python -m unittest -v
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_version2_book_workspace
