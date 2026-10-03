@@ -60,6 +60,7 @@ jobs:
 
           changed="$(git diff --name-only "$parent" HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/full-product-convergence-integration-20261004.yml' \
             '.github/workflows/integration-library-browser-contract-successor.yml' \
             'acs/library_export_webview_projection.py' \
             'acs/library_webview_bridge.py' \
@@ -79,6 +80,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/js/library_surface_dom_test.js)" = '7f69c17619f73d7c001392ea43e037933d75a50b'
           test "$(git rev-parse HEAD:acs/version2_application.py)" = '6fd87a6f128d227cbe263a9efe72b6b3d938935f'
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = 'b4fc6c22fcfb47e051afbd80fa9f6a3315c43456'
+          test "$(git rev-parse HEAD:.github/workflows/full-product-convergence-integration-20261004.yml)" = 'dd5f0026a966161b049c2d92510ca999ccac6c21'
 
           echo 'INTEGRATION_LIBRARY_BROWSER_CONTRACT_SCOPE=PASS'
 

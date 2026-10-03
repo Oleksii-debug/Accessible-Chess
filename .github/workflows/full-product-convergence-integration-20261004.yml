@@ -68,10 +68,13 @@ jobs:
           set -euo pipefail
           node --check web/full_product_books_training.js
           node --check web/version2_release_bootstrap.js
+          node --check web/full_product_library.js
           node --check tests/js/books_training_surface_dom_test.js
           node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/library_surface_dom_test.js
           node tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/library_surface_dom_test.js
           echo 'FULL_PRODUCT_DOM=PASS'
 
       - name: Books Training semantic and accessibility regressions
@@ -89,6 +92,16 @@ jobs:
           tests.test_version2_release_accessibility_contract
           tests.test_version2_training_current_runtime
           tests.test_w3_p0f_starter_books_training_content
+
+      - name: Library browser identity, import and privacy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_library_webview_projection
+          tests.test_d07_library_export_webview
+          tests.test_d07_library_import_service
+          tests.test_v2_library_search_service_v4
+          tests.test_v2_shared_presentation_path_privacy
+          tests.test_version2_package_preflight
 
       - name: Recovery Settings and writer-race regressions
         run: >-
