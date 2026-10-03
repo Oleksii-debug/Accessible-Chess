@@ -161,6 +161,11 @@ class ClassroomMediaTransactionalWebView:
         focus = focus_target or self._focus(transaction_id)
         base = self._projection.error_event(focus_target=focus)
         payload = dict(base.payload)
+        # Force every browser surface to retire stale mutation controls
+        # immediately.  Recovery is process-global for the media provider, so a
+        # prior canonical snapshot must not remain actionable merely because the
+        # callback that entered recovery had no fresh presentation snapshot.
+        payload["snapshot"] = None
         payload["recovery_required"] = True
         payload["transaction_id"] = transaction_id
         return ClassroomMediaWebViewEvent("error", payload)
@@ -181,6 +186,21 @@ class ClassroomMediaTransactionalWebView:
         transaction_id: str = "",
     ) -> ClassroomMediaWebViewEvent:
         """Fail closed if an invalid callback follows provider dispatch."""
+
+        # A prior callback may already have consumed the active lease and moved
+        # the exact transaction into recovery.  Preserve that stronger global
+        # state at the browser boundary instead of degrading it to a generic
+        # error that would leave stale media controls actionable.
+        recovery = self._binder.recovery_status
+        if (
+            recovery is not None
+            and recovery.lease.transaction_id is not None
+            and (
+                not transaction_id
+                or transaction_id == recovery.lease.transaction_id
+            )
+        ):
+            return self._recovery_event(recovery.lease.transaction_id)
 
         active = self._binder.active_lease
         if (
