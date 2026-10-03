@@ -222,6 +222,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             db.execute(
                 "DROP INDEX uq_collaboration_attachments_authoritative_sequence"
             )
+            db.execute("DROP TABLE collaboration_attachment_deletions")
             db.execute(
                 """
                 CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
@@ -449,6 +450,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.store.register_attachment(attachment)
         with closing(sqlite3.connect(self.db_path)) as db, db:
             db.execute("DROP TABLE collaboration_attachment_state_cursors")
+            db.execute("DROP TABLE collaboration_attachment_deletions")
             db.execute(
                 "UPDATE collaboration_schema_meta SET value=3 "
                 "WHERE key='schema_version'"
