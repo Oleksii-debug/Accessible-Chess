@@ -201,6 +201,22 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 b"keep-cache-name",
             )
 
+    @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
+    def test_root_runtime_control_symlink_fails_closed_before_exclusion(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            outside = Path(td) / "outside-control"
+            outside.write_bytes(b"outside")
+            os.symlink(outside, root / "sound-profile.json.lock")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "symlink or reparse point",
+            ):
+                coordinator._files()
+
     def test_root_lock_named_directories_remain_user_data(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"

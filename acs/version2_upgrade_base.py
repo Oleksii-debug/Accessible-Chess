@@ -706,6 +706,18 @@ class Version2UpgradeCoordinator:
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
             if relative.casefold() in _CONTROL_NAME_KEYS:
+                # Exact runtime-control files are not preservation-backed, but
+                # their filesystem object must still be authenticated. A symlink,
+                # reparse point, FIFO, or device at a canonical control path must
+                # not become an unchecked escape hatch from root validation.
+                control_info = _safe_stat(path, "runtime control entry")
+                if not (
+                    stat.S_ISREG(control_info.st_mode)
+                    or stat.S_ISDIR(control_info.st_mode)
+                ):
+                    raise Version2UpgradeError(
+                        "runtime control entry must be a regular file or directory"
+                    )
                 continue
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
