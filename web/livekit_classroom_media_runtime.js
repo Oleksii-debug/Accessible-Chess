@@ -358,16 +358,28 @@
 
     async _settleCleanSessionFailure(invoke, transaction, operation, snapshot) {
       try {
+        let result;
         if (operation === "disconnect") {
-          return await invoke("media.provider_session_success", {
+          result = await invoke("media.provider_session_success", {
+            transaction_id: transaction,
+            snapshot
+          });
+        } else {
+          result = await invoke("media.provider_connection_failed_clean", {
             transaction_id: transaction,
             snapshot
           });
         }
-        return await invoke("media.provider_connection_failed_clean", {
-          transaction_id: transaction,
-          snapshot
-        });
+        const payload = result && result.payload && typeof result.payload === "object"
+          ? result.payload
+          : {};
+        if (result && result.kind === "error" && payload.recovery_required === true) {
+          // Provider teardown is already exact and clean, but canonical commit
+          // still requires trusted reconciliation. Preserve that clean fact for
+          // the existing transport-loss path after the latch is released.
+          this._rememberTransportLossSnapshot(snapshot);
+        }
+        return result;
       } catch (_error) {
         const result = await this._providerFailed(invoke, transaction);
         // Browser/provider proof of clean teardown is not authority to release
