@@ -545,6 +545,78 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 restarted.pack_store.installed(),
             )
 
+    def test_provider_update_without_candidate_rights_never_reaches_downloader_or_replaces_v1(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-rights-gap-") as raw:
+            root = Path(raw)
+            pack_id = "remote.wood"
+            v1 = _pack_manifest(pack_id)
+            entry1, staging1 = _catalog_entry_from_manifest(
+                root,
+                v1,
+                staging_name="provider-v1-rights",
+            )
+            first = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={pack_id: entry1},
+                pack_downloader=_StagedDownloader(entry1, staging1),
+            )
+            first.settings.install_pack(pack_id, activate=True, language="en")
+
+            v2_base = _pack_manifest(pack_id)
+            v2 = SoundPackManifest(
+                pack_id=pack_id,
+                version="2.0.0",
+                title=v2_base.title,
+                license_id=v2_base.license_id,
+                files=dict(v2_base.files),
+                author=v2_base.author,
+                provenance=v2_base.provenance,
+            )
+            audited_entry2, staging2 = _catalog_entry_from_manifest(
+                root,
+                v2,
+                staging_name="provider-v2-rights-gap",
+            )
+            unaudited_entry2 = SoundPackCatalogEntry(
+                manifest=audited_entry2.manifest,
+                assets=audited_entry2.assets,
+                total_bytes=audited_entry2.total_bytes,
+            )
+            downloader2 = _StagedDownloader(unaudited_entry2, staging2)
+            second = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={pack_id: unaudited_entry2},
+                pack_downloader=downloader2,
+            )
+
+            before = second.settings.snapshot(language="en")["packs"][0]
+            self.assertEqual("different_version", before["state"])
+            self.assertTrue(before["rights_auditable"])
+            self.assertEqual(
+                entry1.rights_evidence.source_uri,
+                before["rights_source_uri"],
+            )
+            self.assertFalse(before["catalog_rights_auditable"])
+            self.assertFalse(before["can_install"])
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "auditable license/provenance evidence",
+            ):
+                second.settings.install_pack(pack_id, activate=True, language="en")
+
+            self.assertEqual([], downloader2.calls)
+            self.assertEqual("1.0.0", second.pack_store.active_version(pack_id))
+            self.assertEqual(("1.0.0",), second.pack_store.versions(pack_id))
+            self.assertEqual(
+                entry1.rights_evidence,
+                second.pack_store.rights_evidence(pack_id),
+            )
+
     def test_provider_update_normalizes_removed_sound_choice_and_preserves_event_controls(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-provider-update-") as raw:
             root = Path(raw)
