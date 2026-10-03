@@ -61,9 +61,19 @@ assert(
   'direct board.current user feedback must carry a fresh event identity'
 );
 assert(
-  onBoardKey.includes('analysisViewingTemporaryPosition') &&
-    onBoardKey.includes('announceUserAction('),
-  'temporary-variation board action warning must carry a fresh event identity'
+  onBoardKey.includes("resolveBinding(eventChord(e),'board','board')") &&
+    onBoardKey.includes('executeAction(a.actionId)'),
+  'board keyboard input must resolve through the central remappable action path'
+);
+assert(
+  executeAction.includes("id==='board.activate'||id==='board.activate_alternative'") &&
+    executeAction.includes('analysisViewingTemporaryPosition') &&
+    executeAction.includes('announceUserAction('),
+  'remappable temporary-variation board action warning must carry a fresh event identity'
+);
+assert(
+  !onBoardKey.includes("key==='Enter'||key===' '"),
+  'shipping board keyboard handler must not reintroduce hardcoded activation keys'
 );
 
 const writes = [];

@@ -190,15 +190,23 @@
         invokeCommand(root, invoke, announce, snapshot, "library.select", { game_id: row.game_id });
       });
       option.addEventListener("keydown", function (event) {
-        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-          event.preventDefault();
-          invokeCommand(root, invoke, announce, snapshot, "library.move", {
-            delta: event.key === "ArrowUp" ? -1 : 1
-          });
-        } else if (event.key === "Enter") {
-          event.preventDefault();
-          invokeCommand(root, invoke, announce, snapshot, "library.open_game", {});
+        const resolve = global.accessibleChessKeymapAction;
+        const actionId = typeof resolve === "function" ? resolve(event, "library_results") : "";
+        let command = "";
+        let payload = {};
+        if (actionId === "library.previous_result") {
+          command = "library.move";
+          payload = { delta: -1 };
+        } else if (actionId === "library.next_result") {
+          command = "library.move";
+          payload = { delta: 1 };
+        } else if (actionId === "library.open_game") {
+          command = "library.open_game";
         }
+        if (!command) return;
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        invokeCommand(root, invoke, announce, snapshot, command, payload);
       });
       list.appendChild(option);
     });
