@@ -745,19 +745,7 @@ class TrainingPresenter:
     ) -> None:
         self._validate_message(message)
         self._validate_message_key(message_key)
-        definition = self._session._bound_definition()
-        restored = ExerciseSession.restore(definition, snapshot)
-        # The canonical domain parent validates on a detached candidate but does
-        # not expose an in-place rollback API. Publish only that validated state
-        # back into the retained live session so application/workspace references
-        # do not silently switch identity after a rejected UI transaction.
-        self._session._board = restored._board
-        self._session._accepted_path = list(restored._accepted_path)
-        self._session._step_index = restored._step_index
-        self._session._attempts = restored._attempts
-        self._session._mistakes = restored._mistakes
-        self._session._hints_used = restored._hints_used
-        self._session._status = restored._status
+        self._session.restore_state(snapshot)
         self._restore_message(message=message, message_key=message_key)
 
     def set_language(self, language: UILanguage) -> None:
@@ -768,9 +756,7 @@ class TrainingPresenter:
             self._set_presentation_message(self._message_key)
 
     def view(self) -> TrainingView:
-        # _bound_definition() is the current canonical domain authority in the
-        # parent Training contract; it returns a detached validated copy.
-        definition = self._session._bound_definition()
+        definition = self._session.canonical_definition
         total = len(definition.steps)
         visible_step = min(self._session.step_index + 1, total)
         return TrainingView(
