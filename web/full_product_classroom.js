@@ -19,6 +19,11 @@
     if (result.kind === "error" && payload.message) announce(String(payload.message));
   }
 
+  function applyKeyboardSelectionEvent(result, announce) {
+    if (result && result.kind === "selection") return;
+    applyEvent(result, announce);
+  }
+
   function renderManagement(host, section, invoke, announce) {
     const wrapper = node("section");
     const heading = node("h2", section.heading || "");
@@ -112,6 +117,10 @@
         if (!command) return;
         event.preventDefault();
         Promise.resolve(invoke(command, payload)).then(function (result) {
+          if (command === "management.select") {
+            applyKeyboardSelectionEvent(result, announce);
+            return;
+          }
           applyEvent(result, announce);
         });
       });
