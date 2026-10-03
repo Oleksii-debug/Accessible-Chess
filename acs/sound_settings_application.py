@@ -444,6 +444,11 @@ class SoundSettingsApplication:
                     if installed_record is None
                     else installed_record.rights_evidence
                 )
+                stored_assets = (
+                    None
+                    if installed_record is None
+                    else installed_record.asset_digests
+                )
                 rights = (
                     entry.rights_evidence
                     if installed_manifest is None
@@ -452,7 +457,17 @@ class SoundSettingsApplication:
                 catalog_rights = entry.rights_evidence
                 projected_state = status.state.value
                 if installed_manifest is not None and installed_manifest == manifest:
-                    if stored_rights is None:
+                    if (
+                        stored_assets is not None
+                        and stored_assets != entry.assets
+                    ):
+                        # Same version/manifest but a different catalog digest
+                        # set is immutable-content equivocation, not "current".
+                        # Keep install disabled; the operator may explicitly
+                        # uninstall before accepting a differently identified
+                        # same-version provider artifact.
+                        projected_state = SoundPackState.VERSION_CONFLICT.value
+                    elif stored_rights is None:
                         projected_state = "rights_unverified"
                     elif stored_rights != catalog_rights:
                         projected_state = "rights_conflict"
