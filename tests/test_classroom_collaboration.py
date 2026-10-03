@@ -3232,6 +3232,76 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         )
 
 
+    def test_progress_consumer_cannot_reentrantly_cancel_active_upload(self):
+        controller = self.controller()
+        payload = b"reentrant-upload"
+        prepared = controller.prepare_file(
+            attachment_id="progress-reentrant-upload",
+            local_path=self.make_file("progress-reentrant-upload.bin", payload),
+            sequence_no=0,
+        )
+        observed_errors = []
+
+        def reentrant_cancel(_sample):
+            try:
+                controller.cancel_file(prepared.metadata.attachment_id)
+            except CollaborationError as error:
+                observed_errors.append(str(error))
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=reentrant_cancel,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(self.files.upload_calls), 1)
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertTrue(observed_errors)
+        self.assertTrue(
+            all(
+                message == "file state cannot be mutated from a progress consumer"
+                for message in observed_errors
+            )
+        )
+        self.assertEqual(controller.sync_files(), ())
+
+    def test_progress_consumer_cannot_reentrantly_cancel_retry(self):
+        controller = self.controller()
+        payload = b"reentrant-retry"
+        prepared = controller.prepare_file(
+            attachment_id="progress-reentrant-retry",
+            local_path=self.make_file("progress-reentrant-retry.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+        observed_errors = []
+
+        def reentrant_cancel(_sample):
+            try:
+                controller.cancel_file(prepared.metadata.attachment_id)
+            except CollaborationError as error:
+                observed_errors.append(str(error))
+
+        stored = controller.retry_file(
+            prepared,
+            on_progress=reentrant_cancel,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(self.files.retry_calls), 1)
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertTrue(observed_errors)
+        self.assertTrue(
+            all(
+                message == "file state cannot be mutated from a progress consumer"
+                for message in observed_errors
+            )
+        )
+        self.assertEqual(controller.sync_files(), ())
+
     def test_retry_reports_fresh_progress_sequence(self):
         controller = self.controller()
         payload = b"retry-progress"
