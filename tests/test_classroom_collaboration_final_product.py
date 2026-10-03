@@ -132,6 +132,50 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.assertEqual("collaboration.file.progress", bridged[0]["kind"])
         self.assertEqual(1, bridged[0]["payload"]["file_progress"]["transferred_bytes"])
 
+    def test_bound_classes_upload_streams_progress_to_trusted_host(self) -> None:
+        selected = Path(self.tmp.name) / "whole-product-progress.bin"
+        selected.write_bytes(b"abcdef")
+        self.collaboration._file_picker = lambda: selected
+        self.files.scan_state = "clean"
+        bridged: list[dict[str, object]] = []
+        app = self.bare_app()
+
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            app.bind_classroom_collaboration(
+                self.collaboration,
+                file_progress_event_sink=bridged.append,
+            )
+            uploaded = app.browser_command(
+                "classes",
+                "collaboration.file.choose_upload",
+                {},
+            )
+            app.unbind_classroom_collaboration()
+
+        self.assertEqual("collaboration.file.sent", uploaded["kind"])
+        self.assertEqual(
+            [0, 6],
+            [
+                event["payload"]["file_progress"]["transferred_bytes"]
+                for event in bridged
+            ],
+        )
+        self.assertEqual(
+            [False, True],
+            [event["payload"]["file_progress"]["complete"] for event in bridged],
+        )
+        transfer_keys = {
+            event["payload"]["file_progress"]["transfer_key"]
+            for event in bridged
+        }
+        self.assertEqual(1, len(transfer_keys))
+        self.assertEqual(64, len(next(iter(transfer_keys))))
+        exposed = repr(bridged)
+        self.assertNotIn(str(selected), exposed)
+        self.assertNotIn("attachment-composition-", exposed)
+        self.assertNotIn("rooms/room-1", exposed)
+        self.assertNotIn("sha256", exposed.lower())
+
     def test_rebind_without_progress_sink_does_not_reuse_retired_host_channel(self) -> None:
         app = self.bare_app()
         old_channel_events: list[dict[str, object]] = []
