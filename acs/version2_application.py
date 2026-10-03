@@ -618,10 +618,11 @@ class Version2Application:
         # has projected the canonical BookBoard FEN into the real release board.
         if event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
             # BookBoardWorkflow guarantees that read-only Board review and exact
-            # Return preserve the BookReader snapshot. The origin was durably
-            # committed before Board publication, so Return has no new progress
-            # generation to write and must remain available during transient I/O
-            # failure.
+            # Return preserve the BookReader snapshot. This observer owns only
+            # route publication; the browser/native command boundary that caused
+            # the explicit Return re-publishes the canonical origin durably after
+            # the safe workflow unwind. Emergency projection-failure unwind stays
+            # storage-independent in _recover_book_projection_failure().
             self.shell.open_route("books")
         elif event.kind is BookBoardUiEventKind.FAILED:
             self._events.append(self._error())
