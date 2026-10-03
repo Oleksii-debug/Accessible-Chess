@@ -492,6 +492,33 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "invalid mapping"):
             app.snapshot()
 
+    def test_split_installed_rights_are_validated_but_not_audited(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("local.wood")
+        entry = _entry(local)
+        self.assertIsNotNone(entry.rights_evidence)
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=SoundPackProfileCoordinator(manager, profiles),
+            catalog={},
+            installed_pack_provider=lambda: {"local.wood": local},
+            installed_rights_provider=lambda _pack_id: entry.rights_evidence,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+
+        self.assertEqual("local.wood", item["pack_id"])
+        self.assertFalse(item["rights_auditable"])
+        self.assertIsNone(item["rights_source_uri"])
+        self.assertIsNone(item["license_uri"])
+
     def test_installed_rights_provider_must_match_installed_manifest_license(self) -> None:
         classic = _manifest("classic")
         local = _manifest("local.wood")
