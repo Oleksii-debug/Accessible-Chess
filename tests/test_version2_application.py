@@ -227,6 +227,45 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertEqual(self.app.shell.current_route.route_id, "library")
 
+    def test_modal_library_open_game_fails_before_selection_or_database_lookup(self):
+        self.app.shell.open_route("board")
+        self.app.shell.open_dialog(
+            "library-open-modal",
+            opener_focus_id="move-input",
+            initial_focus_id="library-open-modal-confirm",
+        )
+        before_session = self.app.session
+
+        with patch.object(self.app.library.projection, "open_selected") as open_selected:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.open_game",
+                    current_focus_id="library-open-modal-confirm",
+                )
+        open_selected.assert_not_called()
+
+        with patch.object(
+            self.app.database,
+            "get_game",
+            side_effect=AssertionError(
+                "modal Library open must fail before database lookup"
+            ),
+        ) as get_game:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.open_game",
+                    {
+                        "game_id": 1,
+                        "source_id": 1,
+                        "source_index": 0,
+                    },
+                    current_focus_id="library-open-modal-confirm",
+                )
+        get_game.assert_not_called()
+        self.assertIs(before_session, self.app.session)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertEqual("library-open-modal", self.app.shell.active_dialog_id)
+
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
