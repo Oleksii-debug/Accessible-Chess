@@ -50,6 +50,8 @@ jobs:
       FOCUS_RECOVERY_APPLICATION_TEST_BLOB: 240bb41b0e99c45c0c1ad64ae8b91dbd057f6f69
       SEMANTIC_DURABLE_APPLICATION_BLOB: 9f4722a1898f9f1bc17daa62737606d8cb847a2d
       SEMANTIC_DURABLE_APPLICATION_TEST_BLOB: 043d8efd1be94b425d9ed153ce7f25e8b9057fed
+      DURABILITY_NAVIGATION_APPLICATION_BLOB: f916c50d3c08a93570a1f70c158c26fab618fbdd
+      DURABILITY_NAVIGATION_APPLICATION_TEST_BLOB: 03257330c7b5519683533f33fd57145f395354d7
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -173,6 +175,36 @@ jobs:
             semantic_durable_convergence=true
           fi
 
+          durability_navigation_convergence=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "$PR_BASE_REF" = "fix/v2-release-navigation-schema-focus-20261003" ] \
+             && [ "${{ github.event.pull_request.head.ref }}" = "converge/books-durability-navigation-focus-20261003" ]; then
+            latest_parent='eb23bdc5ea0e2914a7f742697b20d32edd78a950'
+            focus_parent='f31e1f29e9a8a02ed12b85d7516f42f18fd780c2'
+            test "$PR_BASE_SHA" = "$latest_parent"
+            git cat-file -e "$focus_parent^{commit}"
+            git merge-base --is-ancestor "$latest_parent" HEAD
+            git merge-base --is-ancestor "$focus_parent" HEAD
+            convergence_changed="$(git diff --name-only "$latest_parent" HEAD | sort)"
+            convergence_expected="$(printf '%s\n' \
+              '.github/workflows/books-durability-navigation-focus-convergence.yml' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/full_product_ui_shell.py' \
+              'acs/version2_application.py' \
+              'tests/js/version2_release_bootstrap_dom_test.js' \
+              'tests/test_v2_book_training_route_rollback.py' \
+              'tests/test_version2_application.py' \
+              'tests/test_version2_release_accessibility_contract.py' | sort)"
+            test "$convergence_changed" = "$convergence_expected"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$DURABILITY_NAVIGATION_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$DURABILITY_NAVIGATION_APPLICATION_TEST_BLOB"
+            durability_navigation_convergence=true
+          fi
+
           bounded_feature=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             allowed="$(printf '%s\n' \
@@ -276,7 +308,10 @@ jobs:
             full_product_composition=true
           fi
 
-          if [ "$semantic_durable_convergence" = true ]; then
+          if [ "$durability_navigation_convergence" = true ]; then
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=DURABILITY_NAVIGATION_FOCUS_CONVERGENCE'
+          elif [ "$semantic_durable_convergence" = true ]; then
             git diff --check "$upstream" HEAD
             echo 'BOOK_PROGRESS_TOPOLOGY=SEMANTIC_DURABLE_CONVERGENCE'
           elif [ "$focus_recovery_successor" = true ]; then
@@ -357,10 +392,17 @@ jobs:
           # store/application blobs on the current delegated-focus parent.
           if [ "$delegated_focus_successor" != true ] \
              && [ "$focus_recovery_successor" != true ] \
-             && [ "$semantic_durable_convergence" != true ]; then
+             && [ "$semantic_durable_convergence" != true ] \
+             && [ "$durability_navigation_convergence" != true ]; then
             git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
           fi
-          if [ "$semantic_durable_convergence" = true ]; then
+          if [ "$durability_navigation_convergence" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$DURABILITY_NAVIGATION_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$DURABILITY_NAVIGATION_APPLICATION_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
+          elif [ "$semantic_durable_convergence" = true ]; then
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$SEMANTIC_DURABLE_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$SEMANTIC_DURABLE_APPLICATION_TEST_BLOB"
