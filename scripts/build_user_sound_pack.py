@@ -83,6 +83,13 @@ PROVENANCE_LICENSE = "USER_PROVIDED"
 PROVENANCE_CREATOR = "User-provided legacy chess sound archive"
 EXPECTED_SOURCE_WAV_COUNT = 330
 EXPECTED_SOURCE_INVENTORY_SHA256 = "41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920"
+NEW_GAME_IMPACT_MS = (
+    160, 374, 748, 853, 1112, 1302, 1427, 1532,
+    1766, 1906, 2504, 2599, 2869, 3143, 3751, 4106,
+    4455, 4600, 4804, 4904, 5148, 5647, 5792, 5897,
+    6276, 6455, 6610, 7074, 7588, 7797, 8062, 8231,
+)
+NEW_GAME_DURATION_SECONDS = 8.521723
 
 
 class SoundPackBuildError(RuntimeError):
@@ -276,10 +283,32 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
         json.dumps(inventory_doc, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    (destination / "newgame_impacts.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_file": DEFAULT_EVENT_FILES["start"],
+                "duration_seconds": NEW_GAME_DURATION_SECONDS,
+                "impact_count": len(NEW_GAME_IMPACT_MS),
+                "impacts_ms": list(NEW_GAME_IMPACT_MS),
+                "analysis": {
+                    "window_ms": 20,
+                    "hop_ms": 5,
+                    "threshold_percentile": 60,
+                    "minimum_peak_separation_ms": 90,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ) + "\n",
+        encoding="utf-8",
+    )
     (destination / "README.txt").write_text(
         "Accessible Chess user-supplied sound pack\n"
         "All 330 WAV files from the supplied archive are retained under library/.\n"
         "Runtime defaults and selectable variants are declared in manifest.json and variants.json.\n"
+        "NEWGAME impact timing for the visual placement sequence is declared in newgame_impacts.json.\n"
         "Variant 1 is the default for every event.\n"
         "Redistribution rights are not inferred by this builder; provenance records the pack as user-provided.\n",
         encoding="utf-8",
