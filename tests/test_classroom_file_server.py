@@ -312,6 +312,26 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertEqual(result.scan_state, "failed")
         self.assertEqual(self.objects.objects, {})
 
+    def test_oversized_upload_is_rejected_before_server_scan(self):
+        prepared = self.prepared(
+            attachment_id="oversized-before-scan",
+            content=b"x" * 65,
+        )
+
+        with self.assertRaises(CollaborationQuotaError):
+            self.student1.upload(prepared)
+
+        self.assertEqual(self.scanner.calls, [])
+        self.assertEqual(self.objects.put_calls, [])
+        self.assertEqual(
+            self.student1.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=100,
+            ),
+            (),
+        )
+
     def test_authoritative_quota_counts_concurrent_reservations(self):
         first = self.prepared(
             attachment_id="quota-a0",
