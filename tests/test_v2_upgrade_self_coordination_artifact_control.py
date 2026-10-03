@@ -106,11 +106,18 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 root / "settings.json.tmp",
                 root / ".settings.json.abcd_123.tmp",
                 root / "..v2-upgrade-state.json.xy_987ab.tmp",
-                root / ".settings.json.publish-guard-a1b2c3d4e5f6",
-                root / ".library.acsdb.publish-guard-012345abcdef",
             )
             for path in derived:
                 path.write_bytes(b"derived-runtime-state")
+            settings_guard = root / ".settings.json.publish-guard-a1b2c3d4e5f6"
+            try:
+                os.link(root / "settings.json", settings_guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+            # Filename grammar alone is not ownership proof. Without a current
+            # Library target, this exact-looking guard is preservation-backed.
+            library_guard = root / ".library.acsdb.publish-guard-012345abcdef"
+            library_guard.write_bytes(b"private-library-guard-lookalike")
 
             near_misses = (
                 root / ".settings.json.publish-guard-a1b2c3d4e5f",
@@ -147,7 +154,7 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 files,
             )
-            self.assertNotIn(
+            self.assertIn(
                 ".library.acsdb.publish-guard-012345abcdef",
                 files,
             )
@@ -169,9 +176,17 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 paths,
             )
-            self.assertNotIn(
+            self.assertIn(
                 ".library.acsdb.publish-guard-012345abcdef",
                 paths,
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / ".library.acsdb.publish-guard-012345abcdef"
+                ).read_bytes(),
+                b"private-library-guard-lookalike",
             )
             self.assertIn("settings.json.tmp/keep.bin", paths)
             self.assertEqual(
@@ -196,12 +211,15 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             (root / "prefs.json").write_bytes(b"{}")
             (root / "prefs.json.tmp").write_bytes(b"settings-writer-temp")
             (root / ".prefs.json.a1_b2c3d.tmp").write_bytes(b"upgrade-temp")
-            (
-                root / ".prefs.json.publish-guard-abcdef012345"
-            ).write_bytes(b"settings-guard")
-            (
-                root / ".games.sqlite.publish-guard-fedcba543210"
-            ).write_bytes(b"library-guard")
+            settings_guard = root / ".prefs.json.publish-guard-abcdef012345"
+            library = root / "games.sqlite"
+            library.write_bytes(b"current-library")
+            library_guard = root / ".games.sqlite.publish-guard-fedcba543210"
+            try:
+                os.link(root / "prefs.json", settings_guard)
+                os.link(library, library_guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
             canonical_name_lookalike = root / "settings.json.tmp"
             canonical_name_lookalike.write_bytes(b"custom-layout-user-data")
 
@@ -303,10 +321,15 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 "settings.json.tmp",
                 ".settings.json.abcd_123.tmp",
                 "..v2-upgrade-state.json.xy_987ab.tmp",
-                ".settings.json.publish-guard-a1b2c3d4e5f6",
-                ".library.acsdb.publish-guard-012345abcdef",
             ):
                 (root / name).write_bytes(b"z" * 4096)
+            try:
+                os.link(
+                    durable,
+                    root / ".settings.json.publish-guard-a1b2c3d4e5f6",
+                )
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
 
             coordinator = Version2UpgradeCoordinator(
                 UserDataLayout(root),
