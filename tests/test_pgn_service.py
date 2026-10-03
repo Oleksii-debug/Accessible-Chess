@@ -216,6 +216,54 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertEqual(snapshot_reads, 2)
             self.assertEqual(list(path.parent.glob(path.name + ".*.tmp")), [])
 
+    def test_verification_failure_never_rolls_back_over_newer_destination(self):
+        games = parse_games('[Event "Requested"]\n[Result "*"]\n\n1. Nf3 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "verification-external-write.pgn"
+            path.write_text(
+                '[Event "Original"]\n[Result "*"]\n\n1. e4 *\n',
+                encoding="utf-8",
+            )
+            opened = open_pgn(path)
+            real_current_sha256 = pgn_service_module._current_sha256
+            snapshot_reads = 0
+            external = '[Event "External"]\n[Result "*"]\n\n1. d4 *\n'
+
+            def fail_snapshot_after_external_write(candidate):
+                nonlocal snapshot_reads
+                candidate_path = Path(candidate)
+                if ".cas-" in candidate_path.name:
+                    snapshot_reads += 1
+                    if snapshot_reads == 2:
+                        # A non-cooperating writer changes the newly published
+                        # destination before rollback begins. The old recovery
+                        # snapshot must not be allowed to overwrite these bytes.
+                        path.write_text(external, encoding="utf-8")
+                        raise PgnFileError("simulated verification failure")
+                return real_current_sha256(candidate_path)
+
+            with mock.patch(
+                "acs.pgn_service._current_sha256",
+                side_effect=fail_snapshot_after_external_write,
+            ):
+                with self.assertRaisesRegex(
+                    PgnConcurrentWriteError,
+                    "destination changed after publication",
+                ):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        overwrite=True,
+                        expected_sha256=opened.source.sha256,
+                    )
+
+            self.assertEqual(path.read_text(encoding="utf-8"), external)
+            backups = list(path.parent.glob(path.name + ".cas-*.bak"))
+            self.assertEqual(len(backups), 1)
+            self.assertIn("Original", backups[0].read_text(encoding="utf-8"))
+            self.assertEqual(snapshot_reads, 2)
+            self.assertEqual(list(path.parent.glob(path.name + ".*.tmp")), [])
+
     def test_precommit_fingerprint_failure_does_not_publish_requested_bytes(self):
         games = parse_games('[Event "Requested"]\n[Result "*"]\n\n1. Nf3 *\n')
         with tempfile.TemporaryDirectory() as tmp:
