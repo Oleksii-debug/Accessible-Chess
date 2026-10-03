@@ -126,7 +126,22 @@ class ClassroomMediaTransactionalWebView:
                 "prepared media provider lease has no transaction identity"
             )
         transaction_id = _transaction_id(transaction_id)
-        provider = self._binder.pending_browser_payload(transaction_id)
+        try:
+            provider = self._binder.pending_browser_payload(transaction_id)
+        except Exception:
+            # No browser/provider call has been published yet. Retire the exact
+            # prepared transaction instead of returning an error while leaving
+            # the sole provider lease stranded active.
+            try:
+                self._binder.provider_not_started(transaction_id)
+            except MediaHostRecoveryRequired:
+                return self._recovery_event(
+                    transaction_id,
+                    focus_target=focus_target,
+                )
+            except Exception:
+                pass
+            return self._safe_error(focus_target=focus_target)
         self._focus_by_transaction[transaction_id] = focus_target
         return ClassroomMediaWebViewEvent(
             "provider-dispatch",
@@ -160,6 +175,36 @@ class ClassroomMediaTransactionalWebView:
             self._focus(transaction_id) if transaction_id else ""
         )
         return self._projection.error_event(focus_target=focus)
+
+    def _provider_callback_error(
+        self,
+        transaction_id: str = "",
+    ) -> ClassroomMediaWebViewEvent:
+        """Fail closed if an invalid callback follows provider dispatch."""
+
+        active = self._binder.active_lease
+        if (
+            active is not None
+            and active.provider_boundary_crossed
+            and active.transaction_id is not None
+            and (not transaction_id or transaction_id == active.transaction_id)
+        ):
+            active_transaction = active.transaction_id
+            try:
+                self._binder.provider_outcome_unknown(active_transaction)
+            except Exception:
+                # A concurrent/duplicate callback may already have moved the
+                # lease into recovery. Never replace a stronger recovery state
+                # with a generic browser failure.
+                status = self._binder.recovery_status
+                if (
+                    status is not None
+                    and status.lease.transaction_id == active_transaction
+                ):
+                    return self._recovery_event(active_transaction)
+                return self._safe_error(active_transaction)
+            return self._recovery_event(active_transaction)
+        return self._safe_error(transaction_id)
 
     # Mutation-port methods consumed by ClassroomMediaWebViewBridge.
 
@@ -306,6 +351,7 @@ class ClassroomMediaTransactionalWebView:
         command: object,
         payload: Mapping[str, object] | None,
     ) -> ClassroomMediaWebViewEvent:
+        transaction_id = ""
         try:
             command_id = _command(command)
             data = _payload(payload)
@@ -325,7 +371,10 @@ class ClassroomMediaTransactionalWebView:
                     "provider-credential",
                     {
                         "transaction_id": transaction_id,
-                        "credential": dict(credential),
+                        # Keep the binder's redacted mapping subclass intact in
+                        # Python diagnostics. The WebView serializer still sees
+                        # an ordinary mapping with the one-shot credential.
+                        "credential": credential,
                     },
                 )
 
@@ -419,8 +468,10 @@ class ClassroomMediaTransactionalWebView:
             raise ValueError("unsupported media provider browser command")
         except Exception:
             # Never echo provider errors, tokens, URLs, identities or operation
-            # payloads into the accessible surface.
-            return self._safe_error()
+            # payloads into the accessible surface. If the exact provider
+            # boundary was already crossed, a malformed/failed callback makes
+            # the provider outcome unknown and must enter recovery.
+            return self._provider_callback_error(transaction_id)
 
 
 def _command(value: object) -> str:
