@@ -399,6 +399,44 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 "guard substitution allowed migrated Library state to commit silently",
             )
 
+    def test_library_publication_fails_if_guard_disappears_after_final_state_check(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+            original_sources = self._source_names(library)
+            real_require = upgrade_base_module._require_publication_guard
+            require_calls = 0
+
+            def race_require(
+                guard: upgrade_base_module._PublicationGuard,
+            ) -> os.stat_result:
+                nonlocal require_calls
+                info = real_require(guard)
+                require_calls += 1
+                if require_calls == 4:
+                    guard.path.unlink()
+                return info
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_require_publication_guard",
+                side_effect=race_require,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "publication guard changed unexpectedly",
+                ):
+                    Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertGreaterEqual(require_calls, 5)
+            self.assertEqual(
+                self._source_names(library),
+                original_sources,
+                "missing Library guard was accepted as a committed migration",
+            )
+
     def test_library_writer_after_final_reauth_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
