@@ -11,6 +11,7 @@ on:
       - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/p0g-event-aware-announcements.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/w2-training-progress-windows-missing-parent.yml'
       - 'acs/book_progress_store.py'
       - 'acs/book_webview_projection.py'
       - 'acs/full_product_actions.py'
@@ -93,6 +94,7 @@ jobs:
               '.github/workflows/d01-pgn-workspace-webview.yml' \
               '.github/workflows/p0g-event-aware-announcements.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
+              '.github/workflows/w2-training-progress-windows-missing-parent.yml' \
               'acs/book_progress_store.py' \
               'acs/book_webview_projection.py' \
               'acs/full_product_actions.py' \
