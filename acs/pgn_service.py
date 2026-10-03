@@ -441,6 +441,7 @@ def save_pgn_atomic(
             handle.flush()
             os.fsync(handle.fileno())
 
+        _reject_export_indirection(tmp_path)
         temporary_fingerprint = fingerprint(tmp_path)
         published = SourceFingerprint(
             path=str(public_destination),
@@ -450,6 +451,7 @@ def save_pgn_atomic(
         )
 
         _reject_export_indirection(destination)
+        _reject_export_indirection(tmp_path)
         if not overwrite:
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None
