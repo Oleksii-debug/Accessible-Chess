@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -106,6 +107,54 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 (backup / "data" / "user-content" / "sound-cache" / "keep.bin").read_bytes(),
                 b"keep-cache-name",
             )
+
+    def test_root_lock_named_directories_remain_user_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            for name, payload in (
+                ("sound-profile.json.lock", b"profile-directory-data"),
+                ("sound-packs.lock", b"packs-directory-data"),
+            ):
+                directory = root / name
+                directory.mkdir()
+                (directory / "keep.bin").write_bytes(payload)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            self.assertIn("sound-profile.json.lock/keep.bin", files)
+            self.assertIn("sound-packs.lock/keep.bin", files)
+            backup, manifest = coordinator._create_backup("sound-lock-directories")
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            self.assertIn("sound-profile.json.lock/keep.bin", paths)
+            self.assertIn("sound-packs.lock/keep.bin", paths)
+            self.assertEqual(
+                (backup / "data" / "sound-profile.json.lock" / "keep.bin").read_bytes(),
+                b"profile-directory-data",
+            )
+            self.assertEqual(
+                (backup / "data" / "sound-packs.lock" / "keep.bin").read_bytes(),
+                b"packs-directory-data",
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
+    def test_root_sound_cache_symlink_still_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            outside = Path(td) / "outside"
+            outside.mkdir()
+            (outside / "do-not-read.wav").write_bytes(b"outside")
+            os.symlink(outside, root / "sound-cache", target_is_directory=True)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "symlink or reparse point",
+            ):
+                coordinator._files()
 
     def test_root_regular_file_named_sound_cache_remains_user_data(self):
         with tempfile.TemporaryDirectory() as td:
