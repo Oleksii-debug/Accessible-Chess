@@ -66,13 +66,141 @@ jobs:
           changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | LC_ALL=C sort)"
           allowed="$(printf '%s\n'             '.github/workflows/classroom-collaboration-runtime-composition.yml'             'acs/classroom_collaboration_runtime.py'             'acs/version2_final_product_application.py'             'tests/test_classroom_collaboration_runtime.py'             'tests/test_classroom_collaboration_runtime_preflight.py' | LC_ALL=C sort)"
           test "$changed" = "$allowed"
+          mutable_base_lookup='refs/remotes/origin/
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile runtime composition
+        run: >-
+          python -m py_compile
+          acs/classroom_collaboration_runtime.py
+          acs/version2_final_product_application.py
+          tests/test_classroom_collaboration_runtime.py
+          tests/test_classroom_collaboration_runtime_preflight.py
+
+      - name: Prove no ambient credential ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eq 'os\.(environ|getenv)|API_SECRET|API_KEY|STORAGE_SECRET|LIVEKIT_SECRET'             acs/classroom_collaboration_runtime.py
+          grep -Fq 'chat_bearer_token_provider' acs/classroom_collaboration_runtime.py
+          grep -Fq 'file_bearer_token_provider' acs/classroom_collaboration_runtime.py
+          grep -Fq 'ClassroomChatHttpRpcCall' acs/classroom_collaboration_runtime.py
+          grep -Fq 'ClassroomFileHttpRpcCall' acs/classroom_collaboration_runtime.py
+          echo "CLASSROOM_COLLABORATION_RUNTIME_CREDENTIAL_BOUNDARY=PASS"
+
+      - name: Prove collaboration content has no analytics authority
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
+          import ast
           from pathlib import Path
-          workflow = Path(".github/workflows/classroom-collaboration-runtime-composition.yml").read_text(encoding="utf-8")
-          mutable_base_lookup = "refs/remotes/origin/" + "$" + "EXPECTED_BASE_REF"
-          if mutable_base_lookup in workflow:
-              raise SystemExit("runtime scope must not resolve a mutable pull-request base tip")
+
+          paths = (
+              'acs/classroom_collaboration_runtime.py',
+              'acs/classroom_collaboration.py',
+              'acs/classroom_collaboration_storage.py',
+              'acs/classroom_chat_http_endpoint.py',
+              'acs/classroom_chat_rpc.py',
+              'acs/classroom_collaboration_chat_server.py',
+              'acs/classroom_file_http_transport.py',
+              'acs/classroom_file_rpc.py',
+              'acs/classroom_file_server.py',
+          )
+          forbidden = ('usage_statistics', 'analytics', 'telemetry')
+          for raw in paths:
+              tree = ast.parse(Path(raw).read_text(encoding='utf-8'), filename=raw)
+              imported = []
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      imported.extend(alias.name for alias in node.names)
+                  elif isinstance(node, ast.ImportFrom) and node.module:
+                      imported.append(node.module)
+              offenders = [
+                  name for name in imported
+                  if any(part in name.lower() for part in forbidden)
+              ]
+              if offenders:
+                  raise SystemExit(f'{raw} imports analytics authority: {offenders}')
+          print('CLASSROOM_COLLABORATION_CONTENT_TELEMETRY_BOUNDARY=PASS')
           PY
+
+      - name: Run whole collaboration stack
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_collaboration_runtime
+          tests.test_classroom_collaboration_runtime_preflight
+          tests.test_classroom_collaboration_final_product
+          tests.test_classroom_collaboration_webview
+          tests.test_classroom_chat_http_endpoint
+          tests.test_classroom_chat_rpc
+          tests.test_classroom_collaboration_chat_server
+          tests.test_classroom_file_http_transport
+          tests.test_classroom_file_rpc
+          tests.test_classroom_file_server
+          tests.test_classroom_collaboration
+          tests.test_classroom_collaboration_storage
+          tests.test_version2_education_class_create
+
+      - name: Run accessible collaboration DOM regressions
+        run: |
+          node tests/js/classroom_collaboration_surface_dom_test.js
+          node tests/js/education_surface_dom_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+      - name: Install canonical Windows standalone toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION" "clr-loader==$env:CLR_LOADER_VERSION" "cffi==$env:CFFI_VERSION" "pycparser==$env:PYCPARSER_VERSION" "typing-extensions==$env:TYPING_EXTENSIONS_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_RUNTIME_TOOLCHAIN_INSTALL_FAILURE'}
+
+      - name: Build and execute exact Windows standalone
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_RUNTIME_SOURCE_DIAGNOSTIC_FAILURE'}
+          $report=Join-Path $env:RUNNER_TEMP 'classroom-runtime-nuitka-report.xml'
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'CLASSROOM_RUNTIME_NUITKA_BUILD_FAILURE'}
+          $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=Join-Path $dist 'AccessibleChess.exe'
+          if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'CLASSROOM_RUNTIME_PACKAGED_EXE_MISSING'}
+          $educationJs=Join-Path $dist 'web\full_product_education.js'
+          if(-not (Test-Path -LiteralPath $educationJs -PathType Leaf)){throw 'CLASSROOM_RUNTIME_PACKAGED_EDUCATION_RESOURCE_MISSING'}
+          $educationText=Get-Content -LiteralPath $educationJs -Raw
+          foreach($command in @('collaboration.chat.send','collaboration.file.choose_upload','collaboration.file.save')){
+            if($educationText -notmatch [regex]::Escape($command)){throw "CLASSROOM_RUNTIME_PACKAGED_COLLABORATION_COMMAND_MISSING command=$command"}
+          }
+          $reportText=Get-Content -LiteralPath $report -Raw
+          foreach($module in @('acs.classroom_collaboration_runtime','acs.classroom_chat_http_endpoint','acs.classroom_file_http_transport')){
+            if($reportText -notmatch [regex]::Escape($module)){throw "CLASSROOM_RUNTIME_PACKAGED_MODULE_MISSING module=$module"}
+          }
+          $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in @('.py','.pyc','.pyo')})
+          if($leaks.Count -ne 0){throw "CLASSROOM_RUNTIME_PACKAGED_PYTHON_SOURCE_LEAK count=$($leaks.Count)"}
+          $stdout=Join-Path $env:RUNNER_TEMP 'classroom-runtime-packaged.stdout.txt'
+          $stderr=Join-Path $env:RUNNER_TEMP 'classroom-runtime-packaged.stderr.txt'
+          $proc=Start-Process -FilePath $exe -WorkingDirectory $dist -ArgumentList '--diagnostic' -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if(Test-Path -LiteralPath $stdout){Get-Content -LiteralPath $stdout}
+          if(Test-Path -LiteralPath $stderr){Get-Content -LiteralPath $stderr}
+          if($proc.ExitCode -ne 0){throw "CLASSROOM_RUNTIME_PACKAGED_DIAGNOSTIC_FAILURE exit=$($proc.ExitCode)"}
+          $diag=Get-Content -LiteralPath $stdout -Raw
+          if($diag -notmatch [regex]::Escape('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS')){throw 'CLASSROOM_RUNTIME_PACKAGED_DIAGNOSTIC_MARKER_MISSING'}
+          Write-Host "CLASSROOM_RUNTIME_STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
+          Write-Host 'CLASSROOM_RUNTIME_WINDOWS_STANDALONE=PASS'
+'EXPECTED_BASE_REF'
+          if grep -Fq "$mutable_base_lookup" .github/workflows/classroom-collaboration-runtime-composition.yml; then
+            echo "Runtime scope must not resolve a mutable pull-request base tip."
+            exit 1
+          fi
           echo "CLASSROOM_COLLABORATION_RUNTIME_EXACT_SCOPE=PASS"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
