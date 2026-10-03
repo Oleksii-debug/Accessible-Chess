@@ -88,7 +88,7 @@ class _InjectedClassicPlaybackBridge:
                 # low_time exists canonically, use that event directly.
                 if not request.preview:
                     raise ValueError(
-                        "classic low-time is unavailable until the packaged sound "
+                        "classic low-time is preview-only until the packaged sound "
                         "authority exposes a distinct low_time event"
                     )
                 event = SoundEvent.TICK
