@@ -10,6 +10,7 @@ on:
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
       - '.github/workflows/p0-release-critical-triad-convergence.yml'
+      - 'tests/test_p0_release_critical_triad_convergence.py'
       - 'acs/book_progress_store.py'
       - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
