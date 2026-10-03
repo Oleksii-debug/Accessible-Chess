@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +10,7 @@ from acs.book_board_workflow import BookBoardMode, BookBoardWorkflow
 from acs.bookdocument import BookDocument, Game
 from acs.bookreader import BookReader
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_presenters import PgnGameView, PgnTreeItem
 from acs.gametree import Comment, MoveNode, PgnGame, VariationLine
 from acs.version2_book_workspace import build_version2_book_webview
 from acs.version2_profile import build_version2_router, build_version2_shell
@@ -36,6 +36,37 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         router = build_version2_router(build_version2_shell(), delegate)
         bridge = build_version2_book_webview(reader, workflow, router.dispatch)
         return reader, workflow, bridge
+
+    @staticmethod
+    def presenter_item(**overrides) -> PgnTreeItem:
+        values = {
+            "node_id": "g0:m0",
+            "kind": "move",
+            "depth": 0,
+            "label": "1. e4",
+            "parent_id": None,
+            "san": None,
+            "comments": (),
+            "nags": (),
+            "trailing_comments": (),
+            "comments_before": (),
+            "comments_after": (),
+            "result": None,
+        }
+        values.update(overrides)
+        return PgnTreeItem(**values)
+
+    @staticmethod
+    def presenter_view(*items: PgnTreeItem, game_index: object = 0) -> PgnGameView:
+        return PgnGameView(
+            game_index=game_index,
+            title="",
+            result="*",
+            tags=(),
+            warnings=(),
+            items=tuple(items),
+            selected_node_id=None,
+        )
 
     @staticmethod
     def semantic_game(*, white: str = "Alpha", san: str = "e4") -> PgnGame:
@@ -120,39 +151,49 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
 
         self.assert_accessible_fallback(rejected, reader, workflow, before)
 
+    def test_sanitized_empty_comments_do_not_consume_serialized_entry_budget(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # Raw preflight sees exactly eight semantic strings here: White, Black,
+        # effective/line result, SAN, move number, plus these two comments.
+        # Both comments sanitize to empty, so neither is serialized into the
+        # browser semantic tree and the browser-visible text-entry count remains
+        # the canonical eight entries for a single-move game.
+        game.line.leading_comments = [Comment(""), Comment(" \x00 ")]
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch("acs.version2_book_workspace._MAX_BOOK_SEMANTIC_TEXT_ENTRIES", 8),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertIsInstance(snapshot["semantic_tree"], dict)
+        self.assertEqual(snapshot["semantic_tree"]["intro_comments"], ())
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
     def test_visible_text_budget_counts_generated_variation_and_result_labels(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
 
-        def presenter_view(comment_size: int) -> SimpleNamespace:
-            return SimpleNamespace(
-                game_index=0,
-                items=(
-                    SimpleNamespace(
-                        kind="move",
-                        depth=0,
-                        node_id="g0:m0",
-                        parent_id=None,
-                        label="1. e4",
-                        comments=(),
-                        comments_before=(),
-                        comments_after=(),
-                        trailing_comments=(),
-                        result=None,
-                    ),
-                    SimpleNamespace(
-                        kind="variation",
-                        depth=1,
-                        node_id="g0:m0/v0",
-                        parent_id="g0:m0",
-                        label="Variation 1",
-                        comments=("x" * comment_size,),
-                        comments_before=(),
-                        comments_after=(),
-                        trailing_comments=(),
-                        result="*",
-                    ),
+        def presenter_view(comment_size: int) -> PgnGameView:
+            return self.presenter_view(
+                self.presenter_item(),
+                self.presenter_item(
+                    kind="variation",
+                    depth=1,
+                    node_id="g0:m0/v0",
+                    parent_id="g0:m0",
+                    label="Variation 1",
+                    comments=("x" * comment_size,),
+                    result="*",
                 ),
             )
 
@@ -210,22 +251,13 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="variation",
-                    depth=0,
-                    node_id="g0:main/v0",
-                    parent_id=None,
-                    label="Variation 1",
-                    comments=(),
-                    comments_before=(),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(
+                kind="variation",
+                depth=0,
+                node_id="g0:main/v0",
+                label="Variation 1",
+            )
         )
 
         with (
@@ -238,6 +270,102 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
                 "acs.version2_book_workspace.PgnTreePresenter.view",
                 return_value=malformed_view,
             ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_hostile_tag_key_falls_back_before_named_lookup(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileTagKey:
+            def __hash__(self):
+                return hash("White")
+
+            def __eq__(self, other):
+                raise AssertionError("hostile tag key must not participate in named lookup")
+
+        game.tags = {
+            HostileTagKey(): "Alpha",
+            "Black": "Beta",
+            "Result": "*",
+        }
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(BookBoardMode.GAME, game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_malformed_root_line_falls_back_before_result_property_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileLine:
+            @property
+            def result(self):
+                raise AssertionError("malformed root line result must not be accessed")
+
+        game.line = HostileLine()
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(BookBoardMode.GAME, game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_root_result_subclass_falls_back_before_truthiness(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileResult(str):
+            def __bool__(self):
+                raise AssertionError("malformed root result must not be truth-tested")
+
+        game.line.result = HostileResult("*")
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not receive a hostile root result"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_malformed_mode_falls_back_before_value_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileMode:
+            @property
+            def value(self):
+                raise AssertionError("malformed semantic mode value must not be accessed")
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(HostileMode(), game, ()),
         ):
             snapshot = bridge.projection.snapshot()
 
@@ -431,6 +559,54 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         presenter.assert_not_called()
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_empty_nag_join_boundary_is_accepted(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # Base label "1 e4" costs four units. 1,196 empty NAG elements create
+        # 1,195 join separators plus the presenter's one annotation separator:
+        # exactly 1,200 raw label units.
+        game.line.moves[0].nags = [""] * 1_196
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(BookBoardMode.GAME, game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertIsInstance(snapshot["semantic_tree"], dict)
+        self.assertEqual(snapshot["semantic_tree"]["items"][0]["label"], "1 e4")
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
+    def test_empty_nag_join_overflow_falls_back_before_presenter(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # One more empty element creates one more join separator. The old
+        # cumulative-nonempty accounting saw zero annotation units here.
+        game.line.moves[0].nags = [""] * 1_197
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not join an over-budget NAG annotation"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_effective_result_bound_precedes_result_set_hashing_and_presenter(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
@@ -455,26 +631,130 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         presenter.assert_not_called()
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_noncanonical_presenter_view_falls_back_before_attribute_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileView:
+            @property
+            def game_index(self):
+                raise AssertionError("noncanonical presenter view must not be inspected")
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=HostileView(),
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_noncanonical_presenter_item_falls_back_before_field_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileItem:
+            @property
+            def kind(self):
+                raise AssertionError("noncanonical presenter item must not be inspected")
+
+        malformed_view = self.presenter_view(HostileItem())
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=malformed_view,
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_presenter_items_tuple_subclass_is_rejected_before_len(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileItems(tuple):
+            def __len__(self):
+                raise AssertionError("noncanonical items tuple must not be measured")
+
+        malformed_view = PgnGameView(
+            game_index=0,
+            title="",
+            result="*",
+            tags=(),
+            warnings=(),
+            items=HostileItems(),
+            selected_node_id=None,
+        )
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=malformed_view,
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_presenter_game_index_subclass_is_rejected_before_comparison(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileIndex(int):
+            def __eq__(self, other):
+                raise AssertionError("hostile presenter index must not be compared")
+
+            def __ne__(self, other):
+                raise AssertionError("hostile presenter index must not be compared")
+
+        malformed_view = self.presenter_view(game_index=HostileIndex(0))
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter.view",
+                return_value=malformed_view,
+            ),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_presenter_comment_slots_are_bounded_before_aggregate_comparison(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="move",
-                    depth=0,
-                    node_id="g0:m0",
-                    parent_id=None,
-                    label="1. e4",
-                    comments=("x" * 1201,),
-                    comments_before=("x" * 1201,),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(
+                comments=("x" * 1201,),
+                comments_before=("x" * 1201,),
+            )
         )
 
         with (
@@ -500,22 +780,8 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="move",
-                    depth=0,
-                    node_id="xxxxx",
-                    parent_id=None,
-                    label="1. e4",
-                    comments=(),
-                    comments_before=(),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(node_id="xxxxx")
         )
 
         with (
@@ -546,22 +812,8 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
             def __hash__(self):
                 raise AssertionError("hostile semantic node id must never be hashed")
 
-        malformed_view = SimpleNamespace(
-            game_index=0,
-            items=(
-                SimpleNamespace(
-                    kind="move",
-                    depth=0,
-                    node_id=HostileNodeId("g0:m0"),
-                    parent_id=None,
-                    label="1. e4",
-                    comments=(),
-                    comments_before=(),
-                    comments_after=(),
-                    trailing_comments=(),
-                    result=None,
-                ),
-            ),
+        malformed_view = self.presenter_view(
+            self.presenter_item(node_id=HostileNodeId("g0:m0"))
         )
 
         with (

@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from .book_board_workflow import (
+    BookBoardMode,
     BookBoardWorkflow,
     BookBoardWorkflowCode,
     BookBoardWorkflowError,
@@ -23,7 +24,12 @@ from .book_webview_projection import (
 )
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader
-from .full_product_presenters import BookReaderPresenter, PgnTreePresenter
+from .full_product_presenters import (
+    BookReaderPresenter,
+    PgnGameView,
+    PgnTreeItem,
+    PgnTreePresenter,
+)
 from .gametree import Comment, MoveNode, PgnGame, VariationLine
 from .full_product_ui_shell import UILanguage
 from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
@@ -87,8 +93,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        if (
+            type(mode) is not BookBoardMode
+            or mode not in {BookBoardMode.GAME, BookBoardMode.VARIATION}
+        ):
+            raise _BookSemanticProjectionError("semantic GameTree mode is invalid")
         if type(game) is not PgnGame:
             raise _BookSemanticProjectionError("semantic GameTree game is invalid")
+        if type(game.line) is not VariationLine:
+            raise _BookSemanticProjectionError("semantic GameTree root line is invalid")
         if (
             type(game.tags) is not dict
             or len(game.tags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
@@ -96,6 +109,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             or len(game.warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
         ):
             raise _BookSemanticProjectionError("semantic GameTree metadata is invalid")
+        # An exact dict can still contain hostile key/value subclasses. Validate
+        # the detached tag table by iteration before any named lookup can invoke
+        # user-defined hashing/equality behavior through a malformed DTO.
+        for tag_name, tag_value in game.tags.items():
+            if type(tag_name) is not str or type(tag_value) is not str:
+                raise _BookSemanticProjectionError("semantic GameTree tag is invalid")
 
         # PgnTreePresenter normalizes comments, joins NAGs and constructs labels.
         # Bound every raw scalar and collection it will scan before constructing
@@ -151,7 +170,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if white_units + 3 + black_units > _MAX_BOOK_SEMANTIC_PLAYERS_UNITS:
             raise _BookSemanticProjectionError("semantic raw players text is too long")
 
-        effective_result = game.result
+        root_result = game.line.result
+        if root_result is not None and type(root_result) is not str:
+            raise _BookSemanticProjectionError("semantic root result is invalid")
+        effective_result = root_result or game.tags.get("Result", "*")
         claim_raw_text(
             effective_result,
             max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
@@ -210,15 +232,18 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
                 if type(move.nags) is not list or len(move.nags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
                     raise _BookSemanticProjectionError("semantic move NAGs are invalid")
-                annotation_units = 0
+                # PgnTreePresenter uses " ".join(move.nags): every adjacent
+                # pair contributes one separator even when one or both NAG
+                # strings are empty. Charge those separators from O(1) list
+                # metadata before scanning the elements.
+                annotation_units = max(0, len(move.nags) - 1)
+                if annotation_units > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
+                    raise _BookSemanticProjectionError("semantic move annotation is too long")
                 for nag in move.nags:
-                    nag_units = claim_raw_text(
+                    annotation_units += claim_raw_text(
                         nag,
                         max_units=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
                     )
-                    if annotation_units:
-                        annotation_units += 1
-                    annotation_units += nag_units
                     if annotation_units > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
                         raise _BookSemanticProjectionError("semantic move annotation is too long")
                 if annotation_units:
@@ -247,7 +272,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             raise _BookSemanticProjectionError(
                 "semantic GameTree presenter data is invalid"
             ) from exc
-        if view.game_index != 0 or type(view.items) is not tuple:
+        if type(view) is not PgnGameView:
+            raise _BookSemanticProjectionError("semantic GameTree view is invalid")
+        if (
+            type(view.game_index) is not int
+            or view.game_index != 0
+            or type(view.items) is not tuple
+        ):
             raise _BookSemanticProjectionError("semantic GameTree view is unavailable")
         if len(view.items) > _MAX_BOOK_SEMANTIC_ITEMS:
             raise _BookSemanticProjectionError("semantic GameTree item limit exceeded")
@@ -330,12 +361,20 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             return raw_units
 
         def safe_many(values: object) -> tuple[str, ...]:
+            nonlocal visible_entries
             preflight_view_comments(values)
             rendered: list[str] = []
             for value in values:
-                text = safe(value)
-                if text:
-                    rendered.append(text)
+                text, units = clean(value)
+                if not text:
+                    continue
+                visible_entries += 1
+                if visible_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                    raise _BookSemanticProjectionError(
+                        "semantic GameTree text-entry limit exceeded"
+                    )
+                account_visible_units(units)
+                rendered.append(text)
             return tuple(rendered)
 
         labels = _SEMANTIC_LABELS[self.language]
@@ -389,15 +428,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # The result label is serialized once but rendered with the canonical
         # game result. Count that rendered copy and its separator exactly.
         account_visible_units(_utf16_units(result_label) + 2)
-        intro_comments = tuple(
-            text
-            for text in (safe(getattr(comment, "text", None)) for comment in game.line.leading_comments)
-            if text
+        intro_comments = safe_many(
+            tuple(comment.text for comment in game.line.leading_comments)
         )
-        outro_comments = tuple(
-            text
-            for text in (safe(getattr(comment, "text", None)) for comment in game.line.trailing_comments)
-            if text
+        outro_comments = safe_many(
+            tuple(comment.text for comment in game.line.trailing_comments)
         )
 
         rendered_items: list[dict[str, object]] = []
@@ -405,6 +440,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         active_ancestor_indices: list[int] = []
         previous_depth = 0
         for position, item in enumerate(view.items):
+            if type(item) is not PgnTreeItem:
+                raise _BookSemanticProjectionError("semantic item DTO is invalid")
             if (
                 type(item.kind) is not str
                 or len(item.kind) > 16
