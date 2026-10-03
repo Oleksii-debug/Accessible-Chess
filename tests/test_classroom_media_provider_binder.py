@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import unittest
 
 from acs.classroom_media_host_transactions import (
@@ -509,6 +510,38 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         with self.assertRaises(MediaHostRecoveryRequired):
             binder.provider_not_started(lease.transaction_id)
         self.assertNotIn(TOKEN, repr(binder.recovery_status))
+
+    def test_shipping_binder_workflow_binds_live_parent_fail_closed(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-media-shipping-binder.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            source,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD',
+            source,
+        )
+        self.assertIn(
+            'git fetch --no-tags origin "$PR_BASE_REF"',
+            source,
+        )
+        self.assertIn(
+            'base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"',
+            source,
+        )
+        self.assertIn(
+            'git diff --name-only "$base...HEAD"',
+            source,
+        )
+        self.assertNotIn(
+            'git diff --name-only "$EVENT_BASE_SHA"',
+            source,
+        )
 
     def test_binder_rejects_coordinators_that_do_not_share_exact_host_owner(self):
         _controller_a, _roster_a, host_a, sessions_a, _arbiter_a, _binder_a = (
