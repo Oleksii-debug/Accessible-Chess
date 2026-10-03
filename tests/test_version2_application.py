@@ -594,6 +594,132 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_book_board_open_durability_unknown_keeps_canonical_reload_authority(self):
+        _book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        self.projected_positions.clear()
+
+        def fail_primary_sync(path):
+            if Path(path) == store.path:
+                raise OSError("post-replace durability probe failed")
+
+        with (
+            patch.object(
+                self.app,
+                "_restore_book_progress",
+                wraps=self.app._restore_book_progress,
+            ) as rollback,
+            patch(
+                "acs.book_progress_store._sync_published_path",
+                side_effect=fail_primary_sync,
+            ),
+        ):
+            result = self.app.browser_command("books", "book.open_position")
+
+        self.assertEqual(result["kind"], "error")
+        rollback.assert_called_once()
+        self.assertIsNotNone(self.app.reader)
+        self.assertIsNotNone(self.app.books)
+        self.assertIsNotNone(self.app.book_workflow)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.projected_positions, [])
+        persisted = store.restore(key, self.app.reader.document)
+        self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
+
+    def test_book_board_durability_unknown_rebind_returns_to_books_route(self):
+        _book, _origin = self._open_book_game()
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.app.drain_events()
+        store = self.app.progress_store
+        key = self.app.book_key
+
+        def fail_primary_sync(path):
+            if Path(path) == store.path:
+                raise OSError("post-replace durability probe failed")
+
+        with patch(
+            "acs.book_progress_store._sync_published_path",
+            side_effect=fail_primary_sync,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.app.save_book_progress()
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertIsNotNone(self.app.reader)
+        self.assertIsNotNone(self.app.books)
+        self.assertIsNotNone(self.app.book_workflow)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        route_events = [
+            event for event in self.app.drain_events()
+            if event.get("kind") == "route"
+        ]
+        self.assertEqual(
+            route_events,
+            [{"kind": "route", "payload": {"route_id": "books"}}],
+        )
+        persisted = store.restore(key, self.app.reader.document)
+        self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
+
+    def test_book_board_durability_unknown_unreadable_primary_routes_library(self):
+        _book, _origin = self._open_book_game()
+        opened = self.app.browser_command("books", "book.open_position")
+        self.assertEqual(opened["kind"], "delegated")
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.app.drain_events()
+        store = self.app.progress_store
+
+        def fail_primary_sync(path):
+            if Path(path) == store.path:
+                raise OSError("post-replace durability probe failed")
+
+        with (
+            patch(
+                "acs.book_progress_store._sync_published_path",
+                side_effect=fail_primary_sync,
+            ),
+            patch.object(
+                store,
+                "restore_primary",
+                side_effect=BookProgressStoreError(
+                    "canonical progress cannot be re-read",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ),
+            ),
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.app.save_book_progress()
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.book_key)
+        self.assertIsNone(self.app.book_workflow)
+        self.assertIsNone(self.app.book_delegate)
+        self.assertIsNone(self.app.books)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        route_events = [
+            event for event in self.app.drain_events()
+            if event.get("kind") == "route"
+        ]
+        self.assertEqual(
+            route_events,
+            [{"kind": "route", "payload": {"route_id": "library"}}],
+        )
+
     def test_book_keymap_native_ingress_queues_accessible_open_and_return_results(self):
         _book, origin = self._open_book_game()
         self.app.drain_events()
