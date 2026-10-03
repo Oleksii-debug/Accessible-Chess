@@ -147,7 +147,9 @@
       const label = node("label", labelText);
       const select = node("select");
       select.id = "classroom-media-device-" + definition.kind;
-      select.disabled = true;
+      // Keep the placeholder focusable while enumeration is pending so a
+      // post-mutation focus target survives the synchronous section rerender.
+      select.disabled = false;
       label.setAttribute("for", select.id);
 
       const placeholder = node(
