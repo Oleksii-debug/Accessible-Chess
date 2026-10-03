@@ -440,7 +440,9 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
             raise Version2UpgradeError(
                 "atomic write temporary file must be private"
             )
-        with os.fdopen(fd, "wb") as handle:
+        stream = os.fdopen(fd, "wb")
+        fd = -1
+        with stream as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
@@ -477,6 +479,11 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
         temp = None
         _fsync_dir(path.parent)
     finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         # Never unlink an object merely because it occupies our old temporary
         # pathname. Remove only the exact private inode created by this writer.
         if temp is not None and temp_identity is not None:
