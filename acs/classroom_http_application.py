@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Deployment composition for authenticated classroom chat + file HTTP RPC.
+"""Deployment composition for authenticated classroom chat, file and join HTTP.
 
-This module is routing/composition only. Authentication is injected once and is
-shared by both canonical endpoints. Chat/file RPC semantics, room authorization,
-durable persistence, scanning, object storage and desktop credentials remain in
-their existing owners.
+This module is routing/composition only. Chat/file retain their shared canonical
+room+participant authenticator. Join credentials deliberately retain a separate
+authenticated-caller boundary because account identity must not collapse into
+room participant identity. RPC/service semantics remain in their existing owners.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
@@ -22,6 +22,12 @@ from .classroom_file_http_transport import (
     ClassroomFileHttpEndpoint,
 )
 from .classroom_file_rpc import ClassroomFileRpcService
+from .classroom_join_credentials import ClassroomJoinCredentialService
+from .classroom_join_http_endpoint import (
+    JOIN_CREDENTIAL_PATH,
+    ClassroomJoinHttpAuthenticatorPort,
+    ClassroomJoinHttpEndpoint,
+)
 
 
 Receive = Callable[[], Awaitable[dict[str, object]]]
@@ -29,16 +35,16 @@ Send = Callable[[dict[str, object]], Awaitable[None]]
 
 
 class ClassroomCollaborationHttpAuthenticatorPort(Protocol):
-    """One deployment identity authority shared by chat and file routes."""
+    """One deployment room/participant identity authority shared by chat/file."""
 
     async def authenticate_bearer(self, bearer_token: str) -> tuple[str, str]:
         ...
 
 
 class ClassroomCollaborationHttpApplication:
-    """One ASGI app exposing the canonical chat and file RPC endpoints."""
+    """One ASGI app exposing canonical chat, file and optional join endpoints."""
 
-    __slots__ = ("_chat", "_files", "_authenticator")
+    __slots__ = ("_chat", "_files", "_join", "_authenticator")
 
     def __init__(
         self,
@@ -46,6 +52,8 @@ class ClassroomCollaborationHttpApplication:
         chat_service: ClassroomChatRpcService,
         file_service: ClassroomFileRpcService,
         authenticator: ClassroomCollaborationHttpAuthenticatorPort,
+        join_service: ClassroomJoinCredentialService | None = None,
+        join_authenticator: ClassroomJoinHttpAuthenticatorPort | None = None,
         allow_insecure_loopback: bool = False,
     ) -> None:
         if not isinstance(chat_service, ClassroomChatRpcService):
@@ -56,6 +64,19 @@ class ClassroomCollaborationHttpApplication:
             getattr(authenticator, "authenticate_bearer", None)
         ):
             raise TypeError("classroom HTTP app requires an authenticator")
+        if (join_service is None) != (join_authenticator is None):
+            raise ValueError(
+                "join service and join authenticator must be configured together"
+            )
+        if join_service is not None and not isinstance(
+            join_service,
+            ClassroomJoinCredentialService,
+        ):
+            raise TypeError("classroom HTTP app requires ClassroomJoinCredentialService")
+        if join_authenticator is not None and not callable(
+            getattr(join_authenticator, "authenticate_bearer", None)
+        ):
+            raise TypeError("classroom HTTP app requires a join authenticator")
         if type(allow_insecure_loopback) is not bool:
             raise TypeError("allow_insecure_loopback must be bool")
         self._authenticator = authenticator
@@ -68,6 +89,15 @@ class ClassroomCollaborationHttpApplication:
             service=file_service,
             authenticator=authenticator,
             allow_insecure_loopback=allow_insecure_loopback,
+        )
+        self._join = (
+            None
+            if join_service is None
+            else ClassroomJoinHttpEndpoint(
+                service=join_service,
+                authenticator=join_authenticator,
+                allow_insecure_loopback=allow_insecure_loopback,
+            )
         )
 
     def __repr__(self) -> str:
@@ -94,6 +124,9 @@ class ClassroomCollaborationHttpApplication:
             return
         if path == FILE_RPC_PATH:
             await self._files(scope, receive, send)
+            return
+        if path == JOIN_CREDENTIAL_PATH and self._join is not None:
+            await self._join(scope, receive, send)
             return
         await _send_not_found(send)
 
