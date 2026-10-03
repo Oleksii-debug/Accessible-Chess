@@ -47,9 +47,13 @@ def _write_wav(path: Path, samples: tuple[int, ...] = (1000, -1000, 500, -500)) 
         writer.writeframes(struct.pack("<" + "h" * len(samples), *samples))
 
 
-def _catalog_entry(root: Path, pack_id: str = "remote.wood") -> tuple[SoundPackCatalogEntry, Path]:
-    manifest = _pack_manifest(pack_id)
-    staging = root / "provider-staging"
+def _catalog_entry_from_manifest(
+    root: Path,
+    manifest: SoundPackManifest,
+    *,
+    staging_name: str = "provider-staging",
+) -> tuple[SoundPackCatalogEntry, Path]:
+    staging = root / staging_name
     assets: dict[str, SoundAssetDigest] = {}
     for relative in sorted(set(manifest.files.values())):
         target = staging / relative
@@ -68,6 +72,13 @@ def _catalog_entry(root: Path, pack_id: str = "remote.wood") -> tuple[SoundPackC
         ),
         staging,
     )
+
+
+def _catalog_entry(
+    root: Path,
+    pack_id: str = "remote.wood",
+) -> tuple[SoundPackCatalogEntry, Path]:
+    return _catalog_entry_from_manifest(root, _pack_manifest(pack_id))
 
 
 class _StagedDownloader:
@@ -506,6 +517,85 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 entry.manifest.pack_id,
                 restarted.pack_store.installed(),
             )
+
+    def test_provider_update_normalizes_removed_sound_choice_and_preserves_event_controls(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-update-") as raw:
+            root = Path(raw)
+            pack_id = "remote.wood"
+            v1_base = _pack_manifest(pack_id)
+            v1_files = dict(v1_base.files)
+            v1_files["quiet.move"] = "audio/quiet-move.wav"
+            v1 = SoundPackManifest(
+                pack_id=pack_id,
+                version="1.0.0",
+                title=v1_base.title,
+                license_id=v1_base.license_id,
+                files=v1_files,
+                author=v1_base.author,
+                provenance=v1_base.provenance,
+            )
+            entry1, staging1 = _catalog_entry_from_manifest(
+                root,
+                v1,
+                staging_name="provider-v1",
+            )
+            first = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={pack_id: entry1},
+                pack_downloader=_StagedDownloader(entry1, staging1),
+            )
+            first.settings.install_pack(pack_id, activate=True, language="en")
+            first.settings.set_event(
+                "move",
+                enabled=False,
+                volume_percent=37,
+                sound_id="quiet.move",
+                language="en",
+            )
+
+            v2_base = _pack_manifest(pack_id)
+            v2 = SoundPackManifest(
+                pack_id=pack_id,
+                version="2.0.0",
+                title=v2_base.title,
+                license_id=v2_base.license_id,
+                files=dict(v2_base.files),
+                author=v2_base.author,
+                provenance=v2_base.provenance,
+            )
+            entry2, staging2 = _catalog_entry_from_manifest(
+                root,
+                v2,
+                staging_name="provider-v2",
+            )
+            second = create_local_sound_composition(
+                application_dir=root / "app",
+                data_root=root / "data",
+                asset_playback=_Playback(),
+                catalog={pack_id: entry2},
+                pack_downloader=_StagedDownloader(entry2, staging2),
+            )
+            before = second.settings.snapshot(language="en")["packs"][0]
+            self.assertEqual("different_version", before["state"])
+            self.assertTrue(before["can_install"])
+
+            result = second.settings.install_pack(pack_id, activate=True, language="en")
+
+            self.assertTrue(result.ok)
+            self.assertEqual(("1.0.0", "2.0.0"), second.pack_store.versions(pack_id))
+            self.assertEqual("2.0.0", second.pack_store.active_version(pack_id))
+            pref = second.profile_manager.current.preference_for("move")
+            self.assertFalse(pref.enabled)
+            self.assertEqual(37, pref.volume_percent)
+            self.assertIsNone(pref.sound_id)
+            move = next(
+                item for item in result.snapshot["events"]
+                if item["event_id"] == "move"
+            )
+            self.assertEqual("move", move["sound_id"])
+            self.assertNotIn("quiet.move", move["sound_choices"])
 
     def test_provider_catalog_requires_downloader_and_cannot_replace_classic(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-provider-contract-") as raw:
