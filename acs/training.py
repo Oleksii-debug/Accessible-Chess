@@ -544,9 +544,28 @@ class ExerciseSession:
         return session
 
 
+def _require_definition_container_shape(definition: ExerciseDefinition) -> None:
+    # ExerciseDefinition.__post_init__ already normalizes supported finite
+    # iterables/mappings into these built-in containers. Requiring that
+    # normalized shape here preserves authoring compatibility while ensuring a
+    # low-level post-construction substitution cannot trigger arbitrary hooks.
+    if type(definition.steps) is not tuple:
+        raise TypeError("exercise definition steps authority must be an exact tuple")
+    if type(definition.tags) is not tuple:
+        raise TypeError("exercise definition tags authority must be an exact tuple")
+    if type(definition.metadata) is not dict:
+        raise TypeError("exercise definition metadata authority must be an exact dict")
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise TypeError("exercise definition steps must contain exact ExerciseStep values")
+        if type(step.accepted_moves) is not frozenset:
+            raise TypeError("exercise definition accepted moves authority must be an exact frozenset")
+
+
 def _canonical_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
     if not isinstance(definition, ExerciseDefinition):
         raise TypeError("definition must be an ExerciseDefinition")
+    _require_definition_container_shape(definition)
 
     steps = tuple(
         ExerciseStep(
@@ -570,17 +589,7 @@ def _canonical_definition(definition: ExerciseDefinition) -> ExerciseDefinition:
 def _require_bound_definition_shape(definition: object) -> None:
     if type(definition) is not ExerciseDefinition:
         raise TypeError("exercise session definition authority must be exact ExerciseDefinition")
-    if type(definition.steps) is not tuple:
-        raise TypeError("exercise session steps authority must be an exact tuple")
-    if type(definition.tags) is not tuple:
-        raise TypeError("exercise session tags authority must be an exact tuple")
-    if type(definition.metadata) is not dict:
-        raise TypeError("exercise session metadata authority must be an exact dict")
-    for step in definition.steps:
-        if type(step) is not ExerciseStep:
-            raise TypeError("exercise session steps must contain exact ExerciseStep values")
-        if type(step.accepted_moves) is not frozenset:
-            raise TypeError("exercise session accepted moves authority must be an exact frozenset")
+    _require_definition_container_shape(definition)
 
 
 def _definition_authority_digest(definition: ExerciseDefinition) -> str:
