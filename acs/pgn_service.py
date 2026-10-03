@@ -232,9 +232,18 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool, bool]
             decode_replaced = False
         except UnicodeDecodeError:
             if _looks_like_windows_1251_pgn_bytes(payload):
-                text = payload.decode("cp1251", errors="strict")
-                decode_replaced = False
-                legacy_windows_1251 = True
+                try:
+                    text = payload.decode("cp1251", errors="strict")
+                except UnicodeDecodeError:
+                    # Windows-1251 has one undefined byte (0x98). A malformed
+                    # source that merely resembles legacy Cyrillic PGN must
+                    # retain the pre-fallback fail-safe behavior rather than
+                    # leaking a raw codec exception from the file boundary.
+                    text = payload.decode("utf-8-sig", errors="replace")
+                    decode_replaced = True
+                else:
+                    decode_replaced = False
+                    legacy_windows_1251 = True
             else:
                 text = payload.decode("utf-8-sig", errors="replace")
                 decode_replaced = True
