@@ -525,14 +525,14 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(temp_path.read_bytes(), peer.read_bytes())
         self.assertEqual(os.lstat(temp_path).st_nlink, 2)
 
-    def test_stale_temp_cleanup_deletes_only_owned_tempfile_names(self) -> None:
+    def test_cross_run_temp_scavenging_preserves_all_candidate_pathnames(self) -> None:
         self.path.parent.mkdir(parents=True)
-        owned = (
+        exact_candidates = (
             self.path.parent / ".book-progress.json.abcd_123.tmp",
             self.path.parent / ".book-progress.json.bak.xy_987ab.tmp",
         )
-        for path in owned:
-            path.write_bytes(b"stale-owned-temp")
+        for path in exact_candidates:
+            path.write_bytes(b"stale-looking-user-data")
 
         user_files = (
             self.path.parent / ".book-progress.json.bad.token.tmp",
@@ -555,8 +555,8 @@ class BookProgressStoreTests(unittest.TestCase):
         with self.store._exclusive_access():
             pass
 
-        for path in owned:
-            self.assertFalse(path.exists())
+        for path in exact_candidates:
+            self.assertEqual(path.read_bytes(), b"stale-looking-user-data")
         for path in user_files:
             self.assertEqual(path.read_bytes(), b"user-data")
         self.assertEqual(
@@ -582,10 +582,10 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(peer.read_bytes(), b"user-owned-hardlink-bytes")
         self.assertEqual(os.lstat(peer).st_nlink, 2)
 
-    def test_stale_temp_cleanup_preserves_similar_backup_user_files(self) -> None:
+    def test_cross_run_scavenging_preserves_exact_and_similar_backup_names(self) -> None:
         self.path.parent.mkdir(parents=True)
-        canonical = self.path.parent / ".book-progress.json.bak.a1_b2c3d.tmp"
-        canonical.write_bytes(b"owned")
+        exact_candidate = self.path.parent / ".book-progress.json.bak.a1_b2c3d.tmp"
+        exact_candidate.write_bytes(b"preserve-exact")
         similar = (
             self.path.parent / ".book-progress.json.bak.a1.b2.tmp",
             self.path.parent / ".book-progress.json.bak.a1-b2.tmp",
@@ -597,7 +597,7 @@ class BookProgressStoreTests(unittest.TestCase):
         with self.store._exclusive_access():
             pass
 
-        self.assertFalse(canonical.exists())
+        self.assertEqual(exact_candidate.read_bytes(), b"preserve-exact")
         for path in similar:
             self.assertEqual(path.read_bytes(), b"preserve")
 
