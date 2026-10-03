@@ -460,6 +460,28 @@ async function run() {
   check(document.activeElement === trainingSnapshotFocus,
     "invalid Training focus target must preserve focus");
 
+  const malformedDirectSolution = trainingSnapshot();
+  let malformedDirectSolutionRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      trainingSnapshotRoot,
+      malformedDirectSolution,
+      trainingInvoke,
+      announce,
+      "training-solution",
+      "Action failed",
+      [{ move: "e4" }]
+    );
+  } catch (error) {
+    malformedDirectSolutionRejected = true;
+  }
+  check(malformedDirectSolutionRejected,
+    "non-text direct Training solution must fail closed");
+  check(trainingSnapshotRoot.replaceChildrenCalls === trainingSnapshotReplaceCount,
+    "malformed direct Training solution must preserve prior readable DOM");
+  check(document.activeElement === trainingSnapshotFocus,
+    "malformed direct Training solution must preserve focus");
+
   const malformedTrainingRoot = new FakeElement("div");
   const malformedTrainingInvoke = () => ({
     kind: "render",
