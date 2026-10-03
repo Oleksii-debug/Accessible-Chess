@@ -151,13 +151,12 @@ jobs:
           done <<'LOCKS'
           acs/keybindings.py=b222f0d625999d8119cb3bb7cebffc961217f610
           acs/ui_native_menu.py=dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad
-          acs/stage1_release_ui_core.py=b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-          # Book reverse semantic navigation is an exact reviewed successor of
-          # the shared presenter/action registry. Keep both prior and reviewed
-          # successor identities fail-closed.
+          # Shared action routing may be Product, the reviewed Books reverse-
+          # navigation successor, or #1011's exact pgn.new_from_position
+          # successor. Every other identity remains fail-closed.
           presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
           case "$presenter_actual" in
             a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c)
@@ -170,13 +169,22 @@ jobs:
 
           actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
           case "$actions_actual" in
-            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c)
+            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c|934c090270c73e287e4cb0beb8066dd14097db8c)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
               exit 1
               ;;
           esac
+
+          # Stage1 core is frozen on Product, except the exact independently-qualified
+          # takeback-recovery successor admitted only on the canonical integration lane.
+          stage1_core_actual="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
+            test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
+          else
+            test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
+          fi
 
           # The shared semantic document may be the pre-P0-G Product blob,
           # either reviewed event-aware P0-G predecessor, the exact current
@@ -193,11 +201,11 @@ jobs:
           esac
 
           # The Stage1 release facade is a shared keyboard-routing boundary.
-          # Accept only the prior canonical blob or the exact P0-G facade that
-          # adds board->analysis fallback while preserving the frozen core.
+          # Accept only reviewed exact successor blobs while preserving the
+          # frozen core; every other identity remains fail-closed.
           stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
           case "$stage1_facade_actual" in
-            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb)
+            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce)
               ;;
             *)
               printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2

@@ -351,6 +351,143 @@ class Version2UpgradeTests(unittest.TestCase):
             with _UpgradeLock(lock):
                 pass
 
+    def test_profile_mutation_lock_is_control_state_not_backup_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+            profile_lock = root / "profile.json.lock"
+            profile_lock.write_bytes(b"")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = coordinator._files()
+            self.assertNotIn(profile_lock, files)
+
+            backup, manifest = coordinator._create_backup("profile-lock-control")
+            entries = manifest["entries"]
+            self.assertIsInstance(entries, list)
+            paths = {item["path"] for item in entries}
+            self.assertNotIn("profile.json.lock", paths)
+            self.assertFalse((backup / "data" / "profile.json.lock").exists())
+            self.assertTrue(profile_lock.exists())
+    def test_profile_mutation_lock_case_variant_is_control_state_for_windows_portability(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+            profile_lock = root / "PROFILE.JSON.LOCK"
+            profile_lock.write_bytes(b"")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = coordinator._files()
+            self.assertNotIn(profile_lock, files)
+
+            backup, manifest = coordinator._create_backup(
+                "profile-lock-casefold-control"
+            )
+            entries = manifest["entries"]
+            self.assertIsInstance(entries, list)
+            paths = {str(item["path"]).casefold() for item in entries}
+            self.assertNotIn("profile.json.lock", paths)
+            self.assertFalse((backup / "data" / "PROFILE.JSON.LOCK").exists())
+            self.assertTrue(profile_lock.exists())
+
+    def test_profile_lock_named_directory_is_preserved_as_user_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+            lock_named_directory = root / "profile.json.lock"
+            lock_named_directory.mkdir()
+            payload = lock_named_directory / "keep.bin"
+            payload.write_bytes(b"user-data")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = coordinator._files()
+
+            self.assertIn(payload, files)
+            backup, manifest = coordinator._create_backup("profile-lock-directory")
+            entries = manifest["entries"]
+            self.assertIsInstance(entries, list)
+            paths = {item["path"] for item in entries}
+            self.assertIn("profile.json.lock/keep.bin", paths)
+            self.assertEqual(
+                (backup / "data" / "profile.json.lock" / "keep.bin").read_bytes(),
+                b"user-data",
+            )
+    def test_interrupted_recovery_never_restores_profile_mutation_lock(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en", "volume": 34}), encoding="utf-8"
+            )
+            profile_lock = root / "profile.json.lock"
+            profile_lock.write_bytes(b"pre-crash-lock")
+
+            def crash(phase: str) -> None:
+                if phase == "settings-migrated":
+                    raise _Crash()
+
+            with self.assertRaises(_Crash):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=crash
+                ).run()
+
+            profile_lock.write_bytes(b"new-live-lock")
+            recovered = Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertTrue(recovered.recovered_interrupted_upgrade)
+            self.assertEqual(profile_lock.read_bytes(), b"new-live-lock")
+    def test_profile_change_after_snapshot_fails_closed_without_restoring_stale_profile(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            original_settings = json.dumps({"language": "en", "volume": 34})
+            (root / "settings.json").write_text(original_settings, encoding="utf-8")
+            profile = root / "profile.json"
+            original_profile = b'{"revision":1}\n'
+            newer_profile = b'{"revision":2}\n'
+            profile.write_bytes(original_profile)
+
+            def mutate_profile(phase: str) -> None:
+                if phase == "library-migrated":
+                    profile.write_bytes(newer_profile)
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError, "original user data was restored"
+            ):
+                Version2UpgradeCoordinator(
+                    UserDataLayout(root), phase_hook=mutate_profile
+                ).run()
+
+            self.assertEqual(profile.read_bytes(), newer_profile)
+            self.assertEqual(
+                (root / "settings.json").read_text(encoding="utf-8"),
+                original_settings,
+            )
+            journal = json.loads(
+                (root / ".v2-upgrade-state.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(journal["phase"], "rolled_back")
+            backup = (
+                root.parent
+                / "AccessibleChess.upgrade-backups"
+                / str(journal["backup_name"])
+                / "data"
+                / "profile.json"
+            )
+            self.assertEqual(backup.read_bytes(), original_profile)
+
     def test_environment_layout_matches_existing_stage1_user_root(self):
         layout = UserDataLayout.from_environment(
             environ={"LOCALAPPDATA": r"C:\Users\Blind\AppData\Local"},

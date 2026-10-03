@@ -206,8 +206,16 @@ class BookReader:
             raise TypeError("Book reading index must be an integer")
         if not 0 <= index < len(self._book_index.entries):
             raise IndexError("Book reading index is outside the document")
+        previous_index = self._index
         self._index = index
-        return self.location()
+        try:
+            return self.location()
+        except Exception:
+            # location() performs the second live-revision check. If authoring
+            # mutates the BookDocument after the initial validation, navigation
+            # must fail without publishing a cursor that was never accepted.
+            self._index = previous_index
+            raise
 
     def next_block(self) -> ReadingLocation:
         self._require_content()
@@ -228,6 +236,7 @@ class BookReader:
             if predicate(self._indexed_document.blocks[cursor]):
                 return self.go_to(cursor)
             cursor += direction
+        self._require_indexed_revision()
         raise LookupError("No matching semantic block in that direction")
 
     def navigation_availability(self) -> dict[str, bool]:
@@ -266,6 +275,10 @@ class BookReader:
                 ):
                     break
                 cursor += direction
+
+        # A long semantic scan must not publish reachability for a document
+        # revision that changed after the initial validation.
+        self._require_indexed_revision()
         return availability
 
     def next_heading(self) -> ReadingLocation:
@@ -296,8 +309,21 @@ class BookReader:
         if validated_name not in self._return_points and len(self._return_points) >= _MAX_RETURN_POINTS:
             raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
         key = self._durable_target_key()
+        had_previous = validated_name in self._return_points
+        previous_key = self._return_points.get(validated_name)
         self._return_points[validated_name] = key
-        return self.location()
+        try:
+            return self.location()
+        except Exception:
+            # The final location() call is also a live-revision barrier. A
+            # concurrent BookDocument edit after target validation must not leave
+            # behind a bookmark that the failed save never successfully published.
+            if had_previous:
+                assert previous_key is not None
+                self._return_points[validated_name] = previous_key
+            else:
+                self._return_points.pop(validated_name, None)
+            raise
 
     def restore_return_point(self, name: str = "default") -> ReadingLocation:
         validated_name = self._return_point_name(name)
@@ -329,12 +355,14 @@ class BookReader:
             for key in sorted(referenced_targets)
             if key.startswith("index:")
         }
-        return {
+        result = {
             "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
             "current_target": current_target,
             "return_points": dict(sorted(validated_return_points.items())),
             "fallback_digests": fallback_digests,
         }
+        self._require_indexed_revision()
+        return result
 
     @classmethod
     def restore_snapshot(cls, document: BookDocument, snapshot: Mapping[str, object]) -> "BookReader":
@@ -422,6 +450,7 @@ class BookReader:
         if not reader._book_index.entries:
             if current_target is not None or return_points or fallback_digests:
                 raise LookupError("Book reader snapshot targets require readable content")
+            reader._require_indexed_revision()
             return reader
         if current_target is None:
             raise ValueError("Book reader snapshot current_target is required for non-empty content")
@@ -434,4 +463,5 @@ class BookReader:
 
         reader._go_to_target(current_target)
         reader._return_points = return_points
+        reader._require_indexed_revision()
         return reader

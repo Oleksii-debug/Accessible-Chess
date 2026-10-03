@@ -55,8 +55,10 @@ jobs:
 
           mapfile -t actual < <(git diff --name-only "$books" HEAD | LC_ALL=C sort)
           expected_paths=(
+            '.github/workflows/d01-pgn-workspace-webview.yml'
             '.github/workflows/pgn-document-new-game-position-integrity.yml'
             '.github/workflows/pgn-position-new-document-reachability.yml'
+            '.github/workflows/version2-windows-composition.yml'
             'acs/full_product_actions.py'
             'acs/full_product_native_menu.py'
             'acs/pgn_document.py'
@@ -64,6 +66,7 @@ jobs:
             'acs/version2_release_app.py'
             'tests/test_pgn_document_new_game_position_integrity.py'
             'tests/test_pgn_position_new_document_reachability.py'
+            'tests/test_version2_application.py'
           )
           mapfile -t wanted < <(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
           test "${actual[*]}" = "${wanted[*]}"
@@ -90,10 +93,13 @@ jobs:
           tests.test_pgn_position_new_document_reachability
           tests.test_version2_release_app
           tests.test_full_product_native_menu
-          tests.test_version2_profile
+          tests.test_version2_windows_composition_profile
 
       - name: Run adjacent V2 application contracts
         run: python -m unittest -v tests.test_version2_application
+
+      - name: Run delegated route and focus DOM contract
+        run: node tests/js/version2_release_bootstrap_dom_test.js
 
       - name: Run core selftest
         run: python -m acs.selftest
