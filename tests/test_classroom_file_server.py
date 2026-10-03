@@ -1201,6 +1201,33 @@ class ClassroomFileServerTests(unittest.TestCase):
             ),
         )
 
+    def test_client_reports_monotonic_progress_for_multiple_read_chunks(self):
+        payload = b"abcdefghijkl"
+        prepared = self.prepared(
+            attachment_id="client-progress-chunks-a0",
+            content=payload,
+        )
+        observed = []
+
+        with patch("acs.classroom_file_server._FILE_READ_CHUNK_BYTES", 4):
+            stored = self.student1.upload(
+                prepared,
+                on_progress=observed.append,
+            )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple(
+                (item.transferred_bytes, item.total_bytes, item.complete)
+                for item in observed
+            ),
+            (
+                (4, len(payload), False),
+                (8, len(payload), False),
+                (12, len(payload), False),
+            ),
+        )
+
     def test_client_rejects_invalid_progress_consumer_before_server_effect(self):
         prepared = self.prepared(
             attachment_id="client-progress-invalid-a0",
