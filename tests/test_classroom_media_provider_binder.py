@@ -7,6 +7,7 @@ from acs.classroom_media_host_transactions import (
     ClassroomMediaHostTransactionPort,
     ClassroomMediaHostTransactions,
     MediaHostRecoveryRequired,
+    MediaHostTransactionError,
 )
 from acs.classroom_media_provider_binder import ClassroomMediaProviderBinder
 from acs.classroom_media_provider_execution import (
@@ -423,7 +424,7 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
             now=NOW - timedelta(minutes=1, seconds=30),
         )
         with self.assertRaisesRegex(
-            Exception,
+            MediaHostTransactionError,
             "expired before browser handoff",
         ):
             binder.take_session_credential(lease.transaction_id)
