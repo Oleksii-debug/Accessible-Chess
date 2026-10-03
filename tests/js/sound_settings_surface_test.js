@@ -489,6 +489,32 @@ async function run() {
         can_uninstall: true
       },
       {
+        pack_id: "rights.unverified",
+        title: "Rights Unverified",
+        version: "2.0.0",
+        author: "Legacy installed author",
+        license_id: "CC0-1.0",
+        provenance: "legacy installed provenance",
+        rights_auditable: false,
+        rights_source_uri: "",
+        license_uri: "",
+        catalog_version: "2.0.0",
+        catalog_title: "Rights Unverified",
+        catalog_author: "Provider author",
+        catalog_license_id: "CC0-1.0",
+        catalog_provenance: "catalog same-version provenance",
+        catalog_rights_auditable: true,
+        catalog_rights_source_uri: "https://example.invalid/source/rights.unverified/catalog",
+        catalog_license_uri: "https://example.invalid/license/rights.unverified/catalog",
+        compatible: true,
+        installed_compatible: true,
+        installed_version: "2.0.0",
+        state: "rights_unverified",
+        active: false,
+        can_install: false,
+        can_uninstall: true
+      },
+      {
         pack_id: "rights.conflict",
         title: "Rights Conflict",
         version: "2.0.0",
@@ -604,6 +630,31 @@ async function run() {
     ),
     "stale catalog version must remain visible as a distinct candidate identity"
   );
+  assert.ok(elements.get("sound-pack-rights.unverified-select"),
+    "legacy installed pack must remain selectable despite missing durable rights audit");
+  assert.strictEqual(elements.get("sound-pack-rights.unverified-install"), undefined,
+    "catalog rights must not masquerade as an in-place audit retrofit action");
+  const rightsUnverifiedText =
+    elements.get("sound-pack-rights.unverified-metadata").textContent;
+  assert.ok(
+    rightsUnverifiedText.includes(
+      "current installed version has no integrity-bound rights audit"
+    ),
+    "missing durable rights audit must remain visible/selectable text"
+  );
+  assert.ok(
+    rightsUnverifiedText.includes(
+      "Auditable rights evidence for the current version is unavailable"
+    ),
+    "current installed rights must not borrow catalog evidence"
+  );
+  assert.ok(
+    rightsUnverifiedText.includes(
+      "Catalog rights source: https://example.invalid/source/rights.unverified/catalog"
+    ),
+    "catalog candidate rights must remain separately visible"
+  );
+
   assert.ok(elements.get("sound-pack-rights.conflict-select"),
     "verified installed pack must remain selectable despite catalog rights conflict");
   assert.strictEqual(elements.get("sound-pack-rights.conflict-install"), undefined,
