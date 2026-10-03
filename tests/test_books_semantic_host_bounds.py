@@ -271,6 +271,118 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         presenter.assert_not_called()
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_raw_supplementary_comment_uses_utf16_budget_before_presenter(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # The unchanged raw game consumes 14 Python characters. Fifteen emoji
+        # make the old code-point total exactly 29, but the comment alone costs
+        # 30 UTF-16 units and must be rejected before presenter scanning.
+        game.line.leading_comments = [Comment("😀" * 15)]
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace._MAX_BOOK_BLOCK_VISIBLE_CHARS",
+                29,
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not scan UTF-16-over-budget comments"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_raw_supplementary_comment_aggregate_uses_utf16_budget(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # Fourteen ordinary units plus two eight-code-point emoji comments are
+        # only 30 Python characters, but 46 UTF-16 units.
+        game.line.leading_comments = [Comment("😀" * 8), Comment("😀" * 8)]
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace._MAX_BOOK_BLOCK_VISIBLE_CHARS",
+                30,
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not scan UTF-16-over-budget comment aggregates"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_raw_supplementary_players_fail_before_presenter_interpolation(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        # Each player scalar is individually legal, but 358 emoji consume 716
+        # UTF-16 units; with " — " and "Beta" the rendered players field is 723.
+        game = self.semantic_game(white="😀" * 358)
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not interpolate UTF-16-over-budget players"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_raw_supplementary_nag_label_fails_before_presenter_join(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+        # The NAG itself is 1,196 UTF-16 units. Adding "1. e4" presentation
+        # punctuation makes the final label 1,201 units, above the 1,200 limit.
+        game.line.moves[0].nags = ["😀" * 598]
+
+        with (
+            patch.object(
+                workflow,
+                "semantic_game_snapshot",
+                return_value=(BookBoardMode.GAME, game, ()),
+            ),
+            patch(
+                "acs.version2_book_workspace.PgnTreePresenter",
+                side_effect=AssertionError(
+                    "PgnTreePresenter must not join UTF-16-over-budget NAG labels"
+                ),
+            ) as presenter,
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        presenter.assert_not_called()
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_raw_comment_count_falls_back_before_presenter_iteration(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
