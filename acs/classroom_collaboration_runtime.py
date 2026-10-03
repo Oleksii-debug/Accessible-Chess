@@ -176,6 +176,7 @@ def build_classroom_collaboration_http_runtime(
             "store_path must use durable filesystem storage, not SQLite memory"
         )
     try:
+        path = path.resolve(strict=False)
         if path.exists() and not path.is_file():
             raise ValueError("store_path must reference a file, not a directory")
         if not path.parent.is_dir():
