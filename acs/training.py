@@ -176,7 +176,7 @@ class ExerciseSession:
     def __init__(self, definition: ExerciseDefinition) -> None:
         if not isinstance(definition, ExerciseDefinition):
             raise TypeError("definition must be an ExerciseDefinition")
-        self.definition = definition
+        self._definition = definition
         # Persistence identity is immutable for this session even if a caller
         # later mutates the plain metadata dict retained for compatibility.
         self._definition_digest = _definition_digest(definition)
@@ -187,6 +187,11 @@ class ExerciseSession:
         self._mistakes = 0
         self._hints_used = 0
         self._status = ExerciseStatus.READY
+
+    @property
+    def definition(self) -> ExerciseDefinition:
+        """The immutable definition reference bound to this session."""
+        return self._definition
 
     @property
     def status(self) -> ExerciseStatus:
