@@ -1634,6 +1634,103 @@ Promise.resolve().then(() => {
   staleFailureReject(new Error("old session bridge failure"));
 });
 
+const sameCommandRaceRoot = new FakeElement("div");
+const sameCommandRaceAnnouncements = [];
+const sameCommandRaceResolvers = [];
+let sameCommandRaceInvokeCount = 0;
+const sameCommandRaceInvoke = (_command, _payload) => new Promise((resolve) => {
+  sameCommandRaceInvokeCount += 1;
+  sameCommandRaceResolvers.push(resolve);
+});
+window.AccessibleChessEducationSurface.render(
+  sameCommandRaceRoot,
+  snapshot,
+  sameCommandRaceInvoke,
+  (message) => sameCommandRaceAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+const sameCommandFirstWrapper = sameCommandRaceRoot.querySelector("#classroom-collaboration");
+sameCommandRaceRoot.querySelector("#collaboration-chat-sync").focus();
+sameCommandRaceRoot.querySelector("#collaboration-chat-sync").listeners.click();
+const sameCommandFirstInvocation = sameCommandFirstWrapper.getAttribute(
+  "data-pending-invocation"
+);
+check(
+  !!sameCommandFirstInvocation,
+  "first same-session command must expose an opaque pending invocation identity"
+);
+
+// A whole-surface render can occur for an unrelated host refresh while the
+// command promise is still unresolved. It intentionally does not carry DOM-only
+// pending state, so the same command can be initiated again in the same session.
+window.AccessibleChessEducationSurface.render(
+  sameCommandRaceRoot,
+  snapshot,
+  sameCommandRaceInvoke,
+  (message) => sameCommandRaceAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+sameCommandRaceRoot.querySelector("#collaboration-chat-sync").focus();
+sameCommandRaceRoot.querySelector("#collaboration-chat-sync").listeners.click();
+const sameCommandSecondWrapper = sameCommandRaceRoot.querySelector("#classroom-collaboration");
+const sameCommandSecondInvocation = sameCommandSecondWrapper.getAttribute(
+  "data-pending-invocation"
+);
+check(
+  !!sameCommandSecondInvocation &&
+  sameCommandSecondInvocation !== sameCommandFirstInvocation,
+  "a repeated command after same-session rerender must receive a new invocation identity"
+);
+
+Promise.resolve().then(() => {
+  check(
+    sameCommandRaceInvokeCount === 2 && sameCommandRaceResolvers.length === 2,
+    "same-session race precondition must launch two distinct host invocations"
+  );
+  sameCommandRaceResolvers[0]({
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-stale-same-session",
+          sender: "Teacher",
+          body: "STALE SAME SESSION",
+          unread: true
+        }
+      ], 1),
+      announcement: "STALE SAME SESSION"
+    }
+  });
+  return Promise.resolve();
+}).then(() => {
+  const wrapperAfterStale = sameCommandRaceRoot.querySelector("#classroom-collaboration");
+  check(
+    wrapperAfterStale.getAttribute("data-pending-invocation") ===
+      sameCommandSecondInvocation &&
+    wrapperAfterStale.getAttribute("data-pending-command") ===
+      "collaboration.chat.sync" &&
+    sameCommandRaceRoot.querySelector("#collaboration-message-stale-same-session") === null &&
+    !sameCommandRaceAnnouncements.includes("STALE SAME SESSION"),
+    "same-session rerender must not let an older identical command settle the newer invocation"
+  );
+  sameCommandRaceResolvers[1]({
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-newer-same-session",
+          sender: "Teacher",
+          body: "NEWER SAME SESSION",
+          unread: true
+        }
+      ], 1),
+      announcement: "NEWER SAME SESSION"
+    }
+  });
+});
+
 const pendingRoot = new FakeElement("div");
 let pendingSendResolve = null;
 let pendingInvokeCount = 0;
