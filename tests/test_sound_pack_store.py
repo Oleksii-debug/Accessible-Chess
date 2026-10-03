@@ -816,6 +816,43 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual([], errors)
             self.assertNotIn(second.pack_id, second_store.installed())
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "ordinary Windows runners cannot reliably create symlinks",
+    )
+    def test_store_ancestor_redirect_after_lock_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            container = root / "container"
+            store = FilesystemSoundPackStore(container / "packs")
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            outside = root / "outside"
+            outside.mkdir()
+            locked_container = root / "locked-container"
+            real_lock = store._lock_descriptor
+            redirected = False
+
+            def redirect_after_lock(descriptor):
+                nonlocal redirected
+                real_lock(descriptor)
+                container.rename(locked_container)
+                container.symlink_to(outside, target_is_directory=True)
+                redirected = True
+
+            with mock.patch.object(
+                store,
+                "_lock_descriptor",
+                side_effect=redirect_after_lock,
+            ), self.assertRaisesRegex(
+                SoundPackStoreError,
+                "redirected",
+            ):
+                store.install_atomically(downloaded)
+
+            self.assertTrue(redirected)
+            self.assertEqual([], list(outside.iterdir()))
+
     def test_mutation_lock_swap_after_lstat_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
