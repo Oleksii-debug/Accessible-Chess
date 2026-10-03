@@ -205,14 +205,29 @@ class ExerciseSessionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "different exercise revision"):
                     ExerciseSession.restore(changed, snapshot)
 
-    def test_v4_snapshot_detects_mutated_metadata_on_same_definition_object(self):
-        definition = self.make_definition()
-        snapshot = ExerciseSession(definition).snapshot()
-        self.assertIsInstance(definition.metadata, dict)
-        definition.metadata["difficulty"] = "mutated"
+    def test_v4_definition_metadata_cannot_rebind_active_session_identity(self):
+        source_metadata = {"difficulty": "starter", "locale": "en"}
+        base = self.make_definition()
+        definition = ExerciseDefinition(
+            base.exercise_id,
+            base.start_fen,
+            base.steps,
+            title=base.title,
+            tags=base.tags,
+            source_id=base.source_id,
+            metadata=source_metadata,
+        )
+        session = ExerciseSession(definition)
+        before = session.snapshot()
 
-        with self.assertRaisesRegex(ValueError, "different exercise revision"):
-            ExerciseSession.restore(definition, snapshot)
+        source_metadata["difficulty"] = "mutated"
+        self.assertEqual("starter", definition.metadata["difficulty"])
+        with self.assertRaises(TypeError):
+            definition.metadata["difficulty"] = "mutated"  # type: ignore[index]
+
+        after = session.snapshot()
+        self.assertEqual(before["definition_digest"], after["definition_digest"])
+        self.assertEqual(before, ExerciseSession.restore(definition, before).snapshot())
 
     def test_schema_v3_snapshot_remains_readable_and_upgrades_to_v4(self):
         definition = self.make_definition()
