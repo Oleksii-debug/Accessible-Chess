@@ -1,10 +1,13 @@
-name: Training Session Authority Snapshot
+name: Training WebView Transaction Rollback
 
 on:
   pull_request:
     paths:
       - 'acs/training.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/training_webview_projection.py'
       - 'tests/test_d08_training_canonical_resume.py'
+      - 'tests/test_dev1_books_training_webview_projection.py'
       - '.github/workflows/training-exact-ingress-snapshot.yml'
   workflow_dispatch:
 
@@ -12,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: training-session-authority-snapshot-${{ github.ref }}
+  group: training-webview-transaction-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,11 +25,14 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
-      EXACT_PARENT: a3bb2020d948cb9314bf585f3d569bfc00c64042
-      TRAINING_BLOB: 0939402776df43727f84a48141757c603356cbe3
-      RESUME_TEST_BLOB: d7a8c9d8c4b68d104da660765a6c77de11756b0a
+      EXACT_PARENT: cf69f13cf4f7fa774ece00a25112146bc8adb71d
+      TRAINING_BLOB: 3c410517e162089865cd87010b496daa6e27bcd5
+      PRESENTER_BLOB: 66c34320275c2fff824570fa2aee71b8d0be3f7f
+      PROJECTION_BLOB: 1dcbdf3d4f0b80a08ade93cb2d3bacc6c139e6a5
+      RESUME_TEST_BLOB: a07947fea8ab2e8e6778ba7d6f95f8cdc123030f
+      PROJECTION_TEST_BLOB: 39f2a91d970e493e35c2458e7ae032381d8e6db1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,25 +50,39 @@ jobs:
           git merge-base --is-ancestor "$EXACT_PARENT" HEAD
           test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
           test "$(git rev-parse "HEAD:acs/training.py")" = "$TRAINING_BLOB"
+          test "$(git rev-parse "HEAD:acs/full_product_presenters.py")" = "$PRESENTER_BLOB"
+          test "$(git rev-parse "HEAD:acs/training_webview_projection.py")" = "$PROJECTION_BLOB"
           test "$(git rev-parse "HEAD:tests/test_d08_training_canonical_resume.py")" = "$RESUME_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_dev1_books_training_webview_projection.py")" = "$PROJECTION_TEST_BLOB"
           changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/training-exact-ingress-snapshot.yml' \
+            'acs/full_product_presenters.py' \
             'acs/training.py' \
-            'tests/test_d08_training_canonical_resume.py' | sort)"
+            'acs/training_webview_projection.py' \
+            'tests/test_d08_training_canonical_resume.py' \
+            'tests/test_dev1_books_training_webview_projection.py' | sort)"
           test "$changed" = "$expected"
           git diff --check
 
-      - name: Compile Training boundary
-        run: python -m compileall -q acs/training.py tests/test_d08_training_canonical_resume.py
+      - name: Compile Training transaction boundary
+        run: >-
+          python -m compileall -q
+          acs/training.py
+          acs/full_product_presenters.py
+          acs/training_webview_projection.py
+          tests/test_d08_training_canonical_resume.py
+          tests/test_dev1_books_training_webview_projection.py
 
-      - name: Execute Training regression matrix
+      - name: Execute Training transaction regression matrix
         run: >-
           python -m unittest -v
           tests.test_training
           tests.test_d08_training_canonical_resume
-          tests.test_d08_book_training_contract
-          tests.test_w2_book_training_canonical_ingress
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_atomicity
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_books_training_ui_integration
 
       - name: Core selftest
         run: python -m acs.selftest
