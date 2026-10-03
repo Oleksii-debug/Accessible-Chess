@@ -5,6 +5,7 @@ on:
     paths:
       - 'acs/book_webview_bridge.py'
       - 'acs/book_webview_projection.py'
+      - 'acs/full_product_presenters.py'
       - 'acs/version2_book_workspace.py'
       - 'acs/training_webview_bridge.py'
       - 'acs/training_webview_projection.py'
@@ -14,6 +15,7 @@ on:
       - 'tests/test_dev1_books_training_webview_atomicity.py'
       - 'tests/test_dev1_books_training_webview_bridge.py'
       - 'tests/test_dev1_books_training_webview_projection.py'
+      - 'tests/test_dev1_full_product_ui_packages.py'
       - 'tests/test_version2_book_workspace.py'
       - 'web/full_product_books_training.js'
       - '.github/workflows/d01-books-training-ui-integration.yml'
