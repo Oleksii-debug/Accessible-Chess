@@ -254,7 +254,17 @@ class Version2Application:
         if self.training_workspace is not None and self.training is not None:
             self.training_workspace.save()
 
-    def _restore_book_progress(self, snapshot, *, language, bookmark_name, restore_training=False):
+    def _restore_book_progress(
+        self,
+        snapshot,
+        *,
+        language,
+        bookmark_name,
+        restore_training=False,
+        training_language=None,
+        training_message="",
+        training_message_key=None,
+    ):
         """Restore a failed Book progress transaction without partial UI state."""
         training_was_active = self.training_workspace is not None or self.training is not None
         restored_reader = BookReader.restore_snapshot(self.reader.document, snapshot)
@@ -288,9 +298,16 @@ class Version2Application:
                 workspace = Version2BookTrainingWorkspace(
                     restored_reader,
                     progress_root=self.training_progress_root,
-                    language=self.shell.language,
+                    language=(
+                        self.shell.language
+                        if training_language is None
+                        else training_language
+                    ),
                 )
-                self.training = workspace.start_current()
+                self.training = workspace.start_current(
+                    message=training_message,
+                    message_key=training_message_key,
+                )
                 self.training_workspace = workspace
             except Exception:
                 # Secondary Training-state recovery failure must not mask the
@@ -329,22 +346,82 @@ class Version2Application:
         self.training_workspace, self.training = workspace, bridge
         return True
 
+    def _training_error_message(self) -> str:
+        """Return one localized safe Training failure for browser/native ingress."""
+        language = self.shell.language
+        if (
+            self.shell.current_route.route_id == "training"
+            and self.training_workspace is not None
+        ):
+            language = self.training_workspace.language
+        return concise_user_error("", language=language)
+
     def _dispatch_training_surface_command(self, command, payload=None):
         if self.shell.current_route.route_id != "training":
-            raise ValueError("Training command requires the visible Training route")
+            raise ValueError(self._training_error_message())
         if self.shell.active_dialog_id is not None:
-            raise ValueError("close the active dialog before changing Training state")
+            raise ValueError(self._training_error_message())
         if self.training_workspace is None or self.training is None:
-            raise ValueError("Training exercise is unavailable")
+            raise ValueError(self._training_error_message())
         before_reader = None
-        language = bookmark_name = None
+        language = bookmark_name = training_language = None
+        training_message = ""
+        training_message_key = None
         if command == "training.continue":
             before_reader = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
-        result = self.training_workspace.dispatch(command, payload)
+            training_language = self.training_workspace.language
+            training_message = self.training_workspace.presenter_message
+            training_message_key = self.training_workspace.presenter_message_key
+        try:
+            result = self.training_workspace.dispatch(command, payload)
+        except Exception:
+            if command == "training.continue":
+                # The strict Training bridge normally sanitizes callback/render
+                # failures into an error event. If even that error projection
+                # fails after continuation moved the canonical BookReader, keep
+                # the transaction atomic before the outer application boundary
+                # performs its own sanitization.
+                rollback_required = True
+                try:
+                    rollback_required = self.reader.snapshot() != before_reader
+                except Exception:
+                    rollback_required = True
+                if rollback_required:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                        training_language=training_language,
+                        training_message=training_message,
+                        training_message_key=training_message_key,
+                    )
+            raise
         self.training = self.training_workspace.bridge
-        if command == "training.continue" and result.kind != "error":
+        if command == "training.continue":
+            if result.kind == "error":
+                # The continuation callback can fail after moving the canonical
+                # BookReader and swapping the Training model (for example while
+                # rendering the next exercise). Keep the failed action atomic:
+                # restore the completed origin only when reader mutation happened.
+                rollback_required = True
+                try:
+                    rollback_required = self.reader.snapshot() != before_reader
+                except Exception:
+                    rollback_required = True
+                if rollback_required:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                        training_language=training_language,
+                        training_message=training_message,
+                        training_message_key=training_message_key,
+                    )
+                return result
             try:
                 self.save_book_progress()
             except Exception:
@@ -353,6 +430,9 @@ class Version2Application:
                     language=language,
                     bookmark_name=bookmark_name,
                     restore_training=True,
+                    training_language=training_language,
+                    training_message=training_message,
+                    training_message_key=training_message_key,
                 )
                 raise
         return result
@@ -630,11 +710,21 @@ class Version2Application:
             return result
         if action.startswith("training."):
             if action == "training.reset":
-                raise ValueError("Training reset requires explicit WebView confirmation")
+                # Reset remains WebView-only because explicit confirmation belongs
+                # to that dialog. Keep the native fail-closed response aligned with
+                # the currently visible Training language instead of leaking a
+                # hard-coded English implementation message to NVDA.
+                raise ValueError(self._training_error_message()) from None
             command = "training.reveal" if action == "training.reveal_solution" else action
             result = self._dispatch_training_surface_command(command, payload)
             if result.kind == "error":
-                raise ValueError("Training command failed")
+                # Preserve the already-sanitized Training-surface error. Replacing
+                # it with a hard-coded English exception makes native/NVDA ingress
+                # disagree with the visible Training language and browser ingress.
+                message = result.payload.get("message")
+                if not isinstance(message, str):
+                    message = ""
+                raise ValueError(message) from None
             return result
         if self._files is not None and action in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
             result = self._files(action, payload)
@@ -679,7 +769,13 @@ class Version2Application:
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
                 return asdict(value)
             if area == "training":
-                return asdict(self._dispatch_training_surface_command(command, payload))
+                try:
+                    return asdict(self._dispatch_training_surface_command(command, payload))
+                except Exception:
+                    return {
+                        "kind": "error",
+                        "payload": {"message": self._training_error_message()},
+                    }
             if area == "books":
                 value = self._dispatch_book_surface_command(command, payload)
                 return asdict(value)
