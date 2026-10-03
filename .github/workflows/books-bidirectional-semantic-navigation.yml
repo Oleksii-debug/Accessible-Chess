@@ -77,7 +77,7 @@ jobs:
               '.github/workflows/books-bidirectional-semantic-navigation.yml'
               'tests/test_book_bidirectional_semantic_navigation.py'
             )
-            test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "cc57bffc4e00dcc02b1ed2254441c7d4e9a337f5"
+            test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "bb34d6496a9481153440cb3bf449525728346f03"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
             product_ref="refs/remotes/origin/$product_branch"
