@@ -324,6 +324,153 @@ class ExerciseSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "position_fen is too long"):
             ExerciseSession.restore(definition, snapshot)
 
+    def test_session_detaches_from_caller_owned_definition_state(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+
+        object.__setattr__(
+            definition.steps[0],
+            "accepted_moves",
+            frozenset({"d4"}),
+        )
+        definition.metadata["mutated"] = "caller"
+
+        current = session.current_step()
+        self.assertIsNotNone(current)
+        self.assertEqual(frozenset({"e4", "e2e4"}), current.accepted_moves)
+        self.assertNotIn("mutated", session.definition.metadata)
+        self.assertTrue(session.submit("e4").accepted)
+
+    def test_session_rejects_public_definition_authority_replacement(self):
+        session = ExerciseSession(self.make_definition())
+        replacement = ExerciseDefinition(
+            session.definition.exercise_id,
+            session.definition.start_fen,
+            session.definition.steps,
+            title=session.definition.title,
+            tags=session.definition.tags,
+            source_id=session.definition.source_id,
+            metadata=session.definition.metadata,
+        )
+        session.definition = replacement
+
+        with self.assertRaisesRegex(ValueError, "authority was replaced"):
+            session.current_step()
+        with self.assertRaisesRegex(ValueError, "authority was replaced"):
+            session.snapshot()
+
+    def test_session_rejects_low_level_definition_drift(self):
+        session = ExerciseSession(self.make_definition())
+        object.__setattr__(session.definition, "exercise_id", "changed-id")
+
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.current_step()
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.submit("e4")
+
+    def test_session_internal_container_subclasses_fail_before_hooks(self):
+        class BombTuple(tuple):
+            def __len__(self):
+                raise AssertionError("session steps subclass length hook must not execute")
+
+            def __iter__(self):
+                raise AssertionError("session steps subclass iteration hook must not execute")
+
+        class BombDict(dict):
+            def __len__(self):
+                raise AssertionError("session metadata subclass length hook must not execute")
+
+            def items(self):
+                raise AssertionError("session metadata subclass items hook must not execute")
+
+        session = ExerciseSession(self.make_definition())
+        original_steps = session.definition.steps
+        object.__setattr__(
+            session.definition,
+            "steps",
+            BombTuple(original_steps),
+        )
+        with self.assertRaisesRegex(ValueError, "steps changed during session"):
+            session.current_step()
+
+        object.__setattr__(session.definition, "steps", original_steps)
+        object.__setattr__(
+            session.definition,
+            "metadata",
+            BombDict(dict(session.definition.metadata)),
+        )
+        with self.assertRaisesRegex(ValueError, "metadata changed during session"):
+            session.current_step()
+
+    def test_current_step_returns_detached_authority_copy(self):
+        session = ExerciseSession(self.make_definition())
+        current = session.current_step()
+        self.assertIsNotNone(current)
+        object.__setattr__(current, "accepted_moves", frozenset({"d4"}))
+
+        self.assertTrue(session.submit("e4").accepted)
+        self.assertEqual(("e4",), session.accepted_path)
+
+    def test_snapshot_key_iteration_is_bounded_without_len(self):
+        definition = self.make_definition()
+        canonical = ExerciseSession(definition).snapshot()
+
+        class InfiniteKeyDict(dict):
+            yielded = 0
+
+            def __len__(self):
+                raise AssertionError("snapshot Mapping.__len__ must not execute")
+
+            def __iter__(self):
+                type(self).yielded = 0
+                while True:
+                    type(self).yielded += 1
+                    yield f"field_{type(self).yielded}"
+
+        hostile = InfiniteKeyDict(canonical)
+        with self.assertRaisesRegex(ValueError, "field count"):
+            ExerciseSession.restore(definition, hostile)
+        self.assertEqual(11, InfiniteKeyDict.yielded)
+
+    def test_snapshot_field_names_are_exact_bounded_text_before_set_sort(self):
+        definition = self.make_definition()
+
+        non_text = ExerciseSession(definition).snapshot()
+        del non_text["status"]
+        non_text[7] = "ready"  # type: ignore[index]
+        with self.assertRaisesRegex(TypeError, "field names must be strings"):
+            ExerciseSession.restore(definition, non_text)
+
+        overlong = ExerciseSession(definition).snapshot()
+        del overlong["status"]
+        overlong["x" * 129] = "ready"
+        with self.assertRaisesRegex(ValueError, "field name is too long"):
+            ExerciseSession.restore(definition, overlong)
+
+    def test_snapshot_same_count_unknown_fields_keep_diagnostics(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        del snapshot["status"]
+        snapshot["future_status"] = "ready"
+
+        with self.assertRaises(ValueError) as caught:
+            ExerciseSession.restore(definition, snapshot)
+        message = str(caught.exception)
+        self.assertIn("missing fields: status", message)
+        self.assertIn("unknown fields: future_status", message)
+
+    def test_huge_snapshot_schema_version_has_bounded_error_message(self):
+        definition = self.make_definition()
+        snapshot = ExerciseSession(definition).snapshot()
+        snapshot["schema_version"] = 10 ** 5000
+
+        with self.assertRaises(ValueError) as caught:
+            ExerciseSession.restore(definition, snapshot)
+        self.assertEqual(
+            "unsupported exercise snapshot schema_version",
+            str(caught.exception),
+        )
+
     def test_snapshot_counters_must_fit_javascript_safe_integer_domain(self):
         definition = self.make_definition()
         for field in ("attempts", "mistakes", "hints_used"):
