@@ -38,6 +38,7 @@ MAX_FILE_HTTP_BODY_BYTES = (
     len(FRAME_MAGIC) + 4 + MAX_FRAME_JSON_BYTES + MAX_RPC_UPLOAD_BYTES
 )
 MAX_FILE_HTTP_RESPONSE_BYTES = 32 * 1024 * 1024
+FILE_HTTP_UPLOAD_CHUNK_BYTES = 64 * 1024
 _BEARER_CHALLENGE = (
     (b"www-authenticate", b'Bearer realm="accessible-chess-classroom"'),
 )
@@ -145,6 +146,37 @@ class ClassroomFileHttpCallTransport:
             f"allow_insecure_loopback={self._allow_insecure_loopback!r})"
         )
 
+class _ProgressHttpBody:
+    """Fixed-length iterable that reports opaque upload bytes as they are sent."""
+
+    __slots__ = ("_prefix", "_content", "_consumer")
+
+    def __init__(
+        self,
+        prefix: bytes,
+        content: bytes,
+        consumer: Callable[[int], None],
+    ) -> None:
+        self._prefix = prefix
+        self._content = content
+        self._consumer = consumer
+
+    def __iter__(self):
+        # The framing prefix is transport overhead, not file progress.
+        self._consumer(0)
+        if self._prefix:
+            yield self._prefix
+        transferred = 0
+        for start in range(0, len(self._content), FILE_HTTP_UPLOAD_CHUNK_BYTES):
+            chunk = self._content[start:start + FILE_HTTP_UPLOAD_CHUNK_BYTES]
+            yield chunk
+            transferred += len(chunk)
+            # Iteration resumes only after http.client consumed the yielded
+            # chunk, so this sample tracks bytes handed to the socket layer,
+            # not a synthetic post-response completion marker.
+            self._consumer(transferred)
+
+
     def call(
         self,
         request: Mapping[str, object],
@@ -175,15 +207,21 @@ class ClassroomFileHttpCallTransport:
                 "classroom file HTTP authentication unavailable"
             ) from None
         bearer = _client_bearer_token(token)
-        frame = encode_file_rpc_http_frame(request)
+        prefix, content = _encode_file_rpc_http_parts(request)
+        body_length = len(prefix) + len(content)
+        body: object
+        if is_upload and on_upload_progress is not None:
+            body = _ProgressHttpBody(prefix, content, on_upload_progress)
+        else:
+            body = prefix + content
         http_request = Request(
             self._endpoint_url,
-            data=frame,
+            data=body,
             method="POST",
             headers={
                 "Content-Type": FILE_RPC_MEDIA_TYPE,
                 "Authorization": f"Bearer {bearer}",
-                "Content-Length": str(len(frame)),
+                "Content-Length": str(body_length),
                 "Accept": "application/json",
             },
         )
@@ -206,8 +244,6 @@ class ClassroomFileHttpCallTransport:
                         "classroom file HTTP response is invalid"
                     )
                 _validate_response_content_length(headers, len(body))
-                if is_upload and on_upload_progress is not None:
-                    on_upload_progress(upload_size)
         except ClassroomFileRpcError:
             raise
         except (HTTPError, URLError, OSError, TimeoutError):
@@ -365,8 +401,10 @@ class ClassroomFileHttpEndpoint:
                 raise RuntimeError("unsupported ASGI lifespan event")
 
 
-def encode_file_rpc_http_frame(request: Mapping[str, object]) -> bytes:
-    """Encode one RPC request without base64-expanding an upload body."""
+def _encode_file_rpc_http_parts(
+    request: Mapping[str, object],
+) -> tuple[bytes, bytes]:
+    """Encode bounded structured metadata separately from opaque upload bytes."""
     if type(request) is not dict:
         raise ClassroomFileRpcError("file HTTP request must be an object")
     header = dict(request)
@@ -394,12 +432,18 @@ def encode_file_rpc_http_frame(request: Mapping[str, object]) -> bytes:
         ) from None
     if not json_bytes or len(json_bytes) > MAX_FRAME_JSON_BYTES:
         raise ClassroomFileRpcError("file HTTP request metadata is too large")
-    return (
+    prefix = (
         FRAME_MAGIC
         + len(json_bytes).to_bytes(4, "big")
         + json_bytes
-        + content
     )
+    return prefix, content
+
+
+def encode_file_rpc_http_frame(request: Mapping[str, object]) -> bytes:
+    """Encode one RPC request without base64-expanding an upload body."""
+    prefix, content = _encode_file_rpc_http_parts(request)
+    return prefix + content
 
 
 def _decode_file_rpc_http_frame(body: bytes) -> dict[str, object]:
@@ -893,6 +937,7 @@ __all__ = [
     "ClassroomFileHttpEndpoint",
     "ClassroomFileHttpOpenPort",
     "ClassroomFileHttpPrincipal",
+    "FILE_HTTP_UPLOAD_CHUNK_BYTES",
     "FILE_RPC_MEDIA_TYPE",
     "FILE_RPC_PATH",
     "FRAME_MAGIC",
