@@ -70,6 +70,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             "AccessibleChess/web/version2_release_bootstrap.js",
             "AccessibleChess/web/livekit_classroom_media.js",
             "AccessibleChess/web/classroom_media_host_executor.js",
+            "AccessibleChess/web/classroom_media_provider_runtime.js",
             "AccessibleChess/web/vendor/livekit/livekit-client.umd.js",
             "AccessibleChess/web/vendor/livekit/LICENSE",
             "AccessibleChess/web/vendor/livekit/NOTICE",
