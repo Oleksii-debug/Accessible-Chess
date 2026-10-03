@@ -9,10 +9,12 @@ from unittest.mock import patch
 
 from acs.classroom_collaboration import (
     MAX_SYNC_MESSAGES,
+    AttachmentHistoryPage,
     ChatDraft,
     ClassroomCollaborationController,
     CollaborationError,
     FileQuotaPolicy,
+    FileTransferProgress,
     PreparedFile,
 )
 from acs.classroom_collaboration_storage import (
@@ -21,6 +23,7 @@ from acs.classroom_collaboration_storage import (
     ChatMessageMetadata,
     ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
+    CollaborationQuotaError,
     content_sha256,
 )
 from acs.classroom_domain import MAX_WIRE_INTEGER
@@ -142,6 +145,45 @@ class FakeFiles:
         self.history_override = None
         self.state_updates = []
         self.state_override = None
+        self.after_history = None
+        self.server_max_room_bytes = None
+        self.progress_samples = ()
+        self.last_progress_callback = None
+
+    def _server_room_bytes(self, room_id, *, excluding_attachment_id=None):
+        return sum(
+            item.size_bytes
+            for item in self.ordered
+            if item.room_id == room_id
+            and item.transfer_state != "deleted"
+            and item.attachment_id != excluding_attachment_id
+        )
+
+    def _enforce_server_identity(self, prepared):
+        current = self.attachments.get(prepared.metadata.attachment_id)
+        if current is None:
+            return
+        immutable = (
+            "room_id", "sender_id", "display_name", "mime_type",
+            "size_bytes", "sha256", "object_key", "retention",
+        )
+        if any(
+            getattr(current, field) != getattr(prepared.metadata, field)
+            for field in immutable
+        ):
+            raise CollaborationError("server attachment identity conflict")
+
+    def _enforce_server_room_quota(self, prepared):
+        if self.server_max_room_bytes is None:
+            return
+        used = self._server_room_bytes(
+            prepared.metadata.room_id,
+            excluding_attachment_id=prepared.metadata.attachment_id,
+        )
+        if used + prepared.metadata.size_bytes > self.server_max_room_bytes:
+            raise CollaborationQuotaError(
+                "server room file quota would be exceeded"
+            )
 
     def _next_sequence(self, room_id):
         room_sequences = [
@@ -164,10 +206,15 @@ class FakeFiles:
         self.ordered.sort(key=lambda item: (item.room_id, item.sequence_no))
         return attachment
 
-    def upload(self, prepared):
+    def upload(self, prepared, *, on_progress):
         self.upload_calls.append(prepared)
+        self.last_progress_callback = on_progress
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
+        self._enforce_server_identity(prepared)
+        self._enforce_server_room_quota(prepared)
+        for sample in self.progress_samples:
+            on_progress(sample)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -183,10 +230,15 @@ class FakeFiles:
             )
         )
 
-    def retry(self, prepared):
+    def retry(self, prepared, *, on_progress):
         self.retry_calls.append(prepared)
+        self.last_progress_callback = on_progress
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
+        self._enforce_server_identity(prepared)
+        self._enforce_server_room_quota(prepared)
+        for sample in self.progress_samples:
+            on_progress(sample)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -249,15 +301,34 @@ class FakeFiles:
 
     def history_after(self, *, room_id, after_sequence, limit):
         if self.history_override is not None:
-            return self.history_override
-        rows = tuple(
-            item
-            for item in self.ordered
-            if item.room_id == room_id
-            and item.transfer_state in {"stored", "deleted"}
-            and (after_sequence is None or item.sequence_no > after_sequence)
+            rows = self.history_override
+        else:
+            rows = tuple(
+                item
+                for item in self.ordered
+                if item.room_id == room_id
+                and item.transfer_state in {"stored", "deleted"}
+                and (after_sequence is None or item.sequence_no > after_sequence)
+            )[:limit]
+        state_source = (
+            self.state_override
+            if self.state_override is not None
+            else tuple(self.state_updates)
         )
-        return rows[:limit]
+        revisions = [
+            item.revision
+            for item in state_source
+            if type(item) is AttachmentStateUpdate and item.room_id == room_id
+        ]
+        page = AttachmentHistoryPage(
+            rows,
+            max(revisions) if revisions else None,
+        )
+        hook = self.after_history
+        self.after_history = None
+        if hook is not None:
+            hook()
+        return page
 
     def state_updates_after(self, *, room_id, after_revision, limit):
         if self.state_override is not None:
@@ -1383,6 +1454,98 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ("a1",),
         )
 
+    def test_server_room_quota_is_authoritative_across_two_clients_and_retry(self):
+        self.files.server_max_room_bytes = 6
+        wide_local_quota = FileQuotaPolicy(max_file_bytes=10, max_room_bytes=100)
+        teacher_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "server-quota-teacher.sqlite3")
+        )
+        teacher = ClassroomCollaborationController(
+            room_id="room-1", local_participant_id="teacher-1",
+            roster=self.roster, chat=self.chat, files=self.files,
+            store=teacher_store, file_store=self.file_store,
+            quota=wide_local_quota,
+        )
+        student_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "server-quota-student.sqlite3")
+        )
+        student = ClassroomCollaborationController(
+            room_id="room-1", local_participant_id="student-2",
+            roster=self.roster, chat=self.chat, files=self.files,
+            store=student_store, file_store=self.file_store,
+            quota=wide_local_quota,
+        )
+        first_prepared = teacher.prepare_file(
+            attachment_id="server-quota-first",
+            local_path=self.make_file("server-quota-first.bin", b"1234"),
+            sequence_no=0,
+        )
+        second_prepared = student.prepare_file(
+            attachment_id="server-quota-second",
+            local_path=self.make_file("server-quota-second.bin", b"5678"),
+            sequence_no=0,
+        )
+        first = teacher.upload_file(first_prepared)
+        with self.assertRaisesRegex(CollaborationError, "server room file quota"):
+            student.upload_file(second_prepared)
+        self.assertEqual(
+            student_store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+        self.assertEqual(
+            tuple(item.attachment_id for item in self.files.ordered),
+            ("server-quota-first",),
+        )
+        with self.assertRaisesRegex(CollaborationError, "server room file quota"):
+            student.retry_file(second_prepared)
+        self.files.set_authoritative_state(
+            first.attachment_id, transfer_state="deleted"
+        )
+        retried = student.retry_file(second_prepared)
+        self.assertEqual(retried.transfer_state, "stored")
+        self.assertEqual(retried.sequence_no, 1)
+        self.assertEqual(self.files._server_room_bytes("room-1"), 4)
+
+    def test_server_rejects_cross_client_attachment_id_identity_reuse(self):
+        first_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "identity-first.sqlite3")
+        )
+        first_client = ClassroomCollaborationController(
+            room_id="room-1", local_participant_id="teacher-1",
+            roster=self.roster, chat=self.chat, files=self.files,
+            store=first_store, file_store=self.file_store,
+        )
+        second_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "identity-second.sqlite3")
+        )
+        second_client = ClassroomCollaborationController(
+            room_id="room-1", local_participant_id="student-2",
+            roster=self.roster, chat=self.chat, files=self.files,
+            store=second_store, file_store=self.file_store,
+        )
+        first = first_client.upload_file(
+            first_client.prepare_file(
+                attachment_id="shared-id",
+                local_path=self.make_file("first-identity.bin", b"first"),
+                sequence_no=0,
+            )
+        )
+        conflicting = second_client.prepare_file(
+            attachment_id="shared-id",
+            local_path=self.make_file("second-identity.bin", b"different"),
+            sequence_no=0,
+        )
+        with self.assertRaisesRegex(
+            CollaborationError, "server attachment identity conflict"
+        ):
+            second_client.upload_file(conflicting)
+        self.assertEqual(self.files.attachments["shared-id"], first)
+        self.assertEqual(
+            second_store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+        self.assertNotEqual(first.sha256, conflicting.metadata.sha256)
+
     def test_file_content_change_after_prepare_fails_closed_before_transport(self):
         controller = self.controller()
         path = self.make_file(content=b"first")
@@ -1952,6 +2115,237 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ),
             "short-lived-read-token",
         )
+
+    def test_history_watermark_prevents_old_state_pages_from_rolling_back_snapshot(self):
+        current = AttachmentMetadata(
+            "watermarked-current", "room-1", "teacher-1", 0, "current.pgn",
+            "application/x-chess-pgn", 8, "a" * 64,
+            "rooms/room-1/watermarked-current", "stored", "persistent", "clean",
+        )
+        self.files.ordered = [current]
+        self.files.attachments = {current.attachment_id: current}
+        self.files.state_updates = [
+            AttachmentStateUpdate(
+                "room-1", current.attachment_id, 0, "stored", "failed"
+            ),
+            AttachmentStateUpdate(
+                "room-1", current.attachment_id, 1, "stored", "pending"
+            ),
+            AttachmentStateUpdate(
+                "room-1", current.attachment_id, 2, "stored", "clean"
+            ),
+        ]
+        fresh_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "watermarked-current.sqlite3")
+        )
+        fresh = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=fresh_store,
+            file_store=self.file_store,
+        )
+
+        with patch("acs.classroom_collaboration.MAX_SYNC_ATTACHMENTS", 1):
+            self.assertEqual(fresh.sync_files(), (current,))
+            self.assertEqual(fresh_store.attachment_state_revision("room-1"), 0)
+            self.assertEqual(fresh.sync_files(), ())
+            self.assertEqual(fresh_store.attachment_state_revision("room-1"), 1)
+            self.assertEqual(fresh.sync_files(), ())
+            self.assertEqual(fresh_store.attachment_state_revision("room-1"), 2)
+
+        self.assertEqual(fresh_store.room_attachments("room-1"), (current,))
+        self.assertEqual(
+            fresh_store.attachment_snapshot_state_revision(current.attachment_id),
+            2,
+        )
+
+    def test_state_update_published_after_history_watermark_applies_to_snapshot(self):
+        current = AttachmentMetadata(
+            "post-snapshot-update", "room-1", "teacher-1", 0, "pending.pgn",
+            "application/x-chess-pgn", 8, "b" * 64,
+            "rooms/room-1/post-snapshot-update", "stored", "persistent", "pending",
+        )
+        self.files.ordered = [current]
+        self.files.attachments = {current.attachment_id: current}
+
+        def publish_clean_after_snapshot():
+            self.files.set_authoritative_state(
+                current.attachment_id,
+                scan_state="clean",
+            )
+
+        self.files.after_history = publish_clean_after_snapshot
+        fresh_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "post-snapshot-update.sqlite3")
+        )
+        fresh = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=fresh_store,
+            file_store=self.file_store,
+        )
+
+        discovered = fresh.sync_files()
+
+        self.assertEqual(len(discovered), 1)
+        self.assertEqual(discovered[0].scan_state, "clean")
+        self.assertEqual(
+            fresh_store.room_attachments("room-1")[0].scan_state,
+            "clean",
+        )
+        self.assertEqual(fresh_store.attachment_state_revision("room-1"), 0)
+        self.assertIsNone(
+            fresh_store.attachment_snapshot_state_revision(current.attachment_id)
+        )
+
+    def test_history_watermark_is_scoped_to_each_snapshot_attachment(self):
+        local = AttachmentMetadata(
+            "local-before-page", "room-1", "teacher-1", 0, "local.pgn",
+            "application/x-chess-pgn", 8, "d" * 64,
+            "rooms/room-1/local-before-page", "stored", "persistent", "pending",
+        )
+        incoming = AttachmentMetadata(
+            "incoming-page", "room-1", "student-2", 1, "incoming.pgn",
+            "application/x-chess-pgn", 8, "e" * 64,
+            "rooms/room-1/incoming-page", "stored", "persistent", "clean",
+        )
+        self.store.register_attachment(local)
+        self.files.ordered = [local, incoming]
+        self.files.attachments = {
+            local.attachment_id: local,
+            incoming.attachment_id: incoming,
+        }
+        self.files.state_updates = [
+            AttachmentStateUpdate(
+                "room-1", local.attachment_id, 0, "stored", "clean"
+            ),
+            AttachmentStateUpdate(
+                "room-1", incoming.attachment_id, 1, "stored", "clean"
+            ),
+        ]
+        controller = self.controller("teacher-1")
+
+        discovered = controller.sync_files()
+
+        self.assertEqual(discovered, (incoming,))
+        current = {
+            item.attachment_id: item
+            for item in self.store.room_attachments("room-1")
+        }
+        self.assertEqual(current[local.attachment_id].scan_state, "clean")
+        self.assertEqual(current[incoming.attachment_id].scan_state, "clean")
+        self.assertIsNone(
+            self.store.attachment_snapshot_state_revision(local.attachment_id)
+        )
+        self.assertEqual(
+            self.store.attachment_snapshot_state_revision(incoming.attachment_id),
+            1,
+        )
+        self.assertEqual(self.store.attachment_state_revision("room-1"), 1)
+
+    def test_attachment_history_page_rejects_invalid_watermark_shape(self):
+        safe = AttachmentMetadata(
+            "page-shape", "room-1", "teacher-1", 0, "safe.bin", None, 1,
+            "f" * 64, "rooms/room-1/page-shape", "stored", "persistent", "clean",
+        )
+        self.assertEqual(
+            AttachmentHistoryPage((safe,), None).attachments,
+            (safe,),
+        )
+        for revision in (True, -1, MAX_WIRE_INTEGER + 1):
+            with self.subTest(revision=revision):
+                with self.assertRaises(CollaborationError):
+                    AttachmentHistoryPage((safe,), revision)
+        with self.assertRaises(CollaborationError):
+            AttachmentHistoryPage([safe], None)
+
+    def test_history_watermark_regression_fails_before_state_fetch(self):
+        current = AttachmentMetadata(
+            "watermark-regression", "room-1", "teacher-1", 0, "current.pgn",
+            "application/x-chess-pgn", 8, "9" * 64,
+            "rooms/room-1/watermark-regression", "stored", "persistent", "pending",
+        )
+        self.store.register_attachment(current)
+        self.store.apply_attachment_state_updates(
+            room_id="room-1",
+            updates=(
+                AttachmentStateUpdate(
+                    "room-1", current.attachment_id, 0, "stored", "clean"
+                ),
+                AttachmentStateUpdate(
+                    "room-1", current.attachment_id, 1, "deleted", "clean"
+                ),
+            ),
+        )
+        controller = self.controller("teacher-1")
+        self.files.history_override = ()
+
+        lower = AttachmentStateUpdate(
+            "room-1", current.attachment_id, 0, "stored", "clean"
+        )
+        for state_override in ((lower,), ()):
+            with self.subTest(state_override=state_override):
+                self.files.state_override = state_override
+                with patch.object(
+                    self.files,
+                    "state_updates_after",
+                    side_effect=AssertionError("state stream must not be read"),
+                ):
+                    with self.assertRaisesRegex(
+                        CollaborationError,
+                        "file history state watermark regressed",
+                    ):
+                        controller.sync_files()
+
+                persisted = self.store.room_attachments("room-1")
+                self.assertEqual(len(persisted), 1)
+                self.assertEqual(persisted[0].transfer_state, "deleted")
+                self.assertEqual(
+                    self.store.attachment_state_revision("room-1"),
+                    1,
+                )
+
+    def test_history_watermark_prevents_tombstone_resurrection(self):
+        tombstone = AttachmentMetadata(
+            "watermarked-deleted", "room-1", "teacher-1", 0, "deleted.pgn",
+            "application/x-chess-pgn", 8, "c" * 64,
+            "rooms/room-1/watermarked-deleted", "deleted", "persistent", "clean",
+        )
+        self.files.ordered = [tombstone]
+        self.files.attachments = {tombstone.attachment_id: tombstone}
+        self.files.state_updates = [
+            AttachmentStateUpdate(
+                "room-1", tombstone.attachment_id, 0, "stored", "clean"
+            ),
+            AttachmentStateUpdate(
+                "room-1", tombstone.attachment_id, 1, "deleted", "clean"
+            ),
+        ]
+        fresh_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "watermarked-deleted.sqlite3")
+        )
+        fresh = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="student-2",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=fresh_store,
+            file_store=self.file_store,
+        )
+
+        with patch("acs.classroom_collaboration.MAX_SYNC_ATTACHMENTS", 1):
+            self.assertEqual(fresh.sync_files(), ())
+            self.assertEqual(fresh.sync_files(), ())
+
+        self.assertEqual(fresh_store.room_attachments("room-1"), (tombstone,))
+        self.assertEqual(fresh_store.attachment_state_revision("room-1"), 1)
 
     def test_tombstone_history_preserves_sequence_for_fresh_client(self):
         teacher = self.controller("teacher-1")
@@ -2897,6 +3291,509 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertIsInstance(sent, PreparedFile)
         self.assertIsInstance(sent.local_path, Path)
         self.assertFalse(hasattr(sent, "content"))
+
+
+    def test_upload_progress_is_bounded_monotonic_and_terminal(self):
+        controller = self.controller()
+        payload = b"abcdef"
+        prepared = controller.prepare_file(
+            attachment_id="progress-a1",
+            local_path=self.make_file("progress-a1.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress("progress-a1", 0, len(payload)),
+            FileTransferProgress("progress-a1", 2, len(payload)),
+            FileTransferProgress("progress-a1", len(payload), len(payload)),
+            FileTransferProgress("progress-a1", len(payload), len(payload)),
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple(
+                (item.transferred_bytes, item.complete)
+                for item in observed
+            ),
+            (
+                (0, False),
+                (2, False),
+                (len(payload), False),
+                (len(payload), True),
+            ),
+        )
+        self.assertTrue(
+            all(item.attachment_id == "progress-a1" for item in observed)
+        )
+        self.assertTrue(
+            all(item.total_bytes == len(payload) for item in observed)
+        )
+
+
+    def test_late_provider_progress_cannot_regress_terminal_completion(self):
+        controller = self.controller()
+        payload = b"late-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-late",
+            local_path=self.make_file("progress-late.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress("progress-late", 4, len(payload)),
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertTrue(observed[-1].complete)
+        before = tuple(observed)
+        self.assertIsNotNone(self.files.last_progress_callback)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-late",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(before, tuple(observed))
+
+
+    def test_progress_observer_closes_after_provider_exception(self):
+        controller = self.controller()
+        payload = b"provider-exception"
+        prepared = controller.prepare_file(
+            attachment_id="progress-exception",
+            local_path=self.make_file("progress-exception.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        observed = []
+
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared, on_progress=observed.append)
+
+        self.assertEqual(
+            self.store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+        before = tuple(observed)
+        self.assertIsNotNone(self.files.last_progress_callback)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-exception",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(before, tuple(observed))
+
+
+    def test_progress_observer_closes_after_terminal_failed_result(self):
+        controller = self.controller()
+        payload = b"terminal-failed"
+        prepared = controller.prepare_file(
+            attachment_id="progress-terminal-failed",
+            local_path=self.make_file("progress-terminal-failed.bin", payload),
+            sequence_no=41,
+        )
+        observed = []
+        callback = None
+
+        def terminal_failed(candidate, *, on_progress):
+            nonlocal callback
+            callback = on_progress
+            on_progress(
+                FileTransferProgress(
+                    "progress-terminal-failed",
+                    3,
+                    len(payload),
+                )
+            )
+            return replace(
+                candidate.metadata,
+                transfer_state="failed",
+                scan_state="failed",
+            )
+
+        with patch.object(self.files, "upload", side_effect=terminal_failed):
+            failed = controller.upload_file(
+                prepared,
+                on_progress=observed.append,
+            )
+
+        self.assertEqual(failed.transfer_state, "failed")
+        self.assertFalse(any(item.complete for item in observed))
+        before = tuple(observed)
+        self.assertIsNotNone(callback)
+        callback(
+            FileTransferProgress(
+                "progress-terminal-failed",
+                len(payload),
+                len(payload),
+            )
+        )
+        callback(object())
+        self.assertEqual(before, tuple(observed))
+
+
+    def test_provider_cannot_forge_authoritative_progress_completion(self):
+        controller = self.controller()
+        payload = b"done"
+        prepared = controller.prepare_file(
+            attachment_id="progress-forged-complete",
+            local_path=self.make_file("progress-forged-complete.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-forged-complete",
+                len(payload),
+                len(payload),
+                complete=True,
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "cannot claim authoritative completion",
+        ):
+            controller.upload_file(prepared)
+
+        failed = self.store.room_attachments("room-1")[0]
+        self.assertEqual(failed.transfer_state, "failed")
+
+
+    def test_upload_progress_rejects_provider_identity_size_and_regression(self):
+        controller = self.controller()
+        payload = b"data"
+        cases = (
+            (
+                "wrong-id",
+                (FileTransferProgress("other-id", 1, len(payload)),),
+                "belongs to another attachment",
+            ),
+            (
+                "wrong-size",
+                (FileTransferProgress("progress-wrong-size", 1, len(payload) + 1),),
+                "changed attachment size",
+            ),
+            (
+                "backwards",
+                (
+                    FileTransferProgress("progress-backwards", 3, len(payload)),
+                    FileTransferProgress("progress-backwards", 2, len(payload)),
+                ),
+                "moved backwards",
+            ),
+        )
+        for suffix, samples, message in cases:
+            with self.subTest(suffix=suffix):
+                attachment_id = f"progress-{suffix}"
+                prepared = controller.prepare_file(
+                    attachment_id=attachment_id,
+                    local_path=self.make_file(f"{attachment_id}.bin", payload),
+                    sequence_no=91,
+                )
+                self.files.progress_samples = samples
+                with self.assertRaisesRegex(CollaborationError, message):
+                    controller.upload_file(prepared)
+                failed = tuple(
+                    item
+                    for item in self.store.room_attachments("room-1")
+                    if item.attachment_id == attachment_id
+                )
+                self.assertEqual(len(failed), 1)
+                self.assertEqual(failed[0].transfer_state, "failed")
+
+
+    def test_progress_bounds_and_consumer_failure_do_not_corrupt_transfer(self):
+        for transferred, total in (
+            (-1, 4),
+            (5, 4),
+            (0, -1),
+            (MAX_WIRE_INTEGER + 1, MAX_WIRE_INTEGER + 1),
+        ):
+            with self.subTest(transferred=transferred, total=total):
+                with self.assertRaises(CollaborationError):
+                    FileTransferProgress(
+                        "bounded-progress",
+                        transferred,
+                        total,
+                    )
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "completion marker must be boolean",
+        ):
+            FileTransferProgress("bounded-progress", 4, 4, complete=1)
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "must equal total bytes",
+        ):
+            FileTransferProgress("bounded-progress", 3, 4, complete=True)
+
+        controller = self.controller()
+        payload = b"consumer-safe"
+        prepared = controller.prepare_file(
+            attachment_id="progress-consumer",
+            local_path=self.make_file("progress-consumer.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-consumer",
+                3,
+                len(payload),
+            ),
+        )
+        consumer_calls = []
+
+        def broken_consumer(sample):
+            consumer_calls.append(sample)
+            raise RuntimeError("presentation callback failed")
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=broken_consumer,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertGreaterEqual(len(consumer_calls), 1)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (stored,),
+        )
+
+
+    def test_progress_consumer_validation_precedes_state_mutation(self):
+        controller = self.controller()
+        payload = b"consumer-validation"
+        prepared = controller.prepare_file(
+            attachment_id="progress-consumer-validation",
+            local_path=self.make_file(
+                "progress-consumer-validation.bin",
+                payload,
+            ),
+            sequence_no=0,
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.upload_file(
+                prepared,
+                on_progress="not-callable",
+            )
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        failed = self.store.room_attachments("room-1")[0]
+        self.assertEqual(failed.transfer_state, "failed")
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.retry_file(
+                prepared,
+                on_progress=object(),
+            )
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (failed,),
+        )
+
+
+    def test_progress_consumer_cannot_reentrantly_cancel_active_upload(self):
+        controller = self.controller()
+        payload = b"reentrant-upload"
+        prepared = controller.prepare_file(
+            attachment_id="progress-reentrant-upload",
+            local_path=self.make_file("progress-reentrant-upload.bin", payload),
+            sequence_no=0,
+        )
+        observed_errors = []
+
+        def reentrant_cancel(_sample):
+            try:
+                controller.cancel_file(prepared.metadata.attachment_id)
+            except CollaborationError as error:
+                observed_errors.append(str(error))
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=reentrant_cancel,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(self.files.upload_calls), 1)
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertTrue(observed_errors)
+        self.assertTrue(
+            all(
+                message == "file state cannot be mutated from a progress consumer"
+                for message in observed_errors
+            )
+        )
+        self.assertEqual(controller.sync_files(), ())
+
+    def test_progress_consumer_cannot_reentrantly_cancel_retry(self):
+        controller = self.controller()
+        payload = b"reentrant-retry"
+        prepared = controller.prepare_file(
+            attachment_id="progress-reentrant-retry",
+            local_path=self.make_file("progress-reentrant-retry.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+        observed_errors = []
+
+        def reentrant_cancel(_sample):
+            try:
+                controller.cancel_file(prepared.metadata.attachment_id)
+            except CollaborationError as error:
+                observed_errors.append(str(error))
+
+        stored = controller.retry_file(
+            prepared,
+            on_progress=reentrant_cancel,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(len(self.files.retry_calls), 1)
+        self.assertEqual(self.files.cancel_calls, [])
+        self.assertTrue(observed_errors)
+        self.assertTrue(
+            all(
+                message == "file state cannot be mutated from a progress consumer"
+                for message in observed_errors
+            )
+        )
+        self.assertEqual(controller.sync_files(), ())
+
+    def test_progress_observer_closes_after_server_quota_rejection(self):
+        controller = self.controller()
+        payload = b"server-quota-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-server-quota",
+            local_path=self.make_file("progress-server-quota.bin", payload),
+            sequence_no=0,
+        )
+        self.files.server_max_room_bytes = 0
+        observed = []
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "server room file quota would be exceeded",
+        ):
+            controller.upload_file(prepared, on_progress=observed.append)
+
+        self.assertIsNotNone(self.files.last_progress_callback)
+        before = tuple(observed)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-server-quota",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(tuple(observed), before)
+        self.assertEqual(
+            self.store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+
+    def test_retry_progress_observer_closes_after_server_quota_rejection(self):
+        controller = self.controller()
+        payload = b"retry-server-quota-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-retry-server-quota",
+            local_path=self.make_file("progress-retry-server-quota.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        self.files.fail_upload = False
+        self.files.server_max_room_bytes = 0
+        observed = []
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "server room file quota would be exceeded",
+        ):
+            controller.retry_file(prepared, on_progress=observed.append)
+
+        self.assertIsNotNone(self.files.last_progress_callback)
+        before = tuple(observed)
+        self.files.last_progress_callback(
+            FileTransferProgress(
+                "progress-retry-server-quota",
+                len(payload),
+                len(payload),
+            )
+        )
+        self.files.last_progress_callback(object())
+        self.assertEqual(tuple(observed), before)
+        self.assertEqual(
+            self.store.room_attachments("room-1")[0].transfer_state,
+            "failed",
+        )
+
+
+    def test_retry_reports_fresh_progress_sequence(self):
+        controller = self.controller()
+        payload = b"retry-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-retry",
+            local_path=self.make_file("progress-retry.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+
+        self.files.fail_upload = False
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-retry",
+                5,
+                len(payload),
+            ),
+        )
+        observed = []
+
+        stored = controller.retry_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple((item.transferred_bytes, item.complete) for item in observed),
+            (
+                (0, False),
+                (5, False),
+                (len(payload), True),
+            ),
+        )
 
 
 if __name__ == "__main__":
