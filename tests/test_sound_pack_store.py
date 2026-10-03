@@ -103,6 +103,55 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 (root / "packs" / manifest.pack_id / "active.json").is_file()
             )
 
+    def test_staging_directory_tree_is_flushed_before_version_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            order = []
+            real_replace = os.replace
+
+            def record_replace(source, destination):
+                order.append(("replace", Path(source), Path(destination)))
+                return real_replace(source, destination)
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=lambda path: order.append(("sync", Path(path))),
+            ), mock.patch(
+                "acs.sound_pack_store.os.replace",
+                side_effect=record_replace,
+            ):
+                store.install_atomically(downloaded)
+
+            version_replace_index = next(
+                index
+                for index, item in enumerate(order)
+                if item[0] == "replace"
+                and item[2].name == manifest.version
+            )
+            staging_syncs = [
+                item[1]
+                for item in order[:version_replace_index]
+                if item[0] == "sync"
+                and item[1].name.startswith(
+                    f".{manifest.pack_id}-{manifest.version}-"
+                )
+            ]
+            self.assertTrue(
+                staging_syncs,
+                "staging root must be synchronized before version rename",
+            )
+            self.assertTrue(
+                any(path.name == "audio" for path in (
+                    item[1]
+                    for item in order[:version_replace_index]
+                    if item[0] == "sync"
+                )),
+                "nested asset directory must be synchronized before publication",
+            )
+
     def test_version_directory_is_flushed_before_active_pointer_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
