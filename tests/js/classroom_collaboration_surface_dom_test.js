@@ -414,6 +414,17 @@ check(
     complete: true,
     label: "File transfer progress",
     text: "forged completion must be rejected"
+  },
+  {
+    session_key: "session-a",
+    transfer_key: transferKeyA,
+    progress_revision: 2,
+    name: "different-name.pgn",
+    transferred_bytes: 700,
+    total_bytes: 1024,
+    complete: false,
+    label: "File transfer progress",
+    text: "filename mutation must be rejected"
   }
 ].forEach((fileProgress) => {
   window.AccessibleChessEducationSurface.apply(
