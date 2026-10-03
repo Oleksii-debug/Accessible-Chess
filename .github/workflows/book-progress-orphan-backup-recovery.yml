@@ -88,7 +88,9 @@ jobs:
             fi
           fi
 
-          git merge-base --is-ancestor "$product" "$scope_base"
+          if [ "$topology" = 'PRODUCT' ]; then
+            git merge-base --is-ancestor "$product" "$scope_base"
+          fi
           git merge-base --is-ancestor "$scope_base" HEAD
           git diff --check "$scope_base" HEAD
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
