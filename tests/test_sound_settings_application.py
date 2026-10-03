@@ -27,6 +27,26 @@ from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
 from acs.sound_settings_application import SoundSettingsApplication
 
 
+class _LyingCatalog(Mapping):
+    def __init__(self, entry: SoundPackCatalogEntry) -> None:
+        self._entry = entry
+
+    def __getitem__(self, key):
+        if key == self._entry.manifest.pack_id:
+            return self._entry
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter((self._entry.manifest.pack_id,))
+
+    def __len__(self):
+        return 1
+
+    def items(self):
+        for _ in range(MAX_SOUND_PACK_CATALOG_ENTRIES + 1):
+            yield self._entry.manifest.pack_id, self._entry
+
+
 class _OversizedCatalog(Mapping):
     def __getitem__(self, key):
         raise KeyError(key)
@@ -155,6 +175,17 @@ class SoundSettingsApplicationTests(unittest.TestCase):
                 manager,
                 runtime,
                 catalog=_OversizedCatalog(),
+            )
+
+    def test_catalog_streaming_cap_rejects_mapping_that_underreports_length(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        entry = _entry(_manifest("soft"))
+
+        with self.assertRaisesRegex(ValueError, "catalog exceeds"):
+            SoundSettingsApplication(
+                manager,
+                runtime,
+                catalog=_LyingCatalog(entry),
             )
 
     def test_snapshot_exposes_all_events_without_paths_or_payload_refs(self) -> None:
