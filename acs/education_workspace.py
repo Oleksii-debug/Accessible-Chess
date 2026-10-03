@@ -248,15 +248,15 @@ class EducationWorkspace:
             version=version,
             prepared_positions=prepared_positions,
         )
-        if actual_fields == _WORKSPACE_FIELDS_LEGACY:
-            canonical_body = {
-                "version": workspace.version,
-                "classroom": workspace.classroom.to_record(),
-                "ledger": workspace.ledger.to_record(),
-            }
-            actual_digest = _digest(canonical_body)
-        else:
-            actual_digest = workspace.digest
+
+        # All nested authorities and prepared-position fields are bounded and
+        # semantically validated above.  Integrity must still bind to the exact
+        # accepted wire body, not to the normalized reconstruction: legacy
+        # prepared-position records intentionally migrate to current defaults,
+        # and hashing the migrated object would reject their valid legacy
+        # digest after successful validation.
+        bounded_body = {key: data[key] for key in data if key != "digest"}
+        actual_digest = _digest(bounded_body)
         if actual_digest != supplied_digest:
             raise EducationWorkspaceError("education workspace digest mismatch")
         return workspace
