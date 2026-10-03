@@ -328,6 +328,10 @@ class _Builder:
                 code=BookTextImportErrorCode.MALFORMED_CHESS_CONTENT,
             )
         game = games[0]
+        if game.warnings:
+            self.warning(
+                "Explicit PGN block required canonical recovery; review the game before relying on recovered content"
+            )
         title = " — ".join(
             part for part in (game.tags.get("White"), game.tags.get("Black"))
             if part and part != "?"
