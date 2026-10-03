@@ -72,6 +72,15 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.api_key, "server-key")
         self.assertEqual(client.api_secret, "server-secret")
         self.assertIsNotNone(runtime.moderation_admin)
+        self.assertTrue(
+            callable(
+                getattr(
+                    runtime.moderation_admin,
+                    "moderation_effect_matches",
+                    None,
+                )
+            )
+        )
         self.assertFalse(runtime.closed)
         await runtime.aclose()
         self.assertTrue(runtime.closed)
@@ -308,6 +317,45 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(caught.exception.cleanup_runtime)
         self.assertEqual(BadClient.instances[0].close_calls, 1)
+
+    async def test_missing_provider_close_api_retains_quarantined_cleanup_owner(self):
+        class NoCloseClient:
+            instances = []
+
+            def __init__(self, url, *, api_key, api_secret):
+                self.url = url
+                self.api_key = api_key
+                self.api_secret = api_secret
+                self.room = FakeRoomService(participant(can_publish_data=True))
+                type(self).instances.append(self)
+
+        class NoCloseApi(ModerationFakeApi):
+            LiveKitAPI = NoCloseClient
+
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "lifecycle API is unavailable",
+        ) as caught:
+            await self.open(
+                api_module=NoCloseApi,
+                sdk_version=LIVEKIT_API_VERSION,
+            )
+
+        cleanup = caught.exception.cleanup_runtime
+        self.assertIsNotNone(cleanup)
+        self.assertIn("state='cleanup_required'", repr(cleanup))
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "lifecycle API is unavailable",
+        ):
+            await cleanup.aclose()
+        self.assertFalse(cleanup.closed)
+        self.assertIn("state='cleanup_required'", repr(cleanup))
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "requires cleanup",
+        ):
+            _ = cleanup.moderation_admin
 
     async def test_provider_constructor_failure_is_sanitized(self):
         secret = "provider-constructor-secret"
