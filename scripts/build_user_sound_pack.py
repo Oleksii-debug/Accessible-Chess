@@ -2,16 +2,20 @@ from __future__ import annotations
 
 """Build the canonical Accessible Chess sound pack from the user-supplied archive tree.
 
-The input must be an extracted directory containing a Sounds directory, directly
-or below one wrapper directory. Every WAV from the supplied archive is copied
-into the pack so no legacy procedural audio is needed at runtime.
+The input may be either an extracted directory containing a Sounds directory
+(directly or below one wrapper directory) or a ZIP produced from that exact
+source. ZIP input is extracted through a bounded, path-safe reader before the
+same canonical inventory validation is applied. Every WAV from the supplied
+archive is copied into the pack so no legacy procedural audio is needed at runtime.
 """
 
 import argparse
 import hashlib
 import json
 import shutil
+import tempfile
 import wave
+import zipfile
 from pathlib import Path, PurePosixPath
 
 
@@ -136,6 +140,50 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+MAX_ARCHIVE_MEMBER_COUNT = 2048
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+
+
+def _safe_archive_member(name: str) -> PurePosixPath:
+    if not isinstance(name, str) or not name or "\\" in name:
+        raise SoundPackBuildError("unsafe ZIP member path")
+    relative = PurePosixPath(name)
+    if relative.is_absolute() or ".." in relative.parts or any(":" in part for part in relative.parts):
+        raise SoundPackBuildError("unsafe ZIP member path")
+    return relative
+
+
+def _extract_sound_zip(source: Path, destination: Path) -> None:
+    try:
+        archive = zipfile.ZipFile(source, "r")
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise SoundPackBuildError("invalid sound-pack ZIP") from exc
+    with archive:
+        members = archive.infolist()
+        if len(members) > MAX_ARCHIVE_MEMBER_COUNT:
+            raise SoundPackBuildError("sound-pack ZIP has too many entries")
+        total = 0
+        seen: set[str] = set()
+        for info in members:
+            relative = _safe_archive_member(info.filename)
+            folded = relative.as_posix().casefold()
+            if folded in seen:
+                raise SoundPackBuildError("sound-pack ZIP has duplicate paths")
+            seen.add(folded)
+            unix_mode = (info.external_attr >> 16) & 0o170000
+            if unix_mode == 0o120000:
+                raise SoundPackBuildError("sound-pack ZIP cannot contain symlinks")
+            if info.is_dir():
+                continue
+            total += int(info.file_size)
+            if total > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                raise SoundPackBuildError("sound-pack ZIP expands beyond the size limit")
+            target = destination.joinpath(*relative.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info, "r") as reader, target.open("wb") as writer:
+                shutil.copyfileobj(reader, writer, length=1024 * 1024)
+
+
 def _locate_sounds(source: Path) -> Path:
     source = source.resolve()
     candidates = (
@@ -204,7 +252,30 @@ def _validate_event_paths(destination: Path) -> None:
                 )
 
 
-def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
+def build_sound_pack(
+    source: Path,
+    destination: Path,
+    *,
+    expected_source_archive_sha256: str | None = None,
+) -> dict[str, object]:
+    source = Path(source)
+    if source.is_file():
+        if source.suffix.casefold() != ".zip":
+            raise SoundPackBuildError("sound-pack source file must be ZIP")
+        if expected_source_archive_sha256 is not None:
+            wanted = expected_source_archive_sha256.strip().casefold()
+            if len(wanted) != 64 or any(character not in "0123456789abcdef" for character in wanted):
+                raise SoundPackBuildError("expected source archive SHA-256 is invalid")
+            actual = _sha256(source)
+            if actual != wanted:
+                raise SoundPackBuildError(
+                    f"sound-pack ZIP SHA-256 mismatch: actual={actual} expected={wanted}"
+                )
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-sounds-") as temp_dir:
+            extracted = Path(temp_dir)
+            _extract_sound_zip(source, extracted)
+            return build_sound_pack(extracted, destination)
+
     sounds = _locate_sounds(source)
     if destination.exists():
         raise SoundPackBuildError("destination already exists")
@@ -402,10 +473,23 @@ def build_sound_pack(source: Path, destination: Path) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("source", type=Path, help="Extracted user sound archive directory")
+    parser.add_argument(
+        "source",
+        type=Path,
+        help="Extracted user sound archive directory or prepared ZIP",
+    )
     parser.add_argument("destination", type=Path, help="New sound-pack output directory")
+    parser.add_argument(
+        "--expected-source-archive-sha256",
+        default=None,
+        help="Optional exact SHA-256 required when source is a ZIP",
+    )
     args = parser.parse_args()
-    report = build_sound_pack(args.source, args.destination)
+    report = build_sound_pack(
+        args.source,
+        args.destination,
+        expected_source_archive_sha256=args.expected_source_archive_sha256,
+    )
     print(
         json.dumps(
             {
