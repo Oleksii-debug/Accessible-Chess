@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from acs.sound_events import SoundEvent
 from acs.sound_profiles import (
     CORE_SOUND_EVENTS,
     SOUND_PROFILE_SCHEMA_VERSION,
@@ -86,6 +87,19 @@ class SoundProfileTests(unittest.TestCase):
     def test_unknown_future_profile_schema_fails_closed(self) -> None:
         with self.assertRaises(ValueError):
             SoundProfile.from_mapping({"schema_version": 999})
+
+
+class SoundEventAuthorityTests(unittest.TestCase):
+    def test_core_profile_events_follow_canonical_packaged_semantics(self) -> None:
+        packaged = tuple(event.value for event in SoundEvent)
+        expected = set(packaged)
+        expected.add("low_time")
+
+        self.assertEqual(expected, set(CORE_SOUND_EVENTS))
+        self.assertEqual(len(CORE_SOUND_EVENTS), len(set(CORE_SOUND_EVENTS)))
+        self.assertEqual("start", CORE_SOUND_EVENTS[0])
+        self.assertLess(CORE_SOUND_EVENTS.index("end"), CORE_SOUND_EVENTS.index("tick"))
+        self.assertEqual("low_time", CORE_SOUND_EVENTS[-1])
 
 
 class SoundPackManifestTests(unittest.TestCase):
