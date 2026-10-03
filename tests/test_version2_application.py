@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -14,6 +15,7 @@ from acs.book_progress_store import (
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
+from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
 from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
@@ -64,6 +66,273 @@ class Version2ApplicationTests(unittest.TestCase):
         reopened = open_pgn(self.source)
         self.assertEqual(reopened.games[0].line.moves[0].comments_after[0].text, "новий коментар")
         self.assertEqual(len(reopened.games[0].line.moves[0].variations), 1)
+
+    def test_failed_native_library_projection_preserves_route_and_focus(self):
+        self.app.shell.open_route("board")
+        self.app.shell.record_focus("move-input")
+
+        for action, method_name in (
+            ("library.search", "search"),
+            ("library.reset_filters", "reset_filters"),
+        ):
+            with self.subTest(action=action):
+                self.app.shell.open_route("board")
+                self.app.shell.record_focus("move-input")
+                with patch.object(
+                    self.app.library.projection,
+                    method_name,
+                    side_effect=RuntimeError("simulated Library projection failure"),
+                ):
+                    with self.assertRaises(RuntimeError):
+                        self.app.router.dispatch(
+                            action,
+                            current_focus_id="move-input",
+                        )
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(
+                    self.app.shell.restore_focus_target(),
+                    "move-input",
+                )
+
+    def test_failed_library_projection_is_sanitized_without_route_or_focus_change(self):
+        self.app.shell.open_route("board")
+        self.app.record_focus("board-square-e4")
+
+        with patch.object(
+            self.app.library.projection,
+            "search",
+            side_effect=PermissionError(r"C:\\Users\\BlindTeacher\\private-library.sqlite"),
+        ):
+            command = self.app.adapter.activate_action(
+                "library.search",
+                current_focus_id="board-square-e4",
+            )
+
+        self.assertEqual(command.kind, "error")
+        self.assertNotIn("BlindTeacher", command.payload["message"])
+        self.assertNotIn("private-library", command.payload["message"])
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "board-square-e4",
+        )
+
+    def test_modal_library_action_fails_before_projection_mutation(self):
+        self.app.shell.open_route("board")
+        self.app.shell.open_dialog(
+            "test-dialog",
+            opener_focus_id="move-input",
+            initial_focus_id="test-dialog-confirm",
+        )
+        with patch.object(self.app.library.projection, "search") as search:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.search",
+                    current_focus_id="test-dialog-confirm",
+                )
+        search.assert_not_called()
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app.shell.active_dialog_id, "test-dialog")
+
+    def test_backend_library_error_preserves_route_focus_and_sanitizes(self):
+        for action in ("library.search", "library.reset_filters"):
+            with self.subTest(action=action):
+                self.app.shell.open_route("board")
+                self.app.record_focus("board-square-e4")
+                with patch.object(
+                    AcsDatabase,
+                    "search_games",
+                    side_effect=PermissionError(
+                        r"C:\\Users\\BlindTeacher\\private-library.sqlite"
+                    ),
+                ):
+                    command = self.app.adapter.activate_action(
+                        action,
+                        current_focus_id="board-square-e4",
+                    )
+
+                self.assertEqual(command.kind, "error")
+                self.assertNotIn("BlindTeacher", command.payload["message"])
+                self.assertNotIn("private-library", command.payload["message"])
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(
+                    self.app.shell.restore_focus_target(),
+                    "board-square-e4",
+                )
+
+    def test_backend_reset_failure_preserves_committed_library_state(self):
+        committed_query = GameSearchQuery(player="Petrenko", limit=25).normalized()
+        self.app.library.projection.search(committed_query)
+        before = self.app.library.projection.snapshot()
+        self.app.shell.open_route("board")
+        self.app.record_focus("board-square-e4")
+
+        with patch.object(
+            AcsDatabase,
+            "search_games",
+            side_effect=PermissionError(
+                r"C:\\Users\\BlindTeacher\\private-library.sqlite"
+            ),
+        ):
+            command = self.app.adapter.activate_action(
+                "library.reset_filters",
+                current_focus_id="board-square-e4",
+            )
+
+        self.assertEqual(command.kind, "error")
+        self.assertEqual(committed_query, self.app.library.projection.query)
+        self.assertEqual(before, self.app.library.projection.snapshot())
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "board-square-e4",
+        )
+
+    def test_malformed_library_projection_result_fails_closed_before_route_commit(self):
+        invalid_results = (
+            SimpleNamespace(kind="delegated", payload={}),
+            SimpleNamespace(kind="render", payload={}),
+            SimpleNamespace(kind="render", payload={"snapshot": {"status": "loading"}}),
+        )
+        for projected in invalid_results:
+            with self.subTest(kind=projected.kind, payload=projected.payload):
+                self.app.shell.open_route("board")
+                self.app.record_focus("move-input")
+                with patch.object(
+                    self.app.library.projection,
+                    "search",
+                    return_value=projected,
+                ):
+                    command = self.app.adapter.activate_action(
+                        "library.search",
+                        current_focus_id="move-input",
+                    )
+                self.assertEqual(command.kind, "error")
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(self.app.shell.restore_focus_target(), "move-input")
+
+    def test_successful_native_library_search_commits_library_route(self):
+        self.app.shell.open_route("board")
+        self.app.record_focus("move-input")
+
+        result = self.app.router.dispatch(
+            "library.search",
+            current_focus_id="move-input",
+        )
+
+        self.assertEqual(result.value.kind, "render")
+        self.assertIn(
+            result.value.payload["snapshot"]["status"],
+            {"ready", "empty"},
+        )
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+
+    def test_modal_library_open_game_fails_before_selection_or_database_lookup(self):
+        self.app.shell.open_route("board")
+        self.app.shell.open_dialog(
+            "library-open-modal",
+            opener_focus_id="move-input",
+            initial_focus_id="library-open-modal-confirm",
+        )
+        before_session = self.app.session
+
+        with patch.object(self.app.library.projection, "open_selected") as open_selected:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.open_game",
+                    current_focus_id="library-open-modal-confirm",
+                )
+        open_selected.assert_not_called()
+
+        with patch.object(
+            self.app.database,
+            "get_game",
+            side_effect=AssertionError(
+                "modal Library open must fail before database lookup"
+            ),
+        ) as get_game:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.open_game",
+                    {
+                        "game_id": 1,
+                        "source_id": 1,
+                        "source_index": 0,
+                    },
+                    current_focus_id="library-open-modal-confirm",
+                )
+        get_game.assert_not_called()
+        self.assertIs(before_session, self.app.session)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertEqual("library-open-modal", self.app.shell.active_dialog_id)
+
+    def test_modal_library_pagination_fails_before_projection_mutation(self):
+        self.app.shell.open_route("library")
+        self.app.shell.open_dialog(
+            "library-page-modal",
+            opener_focus_id="library-search-player",
+            initial_focus_id="library-page-modal-confirm",
+        )
+
+        for action, method_name in (
+            ("library.next_page", "next_page"),
+            ("library.previous_page", "previous_page"),
+        ):
+            with self.subTest(action=action):
+                with patch.object(
+                    self.app.library.projection,
+                    method_name,
+                    side_effect=AssertionError(
+                        "modal Library pagination must fail before projection mutation"
+                    ),
+                ) as method:
+                    with self.assertRaises(ValueError):
+                        self.app.router.dispatch(
+                            action,
+                            current_focus_id="library-page-modal-confirm",
+                        )
+                method.assert_not_called()
+
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertEqual("library-page-modal", self.app.shell.active_dialog_id)
+
+    def test_modal_library_file_workflows_fail_before_host_or_export_dispatch(self):
+        self.app.shell.open_route("library")
+        self.app.shell.open_dialog(
+            "library-file-modal",
+            opener_focus_id="library-search-player",
+            initial_focus_id="library-file-modal-confirm",
+        )
+
+        with patch.object(
+            self.app,
+            "_files",
+            side_effect=AssertionError(
+                "modal Library file workflow must fail before host dispatch"
+            ),
+        ) as files:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.import",
+                    current_focus_id="library-file-modal-confirm",
+                )
+        files.assert_not_called()
+
+        with patch.object(
+            self.app.library.projection,
+            "request_export_selected",
+            side_effect=AssertionError(
+                "modal Library export must fail before export projection dispatch"
+            ),
+        ) as export:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.export",
+                    current_focus_id="library-file-modal-confirm",
+                )
+        export.assert_not_called()
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertEqual("library-file-modal", self.app.shell.active_dialog_id)
 
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
