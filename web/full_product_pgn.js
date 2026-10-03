@@ -127,7 +127,11 @@
     Promise.resolve()
       .then(function () {
         if (!commandFlightIsCurrent(root, token, epoch)) return null;
-        return invoke(command, payload || {});
+        const commandPayload = Object.assign({}, payload || {});
+        if (root._pgnPresentationToken) {
+          commandPayload.presentation_token = root._pgnPresentationToken;
+        }
+        return invoke(command, commandPayload);
       })
       .then(
         function (result) {
@@ -331,6 +335,17 @@
     requireFunction(invoke, "PGN invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "PGN announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("PGN snapshot is required");
+    const presentationToken = snapshot.presentation_token;
+    if (
+      presentationToken !== undefined
+      && (
+        typeof presentationToken !== "string"
+        || !/^[0-9a-f]{64}$/.test(presentationToken)
+      )
+    ) {
+      throw new TypeError("PGN presentation token is invalid");
+    }
+    root._pgnPresentationToken = presentationToken || "";
     root._pgnRenderEpoch = Number(root._pgnRenderEpoch || 0) + 1;
     root._pgnCommandFlight = null;
     root._pgnErrorMessage = typeof snapshot.error_message === "string" && snapshot.error_message
