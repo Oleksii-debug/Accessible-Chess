@@ -1,0 +1,106 @@
+name: Classroom Media Join HTTP Convergence
+
+on:
+  pull_request:
+    branches:
+      - fix/classroom-media-clean-ack-recovery-20261003
+    paths:
+      - 'acs/classroom_join_credentials.py'
+      - 'acs/classroom_join_http_client.py'
+      - 'acs/classroom_join_http_endpoint.py'
+      - 'acs/livekit_join_token_issuer.py'
+      - 'acs/version2_final_product_application.py'
+      - 'tests/js/livekit_two_client_media_smoke.js'
+      - 'tests/livekit_two_client_token_fixture.py'
+      - 'tests/test_classroom_join_credentials.py'
+      - 'tests/test_classroom_join_http_client.py'
+      - 'tests/test_classroom_join_http_endpoint.py'
+      - 'tests/test_livekit_join_token_issuer.py'
+      - 'tests/test_classroom_media_join_http_composition.py'
+      - '.github/workflows/classroom-media-join-http-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-media-join-http-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact convergence scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$BASE_REF" = "fix/classroom-media-clean-ack-recovery-20261003"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA" HEAD
+          mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-media-join-http-convergence.yml'
+            'acs/classroom_join_credentials.py'
+            'acs/classroom_join_http_client.py'
+            'acs/classroom_join_http_endpoint.py'
+            'acs/livekit_join_token_issuer.py'
+            'acs/version2_final_product_application.py'
+            'tests/js/livekit_two_client_media_smoke.js'
+            'tests/livekit_two_client_token_fixture.py'
+            'tests/test_classroom_join_credentials.py'
+            'tests/test_classroom_join_http_client.py'
+            'tests/test_classroom_join_http_endpoint.py'
+            'tests/test_classroom_media_join_http_composition.py'
+            'tests/test_livekit_join_token_issuer.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected media/join convergence scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'CLASSROOM_MEDIA_JOIN_HTTP_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile media/join composition
+        run: >-
+          python -m py_compile
+          acs/classroom_join_credentials.py
+          acs/classroom_join_http_client.py
+          acs/classroom_join_http_endpoint.py
+          acs/version2_final_product_application.py
+          tests/test_classroom_join_http_client.py
+          tests/test_classroom_media_join_http_composition.py
+
+      - name: Run focused media/join contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_join_http_client
+          tests.test_classroom_media_join_http_composition
+          tests.test_classroom_media_shipping_webview
+
+      - name: Core selftest
+        run: python -m acs.selftest

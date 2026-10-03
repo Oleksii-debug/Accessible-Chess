@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_join_http_client import ClassroomJoinHttpClient
 from .classroom_media_provider_binder import ClassroomMediaProviderBinder
 from .classroom_media_webview_bridge import ClassroomMediaWebViewBridge
 from .classroom_media_webview_projection import (
@@ -93,6 +94,7 @@ class Version2FinalProductApplication(Version2Application):
         self.teacher: TeacherWebViewBridge | None = None
         self.media: ClassroomMediaWebViewBridge | None = None
         self.media_transactions: ClassroomMediaTransactionalWebView | None = None
+        self._media_join_http: ClassroomJoinHttpClient | None = None
         self._teacher_state_provider: Callable[[], TeachingSessionState] | None = None
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
@@ -354,6 +356,111 @@ class Version2FinalProductApplication(Version2Application):
             )
         self.media = None
         self.media_transactions = None
+        self._media_join_http = None
+
+    def configure_classroom_media_join_http(
+        self,
+        *,
+        endpoint_url: str,
+        bearer_token_provider: Callable[[], str],
+        timeout_seconds: float = 15.0,
+        allow_insecure_loopback: bool = False,
+    ) -> None:
+        """Bind trusted desktop join-credential transport to transactional media.
+
+        The bearer supplier remains host-only and is invoked only for an actual
+        join/reconnect credential request. Browser surfaces never receive this
+        client, account bearer, HTTP endpoint, or server-issued provider token.
+        """
+
+        self._assert_thread()
+        if self.media is None or self.media_transactions is None:
+            raise RuntimeError(
+                "Transactional classroom media must be bound before join HTTP"
+            )
+        if getattr(self, "_media_join_http", None) is not None:
+            raise RuntimeError("Classroom media join HTTP is already configured")
+        self._media_join_http = ClassroomJoinHttpClient(
+            endpoint_url=endpoint_url,
+            bearer_token_provider=bearer_token_provider,
+            timeout_seconds=timeout_seconds,
+            allow_insecure_loopback=allow_insecure_loopback,
+        )
+
+    def _classroom_media_join_http_context(
+        self,
+        *,
+        reconnect: bool,
+    ) -> tuple[
+        ClassroomJoinHttpClient,
+        ClassroomMediaController,
+        str | None,
+        str,
+    ]:
+        transactions = self.media_transactions
+        media = self.media
+        client = getattr(self, "_media_join_http", None)
+        if transactions is None or media is None:
+            raise RuntimeError("Transactional classroom media is not bound")
+        if client is None:
+            raise RuntimeError("Classroom media join HTTP is not configured")
+        if (
+            transactions.binder.active_lease is not None
+            or transactions.binder.recovery_status is not None
+        ):
+            raise RuntimeError("Classroom media provider is not quiescent")
+
+        controller = media.projection.controller
+        state = controller.state
+        if reconnect:
+            if state.room_id is None:
+                raise RuntimeError("Classroom media has no room to reconnect")
+            if state.connected:
+                raise RuntimeError("Classroom media is already connected")
+        elif state.room_id is not None:
+            raise RuntimeError("Classroom media already has room identity")
+
+        policy = controller.participant_policy(state.participant_id)
+        if policy.removed or policy.blocked:
+            raise RuntimeError("Participant is not allowed to join classroom media")
+        return client, controller, state.room_id, state.participant_id
+
+    def prepare_classroom_media_join_http(
+        self,
+        room_id: str,
+        *,
+        now: datetime,
+    ) -> dict[str, object]:
+        """Fetch one short-lived credential and enqueue the canonical media join."""
+
+        self._assert_thread()
+        client, _controller, _current_room, participant_id = (
+            self._classroom_media_join_http_context(reconnect=False)
+        )
+        credential = client.issue(
+            room_id=room_id,
+            participant_id=participant_id,
+        )
+        return self.prepare_classroom_media_join(credential, now=now)
+
+    def prepare_classroom_media_reconnect_http(
+        self,
+        *,
+        now: datetime,
+    ) -> dict[str, object]:
+        """Refresh the retained room credential and enqueue canonical reconnect."""
+
+        self._assert_thread()
+        client, _controller, room_id, participant_id = (
+            self._classroom_media_join_http_context(reconnect=True)
+        )
+        if room_id is None:
+            raise RuntimeError("Classroom media has no room to reconnect")
+        credential = client.issue(
+            room_id=room_id,
+            participant_id=participant_id,
+        )
+        return self.prepare_classroom_media_reconnect(credential, now=now)
 
     def prepare_classroom_media_join(
         self,
