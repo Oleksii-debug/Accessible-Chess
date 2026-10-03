@@ -275,6 +275,7 @@ class ClassroomCollaborationController:
         self._store = store
         self._file_store = file_store
         self._quota = quota
+        self._file_progress_consumer_depth = 0
         self._require_member(self.local_participant_id)
 
     def send_chat(
@@ -679,12 +680,19 @@ class ClassroomCollaborationController:
         )
         return PreparedFile(path, metadata)
 
+    def _require_file_mutation_outside_progress_consumer(self) -> None:
+        if self._file_progress_consumer_depth:
+            raise CollaborationError(
+                "file state cannot be mutated from a progress consumer"
+            )
+
     def upload_file(
         self,
         prepared: PreparedFile,
         *,
         on_progress: Callable[[FileTransferProgress], None] | None = None,
     ) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         progress, complete_progress, close_progress = self._progress_observers(
@@ -756,6 +764,7 @@ class ClassroomCollaborationController:
         *,
         on_progress: Callable[[FileTransferProgress], None] | None = None,
     ) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_prepared(prepared)
         current = self._attachment(prepared.metadata.attachment_id)
@@ -816,6 +825,7 @@ class ClassroomCollaborationController:
         return adopted
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         self._validate_remote_attachment(
             attachment,
@@ -922,6 +932,7 @@ class ClassroomCollaborationController:
         return persisted[0]
 
     def sync_files(self) -> tuple[AttachmentMetadata, ...]:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         # Retry already-durable cleanup before any network dependency. A
         # provider outage after restart must not strand object-store bytes whose
@@ -1069,6 +1080,7 @@ class ClassroomCollaborationController:
                 ) from error
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
+        self._require_file_mutation_outside_progress_consumer()
         self._require_member(self.local_participant_id)
         attachment = self._attachment(_id(attachment_id, "attachment id"))
         if attachment.sender_id != self.local_participant_id:
@@ -1174,8 +1186,8 @@ class ClassroomCollaborationController:
         if _sha256_path(path) != metadata.sha256:
             raise CollaborationError("prepared file content changed before upload")
 
-    @staticmethod
     def _progress_observers(
+        self,
         attachment: AttachmentMetadata,
         consumer: Callable[[FileTransferProgress], None] | None,
     ) -> tuple[
@@ -1190,6 +1202,7 @@ class ClassroomCollaborationController:
 
         def deliver(sample: FileTransferProgress) -> None:
             if consumer is not None:
+                self._file_progress_consumer_depth += 1
                 try:
                     consumer(sample)
                 except Exception:
@@ -1197,6 +1210,8 @@ class ClassroomCollaborationController:
                     # consumer must not turn a valid provider transfer into an
                     # ambiguous remote upload.
                     pass
+                finally:
+                    self._file_progress_consumer_depth -= 1
 
         def observe_provider(sample: FileTransferProgress) -> None:
             nonlocal last_transferred
