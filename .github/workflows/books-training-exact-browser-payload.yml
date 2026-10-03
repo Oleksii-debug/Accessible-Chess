@@ -1,0 +1,76 @@
+name: Books Training Exact Browser Payload
+
+on:
+  pull_request:
+    paths:
+      - 'acs/book_webview_bridge.py'
+      - 'acs/training_webview_bridge.py'
+      - 'tests/test_dev1_books_training_webview_bridge.py'
+      - '.github/workflows/books-training-exact-browser-payload.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-training-exact-browser-payload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      EXACT_PARENT: d7424edb11527268dab10801ae2c190508688e8c
+      BOOK_BRIDGE_BLOB: 4ddaa379d683ad8f981a47de4f71455583c65735
+      TRAINING_BRIDGE_BLOB: 3b320705c1e731386160f728e46b2fd9b6db276b
+      BRIDGE_TEST_BLOB: f087f57cda75ce500e6daa6509209f40ab3fac5b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact stacked scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:acs/book_webview_bridge.py")" = "$BOOK_BRIDGE_BLOB"
+          test "$(git rev-parse "HEAD:acs/training_webview_bridge.py")" = "$TRAINING_BRIDGE_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_dev1_books_training_webview_bridge.py")" = "$BRIDGE_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/books-training-exact-browser-payload.yml' \
+            'acs/book_webview_bridge.py' \
+            'acs/training_webview_bridge.py' \
+            'tests/test_dev1_books_training_webview_bridge.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+
+      - name: Compile browser bridges
+        run: >-
+          python -m compileall -q
+          acs/book_webview_bridge.py
+          acs/training_webview_bridge.py
+          tests/test_dev1_books_training_webview_bridge.py
+
+      - name: Execute browser bridge regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_atomicity
+          tests.test_books_training_ui_integration
+
+      - name: Core selftest
+        run: python -m acs.selftest
