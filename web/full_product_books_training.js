@@ -1,6 +1,8 @@
 (function (global) {
   "use strict";
 
+  const inFlightRoots = new WeakSet();
+
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
     return value;
@@ -23,10 +25,19 @@
     }
   }
 
-  function safeInvoke(invoke, command, payload, onResult, announce, fallbackMessage) {
-    Promise.resolve(invoke(command, payload || {})).then(onResult).catch(function () {
-      if (fallbackMessage) announce(String(fallbackMessage));
-    });
+  function safeInvoke(root, invoke, command, payload, onResult, announce, fallbackMessage) {
+    if (inFlightRoots.has(root)) return;
+    inFlightRoots.add(root);
+    Promise.resolve()
+      .then(function () { return invoke(command, payload || {}); })
+      .then(onResult)
+      .catch(function () {
+        if (fallbackMessage) announce(String(fallbackMessage));
+      })
+      .then(
+        function () { inFlightRoots.delete(root); },
+        function () { inFlightRoots.delete(root); }
+      );
   }
 
   function renderBookBlock(host, block) {
@@ -100,7 +111,7 @@
     if (result.kind === "error" && payload.message) announce(String(payload.message));
   }
 
-  function renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage) {
+  function renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage) {
     const catalogue = snapshot.starter_materials;
     const items = catalogue && Array.isArray(catalogue.items) ? catalogue.items : [];
     if (!catalogue || !items.length) return;
@@ -136,7 +147,7 @@
     open.addEventListener("click", function () {
       const materialId = String(select.value || "");
       if (!materialId) return;
-      safeInvoke(invoke, "book.open_starter_material", { material_id: materialId }, function (result) {
+      safeInvoke(root, invoke, "book.open_starter_material", { material_id: materialId }, function (result) {
         applyBookEvent(main.parentNode, result, invoke, announce, fallbackMessage);
       }, announce, fallbackMessage);
     });
@@ -155,7 +166,7 @@
     const fragment = document.createDocumentFragment();
     const main = node("section");
     main.appendChild(node("h2", snapshot.heading || ""));
-    renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage);
+    renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage);
     const block = snapshot.block || {};
     renderBookBlock(main, block);
 
@@ -167,7 +178,7 @@
       button.type = "button";
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
-        safeInvoke(invoke, String(action.command || ""), {}, function (result) {
+        safeInvoke(root, invoke, String(action.command || ""), {}, function (result) {
           applyBookEvent(root, result, invoke, announce, fallbackMessage);
         }, announce, fallbackMessage);
       });
@@ -194,12 +205,12 @@
     form.appendChild(restore);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      safeInvoke(invoke, "book.bookmark.save", { name: input.value }, function (result) {
+      safeInvoke(root, invoke, "book.bookmark.save", { name: input.value }, function (result) {
         applyBookEvent(root, result, invoke, announce, fallbackMessage);
       }, announce, fallbackMessage);
     });
     restore.addEventListener("click", function () {
-      safeInvoke(invoke, "book.bookmark.restore", { name: input.value }, function (result) {
+      safeInvoke(root, invoke, "book.bookmark.restore", { name: input.value }, function (result) {
         applyBookEvent(root, result, invoke, announce, fallbackMessage);
       }, announce, fallbackMessage);
     });
@@ -230,7 +241,7 @@
     }
 
     confirm.addEventListener("click", function () {
-      safeInvoke(invoke, "training.reset", { confirmed: true }, function (result) {
+      safeInvoke(root, invoke, "training.reset", { confirmed: true }, function (result) {
         if (dialog.open) dialog.close();
         applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
       }, announce, fallbackMessage);
@@ -328,7 +339,7 @@
     form.appendChild(submit);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      safeInvoke(invoke, "training.submit", { answer: input.value }, function (result) {
+      safeInvoke(root, invoke, "training.submit", { answer: input.value }, function (result) {
         applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
       }, announce, fallbackMessage);
     });
@@ -357,7 +368,7 @@
           resetDialog.open(button);
           return;
         }
-        safeInvoke(invoke, command, {}, function (result) {
+        safeInvoke(root, invoke, command, {}, function (result) {
           applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
         }, announce, fallbackMessage);
       });
