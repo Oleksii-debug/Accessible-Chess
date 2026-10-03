@@ -869,6 +869,115 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(migrated["schema_version"], 2)
         self.assertEqual(migrated["generation"], 1)
 
+    def test_v2_generation_zero_primary_preserves_divergent_v2_backup(self) -> None:
+        primary_reader = BookReader(self.original_document())
+        primary_reader.go_to(1)
+        backup_reader = BookReader(self.original_document())
+        backup_reader.go_to(0)
+        primary = json.dumps(
+            {
+                "schema_version": 2,
+                "generation": 0,
+                "entries": {"book:v2-zero": primary_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        backup = json.dumps(
+            {
+                "schema_version": 2,
+                "generation": 0,
+                "entries": {"book:v2-zero": backup_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(primary)
+        self.store.backup_path.write_bytes(backup)
+
+        primary_reader.go_to(2)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:v2-zero", primary_reader)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup)
+
+    def test_legacy_primary_preserves_divergent_v2_generation_zero_backup(self) -> None:
+        primary_reader = BookReader(self.original_document())
+        primary_reader.go_to(1)
+        backup_reader = BookReader(self.original_document())
+        backup_reader.go_to(0)
+        legacy_primary = json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {"book:legacy-v2-zero": primary_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        v2_backup = json.dumps(
+            {
+                "schema_version": 2,
+                "generation": 0,
+                "entries": {"book:legacy-v2-zero": backup_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(legacy_primary)
+        self.store.backup_path.write_bytes(v2_backup)
+
+        primary_reader.go_to(2)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:legacy-v2-zero", primary_reader)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), legacy_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), v2_backup)
+
+    def test_v2_generation_zero_primary_preserves_divergent_legacy_backup(self) -> None:
+        primary_reader = BookReader(self.original_document())
+        primary_reader.go_to(1)
+        backup_reader = BookReader(self.original_document())
+        backup_reader.go_to(0)
+        v2_primary = json.dumps(
+            {
+                "schema_version": 2,
+                "generation": 0,
+                "entries": {"book:v2-zero-legacy": primary_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        legacy_backup = json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {"book:v2-zero-legacy": backup_reader.snapshot()},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(v2_primary)
+        self.store.backup_path.write_bytes(legacy_backup)
+
+        primary_reader.go_to(2)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:v2-zero-legacy", primary_reader)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), v2_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), legacy_backup)
+
     def test_corrupt_orphan_backup_is_preserved_instead_of_erased_by_save(self) -> None:
         self.path.parent.mkdir(parents=True)
         corrupt_backup = b'{"schema_version":2,"generation":'
