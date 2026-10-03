@@ -1333,11 +1333,13 @@ class Version2UpgradeCoordinator:
                         raise Version2UpgradeError(
                             "user-data control entry must be a regular file"
                         )
-                    if int(getattr(control_info, "st_nlink", 1)) != 1:
-                        raise Version2UpgradeError(
-                            "user-data control entry must be a private file"
-                        )
-                    continue
+                    if int(getattr(control_info, "st_nlink", 1)) == 1:
+                        continue
+                    # A hard-linked regular file cannot be authenticated as
+                    # private writer control state. Preserve that exact inode
+                    # as ordinary user data instead of either excluding it or
+                    # failing the entire backup merely because its pathname
+                    # resembles a control file.
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
             # The root object itself is still validated below, so a regular file
