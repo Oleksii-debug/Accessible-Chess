@@ -67,6 +67,13 @@ class LibraryImportProgress:
         ):
             if type(value) is not int:
                 raise TypeError(f"{name} must be an integer")
+        for name, value in (
+            ("attempt_id", self.attempt_id),
+            ("processed_games", self.processed_games),
+            ("total_games", self.total_games),
+        ):
+            if value > _SQLITE_INTEGER_MAX:
+                raise ValueError(f"{name} exceeds SQLite integer range")
         if self.attempt_id < 1:
             raise ValueError("attempt_id must be positive")
         if self.total_games < 1:
