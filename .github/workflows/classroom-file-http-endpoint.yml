@@ -1,0 +1,104 @@
+name: Classroom File HTTP Endpoint
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-file-rpc-core-20261003
+    paths:
+      - 'acs/classroom_file_http_endpoint.py'
+      - 'tests/test_classroom_file_http_endpoint.py'
+      - '.github/workflows/classroom-file-http-endpoint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-file-http-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  endpoint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact stacked scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/classroom-file-rpc-core-20261003"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$EXPECTED_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          if ! git merge-base --is-ancestor "$base" HEAD; then
+            echo "Current file RPC base $base is not an ancestor of HEAD; synchronize the stack."
+            exit 1
+          fi
+          git diff --check "$base...HEAD"
+          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-file-http-endpoint.yml' \
+            'acs/classroom_file_http_endpoint.py' \
+            'tests/test_classroom_file_http_endpoint.py' | LC_ALL=C sort)"
+          test "$changed" = "$allowed"
+          git diff --quiet "$base" HEAD -- \
+            acs/classroom_file_rpc.py \
+            acs/classroom_file_server.py \
+            acs/classroom_collaboration.py \
+            acs/classroom_collaboration_storage.py
+          echo "CLASSROOM_FILE_HTTP_EXACT_SCOPE=PASS"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile HTTP, RPC and trusted file boundaries
+        run: >-
+          python -m py_compile
+          acs/classroom_file_http_endpoint.py
+          acs/classroom_file_rpc.py
+          acs/classroom_file_server.py
+          tests/test_classroom_file_http_endpoint.py
+          tests/test_classroom_file_rpc.py
+          tests/test_classroom_file_server.py
+
+      - name: Run HTTP through canonical collaboration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_file_http_endpoint
+          tests.test_classroom_file_rpc
+          tests.test_classroom_file_server
+          tests.test_classroom_collaboration
+          tests.test_classroom_collaboration_storage
+
+      - name: Prove server-only transport security boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eq 'os\.(environ|getenv)|API_SECRET|API_KEY|STORAGE_SECRET' acs/classroom_file_http_endpoint.py
+          ! grep -Eq 'query_string.*token|token.*query_string' acs/classroom_file_http_endpoint.py
+          grep -Fq 'FILE_RPC_PATH = "/v1/classroom/file-rpc"' acs/classroom_file_http_endpoint.py
+          grep -Fq 'scheme == "https"' acs/classroom_file_http_endpoint.py
+          grep -Fq 'cache-control", b"no-store"' acs/classroom_file_http_endpoint.py
+          grep -Fq 'www-authenticate' acs/classroom_file_http_endpoint.py
+          grep -Fq 'authenticate_bearer' acs/classroom_file_http_endpoint.py
+          grep -Fq 'FRAME_MAGIC = b"ACFRPC1\\n"' acs/classroom_file_http_endpoint.py
+          echo "CLASSROOM_FILE_HTTP_SECURITY_BOUNDARY=PASS"
