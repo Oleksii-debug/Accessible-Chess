@@ -6,10 +6,14 @@ on:
       - work/v2-book-progress-production-repair-20260831
   pull_request:
     paths:
+      - '.github/workflows/book-progress-orphan-backup-recovery.yml'
+      - '.github/workflows/books-progress-backup-recovery.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
       - 'acs/book_progress_store.py'
+      - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
-      - '.github/workflows/v2-book-progress-production-repair.yml'
+      - 'tests/test_version2_application.py'
   workflow_dispatch:
 
 permissions:
