@@ -33,7 +33,11 @@ class Issue22ReleaseContractTests(unittest.TestCase):
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", HTML)
         self.assertIn("else{input.focus();input.select()}", HTML)
         self.assertIn("el('move-input').addEventListener('keydown'", HTML)
-        self.assertIn("if(e.key==='Enter')", HTML)
+        self.assertIn("keymapActionForEvent(e,'move_entry')", HTML)
+        self.assertIn("candidate!=='move.submit'", HTML)
+        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", HTML)
+        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", HTML)
+        self.assertNotIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", HTML)
 
     def test_real_move_entry_e4_changes_core_state(self):
         with TemporaryDirectory() as temp:

@@ -110,8 +110,11 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertEqual(actions["analysis.pv2"]["binding"], "Alt+2")
         self.assertEqual(actions["analysis.pv2"]["registryContext"], "analysis")
         self.assertIn("if(e.target.closest('#board-application'))return", self.web)
-        self.assertIn("resolveBinding(eventChord(e),'board','board')", self.web)
-        self.assertIn("resolveBinding(chord,'analysis','analysis')", self.web)
+        self.assertIn("keymapActionForEvent(e,'board')", self.web)
+        self.assertIn("resolveBinding(chord,'board','board')", self.web)
+        self.assertIn("const contexts=[['analysis','analysis'],['history','document'],['document','document']]", self.web)
+        self.assertIn("actionByRegistryChord(chord,registryContext)", self.web)
+        self.assertIn("resolveBinding(chord,selected.registryContext,selected.uiContext)", self.web)
 
     def test_probe_proves_causal_action_state_separately_from_accessible_result(self) -> None:
         self.assertIn("function FindVariationButton($Roots,[int]$Index)", self.text)
@@ -139,7 +142,6 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
             self.text.index("SelectedVariation $roots $index"),
             self.text.index("Alt+$index did not expose a matching live-region result"),
         )
-
 
     def test_variation_precondition_falls_back_only_to_real_native_enter_when_invoke_unsupported(self) -> None:
         self.assertIn("function ActivateVariationPrecondition($Roots,$Button,[int]$Index,$Shell,$Process)", self.text)
@@ -197,7 +199,6 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertIn("alt_1_accessible_result_exposed=$true", self.text)
         self.assertIn("alt_2_action_occurred=$true", self.text)
         self.assertIn("alt_2_accessible_result_exposed=$true", self.text)
-
 
     def test_live_region_readback_scopes_raw_text_to_same_status_root(self) -> None:
         self.assertIn("function SemanticTexts($Element)", self.text)
