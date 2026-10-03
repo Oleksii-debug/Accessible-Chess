@@ -341,6 +341,23 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             self.assertTrue(redirected)
             self.assertEqual([], list(outside.iterdir()))
 
+    def test_hardlinked_profile_lock_never_writes_external_inode(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            external = root / "external.lock"
+            external.write_bytes(b"")
+            path = root / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+            os.link(external, storage._lock_path)
+
+            with self.assertRaisesRegex(
+                SoundProfileFileError,
+                "hard-linked",
+            ):
+                storage.write_profile_atomically(SoundProfile().to_mapping())
+
+            self.assertEqual(b"", external.read_bytes())
+
     def test_profile_lock_swap_after_lstat_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
