@@ -127,25 +127,27 @@
       : uiText("Профіль ще не створено.", "No profile has been created yet.");
   }
 
+  function focusProfilePrimaryAction() {
+    if (
+      profileState &&
+      profileState.recoveryRequired === true &&
+      !profileRepair.hidden &&
+      !profileRepair.disabled
+    ) {
+      profileRepair.focus({ preventScroll: true });
+      return;
+    }
+    profileName.focus();
+    profileName.select();
+  }
+
   function showProfileDialog() {
     if (!profileDialog.open) {
       const active = documentRef.activeElement;
       profileReturnFocusId = active && typeof active.id === "string" ? active.id : "";
       profileDialog.showModal();
     }
-    global.setTimeout(function () {
-      if (
-        profileState &&
-        profileState.recoveryRequired === true &&
-        !profileRepair.hidden &&
-        !profileRepair.disabled
-      ) {
-        profileRepair.focus({ preventScroll: true });
-        return;
-      }
-      profileName.focus();
-      profileName.select();
-    }, 0);
+    global.setTimeout(focusProfilePrimaryAction, 0);
   }
 
   function beginProfileMutation() {
@@ -289,22 +291,21 @@
     } catch (_error) {
       endProfileMutation();
       announce(uiText("Не вдалося відновити профіль.", "Could not recover the profile."));
-      profileName.focus();
+      focusProfilePrimaryAction();
       return;
     }
     Promise.resolve(call).then(function (result) {
       const ok = applyProfileResult(result, false);
       endProfileMutation();
       if (!ok) {
-        profileName.focus();
+        focusProfilePrimaryAction();
         return;
       }
-      profileName.focus();
-      profileName.select();
+      focusProfilePrimaryAction();
     }, function () {
       endProfileMutation();
       announce(uiText("Не вдалося відновити профіль.", "Could not recover the profile."));
-      profileName.focus();
+      focusProfilePrimaryAction();
     });
   });
   profileClose.addEventListener("click", function () {
