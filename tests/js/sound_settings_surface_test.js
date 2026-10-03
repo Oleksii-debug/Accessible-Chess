@@ -412,6 +412,64 @@ async function run() {
   );
   commandMode = "success";
 
+  serverSnapshot = {
+    ...serverSnapshot,
+    active_pack_id: "classic",
+    can_select_classic: false,
+    packs: [
+      {
+        pack_id: "legacy.ogg",
+        title: "Legacy OGG",
+        version: "1.0.0",
+        author: "Legacy author",
+        license_id: "CC0-1.0",
+        provenance: "local verified pack",
+        compatible: false,
+        installed_compatible: false,
+        installed_version: "1.0.0",
+        state: "incompatible",
+        active: false,
+        can_install: false,
+        can_uninstall: true
+      },
+      {
+        pack_id: "old.playable",
+        title: "Old Playable",
+        version: "2.0.0",
+        author: "Provider author",
+        license_id: "CC0-1.0",
+        provenance: "provider catalog",
+        compatible: false,
+        installed_compatible: true,
+        installed_version: "1.0.0",
+        state: "incompatible",
+        active: false,
+        can_install: false,
+        can_uninstall: true
+      }
+    ]
+  };
+  await window.AccessibleChessSoundSettingsSurface.refresh();
+  await Promise.resolve();
+  assert.strictEqual(elements.get("sound-pack-legacy.ogg-select"), undefined,
+    "installed incompatible pack must never expose Use");
+  assert.ok(elements.get("sound-pack-legacy.ogg-uninstall"),
+    "installed incompatible pack must remain removable");
+  assert.ok(
+    elements.get("sound-pack-legacy.ogg-metadata").textContent.includes(
+      "installed 1.0.0, but incompatible with this version"
+    ),
+    "installed incompatibility must remain visible/selectable text"
+  );
+  assert.ok(elements.get("sound-pack-old.playable-select"),
+    "older playable installed version must remain selectable when only its update is incompatible");
+  assert.ok(
+    elements.get("sound-pack-old.playable-metadata").textContent.includes(
+      "available update is incompatible"
+    ),
+    "catalog-update incompatibility must be visible without mislabeling the installed version"
+  );
+
   const savedCommandBridge = api.sound_settings_command;
   api.sound_settings_command = undefined;
   let unavailablePreview = elements.get("sound-event-move-preview");
