@@ -371,9 +371,9 @@ class ClassroomCollaborationWebView:
         draft text is never retained here.
         """
 
-        # A progress sink is bound to the retired browser/host session. Never
-        # retain it across an unbind/rebind, even when the same WebView object
-        # is reused, or later file metadata could leak into the old host channel.
+        # The progress observer belongs to the retiring host/browser session.
+        # Clear it before rotating browser capabilities so a reused WebView
+        # cannot send later file metadata to the previous host channel.
         self._file_progress_event_sink = None
         self._action_secret = secrets.token_bytes(32)
         self._browser_session_key = secrets.token_hex(16)
