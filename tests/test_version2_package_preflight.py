@@ -188,13 +188,25 @@ def _make_tree(root: Path) -> None:
     _write_checksums(root)
 
 
-def _write_inventory_wave(path: Path, *, sample: int) -> None:
+def _write_inventory_wave(
+    path: Path,
+    *,
+    sample: int,
+    sample_width: int = 2,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(path), "wb") as writer:
         writer.setnchannels(1)
-        writer.setsampwidth(2)
+        writer.setsampwidth(sample_width)
         writer.setframerate(8000)
-        writer.writeframes(int(sample).to_bytes(2, "little", signed=True) * 16)
+        if sample_width == 1:
+            if not 0 <= sample <= 255:
+                raise ValueError("8-bit WAV sample must be in 0..255")
+            writer.writeframes(bytes([sample]) * 16)
+        elif sample_width == 2:
+            writer.writeframes(int(sample).to_bytes(2, "little", signed=True) * 16)
+        else:
+            raise ValueError("test WAV sample width must be 1 or 2")
 
 
 def _enable_full_sound_inventory(root: Path) -> tuple[int, str, Path]:
@@ -221,7 +233,7 @@ def _enable_full_sound_inventory(root: Path) -> tuple[int, str, Path]:
         provenance["events"][event.value]["sha256"] = _sha256(sounds / new_name)
 
     alt = library / "move-alt.wav"
-    _write_inventory_wave(alt, sample=777)
+    _write_inventory_wave(alt, sample=177, sample_width=1)
     variants = {
         "schema_version": 1,
         "events": {
@@ -447,6 +459,20 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 report = _validate_tree(root)
                 self.assertEqual(report.integration_sha, _SHA)
+                inventory_doc = json.loads(
+                    (
+                        root
+                        / "AccessibleChess"
+                        / "assets"
+                        / "sounds"
+                        / "inventory.json"
+                    ).read_text(encoding="utf-8")
+                )
+                alt_entry = next(
+                    item for item in inventory_doc["files"]
+                    if item["file"] == "library/move-alt.wav"
+                )
+                self.assertEqual(alt_entry["sample_width_bytes"], 1)
 
                 archive = base / "inventory-bound.zip"
                 _zip_tree(root, archive)
