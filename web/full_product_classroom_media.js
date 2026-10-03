@@ -142,6 +142,18 @@
     section.appendChild(controls);
 
     const selectors = Object.create(null);
+
+    function moveFocusBeforeDisable(select) {
+      const owner = select && select.ownerDocument;
+      if (
+        owner &&
+        owner.activeElement === select &&
+        typeof heading.focus === "function"
+      ) {
+        heading.focus({ preventScroll: true });
+      }
+    }
+
     DEVICE_CONTROLS.forEach(function (definition) {
       const labelText = deviceKindLabel(definition.kind, language);
       const label = node("label", labelText);
@@ -247,6 +259,7 @@
         });
 
         if (count === 0) {
+          moveFocusBeforeDisable(select);
           select.disabled = true;
           const missing = node(
             "option",
@@ -282,7 +295,9 @@
         renderChoices(devices);
       }).catch(function () {
         DEVICE_CONTROLS.forEach(function (definition) {
-          selectors[definition.kind].disabled = true;
+          const select = selectors[definition.kind];
+          moveFocusBeforeDisable(select);
+          select.disabled = true;
         });
         status.textContent = uiText(
           language,
