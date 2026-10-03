@@ -166,6 +166,10 @@ async function run() {
   check(items[1].getAttribute("aria-level") === "2", "variation wrapper level changed");
   check(items[2].getAttribute("aria-level") === "3", "variation move level changed");
   check(items[3].getAttribute("aria-level") === "1", "mainline sibling level changed");
+  check(items[0].getAttribute("aria-expanded") === "true", "root parent is not exposed as expanded");
+  check(items[1].getAttribute("aria-expanded") === "true", "variation parent is not exposed as expanded");
+  check(items[2].getAttribute("aria-expanded") === "", "variation leaf was falsely exposed as expandable");
+  check(items[3].getAttribute("aria-expanded") === "", "mainline leaf was falsely exposed as expandable");
 
   await expectQuiet(items, 0, "ArrowUp", calls, announcements, "top ArrowUp");
   await expectQuiet(items, 0, "ArrowLeft", calls, announcements, "root ArrowLeft");
