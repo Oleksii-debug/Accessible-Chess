@@ -1,4 +1,5 @@
 import unittest
+from collections.abc import Mapping
 
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
 from acs.bookreader import BookReader
@@ -83,6 +84,46 @@ class BookReaderTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "changed while being read"):
             BookReader.restore_snapshot(book, OverProducingSnapshot())
+
+    def test_restore_snapshot_bounds_nested_mapping_iteration(self):
+        class OverProducingMapping(Mapping):
+            def __init__(self, payload, extra_key):
+                self.payload = payload
+                self.extra_key = extra_key
+
+            def __len__(self):
+                return len(self.payload)
+
+            def __iter__(self):
+                yield from self.payload
+                yield self.extra_key
+                raise AssertionError("nested restore must stop at advertised count + 1")
+
+            def __getitem__(self, key):
+                return self.payload[key]
+
+        book = self.make_book()
+
+        with_return_point = BookReader(book)
+        with_return_point.go_to(3)
+        with_return_point.save_return_point("analysis")
+        return_snapshot = with_return_point.snapshot()
+        return_snapshot["return_points"] = OverProducingMapping(
+            return_snapshot["return_points"],
+            "unexpected",
+        )
+        with self.assertRaisesRegex(ValueError, "return_points changed while being read"):
+            BookReader.restore_snapshot(book, return_snapshot)
+
+        with_fallback = BookReader(book)
+        with_fallback.go_to(1)
+        fallback_snapshot = with_fallback.snapshot()
+        fallback_snapshot["fallback_digests"] = OverProducingMapping(
+            fallback_snapshot["fallback_digests"],
+            "index:unexpected",
+        )
+        with self.assertRaisesRegex(ValueError, "fallback_digests changed while being read"):
+            BookReader.restore_snapshot(book, fallback_snapshot)
 
     def test_boundaries_and_invalid_return_points_fail_explicitly(self):
         reader = BookReader(self.make_book())
