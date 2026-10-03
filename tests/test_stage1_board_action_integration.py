@@ -16,6 +16,62 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         return Stage1ReleaseAccessibleChessAPI(keymap_path=Path(temp.name) / "keymap.json")
 
+    def test_board_grid_interaction_keys_are_central_and_remappable(self):
+        registry = ActionRegistry()
+        defaults = {
+            "board.cursor_left": "Left",
+            "board.cursor_right": "Right",
+            "board.cursor_up": "Up",
+            "board.cursor_down": "Down",
+            "board.activate": "Enter",
+            "board.activate_alternative": "Space",
+            "board.exit": "Escape",
+        }
+        for action_id, binding in defaults.items():
+            with self.subTest(action_id=action_id):
+                self.assertEqual(registry.get_binding(action_id), binding)
+                resolved = registry.resolve_binding(BindingContext.BOARD, binding)
+                self.assertIsNotNone(resolved)
+                self.assertEqual(resolved.action_id, action_id)
+
+        registry.set_binding("board.cursor_left", "Ctrl+Alt+Left")
+        self.assertIsNone(registry.resolve_binding(BindingContext.BOARD, "Left"))
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.BOARD, "Ctrl+Alt+Left").action_id,
+            "board.cursor_left",
+        )
+
+    def test_shipping_board_handler_has_no_hardcoded_grid_interaction_keys(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        start = html.index("async function onBoardKey(e){")
+        end = html.index("\nfunction focusHistoryJump", start)
+        handler = html[start:end]
+        global_resolve = "resolveBinding(chord,'global','document')"
+        board_resolve = "resolveBinding(chord,'board','board')"
+        self.assertIn(global_resolve, handler)
+        self.assertIn(board_resolve, handler)
+        self.assertLess(handler.index(global_resolve), handler.index(board_resolve))
+        for hardcoded in (
+            "key==='Escape'",
+            "key==='Enter'",
+            "key==='ArrowLeft'",
+            "key==='ArrowRight'",
+            "key==='ArrowUp'",
+            "key==='ArrowDown'",
+        ):
+            with self.subTest(hardcoded=hardcoded):
+                self.assertNotIn(hardcoded, handler)
+        for action_id in (
+            "board.cursor_left",
+            "board.cursor_right",
+            "board.cursor_up",
+            "board.cursor_down",
+            "board.activate",
+            "board.activate_alternative",
+            "board.exit",
+        ):
+            self.assertIn(action_id, html)
+
     def test_registry_board_information_actions_are_live_and_non_mutating(self):
         api = self.make_api()
         api.new_game()
@@ -71,7 +127,15 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.assertEqual(fallback["schemaVersion"], central["schemaVersion"])
         fallback_by_id = {item["id"]: item for item in fallback["actions"]}
         central_by_id = {item["id"]: item for item in central["actions"]}
-        self.assertEqual(set(fallback_by_id), set(central_by_id))
+        self.assertEqual(
+            set(fallback_by_id).difference(central_by_id),
+            {"screen.help"},
+        )
+        self.assertEqual(fallback_by_id["screen.help"]["binding"], "F1")
+        self.assertEqual(
+            fallback_by_id["screen.help"]["registryContext"],
+            "global",
+        )
         for action_id, expected in central_by_id.items():
             with self.subTest(action_id=action_id):
                 self.assertEqual(fallback_by_id[action_id], expected)

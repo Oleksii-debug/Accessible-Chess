@@ -122,7 +122,11 @@ class KeymapEditorModel:
             default = item["defaultBinding"] if shortcut else item["defaultAlias"]
             current_text = "" if current is None else str(current)
             default_text = "" if default is None else str(default)
-            haystack = " ".join((label, registry_context, current_text, default_text, str(item["id"]))).casefold()
+            # Search only user-facing semantics. Internal action IDs are stable
+            # transport identifiers and can contain generic words (for example
+            # history.commit_go_to_move) that would otherwise pollute localized
+            # searches such as "go" / "перейти".
+            haystack = " ".join((label, registry_context, current_text, default_text)).casefold()
             if term and term not in haystack:
                 continue
             context_labels = _CONTEXT_LABELS_EN if self.lang == "en" else _CONTEXT_LABELS_UK

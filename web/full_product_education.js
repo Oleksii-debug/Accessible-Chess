@@ -152,20 +152,23 @@
         }, rootForEvents(), announce, fallbackMessage);
       });
       option.addEventListener("keydown", function (event) {
+        const resolve = global.accessibleChessKeymapAction;
+        const actionId = typeof resolve === "function" ? resolve(event, "education_list") : "";
         let command = "";
         let payload = {};
-        if (event.key === "ArrowUp") {
+        if (actionId === "education.previous_item") {
           command = "education.move";
           payload = { kind: section.kind, direction: -1 };
-        } else if (event.key === "ArrowDown") {
+        } else if (actionId === "education.next_item") {
           command = "education.move";
           payload = { kind: section.kind, direction: 1 };
-        } else if (event.key === "Enter" && section.open_enabled) {
+        } else if (actionId === "education.open_selected" && section.open_enabled) {
           command = "education.open";
           payload = { kind: section.kind };
         }
         if (!command) return;
         event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
         invokeSection(invoke, command, payload, rootForEvents(), announce, fallbackMessage);
       });
       list.appendChild(option);

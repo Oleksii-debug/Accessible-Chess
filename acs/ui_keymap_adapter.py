@@ -24,12 +24,17 @@ _UI_CONTEXT = {
     BindingContext.ENGINE_GAME: "engine-game",
     BindingContext.DATABASE: "database",
     BindingContext.BOOK_READER: "book-reader",
+    BindingContext.PGN_TREE: "pgn_tree",
+    BindingContext.LIBRARY_RESULTS: "library_results",
+    BindingContext.EDUCATION_LIST: "education_list",
 }
 
 _UK_LABELS = {
+    "screen.help": "Довідка",
     "history.previous": "Попередня позиція в історії",
     "history.next": "Наступна позиція в історії",
     "history.go_to_move": "Перейти до ходу",
+    "history.commit_go_to_move": "Підтвердити перехід до введеного ходу",
     "edit.undo": "Скасувати хід",
     "edit.redo": "Повторити хід",
     "analysis.pv1": "Перший варіант Stockfish",
@@ -45,6 +50,13 @@ _UK_LABELS = {
     "analysis.insert_move": "Вставити вибраний хід Stockfish",
     "analysis.insert_line": "Вставити вибраний варіант Stockfish",
     "analysis.restart": "Перезапустити аналіз Stockfish",
+    "board.cursor_left": "Курсор дошки ліворуч",
+    "board.cursor_right": "Курсор дошки праворуч",
+    "board.cursor_up": "Курсор дошки вгору",
+    "board.cursor_down": "Курсор дошки вниз",
+    "board.activate": "Активувати поле дошки",
+    "board.activate_alternative": "Активувати поле дошки, альтернативна клавіша",
+    "board.exit": "Вийти з дошки",
     "board.current": "Поточне поле",
     "board.last_captured": "Остання взята фігура",
     "board.last_move": "Останній хід",
@@ -72,6 +84,7 @@ _UK_LABELS = {
     "board.previous_knight": "Попередній кінь",
     "board.previous_pawn": "Попередній пішак",
     "board.input": "Поле введення ходу",
+    "move.submit": "Зробити введений хід",
     "move.undo": "Команда undo",
     "move.redo": "Команда redo",
     "move.last": "Команда останнього ходу",
@@ -82,7 +95,18 @@ _UK_LABELS = {
     "move.empty": "Команда порожньої позиції",
 }
 
-_EN_LABELS: dict[str, str] = {}
+_EN_LABELS: dict[str, str] = {
+    "screen.help": "Help",
+    "history.commit_go_to_move": "Confirm typed history move",
+    "move.submit": "Submit move",
+    "board.cursor_left": "Move board cursor left",
+    "board.cursor_right": "Move board cursor right",
+    "board.cursor_up": "Move board cursor up",
+    "board.cursor_down": "Move board cursor down",
+    "board.activate": "Activate board square",
+    "board.activate_alternative": "Activate board square, alternative key",
+    "board.exit": "Exit board interaction",
+}
 
 # Dense rank/file navigation rows share the same imperative verb. Keeping the
 # rendered labels target-first makes screen-reader browsing and free-text search

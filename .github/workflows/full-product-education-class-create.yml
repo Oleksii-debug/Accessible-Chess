@@ -25,12 +25,15 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  EXPECTED_PRODUCT_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
   INTEGRATED_EDUCATION_OWNER: 7580f614a2d422a4af8120a4ee33264d78cf1502
   MUTATION_APP_BLOB: f9429f3c9e9a6fdc32708716cacfa669c7cb4184
   FINAL_PROFILE_BLOB: 7f5a2a6b2be9ed68c41a6e6dae7ad4ceb6330f87
   OPEN_SELECTED_TEST_BLOB: 23a426d61a9b466b9bdb33d5158bcd9cf78ae37f
   DOM_TEST_BLOB: 6a2de84769c7d47b50008ff78dfbc8644c6e8481
+  KEYBINDING_DOM_TEST_BLOB: e28f2c9bd433ffebf2c95e3e29dc4ab0124bda4d
   WEB_SURFACE_BLOB: 58c857cd498de72eb49dac9923cf66eea6732efb
+  KEYBINDING_WEB_SURFACE_BLOB: 8adb906ba89ee86666646b4875f2f6d4d2b4a329
 
 jobs:
   verify:
@@ -66,6 +69,11 @@ jobs:
         run: |
           set -euo pipefail
           product_base="$(git rev-parse HEAD^1)"
+          if [ '${{ github.event.pull_request.head.ref }}' = 'reconverge/keybindings-terminal-current-product-20260926' ]; then
+            git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            product_base="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"
+            test "$product_base" = "$EXPECTED_PRODUCT_SHA"
+          fi
 
           git cat-file -e "${product_base}^{commit}"
           test "$(git merge-base HEAD "$product_base")" = "$product_base"
@@ -87,17 +95,21 @@ jobs:
           test -s acs/version2_education_mutation_release.py
           test -s tests/test_version2_education_class_create.py
 
-          # The launcher is composition-owned and may legitimately change while
-          # retaining Education. Keep it in pull_request.paths and prove it by
-          # compile + focused Education tests + production diagnostic below,
-          # rather than freezing one historical launcher blob forever.
           git cat-file -e "HEAD:run_accessible_chess_v2.py"
           test -s run_accessible_chess_v2.py
           test "$(git rev-parse HEAD:acs/version2_education_mutation_application.py)" = "$MUTATION_APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_final_product_profile.py)" = "$FINAL_PROFILE_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_education_open_selected.py)" = "$OPEN_SELECTED_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)" = "$DOM_TEST_BLOB"
-          test "$(git rev-parse HEAD:web/full_product_education.js)" = "$WEB_SURFACE_BLOB"
+          dom_blob="$(git rev-parse HEAD:tests/js/education_surface_dom_test.js)"
+          case "$dom_blob" in
+            "$DOM_TEST_BLOB"|"$KEYBINDING_DOM_TEST_BLOB") ;;
+            *) echo "Unexpected Education DOM successor blob: $dom_blob" >&2; exit 1 ;;
+          esac
+          surface_blob="$(git rev-parse HEAD:web/full_product_education.js)"
+          case "$surface_blob" in
+            "$WEB_SURFACE_BLOB"|"$KEYBINDING_WEB_SURFACE_BLOB") ;;
+            *) echo "Unexpected Education surface successor blob: $surface_blob" >&2; exit 1 ;;
+          esac
 
       - name: Compile Education composition
         run: >-
