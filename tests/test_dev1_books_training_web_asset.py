@@ -115,6 +115,7 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('documentSpec.landmark !== "main"', text)
         self.assertIn('documentSpec.lang !== "uk" && documentSpec.lang !== "en"', text)
         self.assertNotIn('const main = node("section")', text)
+        self.assertNotIn(');\\n    main.setAttribute("lang"', text)
 
     def test_malformed_host_events_fail_closed_before_surface_mutation(self) -> None:
         text = self.text
@@ -137,15 +138,26 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn("function requireActions(actions, commands, surface)", text)
         self.assertIn('throw new TypeError(surface + " snapshot actions are incomplete")', text)
         self.assertIn('throw new TypeError(surface + " snapshot action is invalid")', text)
-        self.assertIn('throw new TypeError(surface + " snapshot action command is invalid")', text)
+        self.assertIn('throw new TypeError(surface + " snapshot action command/order is invalid")', text)
         self.assertIn('throw new TypeError(surface + " snapshot action label is invalid")', text)
         self.assertIn('throw new TypeError(surface + " snapshot action enabled flag is invalid")', text)
-        self.assertIn('throw new TypeError("Book snapshot block requires a DOM id")', text)
+        self.assertIn('throw new TypeError("Book snapshot block DOM id is not canonical")', text)
         self.assertIn('requireSnapshotRecord(snapshot, "progress", "Training")', text)
         self.assertIn('requireSnapshotRecord(snapshot, "answer", "Training")', text)
         self.assertIn('requireSnapshotRecord(snapshot, "reset_dialog", "Training")', text)
         self.assertIn('"book.return_from_board"', text)
         self.assertIn('"training.reset.request"', text)
+        self.assertIn('throw new TypeError("Book render focus target is invalid")', text)
+        self.assertIn('throw new TypeError("Book starter material id is duplicated")', text)
+        self.assertIn('throw new TypeError("Book open-position action disagrees with block position state")', text)
+        self.assertIn('throw new TypeError("Training progress counter is invalid")', text)
+        self.assertIn('throw new TypeError("Training step counters are inconsistent")', text)
+        self.assertIn('throw new TypeError("Training completion state is inconsistent")', text)
+        self.assertIn('throw new TypeError("Training render focus target is invalid")', text)
+        self.assertIn('throw new TypeError("Training solution payload is invalid")', text)
+        self.assertIn('action.command !== commands[index]', text)
+        self.assertIn('block.dom_id !== "book-block-" + String(block.index)', text)
+        self.assertIn('catalogue.items.length !== catalogue.booklet_count + 1', text)
 
     def test_book_position_path_has_no_browser_fen_or_direct_board_mutation(self) -> None:
         text = self.text
