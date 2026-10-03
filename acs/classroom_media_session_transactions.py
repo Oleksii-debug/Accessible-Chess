@@ -559,11 +559,11 @@ class ClassroomMediaSessionHostTransactions:
                 )
             try:
                 self._validate_provider_snapshot(pending, provider_snapshot)
-            except Exception as exc:
+            except Exception:
                 self._enter_recovery(pending, provider_outcome_unknown=True)
                 raise MediaHostRecoveryRequired(
                     "media session provider result requires recovery"
-                ) from exc
+                ) from None
             if self._controller.state.revision != pending.base_revision:
                 self._enter_recovery(pending, provider_outcome_unknown=False)
                 raise MediaHostRecoveryRequired(
@@ -574,11 +574,11 @@ class ClassroomMediaSessionHostTransactions:
                     pending.captured,
                     pending.replay,
                 )
-            except Exception as exc:
+            except Exception:
                 self._enter_recovery(pending, provider_outcome_unknown=False)
                 raise MediaHostRecoveryRequired(
                     "provider session succeeded but canonical commit requires recovery"
-                ) from exc
+                ) from None
             self._pending = None
             self._activity_gate.release(self)
             return result
