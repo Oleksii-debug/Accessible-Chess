@@ -154,7 +154,7 @@ class Version2Application:
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
         self.session, self.pgn = session, PgnWebViewBridge(projection)
         self.pgn_board_active = False
-        self.shell.open_route("pgn")
+        self._focus = self.shell.open_route("pgn")
 
     def open_book(self, source: Path):
         self._assert_thread()
@@ -200,7 +200,7 @@ class Version2Application:
         self._persist_book_progress(imported.book_key, reader)
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
         self.training_workspace = self.training = None
-        self.shell.open_route("books")
+        self._focus = self.shell.open_route("books")
         warning_count = len(imported.warnings)
         if warning_count:
             announcement = (
@@ -645,7 +645,14 @@ class Version2Application:
             # the explicit Return re-publishes the canonical origin durably after
             # the safe workflow unwind. Emergency projection-failure unwind stays
             # storage-independent in _recover_book_projection_failure().
-            self.shell.open_route("books")
+            self._focus = self.shell.open_route("books")
+            # Route ownership changed synchronously inside the domain workflow.
+            # Publish one V2 refresh request even if the caller subsequently
+            # reports a persistence error, so the visible/NVDA surface cannot
+            # remain on a Board whose Book workflow has already unwound.
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "books"}}
+            )
         elif event.kind is BookBoardUiEventKind.FAILED:
             self._events.append(self._error())
 
@@ -684,7 +691,10 @@ class Version2Application:
                 self.book_workflow.return_to_book()
             except Exception:
                 return
-            self.shell.open_route("books")
+            self._focus = self.shell.open_route("books")
+            self._events.append(
+                {"kind": "route", "payload": {"route_id": "books"}}
+            )
 
     def _delegate(self, action, payload):
         # Route-changing delegated PGN actions must respect modal focus before
@@ -700,12 +710,12 @@ class Version2Application:
             if payload: raise ValueError("PGN board accepts no payload")
             self._project_pgn_position()
             self.pgn_board_active = True
-            self.shell.open_route("board")
+            self._focus = self.shell.open_route("board")
             return None
         if action == "pgn.return":
             if payload: raise ValueError("PGN return accepts no payload")
             self.pgn_board_active = False
-            self.shell.open_route("pgn")
+            self._focus = self.shell.open_route("pgn")
             return None
         if action in {"pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation"}:
             if payload or not self.pgn_board_active: raise ValueError("no PGN board review")
@@ -743,7 +753,7 @@ class Version2Application:
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
         if action in {"library.search", "library.reset_filters"}:
-            self.shell.open_route("library")
+            self._focus = self.shell.open_route("library")
             return self.library.projection.search(self.library.projection.query) if action.endswith("search") else self.library.projection.reset_filters()
         if action == "library.next_page": return self.library.projection.next_page()
         if action == "library.previous_page": return self.library.projection.previous_page()
@@ -802,8 +812,14 @@ class Version2Application:
                         self._recover_book_projection_failure(before_view)
                         raise
                     self.pgn_board_active = False
-                    self.shell.open_route("board")
+                    self._focus = self.shell.open_route("board")
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED:
+                        # The repaint event and native application focus token
+                        # must agree immediately. A second keyboard/menu action
+                        # before WebView focusin must not write stale Book focus
+                        # into the Board route's focus history.
+                        self.shell.record_focus("board-launcher")
+                        self._focus = "board-launcher"
                         self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
                 if result.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
                     # Returning already discarded only transient Board review and
@@ -874,6 +890,11 @@ class Version2Application:
                     if not self._start_training_from_current_book():
                         raise ValueError("Training exercise is unavailable")
                 value = self.adapter.activate_action(command, current_focus_id=self._focus)
+                if value.kind == "route":
+                    # Router dispatch has already changed shell ownership.
+                    # Synchronize before another keyboard/native action can
+                    # reuse the previous route's focus token.
+                    self._focus = self.shell.restore_focus_target()
                 return asdict(value)
             if area == "training":
                 try:
@@ -942,6 +963,11 @@ class Version2Application:
                     )
                 self._events.append(self._error())
                 return False
+        if value.kind == "route":
+            # Native menu/key routing changes the shell before the queued event
+            # reaches this application boundary. Bind the application token to
+            # the exact new route focus before another native action can arrive.
+            self._focus = self.shell.restore_focus_target()
         event = asdict(value)
         if value.kind == "delegated" and self.books is not None:
             payload = event.get("payload")
