@@ -841,6 +841,83 @@ async function run() {
     "inconsistent Book list metadata did not fail closed accessibly"
   );
 
+  const delegatedRoot = new FakeElement("div");
+  const delegatedAnnouncements = [];
+  const delegatedSnapshot = bookSnapshot(28, "Position handoff");
+  delegatedSnapshot.block.has_position = true;
+  delegatedSnapshot.actions[8].enabled = true;
+  window.AccessibleChessBookSurface.render(
+    delegatedRoot,
+    delegatedSnapshot,
+    (command) => {
+      check(command === "book.open_position", "unexpected delegated Book command");
+      return {
+        kind: "delegated",
+        payload: {
+          action: "book.open_position",
+          announcement: "Position opened"
+        }
+      };
+    },
+    (message) => delegatedAnnouncements.push(String(message)),
+    "book-block-28",
+    "Book delegation failed"
+  );
+  const delegatedBefore = delegatedRoot.querySelector("#book-block-28");
+  find(delegatedRoot, "BUTTON", "Open position").listeners.click();
+  check(
+    delegatedRoot.getAttribute("aria-busy") === "true",
+    "delegated Book action did not publish busy state"
+  );
+  await flushPromises();
+  await flushPromises();
+  check(
+    delegatedRoot.querySelector("#book-block-28") === delegatedBefore,
+    "canonical delegated Book action unexpectedly replaced the reading surface"
+  );
+  check(
+    delegatedRoot.getAttribute("aria-busy") === null,
+    "canonical delegated Book action left the reading surface busy"
+  );
+  check(
+    delegatedAnnouncements.length === 1 &&
+      delegatedAnnouncements[0] === "Position opened",
+    "canonical delegated Book action announcement was lost"
+  );
+
+  const malformedDelegatedRoot = new FakeElement("div");
+  const malformedDelegatedAnnouncements = [];
+  const malformedDelegatedSnapshot = bookSnapshot(29, "Malformed handoff");
+  malformedDelegatedSnapshot.block.has_position = true;
+  malformedDelegatedSnapshot.actions[8].enabled = true;
+  window.AccessibleChessBookSurface.render(
+    malformedDelegatedRoot,
+    malformedDelegatedSnapshot,
+    () => ({
+      kind: "delegated",
+      payload: {
+        action: "board.reset",
+        announcement: "Do not announce malformed delegation"
+      }
+    }),
+    (message) => malformedDelegatedAnnouncements.push(String(message)),
+    "book-block-29",
+    "Book delegation failed"
+  );
+  const malformedDelegatedBefore = malformedDelegatedRoot.querySelector("#book-block-29");
+  find(malformedDelegatedRoot, "BUTTON", "Open position").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedDelegatedRoot.querySelector("#book-block-29") === malformedDelegatedBefore,
+    "malformed delegated Book action mutated the reading surface"
+  );
+  check(
+    malformedDelegatedAnnouncements.length === 1 &&
+      malformedDelegatedAnnouncements[0] === "Book delegation failed",
+    "malformed delegated Book action escaped the fail-closed announcement"
+  );
+
   const focusHijackRoot = new FakeElement("div");
   const focusHijackAnnouncements = [];
   window.AccessibleChessBookSurface.render(
