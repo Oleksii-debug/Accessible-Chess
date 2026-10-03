@@ -828,12 +828,15 @@ class ClassroomMediaPolicyProviderAdmin:
         publication is complete and while the effect mutex is still held.
         """
 
-        operation = asyncio.create_task(
-            self._provider_admin.apply_moderation_command(
+        async def invoke_provider() -> None:
+            # Keep even a malformed synchronous provider implementation inside
+            # the task boundary so its failure is sanitized like async failures.
+            await self._provider_admin.apply_moderation_command(
                 room_id=room_id,
                 command=command,
             )
-        )
+
+        operation = asyncio.create_task(invoke_provider())
         cancelled: asyncio.CancelledError | None = None
         provider_failed = False
         while not operation.done():
