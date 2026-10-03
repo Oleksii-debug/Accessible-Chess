@@ -1,0 +1,97 @@
+name: Library Import Publication Product Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/library_import_service.py'
+      - 'tests/test_d07_library_import_service.py'
+      - 'tests/test_d07_library_import_reuse_final_cancel.py'
+      - '.github/workflows/library-import-publication-product-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-import-publication-product-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    env:
+      EXACT_PARENT: 9f5662b1e744a4af712aaa0631ba10709058ea3b
+      SOURCE_IMPORT_HEAD: dd5799802c978e84a57f4d74e3d9dd542a832912
+      SERVICE_BLOB: 3ff7dfa63e8d587d5688daed21bdbfce30664c1a
+      SERVICE_TEST_BLOB: 881a758831a26253b8d1a244a079badc0e7c663c
+      FINAL_CANCEL_TEST_BLOB: 45843a1c1c25a071f5595adc70f3fd77d9e1546f
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prove exact import successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:acs/library_import_service.py")" = "$SERVICE_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_d07_library_import_service.py")" = "$SERVICE_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_d07_library_import_reuse_final_cancel.py")" = "$FINAL_CANCEL_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/library-import-publication-product-convergence.yml' \
+            'acs/library_import_service.py' \
+            'tests/test_d07_library_import_reuse_final_cancel.py' \
+            'tests/test_d07_library_import_service.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+          echo "SOURCE_IMPORT_HEAD=$SOURCE_IMPORT_HEAD"
+
+      - name: Compile import boundary
+        run: >-
+          python -m compileall -q
+          acs/library_import_service.py
+          tests/test_d07_library_import_service.py
+          tests/test_d07_library_import_reuse_final_cancel.py
+
+      - name: Validate import, ACSDB and Library contracts
+        run: >-
+          python -m unittest -v
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_reuse_final_cancel
+          tests.test_acsdb
+          tests.test_v2_library_search_service_v4
+          tests.test_library_webview_projection
+          tests.test_version2_application
+          tests.test_training_authority_convergence
+          tests.test_dev1_pgn_webview_projection
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_release_accessibility_contract
+
+      - name: Validate current browser stack
+        run: |
+          node --check web/full_product_books_training.js
+          node --check web/full_product_pgn.js
+          node --check web/version2_release_bootstrap.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest
