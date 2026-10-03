@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PRODUCT_SHA: 35d8858de994285ff0fe8911ca68bf80579c93ee
+  EXPECTED_PRODUCT_SHA: 30bb9fca0df3ae9cd7db0588aafbd59845faa77c
 
 jobs:
   keybindings:
@@ -67,6 +67,7 @@ jobs:
               'acs/ui_keymap_editor.py' \
               'tests/js/education_surface_dom_test.js' \
               'tests/js/library_surface_dom_test.js' \
+              'tests/js/p0g_event_aware_announcement_test.js' \
               'tests/js/pgn_surface_dom_test.js' \
               'tests/js/remappable_board_grid_controls_test.js' \
               'tests/js/remappable_input_submit_keys_test.js' \
