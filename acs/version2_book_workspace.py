@@ -371,7 +371,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         can_open_game = isinstance(semantic, Game)
         if isinstance(semantic, (Game, VariationTree)):
             try:
-                snapshot["semantic_tree"] = self._semantic_tree_snapshot(block.index)
+                semantic_tree = self._semantic_tree_snapshot(block.index)
+                expected_kind = "game" if isinstance(semantic, Game) else "variation"
+                if semantic_tree.get("kind") != expected_kind:
+                    raise _BookSemanticProjectionError(
+                        "semantic GameTree mode disagrees with the Book block"
+                    )
+                snapshot["semantic_tree"] = semantic_tree
             except BookBoardWorkflowError as error:
                 if error.code not in {
                     BookBoardWorkflowCode.CONTENT_UNAVAILABLE,
