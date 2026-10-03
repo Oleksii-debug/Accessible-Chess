@@ -36,6 +36,7 @@ BOOK_PROGRESS_STORE_SCHEMA_VERSION = 2
 LEGACY_BOOK_PROGRESS_STORE_SCHEMA_VERSION = 1
 MAX_BOOK_PROGRESS_ENTRIES = 4096
 MAX_BOOK_KEY_CHARS = 256
+MAX_BOOK_PROGRESS_JSON_KEY_CHARS = 4096
 MAX_BOOK_SNAPSHOT_BYTES = 1 * 1024 * 1024
 MAX_BOOK_PROGRESS_STORE_BYTES = 8 * 1024 * 1024
 MAX_BOOK_PROGRESS_GENERATION = (1 << 63) - 1
@@ -161,6 +162,16 @@ def _book_key(value: object) -> str:
 def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
+        # json's object_pairs_hook receives an unhashed sequence of pairs.
+        # Enforce a scalar bound before the first dict membership/insertion so a
+        # malformed file cannot make duplicate detection hash an arbitrarily
+        # large object key first. Legitimate BookReader target keys are already
+        # bounded to 4096 characters, while book keys are stricter (256).
+        if len(key) > MAX_BOOK_PROGRESS_JSON_KEY_CHARS:
+            raise BookProgressStoreError(
+                "book progress JSON object key exceeds the resource limit",
+                code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+            )
         if key in result:
             raise BookProgressStoreError(
                 "book progress store contains duplicate JSON object keys",
