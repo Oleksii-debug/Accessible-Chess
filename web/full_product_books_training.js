@@ -537,10 +537,14 @@
     requireBookSemanticTree(snapshot);
     if (hasBoardState) {
       const boardActive = snapshot.board_active;
-      if (openPosition.enabled !== (block.has_position && !boardActive)) {
+      // The host may safely disable a semantically matching Board handoff when
+      // canonical content validation says that exact Game/Variation cannot be
+      // opened. Browser validation must reject impossible enables, not reject a
+      // fail-closed disable and thereby discard the readable Book fallback.
+      if (openPosition.enabled && (!block.has_position || boardActive)) {
         throw new TypeError("Book open-position action disagrees with board state");
       }
-      if (openGame.enabled !== (block.kind === "Game" && !boardActive)) {
+      if (openGame.enabled && (block.kind !== "Game" || boardActive)) {
         throw new TypeError("Book open-game action disagrees with board state");
       }
       if (returnFromBoard.enabled !== boardActive) {
