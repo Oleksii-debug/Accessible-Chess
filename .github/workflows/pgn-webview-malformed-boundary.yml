@@ -66,10 +66,10 @@ jobs:
           expected="$(printf '%s\n'             '.github/workflows/pgn-webview-malformed-boundary.yml'             'acs/pgn_webview_bridge.py'             'acs/pgn_webview_projection.py'             'tests/js/pgn_surface_dom_test.js'             'tests/test_dev1_pgn_webview_projection.py'             'web/full_product_pgn.js' | sort)"
           test "$changed" = "$expected"
 
-          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "d31daa2e2b7907d63fcf74b662b095552078c211"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "127037cb6cf264f579516df599bf8c1ad44e8985"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "25b3d03179f42b4565a4dd6d7a2ccd283607e09c"
           test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "39077a843aefc424801bd96b41bfc81e784ac597"
-          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "ebf55eabf63a479a52e5a20175c5dc9499d050ce"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e"
           test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "61a148bf2a1282f4eba11104aab462f10e6c263c"
 
           echo 'PGN_WEBVIEW_MALFORMED_BOUNDARY_SCOPE=PASS'
