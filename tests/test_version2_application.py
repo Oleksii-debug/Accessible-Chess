@@ -98,7 +98,19 @@ class Version2ApplicationTests(unittest.TestCase):
 
     def _open_book_game(self):
         book = self.root / "study.md"
-        book.write_text("# Навчання\n\nТекст\n\n```pgn\n" + PGN + "```\n\nПісля\n", encoding="utf-8")
+        book_pgn = (
+            '[Event "Україна"]\n'
+            '[White "Петренко"]\n'
+            '[Black "Smith"]\n'
+            '[Result "*"]\n\n'
+            '{Intro C:\\\\private\\\\root.txt} '
+            '1. e4 {before} (1. d4 $1 d5) e5 * '
+            '{Outro /home/private/tail.txt}\n'
+        )
+        book.write_text(
+            "# Навчання\n\nТекст\n\n```pgn\n" + book_pgn + "```\n\nПісля\n",
+            encoding="utf-8",
+        )
         self.app.open_book_dialog = lambda: book
         self.assertEqual(self.app.browser_command("shell", "book.open")["kind"], "delegated")
         self.app.browser_command("books", "book.next_game")
@@ -112,6 +124,11 @@ class Version2ApplicationTests(unittest.TestCase):
         tree = book["block"].get("semantic_tree")
 
         self.assertIsInstance(tree, dict)
+        self.assertEqual(tree["players"], "Петренко — Smith")
+        self.assertEqual(len(tree["intro_comments"]), 1)
+        self.assertIn("Intro", tree["intro_comments"][0])
+        self.assertEqual(len(tree["outro_comments"]), 1)
+        self.assertIn("Outro", tree["outro_comments"][0])
         self.assertGreaterEqual(len(tree["items"]), 5)
         self.assertIn("e4", tree["items"][0]["label"])
         self.assertEqual(tree["items"][1]["kind"], "variation")
@@ -120,6 +137,8 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("$1", tree["items"][2]["label"])
         serialized = json.dumps(book, ensure_ascii=False)
         self.assertNotIn("[Event", serialized)
+        self.assertNotIn("C:\\\\private", serialized)
+        self.assertNotIn("/home/private", serialized)
         self.assertNotIn(str(self.root), serialized)
         self.assertEqual(self.app.reader.location(), origin)
         self.assertFalse(self.app.book_workflow.active)
