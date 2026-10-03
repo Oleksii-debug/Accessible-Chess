@@ -888,7 +888,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.INVALID_ARGUMENT)
         self.assertEqual(store.path.read_bytes(), corrupt_primary)
 
-    def test_book_board_open_republishes_exact_durable_origin_before_ownership(self):
+    def test_book_board_open_and_return_publish_exact_origin_once_each(self):
         _book, origin = self._open_book_game()
         before = self.app.reader.snapshot()
         real_save = self.app.progress_store.save
@@ -900,12 +900,22 @@ class Version2ApplicationTests(unittest.TestCase):
         ) as save:
             opened = self.app.browser_command("books", "book.open_position")
 
-        self.assertEqual("delegated", opened["kind"])
-        save.assert_called_once_with(self.app.book_key, self.app.reader)
-        self.assertTrue(self.app.book_workflow.active)
-        self.assertEqual("board", self.app.shell.current_route.route_id)
-        self.assertEqual(origin, self.app.reader.location())
-        self.assertEqual(before, self.app.reader.snapshot())
+            self.assertEqual("delegated", opened["kind"])
+            save.assert_called_once_with(self.app.book_key, self.app.reader)
+            self.assertTrue(self.app.book_workflow.active)
+            self.assertEqual("board", self.app.shell.current_route.route_id)
+            self.assertEqual(origin, self.app.reader.location())
+            self.assertEqual(before, self.app.reader.snapshot())
+
+            save.reset_mock()
+            returned = self.app.browser_command("books", "book.return_from_board")
+
+            self.assertEqual("render", returned["kind"])
+            save.assert_called_once_with(self.app.book_key, self.app.reader)
+            self.assertFalse(self.app.book_workflow.active)
+            self.assertEqual("books", self.app.shell.current_route.route_id)
+            self.assertEqual(origin, self.app.reader.location())
+            self.assertEqual(before, self.app.reader.snapshot())
 
     def test_book_open_fails_closed_when_release_board_rejects_position(self):
         _book, origin = self._open_book_game()
