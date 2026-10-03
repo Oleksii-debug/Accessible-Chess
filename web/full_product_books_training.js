@@ -63,9 +63,17 @@
   function semanticTextArray(value, name, budget) {
     if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) throw new TypeError(name + " must be an array");
-    return value.map(function (item) {
-      return semanticText(item, name, budget);
-    });
+    if (value.length > MAX_BOOK_SEMANTIC_TEXT_ENTRIES) {
+      throw new TypeError(name + " has too many entries");
+    }
+    const out = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(value, index)) {
+        throw new TypeError(name + " must be dense");
+      }
+      out.push(semanticText(value[index], name, budget));
+    }
+    return out;
   }
 
   function semanticDetails(value, budget) {
@@ -74,8 +82,13 @@
     if (value.length > MAX_BOOK_SEMANTIC_DETAILS) {
       throw new TypeError("book semantic details limit exceeded");
     }
-    return value.map(function (item) {
-      if (!item || typeof item !== "object") {
+    const out = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(value, index)) {
+        throw new TypeError("book semantic details must be dense");
+      }
+      const item = value[index];
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("book semantic detail must be an object");
       }
       const label = semanticText(item.label, "book semantic detail label", budget);
@@ -83,8 +96,9 @@
       if (!label.trim() || !detailValue.trim()) {
         throw new TypeError("book semantic detail must contain visible text");
       }
-      return { label: label, value: detailValue };
-    });
+      out.push({ label: label, value: detailValue });
+    }
+    return out;
   }
 
   function appendSemanticDetails(container, label, items, headingId) {
@@ -193,6 +207,11 @@
     const items = semantic.items;
     if (items.length > MAX_BOOK_SEMANTIC_ITEMS) {
       throw new TypeError("book semantic item limit exceeded");
+    }
+    for (let index = 0; index < items.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(items, index)) {
+        throw new TypeError("book semantic items must be dense");
+      }
     }
     const rootList = node("ol");
     rootList.setAttribute("aria-labelledby", heading.id);

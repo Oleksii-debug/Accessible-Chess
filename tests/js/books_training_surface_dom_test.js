@@ -557,6 +557,49 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed after-move comments must not steal reading focus");
 
+  const sparseItems = semanticGameSnapshot();
+  delete sparseItems.block.semantic_tree.items[2];
+  let sparseItemsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      sparseItems,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    sparseItemsRejected = true;
+  }
+  check(sparseItemsRejected, "sparse semantic item arrays must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "sparse semantic items must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "sparse semantic items must not steal reading focus");
+
+  const sparseComments = semanticGameSnapshot();
+  sparseComments.block.semantic_tree.items[0].comments_before = new Array(2);
+  sparseComments.block.semantic_tree.items[0].comments_before[1] = "late";
+  let sparseCommentsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      sparseComments,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    sparseCommentsRejected = true;
+  }
+  check(sparseCommentsRejected, "sparse semantic comment arrays must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "sparse semantic comments must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "sparse semantic comments must not steal reading focus");
+
   const malformedAlternation = semanticGameSnapshot();
   malformedAlternation.block.semantic_tree.items[1].kind = "move";
   let malformedAlternationRejected = false;
