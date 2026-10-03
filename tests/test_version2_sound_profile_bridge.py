@@ -155,8 +155,25 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
         self.assertIn("refreshed", result["message"].lower())
 
     def test_future_schema_bridge_blocks_mutations_and_returns_authoritative_snapshot(self) -> None:
-        api, manager, playback = _api()
-        manager._writes_blocked = True
+        future = {"schema_version": 999, "pack_id": "classic", "opaque": {"x": 1}}
+        storage = _Storage()
+        storage.raw = future
+        manager = SoundProfileManager(storage, lambda _requested: "classic")
+        loaded = manager.load()
+        self.assertTrue(loaded.writes_blocked)
+        self.assertFalse(loaded.profile.master_enabled)
+
+        playback = _Playback()
+        runtime = ProfiledSoundRuntime(playback, manager.profile_provider)
+        settings = SoundSettingsApplication(manager, runtime)
+        api = object.__new__(Version2ReleaseAccessibleChessAPI)
+        api._ui_thread = threading.get_ident()
+        api._ui_owner = None
+        api._ui_action = None
+        api._ui_closed = False
+        api.lang = "en"
+        api._sound_settings_application = None
+        api.bind_sound_settings_application(settings)
         before = manager.current
 
         cases = (
@@ -171,15 +188,20 @@ class Version2SoundProfileBridgeTests(unittest.TestCase):
                 result = api.sound_settings_command(command, payload)
                 self.assertFalse(result["ok"])
                 self.assertTrue(result["snapshot"]["writes_blocked"])
+                self.assertFalse(result["snapshot"]["master_enabled"])
                 self.assertEqual("classic", result["snapshot"]["active_pack_id"])
                 self.assertEqual(before, manager.current)
+                self.assertEqual(future, storage.raw)
 
         self.assertEqual([], playback.requests)
 
         preview = api.sound_settings_command("preview", {"event_id": "move"})
         self.assertTrue(preview["ok"])
         self.assertTrue(preview["snapshot"]["writes_blocked"])
-        self.assertEqual(1, len(playback.requests))
+        self.assertFalse(preview["snapshot"]["master_enabled"])
+        self.assertIn("muted", preview["message"].lower())
+        self.assertEqual([], playback.requests)
+        self.assertEqual(future, storage.raw)
 
     def test_browser_pack_commands_route_only_closed_world_payloads(self) -> None:
         api, manager, _ = _api()
