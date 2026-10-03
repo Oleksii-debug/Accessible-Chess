@@ -554,37 +554,66 @@ def _require_package_file(
     return path
 
 
+def _has_windows_pe_structure_handle(handle) -> bool:
+    """Recognize the bounded PE structure from one already-open file identity."""
+
+    handle.seek(0)
+    dos_header = handle.read(64)
+    if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+        return False
+    pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+    handle.seek(0, os.SEEK_END)
+    file_size = handle.tell()
+    if pe_offset < 0x40 or pe_offset > file_size - 24:
+        return False
+    handle.seek(pe_offset)
+    pe_header = handle.read(24)
+    if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
+        return False
+
+    machine = int.from_bytes(pe_header[4:6], "little")
+    section_count = int.from_bytes(pe_header[6:8], "little")
+    optional_header_size = int.from_bytes(pe_header[20:22], "little")
+    characteristics = int.from_bytes(pe_header[22:24], "little")
+    if (
+        machine == 0
+        or section_count == 0
+        or optional_header_size < 2
+        or not characteristics & 0x0002
+        or pe_offset + 24 + optional_header_size > file_size
+    ):
+        return False
+
+    optional_magic = handle.read(2)
+    return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
+
+
 def _has_windows_pe_structure(path: Path) -> bool:
-    """Recognize the bounded PE structure used by package validation and hygiene."""
-    with path.open("rb") as handle:
-        dos_header = handle.read(64)
-        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
-            return False
-        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-        handle.seek(0, os.SEEK_END)
-        file_size = handle.tell()
-        if pe_offset < 0x40 or pe_offset > file_size - 24:
-            return False
-        handle.seek(pe_offset)
-        pe_header = handle.read(24)
-        if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
-            return False
+    """Recognize PE structure while rejecting pathname identity changes."""
 
-        machine = int.from_bytes(pe_header[4:6], "little")
-        section_count = int.from_bytes(pe_header[6:8], "little")
-        optional_header_size = int.from_bytes(pe_header[20:22], "little")
-        characteristics = int.from_bytes(pe_header[22:24], "little")
+    before = _safe_lstat(path, label="Windows PE candidate")
+    if not stat.S_ISREG(before.st_mode):
+        _fail("Windows PE candidate must be a regular file")
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail("Windows PE candidate must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail("Windows PE candidate changed while being opened")
+        result = _has_windows_pe_structure_handle(source)
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label="Windows PE candidate")
         if (
-            machine == 0
-            or section_count == 0
-            or optional_header_size < 2
-            or not characteristics & 0x0002
-            or pe_offset + 24 + optional_header_size > file_size
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
         ):
-            return False
-
-        optional_magic = handle.read(2)
-        return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
+            _fail("Windows PE candidate changed while being inspected")
+        return result
+    finally:
+        if source is not None:
+            source.close()
 
 
 def _validate_windows_pe_executable(path: Path, *, label: str) -> None:
@@ -1281,38 +1310,58 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         tail = b""
+        source = None
         try:
-            # A PE image can legitimately contain compiler/debug build paths.  Do
-            # not classify those embedded binary strings as package text merely
-            # because UTF-8 error-ignoring happens to expose them.  This is
-            # structure-based, not suffix-only: text renamed to .dll/.exe still
-            # follows the normal path-leak gate.  Credential signatures remain
-            # scanned even inside recognized PE images.
+            before = _safe_lstat(path, label=f"package hygiene file: {relative}")
+            if not stat.S_ISREG(before.st_mode):
+                _fail(f"package hygiene file must be regular: {relative}")
+            source = path.open("rb")
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                _fail(f"package hygiene file must remain regular: {relative}")
+            if not _same_file_snapshot(before, opened):
+                _fail(f"package hygiene file changed while being opened: {relative}")
+
+            # Classify and scan the exact same open identity.  A PE image can
+            # legitimately contain compiler/debug build paths, but credential
+            # signatures remain scanned even inside recognized PE images.
             is_pe_binary = (
                 PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
-                and _has_windows_pe_structure(path)
+                and _has_windows_pe_structure_handle(source)
             )
-            with path.open("rb") as handle:
-                while True:
-                    block = handle.read(chunk_size)
-                    if not block:
-                        break
-                    window = tail + block
-                    # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
-                    # without treating a large file as a scan exemption.
-                    text = window.decode("utf-8", errors="ignore")
-                    if (
-                        not is_pe_binary
-                        and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
-                    ):
-                        _fail(f"private local path leaked into package text: {relative}")
-                    if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
-                        _fail(f"secret-like credential leaked into package text: {relative}")
-                    tail = window[-overlap_bytes:]
+            source.seek(0)
+            scanned = 0
+            while True:
+                block = source.read(chunk_size)
+                if not block:
+                    break
+                scanned += len(block)
+                window = tail + block
+                text = window.decode("utf-8", errors="ignore")
+                if (
+                    not is_pe_binary
+                    and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
+                ):
+                    _fail(f"private local path leaked into package text: {relative}")
+                if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
+                    _fail(f"secret-like credential leaked into package text: {relative}")
+                tail = window[-overlap_bytes:]
+
+            after_read = os.fstat(source.fileno())
+            after_path = _safe_lstat(path, label=f"package hygiene file: {relative}")
+            if (
+                not _same_file_snapshot(opened, after_read)
+                or not _same_file_snapshot(after_read, after_path)
+                or scanned != int(after_read.st_size)
+            ):
+                _fail(f"package hygiene file changed while being scanned: {relative}")
         except Version2PackagePreflightError:
             raise
         except OSError as exc:
             _fail(f"package hygiene scan failed: {type(exc).__name__}")
+        finally:
+            if source is not None:
+                source.close()
 
 
 def _normalize_expected_integration_sha(value: str) -> str:
