@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import subprocess
 import sys
 import tempfile
@@ -352,6 +353,54 @@ class DurableChatOutboxTests(unittest.TestCase):
         self.assertNotIn("distinct", slot_name)
         self.assertNotIn("message", slot_name)
         self.assertTrue(slot_name.endswith("-00"))
+
+    def test_peer_lock_rejects_symlink_without_touching_target(self) -> None:
+        outbox = self.outbox()
+        target = Path(self.temp.name) / "unrelated.bin"
+        target.write_bytes(b"unchanged")
+        try:
+            outbox._lock_path.symlink_to(target)
+        except (OSError, NotImplementedError):
+            return
+
+        with self.assertRaisesRegex(
+            DurableChatOutboxError,
+            "regular unlinked file",
+        ):
+            outbox.prepare(
+                ChatDraft(
+                    message_id="message-symlink-lock",
+                    room_id="room-1",
+                    sender_id="student-1",
+                    body="No lock-path traversal",
+                )
+            )
+        self.assertEqual(target.read_bytes(), b"unchanged")
+        self.assertEqual(self.secrets.values, {})
+
+    def test_peer_lock_rejects_hardlink_without_touching_target(self) -> None:
+        outbox = self.outbox()
+        target = Path(self.temp.name) / "unrelated-hardlink.bin"
+        target.write_bytes(b"unchanged")
+        try:
+            os.link(target, outbox._lock_path)
+        except (OSError, NotImplementedError):
+            return
+
+        with self.assertRaisesRegex(
+            DurableChatOutboxError,
+            "regular unlinked file",
+        ):
+            outbox.prepare(
+                ChatDraft(
+                    message_id="message-hardlink-lock",
+                    room_id="room-1",
+                    sender_id="student-1",
+                    body="No hardlink alias",
+                )
+            )
+        self.assertEqual(target.read_bytes(), b"unchanged")
+        self.assertEqual(self.secrets.values, {})
 
     def test_peer_lock_blocks_second_process_before_slot_mutation(self) -> None:
         outbox = self.outbox()
