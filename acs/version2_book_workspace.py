@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from .book_board_workflow import (
+    BookBoardMode,
     BookBoardWorkflow,
     BookBoardWorkflowCode,
     BookBoardWorkflowError,
@@ -87,8 +88,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        if (
+            type(mode) is not BookBoardMode
+            or mode not in {BookBoardMode.GAME, BookBoardMode.VARIATION}
+        ):
+            raise _BookSemanticProjectionError("semantic GameTree mode is invalid")
         if type(game) is not PgnGame:
             raise _BookSemanticProjectionError("semantic GameTree game is invalid")
+        if type(game.line) is not VariationLine:
+            raise _BookSemanticProjectionError("semantic GameTree root line is invalid")
         if (
             type(game.tags) is not dict
             or len(game.tags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
