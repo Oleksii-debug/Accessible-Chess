@@ -35,13 +35,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
       - name: Prove exact candidate
-        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
-          test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
-          git fetch --no-tags origin "refs/heads/${{ github.event.pull_request.base.ref }}"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
+          fi
+          product_ref='work/full-product-teacher-education-reachability-20260911'
+          git fetch --no-tags origin "refs/heads/$product_ref"
           live_product="$(git rev-parse FETCH_HEAD)"
           test "$live_product" = "$CURRENT_PRODUCT_BASE" || {
             printf 'Pinned Product is stale: pinned=%s live=%s\n' "$CURRENT_PRODUCT_BASE" "$live_product" >&2
