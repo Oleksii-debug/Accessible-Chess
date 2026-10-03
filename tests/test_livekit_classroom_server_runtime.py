@@ -7,6 +7,7 @@ import unittest
 
 from acs.livekit_classroom_moderation_admin import LIVEKIT_API_VERSION
 from acs.livekit_classroom_server_runtime import (
+    LiveKitClassroomServerCleanupCancelled,
     LiveKitClassroomServerRuntime,
     LiveKitClassroomServerRuntimeError,
     MAX_PROVIDER_CREDENTIAL_CHARS,
@@ -242,6 +243,51 @@ class LiveKitClassroomServerRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "runtime is closed",
         ):
             _ = cleanup.moderation_admin
+
+    async def test_cancelled_initialization_cleanup_preserves_retryable_owner(self):
+        cleanup_started = asyncio.Event()
+
+        class BadClient(FakeLiveKitClient):
+            instances = []
+
+            def __init__(self, url, *, api_key, api_secret):
+                super().__init__(url, api_key=api_key, api_secret=api_secret)
+                self.room = object()
+
+            async def aclose(self):
+                self.close_calls += 1
+                if self.close_calls == 1:
+                    cleanup_started.set()
+                    await asyncio.Future()
+
+        class BadApi(ModerationFakeApi):
+            LiveKitAPI = BadClient
+
+        opening = asyncio.create_task(
+            self.open(
+                api_module=BadApi,
+                sdk_version=LIVEKIT_API_VERSION,
+            )
+        )
+        await cleanup_started.wait()
+        opening.cancel()
+        with self.assertRaises(LiveKitClassroomServerCleanupCancelled) as caught:
+            await opening
+
+        cleanup = caught.exception.cleanup_runtime
+        self.assertFalse(cleanup.closed)
+        self.assertIn("state='cleanup_required'", repr(cleanup))
+        with self.assertRaisesRegex(
+            LiveKitClassroomServerRuntimeError,
+            "requires cleanup",
+        ):
+            _ = cleanup.moderation_admin
+
+        client = BadClient.instances[0]
+        self.assertEqual(client.close_calls, 1)
+        await cleanup.aclose()
+        self.assertEqual(client.close_calls, 2)
+        self.assertTrue(cleanup.closed)
 
     async def test_successful_initialization_cleanup_does_not_publish_cleanup_owner(self):
         class BadClient(FakeLiveKitClient):
