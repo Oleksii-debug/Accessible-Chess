@@ -256,7 +256,7 @@ def _validate_event_paths(destination: Path) -> None:
         if options[0][1] != default_file:
             raise SoundPackBuildError(f"variant 1 must be the default sound for {event}")
         for _variant_id, file_name, _uk, _en in options:
-            path = staging / Path(file_name)
+            path = destination / Path(file_name)
             if not path.is_file():
                 raise SoundPackBuildError(f"missing sound variant: {file_name}")
             info = _wave_info(path)
@@ -293,7 +293,7 @@ def _build_sound_pack_unchecked(
             report = _build_sound_pack_unchecked(extracted, destination)
             report["source_archive_sha256"] = archive_sha256
             report["source_archive_bytes"] = source.stat().st_size
-            (staging / "inventory.json").write_text(
+            (destination / "inventory.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
@@ -359,7 +359,7 @@ def _build_sound_pack_unchecked(
                 "source sound inventory does not match the exact user-supplied archive"
             )
 
-        _validate_event_paths(destination)
+        _validate_event_paths(staging)
         for event, by_variant in SOUND_LAYERS.items():
             variants_for_event = {
                 variant_id: file_name
