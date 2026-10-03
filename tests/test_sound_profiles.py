@@ -148,6 +148,9 @@ class SoundPackManifestTests(unittest.TestCase):
             ("title", "Visible\nSpoofed", "control characters"),
             ("author", "Author\tHidden", "control characters"),
             ("provenance", "source\u2028second-line", "control characters"),
+            ("title", "Normal\u202eesrever", "control characters"),
+            ("author", "Visible\u200bHidden", "control characters"),
+            ("license_id", "CC0\u200e-1.0", "control characters"),
         )
         for field, value, message in cases:
             with self.subTest(field=field, value=value[:20]), self.assertRaisesRegex(
