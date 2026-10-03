@@ -209,6 +209,11 @@ jobs:
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$DURABILITY_NAVIGATION_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$DURABILITY_NAVIGATION_APPLICATION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "b91ec11dd370f7c1e30d3670f003ac2970c3f540"
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "2385b9748995f7dfdc97b10bf42ea916bb8ba46e"
+            test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "1b21657a191fa0a76cd5fa5306f75600fed34b58"
+            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "66ee8f2f4f560070fc320079ab7dfdf93a938693"
+            test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "e82efbfd6c31c0afa78d54e1ce98e42c79c02fd7"
             durability_navigation_convergence=true
           fi
 
