@@ -1480,7 +1480,7 @@ class FilesystemSoundPackStore:
         if identity in self._built_in:
             raise SoundPackStoreError("built-in sound pack id is immutable")
         pack_dir = self._pack_dir(identity)
-        if not pack_dir.exists():
+        if not os.path.lexists(pack_dir):
             return
         with self._exclusive_mutation():
             self._uninstall_locked(identity)
@@ -1488,7 +1488,7 @@ class FilesystemSoundPackStore:
     def _uninstall_locked(self, pack_id: str) -> None:
         identity = _stable_id(pack_id, allow_dot=True)
         pack_dir = self._pack_dir(identity)
-        if not pack_dir.exists():
+        if not os.path.lexists(pack_dir):
             return
         self._remove_without_following(pack_dir)
         _fsync_directory(self.root)
