@@ -452,7 +452,21 @@ class Version2FinalProductApplication(Version2Application):
         result = super().snapshot()
         media_snapshot: dict[str, object] | None = None
         media_recovery_required = False
-        if self.media is not None:
+        media_transaction_active = (
+            self.media_transactions is not None
+            and self.media_transactions.binder.active_lease is not None
+        )
+        provider_recovery_required = (
+            self.media_transactions is not None
+            and self.media_transactions.binder.recovery_status is not None
+        )
+        if provider_recovery_required:
+            media_recovery_required = True
+        elif media_transaction_active:
+            # Independent whole-product refreshes must not repaint actionable
+            # media controls around the one globally serialized provider lease.
+            pass
+        elif self.media is not None:
             try:
                 media_snapshot = self.media.projection.snapshot()
             except Exception:
@@ -479,18 +493,13 @@ class Version2FinalProductApplication(Version2Application):
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
                     "media_binding_active": self.media is not None,
-                    "media_recovery_required": (
-                        media_recovery_required
-                        or (
-                            self.media_transactions is not None
-                            and self.media_transactions.binder.recovery_status is not None
-                        )
-                    ),
-                    "remote_transport": (
-                        "livekit_transactional"
-                        if self.media_transactions is not None
-                        else "not_approved"
-                    ),
+                    "media_transaction_active": media_transaction_active,
+                    "media_recovery_required": media_recovery_required,
+                    "media_provider_composed": self.media_transactions is not None,
+                    # Composition is not transport acceptance. Keep this gate
+                    # truthful until packaged two-client and NVDA/Windows
+                    # qualification is recorded.
+                    "remote_transport": "not_approved",
                 },
             }
         )
