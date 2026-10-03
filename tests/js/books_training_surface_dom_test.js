@@ -267,6 +267,44 @@ async function flushPromises() {
 async function run() {
   const announcements = [];
   const announce = (message) => announcements.push(String(message));
+
+  async function expectBookSnapshotRejected(candidate, index, label, fallbackMessage) {
+    const root = new FakeElement("div");
+    const localAnnouncements = [];
+    window.AccessibleChessBookSurface.render(
+      root,
+      bookSnapshot(index, "Stable " + label),
+      () => ({
+        kind: "render",
+        payload: {
+          snapshot: candidate,
+          focus_target: "book-block-" + String(index)
+        }
+      }),
+      (message) => localAnnouncements.push(String(message)),
+      "book-block-" + String(index),
+      fallbackMessage
+    );
+    const stable = root.querySelector("#book-block-" + String(index));
+    check(stable !== null, label + " stable Book block missing");
+    check(document.activeElement === stable, label + " stable Book focus missing");
+    find(root, "BUTTON", "Next").listeners.click();
+    await flushPromises();
+    await flushPromises();
+    check(
+      root.querySelector("#book-block-" + String(index)) === stable,
+      label + " replaced the stable Book DOM"
+    );
+    check(
+      document.activeElement === stable,
+      label + " disturbed the stable Book focus"
+    );
+    check(
+      localAnnouncements.length === 1 &&
+        localAnnouncements[0] === fallbackMessage,
+      label + " did not fail closed accessibly"
+    );
+  }
   const trainingRoot = new FakeElement("div");
   let accepted = false;
   const trainingInvoke = (command, payload) => {
@@ -1053,6 +1091,137 @@ async function run() {
     variationEntry.children.indexOf(variationResult) <
       variationEntry.children.indexOf(variationTail),
     "variation trailing comment was read before its canonical result terminator"
+  );
+
+  const missingSemanticState = bookSnapshot(41, "Missing semantic state");
+  missingSemanticState.block.kind = "Game";
+  missingSemanticState.block.role = "group";
+  missingSemanticState.block.title = "Missing semantic state";
+  missingSemanticState.actions[9].enabled = true;
+  await expectBookSnapshotRejected(
+    missingSemanticState,
+    41,
+    "semantic Game without semantic_tree",
+    "Missing semantic state failed"
+  );
+
+  const silentSemanticFallback = bookSnapshot(42, "Silent semantic fallback");
+  silentSemanticFallback.block.kind = "Game";
+  silentSemanticFallback.block.role = "group";
+  silentSemanticFallback.block.title = "Silent semantic fallback";
+  silentSemanticFallback.actions[9].enabled = true;
+  silentSemanticFallback.semantic_tree = null;
+  await expectBookSnapshotRejected(
+    silentSemanticFallback,
+    42,
+    "semantic fallback without warning",
+    "Silent semantic fallback failed"
+  );
+
+  const nonSemanticTreeState = bookSnapshot(43, "Paragraph semantic drift");
+  nonSemanticTreeState.semantic_tree = null;
+  await expectBookSnapshotRejected(
+    nonSemanticTreeState,
+    43,
+    "non-semantic block carrying semantic state",
+    "Paragraph semantic drift failed"
+  );
+
+  const extraTreeField = bookSnapshot(44, "Extra semantic tree field");
+  extraTreeField.block.kind = "Game";
+  extraTreeField.block.role = "group";
+  extraTreeField.block.title = "Extra semantic tree field";
+  extraTreeField.actions[9].enabled = true;
+  extraTreeField.semantic_tree = semanticBookTree("game");
+  extraTreeField.semantic_tree.unexpected = "schema drift";
+  await expectBookSnapshotRejected(
+    extraTreeField,
+    44,
+    "semantic tree with unexpected field",
+    "Semantic tree field failed"
+  );
+
+  const extraItemField = bookSnapshot(45, "Extra semantic item field");
+  extraItemField.block.kind = "Game";
+  extraItemField.block.role = "group";
+  extraItemField.block.title = "Extra semantic item field";
+  extraItemField.actions[9].enabled = true;
+  extraItemField.semantic_tree = semanticBookTree("game");
+  extraItemField.semantic_tree.items[0].unexpected = "schema drift";
+  await expectBookSnapshotRejected(
+    extraItemField,
+    45,
+    "semantic item with unexpected field",
+    "Semantic item field failed"
+  );
+
+  const lostBoardHandoff = bookSnapshot(46, "Lost Board handoff");
+  lostBoardHandoff.block.kind = "Game";
+  lostBoardHandoff.block.role = "group";
+  lostBoardHandoff.block.title = "Lost Board handoff";
+  lostBoardHandoff.semantic_tree = semanticBookTree("game");
+  lostBoardHandoff.board_active = false;
+  lostBoardHandoff.actions[9].enabled = false;
+  lostBoardHandoff.actions[10].enabled = false;
+  await expectBookSnapshotRejected(
+    lostBoardHandoff,
+    46,
+    "readable Game with disabled Board handoff",
+    "Board handoff failed"
+  );
+
+  const explicitContentFallbackRoot = new FakeElement("div");
+  const explicitContentFallback = bookSnapshot(47, "Unavailable game content");
+  explicitContentFallback.block.kind = "Game";
+  explicitContentFallback.block.role = "group";
+  explicitContentFallback.block.title = "Unavailable game content";
+  explicitContentFallback.block.warning =
+    "Chess content is unavailable; opening it on the board is disabled.";
+  explicitContentFallback.semantic_tree = null;
+  explicitContentFallback.board_active = false;
+  explicitContentFallback.actions[9].enabled = false;
+  explicitContentFallback.actions[10].enabled = false;
+  window.AccessibleChessBookSurface.render(
+    explicitContentFallbackRoot,
+    explicitContentFallback,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    announce,
+    "book-block-47",
+    "Explicit fallback failed"
+  );
+  check(
+    explicitContentFallbackRoot.querySelector("#book-block-47") !== null &&
+      find(
+        explicitContentFallbackRoot,
+        "P",
+        "Chess content is unavailable; opening it on the board is disabled."
+      ) !== null,
+    "explicit semantic content fallback was rejected"
+  );
+
+  const presentationFallbackRoot = new FakeElement("div");
+  const presentationFallback = bookSnapshot(48, "Reading fallback");
+  presentationFallback.block.kind = "Game";
+  presentationFallback.block.role = "group";
+  presentationFallback.block.title = "Reading fallback";
+  presentationFallback.block.warning =
+    "Moves cannot be displayed safely; the board remains available.";
+  presentationFallback.semantic_tree = null;
+  presentationFallback.board_active = false;
+  presentationFallback.actions[9].enabled = true;
+  presentationFallback.actions[10].enabled = false;
+  window.AccessibleChessBookSurface.render(
+    presentationFallbackRoot,
+    presentationFallback,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    announce,
+    "book-block-48",
+    "Presentation fallback failed"
+  );
+  check(
+    presentationFallbackRoot.querySelector("#book-block-48") !== null &&
+      find(presentationFallbackRoot, "BUTTON", "Open game") !== null,
+    "presentation-only fallback lost its available Board handoff"
   );
 
   const malformedSemanticRoot = new FakeElement("div");
