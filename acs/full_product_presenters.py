@@ -325,20 +325,23 @@ class LibraryPresenter:
 
     def search(self, query: GameSearchQuery | None = None) -> LibraryView:
         q = (query or GameSearchQuery()).normalized()
-        self._status = SurfaceStatus.LOADING
-        self._message = ""
         try:
             page = self._service.search(q)
         except Exception as exc:
-            self._pages = []
-            self._page_index = -1
-            self._selected_game_id = None
-            self._status = SurfaceStatus.ERROR
-            self._message = concise_user_error(exc, language=self._language)
-            return self.view()
+            # Treat a failed replacement search as a rejected transaction.
+            # Preserve the last committed page, selection, status and cache so
+            # native/global callers cannot silently destroy hidden Library state.
+            # Return a transient error view for the attempted operation instead.
+            current = self.view()
+            return replace(
+                current,
+                status=SurfaceStatus.ERROR,
+                message=concise_user_error(exc, language=self._language),
+            )
         self._pages = [(q, page)]
         self._page_index = 0
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
+        self._message = ""
         self._stabilize_selection(page)
         return self.view()
 
