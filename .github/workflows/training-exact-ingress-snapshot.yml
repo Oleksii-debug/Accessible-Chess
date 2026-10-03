@@ -28,11 +28,11 @@ jobs:
     timeout-minutes: 55
     env:
       EXACT_PARENT: cf69f13cf4f7fa774ece00a25112146bc8adb71d
-      TRAINING_BLOB: 3c410517e162089865cd87010b496daa6e27bcd5
-      PRESENTER_BLOB: 66c34320275c2fff824570fa2aee71b8d0be3f7f
+      TRAINING_BLOB: 362778d8679c5c98636e9c6f0259d991cb0571f6
+      PRESENTER_BLOB: a8cf2dd078ddbb71be4c12b4ec76b821292ee6f0
       PROJECTION_BLOB: 1dcbdf3d4f0b80a08ade93cb2d3bacc6c139e6a5
       RESUME_TEST_BLOB: a07947fea8ab2e8e6778ba7d6f95f8cdc123030f
-      PROJECTION_TEST_BLOB: 39f2a91d970e493e35c2458e7ae032381d8e6db1
+      PROJECTION_TEST_BLOB: 4d0d364bd86d32def129d0e6f877aeb3129b5373
     steps:
       - uses: actions/checkout@v4
         with:
