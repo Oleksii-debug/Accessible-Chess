@@ -156,10 +156,15 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('"book.return_from_board"', text)
         self.assertIn('"training.reset.request"', text)
         self.assertIn('throw new TypeError("Book render focus target is invalid")', text)
-        self.assertIn('payload.action !== "book.open_position"', text)
+        self.assertIn(
+            'payload.action !== "book.open_position" && payload.action !== "book.open_game"',
+            text,
+        )
         self.assertIn('throw new TypeError("Book delegated action is invalid")', text)
         self.assertIn('throw new TypeError("Book starter material id is duplicated")', text)
         self.assertIn('throw new TypeError("Book open-position action disagrees with block position state")', text)
+        self.assertIn('throw new TypeError("Book open-game action disagrees with block game state")', text)
+        self.assertIn('"book.open_game"', text)
         self.assertIn('throw new TypeError("Training progress counter is invalid")', text)
         self.assertIn('throw new TypeError("Training step counters are inconsistent")', text)
         self.assertIn('throw new TypeError("Training completion state is inconsistent")', text)
