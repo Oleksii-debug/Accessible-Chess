@@ -53,6 +53,7 @@ _WIN_RESERVED = {
     *(f"LPT{i}" for i in range(1, 10)),
     "COM¹", "COM²", "COM³",
     "LPT¹", "LPT²", "LPT³",
+    "CONIN$", "CONOUT$",
 }
 _FORBIDDEN_COMPONENTS = {
     ".git", ".pytest_cache", "__pycache__", "build", "build_parts10k",
