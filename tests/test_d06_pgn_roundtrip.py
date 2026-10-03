@@ -270,6 +270,8 @@ class D06PgnRoundTripTests(unittest.TestCase):
     def test_preflight_counts_recovery_tokenizer_expansion_before_materialization(self):
         sources = (
             '[Result "*"]\n\n1.e4 *',
+            '[Result "*"]\n\n2....Nf3 *',
+            '[Result "*"]\n\n....Nf3 *',
             '[Result "*"]\n\n{{x}} *',
             '[Result "*"]\n\n$x *',
             '[Result "*"]\n\n}} *',
