@@ -182,6 +182,18 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assertIn('[Result "*"]', decoded)
         self.assertEqual(preflight.call_count, 1)
 
+    def test_byte_round_trip_preflights_source_and_canonical_output_once_each(self):
+        payload = b'[Result "*"]\n\n1. e4 *\n'
+        with patch.object(
+            rt,
+            "_preflight_text",
+            wraps=rt._preflight_text,
+        ) as preflight:
+            encoded, games = canonical_round_trip_bytes(payload)
+        self.assertEqual(len(games), 1)
+        self.assertIn(b'[Result "*"]', encoded)
+        self.assertEqual(preflight.call_count, 2)
+
     def test_invalid_unicode_scalars_fail_with_stable_text_and_model_errors(self):
         self.assert_code(
             PgnRoundTripErrorCode.INVALID_TEXT,
