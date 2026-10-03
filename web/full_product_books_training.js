@@ -218,7 +218,7 @@
       if (typeof item.label !== "string" || !item.label.trim()) {
         throw new TypeError("book semantic item label is invalid");
       }
-      const depth = Number(item.depth);
+      const depth = item.depth;
       if (!Number.isSafeInteger(depth) || depth < 0) {
         throw new TypeError("book semantic item depth is invalid");
       }
@@ -333,7 +333,11 @@
   function renderBookBlock(host, block) {
     const role = String(block.role || "group");
     let content;
-    if (block.semantic_tree && typeof block.semantic_tree === "object") {
+    const hasSemanticTree = block.semantic_tree !== undefined && block.semantic_tree !== null;
+    if (hasSemanticTree && (typeof block.semantic_tree !== "object" || Array.isArray(block.semantic_tree))) {
+      throw new TypeError("book semantic tree must be an object");
+    }
+    if (hasSemanticTree) {
       content = node("section");
       content.setAttribute("role", "group");
       if (block.title) {
