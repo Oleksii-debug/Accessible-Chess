@@ -256,6 +256,57 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(backward.value.kind, "render")
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_book_stale_write_rebinds_external_canonical_progress(self):
+        book = self.root / "stale-write.md"
+        book.write_text(
+            "# Chapter\n\nFirst paragraph.\n\nSecond paragraph.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book_dialog = lambda: book
+        self.assertEqual(
+            self.app.browser_command("shell", "book.open")["kind"],
+            "delegated",
+        )
+        store = self.app.progress_store
+        key = self.app.book_key
+        document = self.app.reader.document
+        before = self.app.reader.snapshot()
+
+        external_reader = BookReader(document)
+        external_reader.go_to(2)
+        external_store = BookProgressStore(store.path)
+        injected = False
+
+        def external_generation_wins(_book_key, _reader):
+            nonlocal injected
+            if not injected:
+                external_store.save(key, external_reader)
+                injected = True
+            raise BookProgressStoreError(
+                "external Book progress generation won",
+                code=BookProgressStoreErrorCode.STALE_WRITE,
+            )
+
+        with patch.object(
+            store,
+            "save",
+            side_effect=external_generation_wins,
+        ):
+            result = self.app.browser_command("books", "book.next")
+
+        self.assertTrue(injected)
+        self.assertEqual("error", result["kind"])
+        self.assertIsNotNone(self.app.reader)
+        self.assertNotEqual(before, self.app.reader.snapshot())
+        self.assertEqual(
+            external_reader.snapshot(),
+            self.app.reader.snapshot(),
+            "STALE_WRITE rollback overwrote the canonical external Book progress",
+        )
+        persisted = external_store.restore_primary(key, document)
+        self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+
     def test_book_durability_unknown_reloads_visible_canonical_progress(self):
         book = self.root / "durability-unknown.md"
         book.write_text(
