@@ -443,15 +443,22 @@ def save_pgn_atomic(
 
         _reject_export_indirection(tmp_path)
         temporary_fingerprint = fingerprint(tmp_path)
-        published = SourceFingerprint(
-            path=str(public_destination),
-            size=temporary_fingerprint.size,
-            sha256=temporary_fingerprint.sha256,
-            suffix=destination.suffix.lower(),
-        )
 
         _reject_export_indirection(destination)
         _reject_export_indirection(tmp_path)
+        commit_fingerprint = fingerprint(tmp_path)
+        if (
+            commit_fingerprint.size != temporary_fingerprint.size
+            or commit_fingerprint.sha256 != temporary_fingerprint.sha256
+        ):
+            raise PgnFileError("PGN temporary file changed before publication")
+        published = SourceFingerprint(
+            path=str(public_destination),
+            size=commit_fingerprint.size,
+            sha256=commit_fingerprint.sha256,
+            suffix=destination.suffix.lower(),
+        )
+
         if not overwrite:
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None
