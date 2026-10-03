@@ -52,8 +52,15 @@ class AcsdbBookGameLookup:
         except (json.JSONDecodeError, RecursionError) as exc:
             raise BookLibraryGameLookupError(
                 "stored book game warnings are invalid"
-            ) from exc
-        if type(warnings) is not list or any(type(item) is not str for item in warnings):
+            ) from None
+        if (
+            type(warnings) is not list
+            or any(
+                type(item) is not str
+                or any(0xD800 <= ord(character) <= 0xDFFF for character in item)
+                for item in warnings
+            )
+        ):
             raise BookLibraryGameLookupError("stored book game warnings are invalid")
         return list(warnings)
 
@@ -86,8 +93,8 @@ class AcsdbBookGameLookup:
         identity = self._game_id(game_id)
         try:
             row = self._database.get_game(identity)
-        except Exception as exc:
-            raise BookLibraryGameLookupError("book game lookup failed") from exc
+        except Exception:
+            raise BookLibraryGameLookupError("book game lookup failed") from None
 
         if row is None:
             raise BookLibraryGameLookupError("book game was not found")
@@ -105,8 +112,8 @@ class AcsdbBookGameLookup:
 
         try:
             games = parse_pgn_text(pgn_text, strict=False)
-        except (PgnRoundTripError, RecursionError) as exc:
-            raise BookLibraryGameLookupError("stored book game is not canonical") from exc
+        except (PgnRoundTripError, RecursionError):
+            raise BookLibraryGameLookupError("stored book game is not canonical") from None
         if len(games) != 1:
             raise BookLibraryGameLookupError("stored book game must contain exactly one game")
 
@@ -115,6 +122,6 @@ class AcsdbBookGameLookup:
         game.warnings = self._merge_warnings(persisted_warnings, game.warnings)
         try:
             serialize_game(game)
-        except GameTreeSerializationError as exc:
-            raise BookLibraryGameLookupError("stored book game is not canonical") from exc
+        except GameTreeSerializationError:
+            raise BookLibraryGameLookupError("stored book game is not canonical") from None
         return game
