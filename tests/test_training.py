@@ -43,6 +43,22 @@ class ExerciseSessionTests(unittest.TestCase):
         self.assertEqual(definition.tags, ("opening", "calculation"))
         self.assertEqual(definition.source_id, "local-pack-1")
 
+    def test_session_definition_reference_cannot_be_reassigned(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        before = session.snapshot()
+
+        replacement = ExerciseDefinition(
+            "replacement",
+            Board.START,
+            (ExerciseStep(frozenset({"d4"})),),
+        )
+        with self.assertRaises(AttributeError):
+            session.definition = replacement  # type: ignore[misc]
+
+        self.assertIs(definition, session.definition)
+        self.assertEqual(before, session.snapshot())
+
     def test_correct_move_advances_exactly_one_step(self):
         session = ExerciseSession(self.make_definition())
         result = session.submit("  e4  ")
