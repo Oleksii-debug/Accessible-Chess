@@ -197,6 +197,31 @@ class SoundRuntimeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             SoundRuntimeSettings(event_volume={SoundEvent.MOVE: 101})
 
+    def test_explicit_preview_ignores_enable_switch_but_honors_volume(self):
+        fake = FakePlayback()
+        settings = SoundRuntimeSettings(
+            enabled=False,
+            volume=80,
+            event_enabled={SoundEvent.MOVE: False},
+            event_volume={SoundEvent.MOVE: 25},
+        )
+        report = SoundRuntime(fake, settings=settings).preview(SoundEvent.MOVE)
+        self.assertTrue(report.ok)
+        self.assertFalse(report.disabled)
+        self.assertEqual(report.delivered, (SoundEvent.MOVE,))
+        self.assertEqual(fake.calls, [(SoundEvent.MOVE, 20)])
+
+    def test_explicit_preview_respects_zero_effective_volume(self):
+        fake = FakePlayback()
+        settings = SoundRuntimeSettings(
+            volume=80,
+            event_volume={SoundEvent.MOVE: 0},
+        )
+        report = SoundRuntime(fake, settings=settings).preview(SoundEvent.MOVE)
+        self.assertTrue(report.disabled)
+        self.assertEqual(report.delivered, ())
+        self.assertEqual(fake.calls, [])
+
     def test_adapter_failure_is_explicit_and_later_events_continue(self):
         failures = []
         fake = FakePlayback(fail_on=SoundEvent.CAPTURE)
