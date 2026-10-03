@@ -262,8 +262,14 @@
 
     const selectedSound = documentRef.createElement("p");
     selectedSound.id = "sound-event-" + safeId + "-sound";
-    selectedSound.textContent = text("Звук: ", "Sound: ") +
-      String(item.sound_id || eventId);
+    selectedSound.textContent =
+      text("Звук: ", "Sound: ") +
+      String(item.sound_id || eventId) +
+      (
+        item.uses_classic_fallback === true
+          ? text(" (класичний резервний звук)", " (classic fallback)")
+          : ""
+      );
     group.appendChild(selectedSound);
 
     const choices = Array.isArray(item.sound_choices) ? item.sound_choices : [];
