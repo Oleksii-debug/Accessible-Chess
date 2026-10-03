@@ -248,14 +248,28 @@ class BookTrainingOrigin:
         object.__setattr__(self, "source_anchor", source_anchor)
 
     def as_dict(self) -> dict[str, object]:
+        if type(self) is not BookTrainingOrigin:
+            raise TypeError("origin must be an exact BookTrainingOrigin")
+        # Frozen dataclasses can still be corrupted through low-level mutation.
+        # Re-run the canonical constructor before list materialization so export
+        # has the same bounded scalar/collection contract as wire restore.
+        canonical = BookTrainingOrigin(
+            target_key=self.target_key,
+            block_digest=self.block_digest,
+            index_at_export=self.index_at_export,
+            block_id=self.block_id,
+            source_anchor=self.source_anchor,
+            heading_path=self.heading_path,
+            book_fingerprint=self.book_fingerprint,
+        )
         return {
-            "target_key": self.target_key,
-            "block_digest": self.block_digest,
-            "index_at_export": self.index_at_export,
-            "block_id": self.block_id,
-            "source_anchor": self.source_anchor,
-            "heading_path": list(self.heading_path),
-            "book_fingerprint": self.book_fingerprint,
+            "target_key": canonical.target_key,
+            "block_digest": canonical.block_digest,
+            "index_at_export": canonical.index_at_export,
+            "block_id": canonical.block_id,
+            "source_anchor": canonical.source_anchor,
+            "heading_path": list(canonical.heading_path),
+            "book_fingerprint": canonical.book_fingerprint,
         }
 
     @classmethod
