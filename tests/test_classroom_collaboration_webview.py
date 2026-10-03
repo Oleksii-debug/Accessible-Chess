@@ -1220,6 +1220,18 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("Message time", view.snapshot()["chat"]["timestamp_label"])
         self.assertEqual("Refresh files", view.snapshot()["files"]["sync_label"])
         self.assertEqual(
+            "Sending message…",
+            view.snapshot()["chat"]["send_pending_label"],
+        )
+        self.assertEqual(
+            "Refreshing files…",
+            view.snapshot()["files"]["sync_pending_label"],
+        )
+        self.assertEqual(
+            "Choosing or sending file…",
+            view.snapshot()["files"]["choose_upload_pending_label"],
+        )
+        self.assertEqual(
             "New message retention: session",
             view.snapshot()["chat"]["retention_policy_label"],
         )
@@ -1231,6 +1243,18 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("Чат", view.snapshot()["chat"]["heading"])
         self.assertEqual("Час повідомлення", view.snapshot()["chat"]["timestamp_label"])
         self.assertEqual("Оновити файли", view.snapshot()["files"]["sync_label"])
+        self.assertEqual(
+            "Надсилання повідомлення…",
+            view.snapshot()["chat"]["send_pending_label"],
+        )
+        self.assertEqual(
+            "Оновлення файлів…",
+            view.snapshot()["files"]["sync_pending_label"],
+        )
+        self.assertEqual(
+            "Вибір або надсилання файла…",
+            view.snapshot()["files"]["choose_upload_pending_label"],
+        )
         self.assertEqual(
             "Зберігання нових повідомлень: до завершення сесії",
             view.snapshot()["chat"]["retention_policy_label"],
