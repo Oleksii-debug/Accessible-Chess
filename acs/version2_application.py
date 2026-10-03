@@ -639,6 +639,20 @@ class Version2Application:
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED and opening_board:
                         try:
                             self.save_book_progress()
+                        except BookProgressStoreError as error:
+                            # DURABILITY_UNKNOWN has already rebound Books to the
+                            # visible canonical store state (or failed the Books
+                            # surface closed). Do not overwrite that authority with
+                            # the pre-open in-memory snapshot.
+                            if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                                self._restore_book_progress(
+                                    before_reader,
+                                    language=before_language,
+                                    bookmark_name=before_bookmark,
+                                )
+                            raise ValueError(
+                                concise_user_error("", language=self.shell.language)
+                            ) from None
                         except Exception:
                             self._restore_book_progress(
                                 before_reader,
