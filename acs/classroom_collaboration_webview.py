@@ -822,6 +822,14 @@ class ClassroomCollaborationWebView:
     def _send_chat(self, body: object) -> ClassroomCollaborationWebViewEvent:
         if type(body) is not str:
             raise TypeError("chat body must be text")
+        if (
+            not body
+            or not body.strip()
+            or len(body) > MAX_CHAT_BODY_CHARS
+            or "\x00" in body
+            or any(0xD800 <= ord(ch) <= 0xDFFF for ch in body)
+        ):
+            raise ValueError("chat body is outside the browser safety boundary")
         if self._pending_chat is not None and self._pending_chat[1] == body:
             message_id = self._pending_chat[0]
         else:
