@@ -196,6 +196,178 @@ class ClassroomChatServerTests(unittest.TestCase):
             }.issubset(tables)
         )
 
+    def test_corrupt_persisted_message_and_permission_flags_fail_closed(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    "corrupt-hidden",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Corrupt hidden flag",
+                    "session",
+                    2,
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored message hidden flag is invalid",
+        ) as raised:
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )
+        self.assertIsNone(raised.exception.__cause__)
+
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("DELETE FROM classroom_chat_server_messages")
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_permissions(
+                    room_id, target_id, allowed
+                ) VALUES(?,?,?)
+                """,
+                (ROOM, STUDENT, 2),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored chat permission flag is invalid",
+        ) as permission_error:
+            self.send(self.draft("blocked-by-corruption"))
+        self.assertIsNone(permission_error.exception.__cause__)
+        self.assertEqual(
+            (),
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            ),
+        )
+
+    def test_corrupt_message_numeric_metadata_is_sanitized(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,0,?)
+                """,
+                (
+                    "wire-overflow",
+                    ROOM,
+                    STUDENT,
+                    MAX_WIRE_INTEGER + 1,
+                    "Unsafe numeric metadata",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored classroom chat message is invalid",
+        ) as raised:
+            self.store.history_after(
+                room_id=ROOM,
+                after_sequence=None,
+                limit=10,
+            )
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_corrupt_state_update_and_hide_target_fail_without_partial_moderation(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,?)
+                """,
+                (ROOM, 0, "corrupt-state", 2),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored moderation hidden flag is invalid",
+        ):
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=None,
+                limit=10,
+            )
+
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("DELETE FROM classroom_chat_server_state_updates")
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    "corrupt-target",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Corrupt target",
+                    "session",
+                    2,
+                    1700000000000,
+                ),
+            )
+
+        hide = self.moderation(
+            "hide-corrupt-target",
+            target=None,
+            action=ChatModerationAction.HIDE_MESSAGE,
+            allowed=None,
+            message_id="corrupt-target",
+        )
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored message hidden flag is invalid",
+        ):
+            self.service.apply_moderation(
+                trusted_caller_identity=TEACHER,
+                commands=(hide,),
+            )
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_moderation_ops
+                    WHERE room_id=? AND operation_id=?
+                    """,
+                    (ROOM, hide.operation_id),
+                ).fetchone()
+            )
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_state_updates
+                    WHERE room_id=? AND message_id=?
+                    """,
+                    (ROOM, hide.message_id),
+                ).fetchone()
+            )
+
     def test_two_client_controller_composition_reconnects_and_reconciles_hide(self) -> None:
         roster = SharedRoster()
         teacher_store = ClassroomCollaborationSQLiteStore(
