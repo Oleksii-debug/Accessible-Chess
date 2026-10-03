@@ -486,12 +486,6 @@ class ClassroomMediaHostTransactions:
         return value
 
     def _release_unexposed_transaction_id(self, transaction_id: str) -> None:
-        """Release only an injected id that never crossed the provider boundary."""
-
-        if self._transaction_id_factory is not None:
-            self._injected_transaction_ids.discard(transaction_id)
-
-    def _release_unexposed_transaction_id(self, transaction_id: str) -> None:
         """Allow only injected identities that never crossed the host boundary to retry.
 
         Production identities are nonce+counter monotonic and are intentionally
