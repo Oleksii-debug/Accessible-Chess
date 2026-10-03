@@ -289,7 +289,11 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             pack_dir = versions_dir.parent
             self.assertIn(versions_dir, synced)
             self.assertIn(pack_dir, synced)
-            self.assertLess(synced.index(versions_dir), synced.index(pack_dir))
+            version_sync_index = synced.index(versions_dir)
+            active_parent_sync_index = max(
+                index for index, path in enumerate(synced) if path == pack_dir
+            )
+            self.assertLess(version_sync_index, active_parent_sync_index)
             self.assertEqual("1.0.0", store.active_version(manifest.pack_id))
 
     def test_post_active_directory_sync_failure_is_an_uncertain_visible_commit(self) -> None:
