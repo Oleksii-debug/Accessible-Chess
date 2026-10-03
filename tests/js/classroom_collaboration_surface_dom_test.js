@@ -1731,6 +1731,81 @@ Promise.resolve().then(() => {
   });
 });
 
+const sameCommandFailureRoot = new FakeElement("div");
+const sameCommandFailureAnnouncements = [];
+const sameCommandFailureDeferred = [];
+const sameCommandFailureInvoke = (_command, _payload) => new Promise((resolve, reject) => {
+  sameCommandFailureDeferred.push({ resolve, reject });
+});
+window.AccessibleChessEducationSurface.render(
+  sameCommandFailureRoot,
+  snapshot,
+  sameCommandFailureInvoke,
+  (message) => sameCommandFailureAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+sameCommandFailureRoot.querySelector("#collaboration-chat-sync").focus();
+sameCommandFailureRoot.querySelector("#collaboration-chat-sync").listeners.click();
+const sameCommandFailureFirstInvocation = sameCommandFailureRoot
+  .querySelector("#classroom-collaboration")
+  .getAttribute("data-pending-invocation");
+
+window.AccessibleChessEducationSurface.render(
+  sameCommandFailureRoot,
+  snapshot,
+  sameCommandFailureInvoke,
+  (message) => sameCommandFailureAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+sameCommandFailureRoot.querySelector("#collaboration-chat-sync").focus();
+sameCommandFailureRoot.querySelector("#collaboration-chat-sync").listeners.click();
+const sameCommandFailureSecondInvocation = sameCommandFailureRoot
+  .querySelector("#classroom-collaboration")
+  .getAttribute("data-pending-invocation");
+check(
+  !!sameCommandFailureFirstInvocation &&
+  !!sameCommandFailureSecondInvocation &&
+  sameCommandFailureFirstInvocation !== sameCommandFailureSecondInvocation,
+  "same-session rejection race must create two distinct invocation identities"
+);
+
+Promise.resolve().then(() => {
+  check(
+    sameCommandFailureDeferred.length === 2,
+    "same-session rejection race precondition must launch both host invocations"
+  );
+  sameCommandFailureDeferred[0].reject(new Error("OLD SAME SESSION FAILURE"));
+  return Promise.resolve();
+}).then(() => {
+  const wrapperAfterOldFailure = sameCommandFailureRoot.querySelector(
+    "#classroom-collaboration"
+  );
+  check(
+    wrapperAfterOldFailure.getAttribute("data-pending-invocation") ===
+      sameCommandFailureSecondInvocation &&
+    wrapperAfterOldFailure.getAttribute("data-pending-command") ===
+      "collaboration.chat.sync" &&
+    !sameCommandFailureAnnouncements.includes("Action failed"),
+    "stale same-session rejection must not release or announce over the newer invocation"
+  );
+  sameCommandFailureDeferred[1].resolve({
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: collaboration([
+        {
+          dom_id: "collaboration-message-newer-after-old-failure",
+          sender: "Teacher",
+          body: "NEWER AFTER OLD FAILURE",
+          unread: true
+        }
+      ], 1),
+      announcement: "NEWER AFTER OLD FAILURE"
+    }
+  });
+});
+
 const pendingRoot = new FakeElement("div");
 let pendingSendResolve = null;
 let pendingInvokeCount = 0;
@@ -1881,6 +1956,19 @@ setImmediate(() => {
       sameCommandRaceAnnouncements.includes("NEWER SAME SESSION") &&
       !sameCommandRaceAnnouncements.includes("STALE SAME SESSION"),
       "same-session newer identical command must own the final settled UI"
+    );
+    const sameCommandFailureSettled = sameCommandFailureRoot.querySelector(
+      "#classroom-collaboration"
+    );
+    check(
+      sameCommandFailureRoot.querySelector(
+        "#collaboration-message-newer-after-old-failure"
+      ) !== null &&
+      sameCommandFailureSettled.getAttribute("data-pending-command") === null &&
+      sameCommandFailureSettled.getAttribute("data-pending-invocation") === null &&
+      sameCommandFailureAnnouncements.includes("NEWER AFTER OLD FAILURE") &&
+      !sameCommandFailureAnnouncements.includes("Action failed"),
+      "newer invocation must settle normally after stale same-session rejection"
     );
     console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
 });
