@@ -10,6 +10,7 @@ from unittest.mock import patch
 import wave
 import zipfile
 
+from acs import version2_package_preflight as preflight
 from acs.acsdb import ACSDB_SCHEMA_VERSION
 from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 from acs.sound_events import SoundEvent
@@ -187,6 +188,124 @@ def _make_tree(root: Path) -> None:
     _write_checksums(root)
 
 
+def _write_inventory_wave(path: Path, *, sample: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(8000)
+        writer.writeframes(int(sample).to_bytes(2, "little", signed=True) * 16)
+
+
+def _enable_full_sound_inventory(root: Path) -> tuple[int, str, Path]:
+    sounds = root / "AccessibleChess" / "assets" / "sounds"
+    manifest_path = sounds / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+
+    library = sounds / "library"
+    library.mkdir()
+    moved: dict[str, str] = {}
+    for file_name in sorted(set(manifest["files"].values()), key=str.casefold):
+        source = sounds / file_name
+        destination = library / file_name
+        source.replace(destination)
+        moved[file_name] = f"library/{file_name}"
+
+    for event in SoundEvent:
+        old_name = manifest["files"][event.value]
+        new_name = moved[old_name]
+        manifest["files"][event.value] = new_name
+        provenance["events"][event.value]["file"] = new_name
+        provenance["events"][event.value]["sha256"] = _sha256(sounds / new_name)
+
+    alt = library / "move-alt.wav"
+    _write_inventory_wave(alt, sample=777)
+    variants = {
+        "schema_version": 1,
+        "events": {
+            event.value: [
+                {
+                    "id": "1",
+                    "file": manifest["files"][event.value],
+                    "label_uk": "Варіант 1",
+                    "label_en": "Variant 1",
+                }
+            ]
+            for event in SoundEvent
+        },
+    }
+    variants["events"][SoundEvent.MOVE.value].append(
+        {
+            "id": "2",
+            "file": "library/move-alt.wav",
+            "label_uk": "Хід 2",
+            "label_en": "Move 2",
+        }
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    provenance_path.write_text(
+        json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (sounds / "variants.json").write_text(
+        json.dumps(variants, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (sounds / "layers.json").write_text(
+        json.dumps({"schema_version": 1, "events": {}}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    entries: list[dict[str, object]] = []
+    fingerprint_rows: list[bytes] = []
+    for path in sorted(
+        (item for item in library.rglob("*") if item.is_file() and item.suffix.casefold() == ".wav"),
+        key=lambda item: item.relative_to(library).as_posix().casefold(),
+    ):
+        relative = path.relative_to(library).as_posix()
+        digest = _sha256(path)
+        with wave.open(str(path), "rb") as reader:
+            frames = reader.getnframes()
+            rate = reader.getframerate()
+            entries.append(
+                {
+                    "file": f"library/{relative}",
+                    "sha256": digest,
+                    "bytes": path.stat().st_size,
+                    "channels": reader.getnchannels(),
+                    "sample_width_bytes": reader.getsampwidth(),
+                    "sample_rate": rate,
+                    "frames": frames,
+                    "duration_seconds": round(frames / rate, 6),
+                    "compression": reader.getcomptype(),
+                }
+            )
+        fingerprint_rows.append(f"{relative}\0{digest}\n".encode("utf-8"))
+
+    inventory_sha = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+    inventory = {
+        "schema_version": 1,
+        "source": preflight._USER_SOUND_SOURCE,
+        "license_id": preflight._USER_SOUND_LICENSE_ID,
+        "creator": preflight._USER_SOUND_CREATOR,
+        "file_count": len(entries),
+        "source_inventory_sha256": inventory_sha,
+        "files": entries,
+    }
+    inventory_text = json.dumps(inventory, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    (sounds / "inventory.json").write_text(inventory_text, encoding="utf-8")
+    (root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json").write_text(
+        inventory_text,
+        encoding="utf-8",
+    )
+    return len(entries), inventory_sha, alt
+
+
 def _zip_tree(root: Path, destination: Path) -> None:
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
@@ -276,6 +395,100 @@ class Version2PackagePreflightTests(unittest.TestCase):
 
             report = _validate_tree(root)
             self.assertEqual(report.integration_sha, _SHA)
+
+    def test_full_sound_inventory_tree_and_zip_readback_bind_nondefault_variant_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, alt = _enable_full_sound_inventory(root)
+            _write_checksums(root)
+
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+            ):
+                report = _validate_tree(root)
+                self.assertEqual(report.integration_sha, _SHA)
+
+                archive = base / "inventory-bound.zip"
+                _zip_tree(root, archive)
+                zip_report = _validate_zip(archive)
+                self.assertEqual(zip_report.integration_sha, _SHA)
+
+            _write_inventory_wave(alt, sample=778)
+            # Demonstrate that regenerating the package's generic checksum list
+            # cannot legitimize a substituted non-default runtime WAV.
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "sound inventory SHA-256 mismatch",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_full_sound_inventory_notice_is_required_independently_of_checksums(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            notice = root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json"
+            notice.unlink()
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "inventory and audit notice must both be present",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_full_sound_inventory_notice_must_match_runtime_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            notice_path = root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json"
+            notice = json.loads(notice_path.read_text(encoding="utf-8"))
+            notice["creator"] = "tampered"
+            notice_path.write_text(
+                json.dumps(notice, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "does not match audit notice",
+                ),
+            ):
+                _validate_tree(root)
 
     def test_winforms_accessibility_app_config_is_required(self):
         with tempfile.TemporaryDirectory() as td:
