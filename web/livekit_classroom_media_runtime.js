@@ -378,16 +378,45 @@
 
     async _settleCleanSessionFailure(invoke, transaction, operation, snapshot) {
       try {
+        let result;
         if (operation === "disconnect") {
-          return await invoke("media.provider_session_success", {
+          result = await invoke("media.provider_session_success", {
+            transaction_id: transaction,
+            snapshot
+          });
+        } else {
+          result = await invoke("media.provider_connection_failed_clean", {
             transaction_id: transaction,
             snapshot
           });
         }
-        return await invoke("media.provider_connection_failed_clean", {
-          transaction_id: transaction,
-          snapshot
-        });
+        const payload = result && result.payload && typeof result.payload === "object"
+          ? result.payload
+          : {};
+        const terminal = operation === "disconnect"
+          ? Boolean(result && result.kind === "media-updated")
+          : Boolean(
+              result &&
+              result.kind === "error" &&
+              payload.recovery_required !== true
+            );
+        if (!terminal) {
+          // Provider teardown is already exact and clean, but canonical
+          // acknowledgement is missing, malformed, or still requires trusted
+          // reconciliation. Preserve that clean fact and fail closed through
+          // the existing unknown-outcome authority unless Python already
+          // returned its explicit recovery surface.
+          this._rememberTransportLossSnapshot(snapshot);
+          if (!(result && result.kind === "error" &&
+                payload.recovery_required === true)) {
+            const recovery = await this._providerOutcomeUnknown(
+              invoke,
+              transaction
+            );
+            return recovery || result;
+          }
+        }
+        return result;
       } catch (_error) {
         const result = await this._providerFailed(invoke, transaction);
         // Browser/provider proof of clean teardown is not authority to release
