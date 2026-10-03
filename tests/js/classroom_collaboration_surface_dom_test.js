@@ -151,6 +151,7 @@ function collaboration(messages, unreadCount, moderation, sessionKey) {
       retry_label: "Retry",
       cancel_label: "Cancel",
       progress_label: "File transfer progress",
+      progress_revision: 0,
       can_choose_upload: true,
       items: [{
         dom_id: "collaboration-file-a",
@@ -233,6 +234,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "session-a",
         transfer_key: transferKeyA,
+        progress_revision: 1,
         name: "lesson.pgn",
         transferred_bytes: 512,
         total_bytes: 1024,
@@ -266,8 +268,10 @@ check(
   "incremental progress must not steal focus or announce every byte sample"
 );
 const redrawWithProgress = collaboration([], 0, false, "session-a");
+redrawWithProgress.files.progress_revision = 1;
 redrawWithProgress.files.transfer_progress = {
   transfer_key: transferKeyA,
+  progress_revision: 1,
   name: "lesson.pgn",
   transferred_bytes: 512,
   total_bytes: 1024,
@@ -298,7 +302,9 @@ check(
 );
 
 const invalidProgressSnapshot = collaboration([], 0, false, "invalid-progress-session");
+invalidProgressSnapshot.files.progress_revision = 1;
 invalidProgressSnapshot.files.transfer_progress = {
+  progress_revision: 1,
   name: "forged.pgn",
   transferred_bytes: 1,
   total_bytes: 2,
@@ -334,6 +340,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "stale-session",
         transfer_key: transferKeyA,
+        progress_revision: 2,
         name: "lesson.pgn",
         transferred_bytes: 900,
         total_bytes: 1024,
@@ -356,6 +363,7 @@ check(
   {
     session_key: "session-a",
     transfer_key: "not-an-opaque-transfer-key",
+    progress_revision: 2,
     name: "lesson.pgn",
     transferred_bytes: 700,
     total_bytes: 1024,
@@ -366,6 +374,7 @@ check(
   {
     session_key: "session-a",
     transfer_key: transferKeyA,
+    progress_revision: 2,
     name: "lesson.pgn",
     transferred_bytes: "700",
     total_bytes: 1024,
@@ -376,6 +385,7 @@ check(
   {
     session_key: "session-a",
     transfer_key: transferKeyA,
+    progress_revision: 2,
     name: "lesson.pgn",
     transferred_bytes: 400,
     total_bytes: 1024,
@@ -386,6 +396,7 @@ check(
   {
     session_key: "session-a",
     transfer_key: transferKeyA,
+    progress_revision: 2,
     name: "lesson.pgn",
     transferred_bytes: 700,
     total_bytes: 2048,
@@ -396,6 +407,7 @@ check(
   {
     session_key: "session-a",
     transfer_key: transferKeyA,
+    progress_revision: 2,
     name: "lesson.pgn",
     transferred_bytes: 900,
     total_bytes: 1024,
@@ -430,6 +442,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "session-a",
         transfer_key: transferKeyA,
+        progress_revision: 2,
         name: "lesson.pgn",
         transferred_bytes: 1024,
         total_bytes: 1024,
@@ -457,6 +470,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "session-a",
         transfer_key: transferKeyA,
+        progress_revision: 3,
         name: "lesson.pgn",
         transferred_bytes: 1024,
         total_bytes: 1024,
@@ -484,6 +498,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "session-a",
         transfer_key: transferKeyB,
+        progress_revision: 3,
         name: "second.pgn",
         transferred_bytes: 0,
         total_bytes: 2048,
@@ -512,6 +527,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "session-a",
         transfer_key: transferKeyA,
+        progress_revision: 2,
         name: "lesson.pgn",
         transferred_bytes: 1024,
         total_bytes: 1024,
@@ -534,8 +550,10 @@ check(
 );
 
 const stalePriorTransferRedraw = collaboration([], 0, false, "session-a");
+stalePriorTransferRedraw.files.progress_revision = 2;
 stalePriorTransferRedraw.files.transfer_progress = {
   transfer_key: transferKeyA,
+  progress_revision: 2,
   name: "lesson.pgn",
   transferred_bytes: 1024,
   total_bytes: 1024,
@@ -569,6 +587,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "session-a",
         transfer_key: transferKeyB,
+        progress_revision: 4,
         name: "second.pgn",
         transferred_bytes: 768,
         total_bytes: 2048,
@@ -583,8 +602,10 @@ window.AccessibleChessEducationSurface.apply(
   "Action failed"
 );
 const staleSameTransferRedraw = collaboration([], 0, false, "session-a");
+staleSameTransferRedraw.files.progress_revision = 3;
 staleSameTransferRedraw.files.transfer_progress = {
   transfer_key: transferKeyB,
+  progress_revision: 3,
   name: "second.pgn",
   transferred_bytes: 128,
   total_bytes: 2048,
@@ -610,6 +631,7 @@ check(
 );
 
 const authoritativeProgressClear = collaboration([], 0, false, "session-a");
+authoritativeProgressClear.files.progress_revision = 5;
 window.AccessibleChessEducationSurface.apply(
   root,
   {
@@ -648,6 +670,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "zero-session",
         transfer_key: transferKeyB,
+        progress_revision: 1,
         name: "empty.pgn",
         transferred_bytes: 0,
         total_bytes: 0,
@@ -674,6 +697,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "zero-session",
         transfer_key: transferKeyB,
+        progress_revision: 2,
         name: "empty.pgn",
         transferred_bytes: 0,
         total_bytes: 0,
@@ -1131,6 +1155,7 @@ window.AccessibleChessEducationSurface.apply(
       file_progress: {
         session_key: "session-a",
         transfer_key: transferKeyA,
+        progress_revision: 1,
         name: "uploading.pgn",
         transferred_bytes: 256,
         total_bytes: 1024,
