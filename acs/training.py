@@ -352,17 +352,21 @@ class ExerciseSession:
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
-        if "schema_version" not in snapshot:
+        try:
+            snapshot_data = dict(snapshot)
+        except Exception as exc:
+            raise TypeError("exercise snapshot must be a stable mapping") from exc
+        if "schema_version" not in snapshot_data:
             raise ValueError("invalid exercise snapshot fields (missing fields: schema_version)")
-        schema_version = snapshot["schema_version"]
+        schema_version = snapshot_data["schema_version"]
         if type(schema_version) is not int:
             raise TypeError("exercise snapshot schema_version must be an integer")
         if schema_version == 4:
-            return cls._restore_v4(definition, snapshot)
+            return cls._restore_v4(definition, snapshot_data)
         if schema_version == 3:
-            return cls._restore_v3(definition, snapshot)
+            return cls._restore_v3(definition, snapshot_data)
         if schema_version == 2:
-            return cls._restore_v2(definition, snapshot)
+            return cls._restore_v2(definition, snapshot_data)
         raise ValueError(f"unsupported exercise snapshot schema_version: {schema_version}")
 
     @classmethod
