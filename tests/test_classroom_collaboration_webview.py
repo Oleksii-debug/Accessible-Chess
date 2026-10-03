@@ -1416,7 +1416,9 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.files.scan_state = "clean"
-        view = self.webview()
+        progress_events = []
+        view = self.webview(file_progress_event_sink=progress_events.append)
+        self.assertIsNotNone(view._file_progress_event_sink)
         old_session_key = view.snapshot()["session_key"]
         self.assertEqual(32, len(old_session_key))
 
@@ -1482,6 +1484,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         view._removed_participant_ids.add("student-2")
         view.retire_browser_session()
 
+        self.assertIsNone(view._file_progress_event_sink)
         self.assertEqual(pending_before_retire, view._pending_chat)
         self.assertEqual({}, view._prepared)
         self.assertIsNone(view._chat_page_bucket)

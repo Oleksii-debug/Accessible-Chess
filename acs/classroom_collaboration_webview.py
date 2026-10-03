@@ -325,6 +325,10 @@ class ClassroomCollaborationWebView:
         self._chat_retention = chat_retention
         self._file_retention = file_retention
         self._id_factory = id_factory
+        # A progress sink is bound to the retired browser/host session. Never
+        # retain it across an unbind/rebind, even when the same WebView object
+        # is reused, or later file metadata could leak into the old host channel.
+        self._file_progress_event_sink = None
         self._action_secret = secrets.token_bytes(32)
         self._browser_session_key = secrets.token_hex(16)
         self._unread_message_ids: set[str] = set()

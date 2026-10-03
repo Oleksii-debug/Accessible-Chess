@@ -132,6 +132,26 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.assertEqual("collaboration.file.progress", bridged[0]["kind"])
         self.assertEqual(1, bridged[0]["payload"]["file_progress"]["transferred_bytes"])
 
+    def test_rebind_without_progress_sink_does_not_reuse_retired_host_channel(self) -> None:
+        app = self.bare_app()
+        old_channel_events: list[dict[str, object]] = []
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            app.bind_classroom_collaboration(
+                self.collaboration,
+                file_progress_event_sink=old_channel_events.append,
+            )
+            self.assertIsNotNone(self.collaboration._file_progress_event_sink)
+            app.unbind_classroom_collaboration()
+            self.assertIsNone(self.collaboration._file_progress_event_sink)
+
+            # Reusing the same collaboration object without a new host observer
+            # must not silently resurrect the retired browser/channel binding.
+            app.bind_classroom_collaboration(self.collaboration)
+            self.assertIsNone(self.collaboration._file_progress_event_sink)
+            app.unbind_classroom_collaboration()
+
+        self.assertEqual([], old_channel_events)
+
     def test_trusted_host_can_project_live_chat_and_file_without_browser_authority(self) -> None:
         app = self.bare_app()
         with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
