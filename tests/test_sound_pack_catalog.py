@@ -160,6 +160,14 @@ class SoundPackCatalogTests(unittest.TestCase):
                 payload_ref=object(),
             )
 
+    def test_catalog_signature_rejects_control_character_spoofing(self):
+        for signature in ("signed\nextra", "signed\tshadow", "signed\u2028second-line"):
+            with self.subTest(signature=repr(signature)), self.assertRaisesRegex(
+                ValueError,
+                "control characters",
+            ):
+                make_entry(signature=signature)
+
     def test_catalog_signature_is_resource_bounded(self):
         with self.assertRaisesRegex(ValueError, "signature exceeds"):
             make_entry(signature="s" * (16 * 1024 + 1))
