@@ -673,13 +673,24 @@ class BookProgressStore:
         if existing is not None:
             self._require_private_lock_metadata(existing)
 
-        flags = os.O_RDWR | os.O_CREAT
+        flags = os.O_RDWR
         flags |= getattr(os, "O_BINARY", 0)
         flags |= getattr(os, "O_NOINHERIT", 0)
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
+        if existing is None:
+            # A missing lock path must be created by this store, not merely
+            # opened after a non-cooperating file appears in the lstat→open
+            # window. Failing this race closed avoids adopting and initializing
+            # an unknown user-owned file as the coordination object.
+            flags |= os.O_CREAT | os.O_EXCL
         try:
             descriptor = os.open(self._lock_path, flags, 0o600)
+        except FileExistsError:
+            raise BookProgressStoreError(
+                "book progress storage lock changed while being opened",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
         except OSError:
             raise BookProgressStoreError(
                 "book progress storage lock is unavailable",

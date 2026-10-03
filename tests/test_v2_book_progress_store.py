@@ -857,6 +857,39 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_missing_lock_create_race_never_adopts_foreign_file(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        foreign_bytes = b"user-owned-lock-bytes"
+        real_open = os.open
+        injected = False
+
+        def foreign_lock_appears_before_exclusive_create(path, flags, mode=0o777, *args, **kwargs):
+            nonlocal injected
+            if (
+                not injected
+                and Path(path) == self.store._lock_path
+                and flags & os.O_CREAT
+                and flags & os.O_EXCL
+            ):
+                self.store._lock_path.write_bytes(foreign_bytes)
+                injected = True
+            return real_open(path, flags, mode, *args, **kwargs)
+
+        with mock.patch(
+            "acs.book_progress_store.os.open",
+            side_effect=foreign_lock_appears_before_exclusive_create,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
+        self.assertFalse(self.path.exists())
+
     def test_hardlinked_lock_is_rejected_without_mutating_peer(self) -> None:
         self.path.parent.mkdir(parents=True)
         peer = self.store._lock_path.with_name("user-owned-peer.bin")
