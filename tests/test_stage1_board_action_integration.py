@@ -46,7 +46,11 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         start = html.index("async function onBoardKey(e){")
         end = html.index("\nfunction focusHistoryJump", start)
         handler = html[start:end]
-        self.assertIn("resolveBinding(eventChord(e),'board','board')", handler)
+        global_resolve = "resolveBinding(chord,'global','document')"
+        board_resolve = "resolveBinding(chord,'board','board')"
+        self.assertIn(global_resolve, handler)
+        self.assertIn(board_resolve, handler)
+        self.assertLess(handler.index(global_resolve), handler.index(board_resolve))
         for hardcoded in (
             "key==='Escape'",
             "key==='Enter'",
@@ -123,7 +127,15 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.assertEqual(fallback["schemaVersion"], central["schemaVersion"])
         fallback_by_id = {item["id"]: item for item in fallback["actions"]}
         central_by_id = {item["id"]: item for item in central["actions"]}
-        self.assertEqual(set(fallback_by_id), set(central_by_id))
+        self.assertEqual(
+            set(fallback_by_id).difference(central_by_id),
+            {"screen.help"},
+        )
+        self.assertEqual(fallback_by_id["screen.help"]["binding"], "F1")
+        self.assertEqual(
+            fallback_by_id["screen.help"]["registryContext"],
+            "global",
+        )
         for action_id, expected in central_by_id.items():
             with self.subTest(action_id=action_id):
                 self.assertEqual(fallback_by_id[action_id], expected)
