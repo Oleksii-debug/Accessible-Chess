@@ -421,12 +421,13 @@ class SoundPackManager:
         if current is not None:
             if not isinstance(current, SoundPackManifest):
                 raise SoundPackInstallError("installed sound pack metadata is invalid")
-            if (
-                current.version == entry.manifest.version
-                and current != entry.manifest
-            ):
+            if current.version == entry.manifest.version:
+                if current != entry.manifest:
+                    raise SoundPackInstallError(
+                        "sound pack catalog metadata conflicts with the installed version"
+                    )
                 raise SoundPackInstallError(
-                    "sound pack catalog metadata conflicts with the installed version"
+                    "sound pack catalog version is already installed"
                 )
             if _semantic_version_key(current.version) > _semantic_version_key(
                 entry.manifest.version
