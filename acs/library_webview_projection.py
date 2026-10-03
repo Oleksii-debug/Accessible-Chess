@@ -46,6 +46,7 @@ _LABELS = {
         "source": "Джерело",
         "local_path": "[локальний шлях приховано]",
         "transport_error": "Не вдалося виконати дію.",
+        "selected": "Вибрано",
     },
     UILanguage.EN: {
         "heading": "Game library",
@@ -72,6 +73,7 @@ _LABELS = {
         "source": "Source",
         "local_path": "[local path hidden]",
         "transport_error": "The action could not be completed.",
+        "selected": "Selected",
     },
 }
 
@@ -552,14 +554,50 @@ class LibraryWebViewProjection:
         # One immutable LibraryView is the complete source of a browser render.
         return self._snapshot_from_view(self._presenter.view())
 
-    def _render_event(self, view: LibraryView, *, announce: bool) -> LibraryWebViewEvent:
+    def _selected_announcement(self, snapshot: Mapping[str, object]) -> str:
+        rows = snapshot.get("rows", ())
+        if not isinstance(rows, (tuple, list)):
+            return ""
+        selected = next(
+            (
+                row
+                for row in rows
+                if isinstance(row, Mapping) and row.get("selected") is True
+            ),
+            None,
+        )
+        if selected is None:
+            return str(snapshot.get("summary", ""))[:600]
+        labels = _LABELS[self._language]
+        position = selected.get("position")
+        label = str(selected.get("label", "")).strip()
+        source = str(selected.get("source_label", "")).strip()
+        prefix = labels["selected"]
+        if type(position) is int and position > 0:
+            prefix = f"{prefix} {position}"
+        body = f"{prefix}. {label}".strip()
+        if source:
+            body += f". {labels['source']}: {source}"
+        return body[:600]
+
+    def _render_event(
+        self,
+        view: LibraryView,
+        *,
+        announce: bool,
+        announce_selection: bool = False,
+    ) -> LibraryWebViewEvent:
         snapshot = self._snapshot_from_view(view)
         return LibraryWebViewEvent(
             "render",
             {
                 "snapshot": snapshot,
                 "focus_target": snapshot["focus_target"],
-                "announcement": snapshot["summary"] if announce else "",
+                "announcement": (
+                    self._selected_announcement(snapshot)
+                    if announce_selection
+                    else snapshot["summary"] if announce else ""
+                ),
             },
         )
 
@@ -597,7 +635,7 @@ class LibraryWebViewProjection:
         if not 0 <= target < len(ids):
             raise LookupError("library selection boundary")
         view = self._presenter.select(ids[target])
-        return self._render_event(view, announce=False)
+        return self._render_event(view, announce=False, announce_selection=True)
 
     def next_page(self) -> LibraryWebViewEvent:
         return self._render_event(self._presenter.next_page(), announce=True)
