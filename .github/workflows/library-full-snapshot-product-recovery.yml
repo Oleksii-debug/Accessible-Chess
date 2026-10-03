@@ -1,15 +1,18 @@
-name: Library Full Snapshot Product Recovery Convergence
+name: Library Browser Contract Product Convergence
 
 on:
   push:
     branches:
-      - converge/library-full-snapshot-product-recovery-20261004
+      - converge/library-browser-contract-product-20261004
   pull_request:
     branches:
-      - converge/library-import-event-product-recovery-20261004
+      - converge/product-recovery-settings-20261004
     paths:
-      - 'web/full_product_library.js'
-      - 'tests/js/library_surface_dom_test.js'
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - 'acs/library_webview_projection.py'
+      - 'tests/test_d07_library_export_webview.py'
+      - 'tests/test_dev1_library_webview_projection.py'
       - '.github/workflows/library-full-snapshot-product-recovery.yml'
   workflow_dispatch:
 
@@ -17,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: library-full-snapshot-product-recovery-${{ github.ref }}
+  group: library-browser-contract-product-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,17 +44,15 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove exact successor parent and resolved blobs
+      - name: Prove exact product parent and bounded scope
         shell: bash
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
 
-          parent='1032236b46a3e31a27f88008a2024e9e511f26e7'
-          source='f2566c64886a68bb5c2c861aac564bcbb53f8451'
+          parent='ec37ce81d526f2a76e326712ed350ac8196ac968'
           git cat-file -e "$parent^{commit}"
-          git cat-file -e "$source^{commit}"
           git merge-base --is-ancestor "$parent" HEAD
           test "$(git merge-base "$parent" HEAD)" = "$parent"
           git diff --check "$parent" HEAD
@@ -59,28 +60,41 @@ jobs:
           changed="$(git diff --name-only "$parent" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/library-full-snapshot-product-recovery.yml' \
-            'tests/js/library_surface_dom_test.js' \
-            'web/full_product_library.js' | sort)"
+            'acs/library_export_webview_projection.py' \
+            'acs/library_webview_bridge.py' \
+            'acs/library_webview_projection.py' \
+            'tests/test_d07_library_export_webview.py' \
+            'tests/test_dev1_library_webview_projection.py' | sort)"
           test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "a80fec91f5cebc206fe9049595149c62481f281e"
+          test "$(git rev-parse HEAD:acs/library_webview_bridge.py)" = "e71be4a556888881d35855c0706344d4b43b9198"
+          test "$(git rev-parse HEAD:acs/library_export_webview_projection.py)" = "cb0cb41f95b59de7407e72f5442225872c81e631"
+          test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = "c202c2a27596d8e3dc93bd0c9ac9a2d3f60c23e9"
+          test "$(git rev-parse HEAD:tests/test_d07_library_export_webview.py)" = "699861878c5c20eea0c9b0872c725cbc29599ac8"
 
           test "$(git rev-parse HEAD:web/full_product_library.js)" = "9943aa2e1924c9087faca7e9ead610475bfb98e5"
           test "$(git rev-parse HEAD:tests/js/library_surface_dom_test.js)" = "6d1ce6f2a3d2cd09c2585269d0fb8543cd59f98e"
 
-          echo 'LIBRARY_FULL_SNAPSHOT_PRODUCT_RECOVERY_SCOPE=PASS'
+          echo 'LIBRARY_BROWSER_CONTRACT_PRODUCT_SCOPE=PASS'
 
-      - name: Validate Library JavaScript
+      - name: Validate browser contract JavaScript
         run: |
           node --check web/full_product_library.js
           node --check tests/js/library_surface_dom_test.js
           node tests/js/library_surface_dom_test.js
 
-      - name: Adjacent Library application and export regressions
+      - name: Validate Python Library producer and bridge
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_library_webview_projection
+          tests.test_d07_library_export_webview
+          tests.test_d07_library_import_service
+
+      - name: Adjacent application regressions
         run: >-
           python -m unittest -v
           tests.test_version2_application
-          tests.test_library_webview_projection
-          tests.test_library_export_webview_projection
-          tests.test_d07_library_import_service
 
       - name: Package preflight adjacency
         run: >-
