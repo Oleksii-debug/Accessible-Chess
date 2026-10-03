@@ -505,16 +505,17 @@ class CanonicalPgnGameFramer:
         self._frame_bytes = 0
 
     def _append_raw(self, line: str) -> None:
-        line_bytes = len(line.encode("utf-8")) + 1
-        if (
-            self._max_frame_bytes is not None
-            and self._frame_bytes + line_bytes > self._max_frame_bytes
-        ):
-            raise PgnGameFrameSizeError(
-                "PGN game exceeds the configured frame safety limit"
-            )
+        # Whole-text callers already hold a bounded decoded string and do not
+        # need a second transient UTF-8 copy merely to maintain an unused byte
+        # counter. Only streaming/frame-bounded callers pay the byte-count cost.
+        if self._max_frame_bytes is not None:
+            line_bytes = len(line.encode("utf-8")) + 1
+            if self._frame_bytes + line_bytes > self._max_frame_bytes:
+                raise PgnGameFrameSizeError(
+                    "PGN game exceeds the configured frame safety limit"
+                )
+            self._frame_bytes += line_bytes
         self._raw_lines.append(line)
-        self._frame_bytes += line_bytes
 
     def _flush(self) -> PgnGameFrame | None:
         if not self._tags and not any(line.strip() for line in self._moves):
