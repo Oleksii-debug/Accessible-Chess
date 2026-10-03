@@ -557,6 +557,30 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 (game,),
             )
 
+    def test_invalid_yielded_game_stops_generator_before_read_ahead(self):
+        observed = []
+        valid_second = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+
+        def source():
+            observed.append("invalid")
+            yield object()
+            observed.append("second")
+            yield valid_second
+
+        error = self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            source(),
+        )
+        self.assertIn("requires PgnGame values", str(error))
+        self.assertEqual(observed, ["invalid"])
+
     def test_recovery_warning_state_cannot_be_silently_serialized(self):
         damaged = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
