@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - work/books-bidirectional-semantic-navigation-20260927
     paths:
       - 'acs/bookreader.py'
       - 'acs/book_board_workflow.py'
