@@ -162,6 +162,9 @@ class Version2ApplicationTests(unittest.TestCase):
         delegate_before = self.app.book_delegate
         key_before = self.app.book_key
         snapshot_before = reader_before.snapshot()
+        # Book Open is globally reachable from the native menu. A failed
+        # candidate must not steal the user's current non-Books surface.
+        self.app.shell.open_route("library")
         route_before = self.app.shell.current_route.route_id
 
         candidate = self.root / "candidate.md"
