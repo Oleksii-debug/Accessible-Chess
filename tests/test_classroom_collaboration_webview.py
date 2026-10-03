@@ -1073,6 +1073,15 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             if item["name"] == "retire-clean.pgn"
         )
         old_file_key = clean_item["file_key"]
+        old_file_dom_id = clean_item["dom_id"]
+        self.assertEqual(
+            old_file_dom_id,
+            next(
+                item["dom_id"]
+                for item in view.snapshot()["files"]["items"]
+                if item["name"] == "retire-clean.pgn"
+            ),
+        )
 
         self.chat.ordered.append(
             ChatMessageMetadata(
@@ -1086,6 +1095,9 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         synced = view.dispatch("collaboration.chat.sync", {})
         self.assertEqual(1, synced.payload["collaboration"]["chat"]["unread_count"])
+        old_message_dom_id = synced.payload["collaboration"]["chat"]["messages"][0][
+            "dom_id"
+        ]
 
         with mock.patch.object(
             self.controller,
@@ -1137,6 +1149,14 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             if item["name"] == "retire-clean.pgn"
         )
         self.assertNotEqual(old_file_key, current_clean["file_key"])
+        self.assertNotEqual(old_file_dom_id, current_clean["dom_id"])
+        current_message = next(
+            item
+            for item in snapshot["chat"]["messages"]
+            if item["body"] == "Unread before unbind"
+        )
+        self.assertNotEqual(old_message_dom_id, current_message["dom_id"])
+        self.assertNotIn("remote-retire-message", current_message["dom_id"])
         saved = view.dispatch(
             "collaboration.file.save",
             {"file_key": current_clean["file_key"]},
