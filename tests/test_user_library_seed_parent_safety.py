@@ -47,6 +47,15 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _set_display_name(self, root: Path, value: str) -> None:
+        path = root / "manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["files"][0]["display_name"] = value
+        path.write_text(
+            json.dumps(manifest, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+
     def test_direct_parent_and_seed_are_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory) / "release-content"
@@ -58,6 +67,7 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
 
             self.assertEqual(loaded.root, root)
             self.assertEqual(tuple(entry.file_name for entry in loaded.entries), ("book.pgn",))
+            self.assertEqual(tuple(entry.display_name for entry in loaded.entries), ("Private seed",))
 
     def test_redirected_parent_is_rejected_before_manifest_ingress(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -78,6 +88,28 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
                 "user Library seed parent directory must be direct",
             ):
                 load_user_library_seed(redirected_root)
+
+    def test_display_name_is_not_silently_whitespace_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "release-content"
+            parent.mkdir()
+            root = parent / "user-library-seed"
+            self._write_seed(root)
+            self._set_display_name(root, " Private seed ")
+
+            with self.assertRaisesRegex(UserLibrarySeedError, "display name is invalid"):
+                load_user_library_seed(root)
+
+    def test_display_name_rejects_multiline_control_text(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "release-content"
+            parent.mkdir()
+            root = parent / "user-library-seed"
+            self._write_seed(root)
+            self._set_display_name(root, "Private seed\nInjected label")
+
+            with self.assertRaisesRegex(UserLibrarySeedError, "display name is invalid"):
+                load_user_library_seed(root)
 
 
 if __name__ == "__main__":
