@@ -617,6 +617,89 @@ class DurableChatOutboxTests(unittest.TestCase):
         self.assertIsNone(runtime.chat_outbox)
         self.assertIs(type(runtime.controller), ClassroomCollaborationController)
 
+    def test_windows_runtime_outbox_scope_is_stable_across_path_case_aliases(self) -> None:
+        secret_store = MemorySecretStore()
+        upper = Path(self.temp.name) / "CaseAlias.sqlite3"
+        lower = Path(self.temp.name) / "casealias.sqlite3"
+
+        with mock.patch(
+            "acs.classroom_collaboration_runtime.sys.platform",
+            "win32",
+        ):
+            first = build_classroom_collaboration_http_runtime(
+                room_id="room-1",
+                participant_id="student-1",
+                roster=Roster(),
+                store_path=upper,
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                chat_bearer_token_provider=lambda: "chat-token",
+                file_bearer_token_provider=lambda: "file-token",
+                participant_label=lambda participant_id: participant_id,
+                chat_outbox_secret_store=secret_store,
+            )
+            second = build_classroom_collaboration_http_runtime(
+                room_id="room-1",
+                participant_id="student-1",
+                roster=Roster(),
+                store_path=lower,
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                chat_bearer_token_provider=lambda: "chat-token",
+                file_bearer_token_provider=lambda: "file-token",
+                participant_label=lambda participant_id: participant_id,
+                chat_outbox_secret_store=secret_store,
+            )
+
+        assert first.chat_outbox is not None
+        assert second.chat_outbox is not None
+        self.assertNotEqual(str(upper.resolve()), str(lower.resolve()))
+        self.assertEqual(
+            first.chat_outbox._slot(0),
+            second.chat_outbox._slot(0),
+        )
+
+    def test_posix_runtime_outbox_scope_preserves_case_sensitive_paths(self) -> None:
+        secret_store = MemorySecretStore()
+        upper = Path(self.temp.name) / "CaseSensitive.sqlite3"
+        lower = Path(self.temp.name) / "casesensitive.sqlite3"
+
+        with mock.patch(
+            "acs.classroom_collaboration_runtime.sys.platform",
+            "linux",
+        ):
+            first = build_classroom_collaboration_http_runtime(
+                room_id="room-1",
+                participant_id="student-1",
+                roster=Roster(),
+                store_path=upper,
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                chat_bearer_token_provider=lambda: "chat-token",
+                file_bearer_token_provider=lambda: "file-token",
+                participant_label=lambda participant_id: participant_id,
+                chat_outbox_secret_store=secret_store,
+            )
+            second = build_classroom_collaboration_http_runtime(
+                room_id="room-1",
+                participant_id="student-1",
+                roster=Roster(),
+                store_path=lower,
+                chat_endpoint_url="https://chat.example.test/v1/classroom/chat",
+                file_endpoint_url="https://files.example.test/v1/classroom/files",
+                chat_bearer_token_provider=lambda: "chat-token",
+                file_bearer_token_provider=lambda: "file-token",
+                participant_label=lambda participant_id: participant_id,
+                chat_outbox_secret_store=secret_store,
+            )
+
+        assert first.chat_outbox is not None
+        assert second.chat_outbox is not None
+        self.assertNotEqual(
+            first.chat_outbox._slot(0),
+            second.chat_outbox._slot(0),
+        )
+
     def test_windows_runtime_selects_dpapi_secret_store_without_browser_changes(self) -> None:
         secret_store = MemorySecretStore()
         target = Path(self.temp.name) / "runtime.sqlite3"
