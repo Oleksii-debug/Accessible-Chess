@@ -288,7 +288,12 @@ class SoundSettingsApplication:
             return (event_id,)
         if active_manifest is None:
             return (profile.selected_sound_id(event_id),)
-        return tuple(sorted(active_manifest.files))
+        choices = set(active_manifest.files)
+        # A schema-v1 custom pack may predate a newly added canonical semantic
+        # event. Selecting that event id means "use the exact classic semantic
+        # fallback"; the Windows adapter never aliases it to another event.
+        choices.add(event_id)
+        return tuple(sorted(choices))
 
     def _normalized_profile_for_pack(
         self,
