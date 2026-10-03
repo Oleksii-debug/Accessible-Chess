@@ -236,6 +236,50 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual("1.0.0", store.active_version(first.pack_id))
             self.assertEqual(first, store.installed()[first.pack_id])
 
+    def test_verified_asset_snapshot_returns_digest_bound_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, payloads = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+
+            snapshot = store.read_asset_snapshot(manifest.pack_id, "move")
+
+            self.assertIsNotNone(snapshot)
+            assert snapshot is not None
+            self.assertEqual(manifest.version, snapshot.version)
+            self.assertEqual(manifest.files["move"], snapshot.relative_path)
+            self.assertEqual(payloads[manifest.files["move"]], snapshot.content)
+
+    def test_asset_replacement_after_manifest_verification_never_escapes_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest, seed=b"a")
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+            installed = store._installed_disk_pack(manifest.pack_id)
+            target = installed.version_dir / manifest.files["move"]
+            real_installed = store._installed_disk_pack
+
+            def verify_then_replace(pack_id):
+                result = real_installed(pack_id)
+                target.write_bytes(b"RIFF" + (4).to_bytes(4, "little") + b"WAVE")
+                return result
+
+            with mock.patch.object(
+                store,
+                "_installed_disk_pack",
+                side_effect=verify_then_replace,
+            ):
+                snapshot = store.read_asset_snapshot(manifest.pack_id, "move")
+
+            self.assertIsNone(
+                snapshot,
+                "bytes changed after verification must never cross the playback boundary",
+            )
+
     def test_update_keeps_old_version_and_switches_active_only_after_new_publish(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
