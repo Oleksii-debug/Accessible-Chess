@@ -167,6 +167,55 @@ window.AccessibleChessLibrarySurface.render(root, snapshot, invoke, announce, "l
 
 const search = root.querySelector("#library-search-player");
 check(search !== null, "search input missing");
+
+const exportDomId = "library-game-0123456789abcdefabcd";
+const exportSnapshot = {
+  ...snapshot,
+  status: "ready",
+  rows: [
+    {
+      dom_id: exportDomId,
+      game_id: 1,
+      position: 1,
+      selected: true,
+      label: "White — Black",
+      source_label: "source.pgn",
+      result: "1-0",
+      export_selected: true,
+      export_dom_id: exportDomId + "-export",
+      export_label: "Include in export: White — Black"
+    }
+  ],
+  selected_game_id: 1,
+  focus_target: exportDomId,
+  actions: libraryActions().concat([
+    { action: "library.export_selected", label: "Export selected games (1)", enabled: true },
+    { action: "library.export_filtered", label: "Export all filtered results", enabled: true },
+    { action: "library.clear_export_selection", label: "Clear export selection", enabled: true }
+  ]),
+  export_selection_heading: "Games to export",
+  export_selection_count: 1,
+  summary: "Showing one game"
+};
+const exportRoot = new FakeElement("div");
+window.AccessibleChessLibrarySurface.render(
+  exportRoot,
+  exportSnapshot,
+  invoke,
+  announce,
+  exportDomId + "-export"
+);
+check(
+  exportRoot.querySelector("#" + exportDomId + "-export") !== null,
+  "canonical export-enriched Library snapshot lost its checkbox"
+);
+check(
+  document.activeElement === exportRoot.querySelector("#" + exportDomId + "-export"),
+  "canonical export checkbox focus target was rejected"
+);
+
+// Continue the partial-import test on the original base Library surface.
+search.focus();
 search.value = "Kasparov";
 search.focus();
 const wholeRenders = root.replaceChildrenCalls;
