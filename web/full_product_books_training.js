@@ -1207,6 +1207,12 @@
         { confirmed: true },
         function (result) {
           applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
+          if (result.kind === "error") {
+            resetPending = false;
+            confirm.disabled = false;
+            if (dialog.open) confirm.focus({ preventScroll: true });
+            return;
+          }
           if (dialog.open) dialog.close();
         },
         announce,
