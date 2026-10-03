@@ -467,6 +467,7 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
                 "body": "Through HTTP",
                 "retention": "session",
                 "hidden": False,
+                "redacted": False,
                 "sent_at_unix_ms": 1700000000000,
             },
         }
@@ -622,6 +623,7 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("msg-1", payload["message"]["message_id"])
         self.assertEqual(0, payload["message"]["sequence_no"])
         self.assertEqual(1700000000000, payload["message"]["sent_at_unix_ms"])
+        self.assertFalse(payload["message"]["redacted"])
 
     async def test_authenticated_identity_mismatch_is_forbidden_before_backend(self) -> None:
         sent = await self.invoke(
@@ -982,6 +984,72 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, status)
         self.assertTrue(payload["updates"][0]["hidden"])
         self.assertEqual((STUDENT, ROOM, None, 10), self.backend.state_calls[-1])
+
+    async def test_redacted_history_and_state_survive_authenticated_http_framing(self) -> None:
+        self.backend.messages = [
+            ChatMessageMetadata(
+                "expired-session-message",
+                ROOM,
+                STUDENT,
+                0,
+                "",
+                "session",
+                hidden=False,
+                sent_at_unix_ms=1700000000000,
+                redacted=True,
+            )
+        ]
+        self.backend.state = [
+            ChatMessageStateUpdate(
+                ROOM,
+                "expired-session-message",
+                0,
+                hidden=False,
+                redacted=True,
+            )
+        ]
+
+        history_request = {
+            "v": 1,
+            "op": "history",
+            "room_id": ROOM,
+            "participant_id": STUDENT,
+            "after_sequence": None,
+            "limit": 10,
+        }
+        history_sent = await self.invoke(payload=history_request)
+        status, _, history_payload = self.response(history_sent)
+        self.assertEqual(200, status)
+        self.assertEqual(1, len(history_payload["messages"]))
+        message = history_payload["messages"][0]
+        self.assertEqual("expired-session-message", message["message_id"])
+        self.assertEqual("", message["body"])
+        self.assertFalse(message["hidden"])
+        self.assertTrue(message["redacted"])
+        self.assertEqual(0, message["sequence_no"])
+        self.assertEqual(1700000000000, message["sent_at_unix_ms"])
+
+        state_request = {
+            "v": 1,
+            "op": "state",
+            "room_id": ROOM,
+            "participant_id": STUDENT,
+            "after_revision": None,
+            "limit": 10,
+        }
+        state_sent = await self.invoke(payload=state_request)
+        status, _, state_payload = self.response(state_sent)
+        self.assertEqual(200, status)
+        self.assertEqual(
+            {
+                "room_id": ROOM,
+                "message_id": "expired-session-message",
+                "revision": 0,
+                "hidden": False,
+                "redacted": True,
+            },
+            state_payload["updates"][0],
+        )
 
     async def test_client_disconnect_before_complete_body_emits_no_response_or_rpc_effect(self) -> None:
         body = json.dumps(self.send_payload()).encode("utf-8")
