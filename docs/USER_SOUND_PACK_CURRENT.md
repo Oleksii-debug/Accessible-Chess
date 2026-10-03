@@ -28,7 +28,7 @@ Variant 1 is the default for every semantic sound event.
 
 Distinct Board/Board3d alternatives and numbered move/capture alternatives are exposed through the persisted per-event sound variant settings. Byte-identical duplicates are not presented twice.
 
-The full 330-file source library is retained in the built sound pack so future voice notation, server/classroom cues, and layered move-hit behavior can be added without returning to the removed procedural Stage 1 sound generator.
+The full 330-file source library is retained in the built sound pack so future voice notation and server/classroom cues can be added without returning to the removed procedural Stage 1 sound generator. The original MOVEHIT/CAPHIT assets are already active as ordered landing layers for the matching move/capture variants.
 
 ## Runtime rules
 
@@ -36,8 +36,11 @@ The full 330-file source library is retained in the built sound pack so future v
 - Missing/broken assets never fall back to a Windows system beep.
 - Multi-second NEWGAME and clock WAVs use non-blocking Windows playback so the keyboard and UI remain responsive.
 - Variant selection is persisted per event.
+- MOVE/MOVE2/MOVE3 and their Board3d counterparts play the matching MOVEHIT1/2/3 WAV immediately afterward as an ordered landing layer.
+- CAPTURE/CAPTURE2/CAPTURE3 and their Board3d counterparts play the matching CAPHIT1/2/3 WAV immediately afterward as an ordered landing layer.
+- Move/capture variants without a matching HIT asset stay single-file sounds; the runtime does not invent replacement effects.
 - NEWGAME visual placement uses 32 detected impact times for the default 2D WAV and a separate 32-impact timeline for the distinct 3D NEWGAME WAV. The selected start-sound variant chooses the matching animation timeline; both are emitted in newgame_impacts.json by the pack builder.
-- Release validation checks every selectable variant, not only the defaults.
+- Release validation checks every selectable variant and every layered WAV, not only the defaults.
 
 ## Distribution boundary
 
