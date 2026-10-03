@@ -114,6 +114,11 @@ def build_classroom_collaboration_http_runtime(
         raise TypeError("chat bearer token provider must be callable")
     if not callable(file_bearer_token_provider):
         raise TypeError("file bearer token provider must be callable")
+    if not all(
+        callable(getattr(roster, attribute, None))
+        for attribute in ("participant_ids", "role_for", "board_control_allowed")
+    ):
+        raise TypeError("roster must implement ClassroomRosterPort")
     if not callable(participant_label):
         raise TypeError("participant_label must be callable")
     for label, callback in (
