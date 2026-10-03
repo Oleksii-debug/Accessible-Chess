@@ -464,6 +464,21 @@ class Version2Application:
                 return result
             try:
                 self.save_book_progress()
+            except BookProgressStoreError as error:
+                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    self._restore_book_progress(
+                        before_reader,
+                        language=language,
+                        bookmark_name=bookmark_name,
+                        restore_training=True,
+                        training_language=training_language,
+                        training_message=training_message,
+                        training_message_key=training_message_key,
+                    )
+                # DURABILITY_UNKNOWN already rebound to the canonical primary (or
+                # failed Books/Training closed). Never overwrite that authority
+                # with the pre-Continue snapshot.
+                raise
             except Exception:
                 self._restore_book_progress(
                     before_reader,
