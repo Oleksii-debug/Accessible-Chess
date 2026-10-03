@@ -155,6 +155,23 @@ class BookProgressStoreTests(unittest.TestCase):
             self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
 
+    def test_deeply_nested_progress_json_fails_with_stable_store_error(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        depth = 5000
+        self.path.write_text(
+            "[" * depth + "0" + "]" * depth,
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_unknown_or_future_store_schema_fails_closed(self) -> None:
         cases = [
             {"schema_version": 2, "entries": {}},
