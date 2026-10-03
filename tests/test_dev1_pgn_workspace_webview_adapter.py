@@ -304,6 +304,73 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(before, self.workspace.cursor)
         self.assertEqual([], self.workspace.set_cursor_calls)
 
+    def test_external_game_change_does_not_reinterpret_stale_next_game_command(self) -> None:
+        before = self.projection.snapshot()
+        self.assertEqual(0, before["game"]["index"])
+        self.workspace.next_game()
+        call_count = len(self.calls)
+
+        event = self.bridge.dispatch("pgn.next_game", {})
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(1, event.payload["snapshot"]["game"]["index"])
+        self.assertEqual(
+            event.payload["snapshot"]["error_message"],
+            event.payload["announcement"],
+        )
+
+    def test_external_cursor_change_blocks_stale_comment_edit_and_resyncs_view(self) -> None:
+        first = self.projection.snapshot()["tree"][0]
+        selected = self.bridge.dispatch("pgn.select", {"node_id": first["node_id"]})
+        self.assertEqual("selection", selected.kind)
+
+        self.workspace.set_cursor(GameTreeCursor((), 2))
+        call_count = len(self.calls)
+        event = self.bridge.dispatch(
+            "pgn.comment_edit",
+            {"text": "must not be applied to a newer selection"},
+        )
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(GameTreeCursor((), 2), self.workspace.cursor)
+        self.assertEqual(
+            event.payload["snapshot"]["error_message"],
+            event.payload["announcement"],
+        )
+        selected_items = [
+            item for item in event.payload["snapshot"]["tree"] if item["selected"]
+        ]
+        self.assertEqual(1, len(selected_items))
+        self.assertTrue(str(selected_items[0]["node_id"]).endswith("/m1"))
+
+    def test_workspace_drift_after_preflight_capture_is_caught_before_operation(self) -> None:
+        self.projection.snapshot()
+        call_count = len(self.calls)
+        real_capture = self.projection._capture_presenter
+        drifted = {"done": False}
+
+        def capture_then_drift(language):
+            captured = real_capture(language)
+            if not drifted["done"]:
+                drifted["done"] = True
+                self.workspace.next_game()
+            return captured
+
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=capture_then_drift,
+        ):
+            event = self.bridge.dispatch("pgn.next_game", {})
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual(call_count, len(self.calls))
+        self.assertEqual(1, event.payload["snapshot"]["game"]["index"])
+
     def test_rejected_domain_navigation_keeps_last_truthful_view(self) -> None:
         accepted = self.bridge.dispatch("pgn.next_game", {})
         self.assertEqual("selection", accepted.kind)
