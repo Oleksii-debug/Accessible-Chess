@@ -905,6 +905,11 @@ class ClassroomCollaborationWebView:
             announcement=announcement,
         )
 
+    def refresh_chat(self) -> ClassroomCollaborationWebViewEvent:
+        """Refresh canonical chat/history state after a trusted host notification."""
+
+        return self._sync_chat()
+
     def _sync_chat(self) -> ClassroomCollaborationWebViewEvent:
         before = {
             item.message_id
@@ -947,6 +952,11 @@ class ClassroomCollaborationWebView:
         elif pending_recovered:
             announcement = _LABELS[self._language]["sent"]
         return self._event("collaboration.chat.synced", announcement=announcement)
+
+    def refresh_files(self) -> ClassroomCollaborationWebViewEvent:
+        """Refresh canonical file/history state after a trusted host notification."""
+
+        return self._sync_files()
 
     def _sync_files(self) -> ClassroomCollaborationWebViewEvent:
         try:

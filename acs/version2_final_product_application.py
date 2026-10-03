@@ -325,6 +325,24 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("Classroom collaboration is not bound")
         return asdict(collaboration.receive_file(attachment))
 
+    def refresh_classroom_chat(self) -> dict[str, object]:
+        """Run canonical chat sync after a trusted provider notification."""
+
+        self._assert_thread()
+        collaboration = self.collaboration
+        if collaboration is None:
+            raise RuntimeError("Classroom collaboration is not bound")
+        return asdict(collaboration.refresh_chat())
+
+    def refresh_classroom_files(self) -> dict[str, object]:
+        """Run canonical file/state sync after a trusted provider notification."""
+
+        self._assert_thread()
+        collaboration = self.collaboration
+        if collaboration is None:
+            raise RuntimeError("Classroom collaboration is not bound")
+        return asdict(collaboration.refresh_files())
+
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
         if not isinstance(language, UILanguage):
