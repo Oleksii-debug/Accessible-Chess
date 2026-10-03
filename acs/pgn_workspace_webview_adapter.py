@@ -160,6 +160,18 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
     def _refresh(self) -> None:
         self._presenter, self._workspace_view = self._capture_presenter(self._language)
 
+    def _try_refresh(self) -> bool:
+        # A concurrent canonical navigation/edit may invalidate one capture.
+        # Retry once from the authoritative workspace; never reuse a mixed or
+        # stale presenter snapshot.
+        for _attempt in range(2):
+            try:
+                self._refresh()
+            except Exception:
+                continue
+            return True
+        return False
+
     def _snapshot_current(self) -> dict[str, object]:
         snapshot = PgnWebViewProjection.snapshot(self)
         snapshot["workspace"] = {
@@ -168,7 +180,8 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return snapshot
 
     def snapshot(self) -> dict[str, object]:
-        self._refresh()
+        if not self._try_refresh():
+            return self._unavailable_snapshot()
         return self._snapshot_current()
 
     def _render_event(self, *, announce: str = "") -> PgnWebViewEvent:
@@ -246,48 +259,71 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             )
         return self._dispatch_registered(action_id, trusted)
 
-    def _navigate_to(self, action_id: str, node_id: str) -> PgnWebViewEvent:
-        payload = self._trusted_target(node_id, require_current=False)
-        try:
-            self._dispatch_registered(action_id, payload)
-        finally:
-            self._refresh()
+    def _refresh_after_operation(self) -> PgnWebViewEvent:
+        if not self._try_refresh():
+            # The canonical operation may already be committed. Returning an
+            # ordinary error would leave the browser/NVDA DOM describing the
+            # previous state, so replace it with a non-authoritative recovery
+            # surface instead.
+            return self._unavailable_event()
         return self._render_event()
 
+    def _operate_and_render(self, operation: Callable[[], object]) -> PgnWebViewEvent:
+        before_identity = self._view_identity(self._workspace.view())
+        try:
+            operation()
+        except Exception:
+            # Domain commands are expected to be atomic, but fail closed if a
+            # provider ever raises after changing canonical workspace state.
+            try:
+                after_identity = self._view_identity(self._workspace.view())
+            except Exception:
+                return self._unavailable_event()
+            if after_identity != before_identity:
+                return self._refresh_after_operation()
+            # Keep the trusted presenter aligned after a rejected operation
+            # without allowing a refresh failure to mask the domain error.
+            self._try_refresh()
+            raise
+        return self._refresh_after_operation()
+
+    def _navigate_to(self, action_id: str, node_id: str) -> PgnWebViewEvent:
+        payload = self._trusted_target(node_id, require_current=False)
+        return self._operate_and_render(
+            lambda: self._dispatch_registered(action_id, payload)
+        )
+
     def select(self, node_id: str) -> PgnWebViewEvent:
-        self._refresh()
+        if not self._try_refresh():
+            return self._unavailable_event()
         selected = self._presenter.select(node_id)
         return self._navigate_to("pgn.select_item", selected.node_id)
 
     def move_selection(self, delta: int) -> PgnWebViewEvent:
-        self._refresh()
+        if not self._try_refresh():
+            return self._unavailable_event()
         selected = self._presenter.move_selection(delta)
         action_id = "pgn.previous_item" if delta < 0 else "pgn.next_item"
         return self._navigate_to(action_id, selected.node_id)
 
     def select_parent(self) -> PgnWebViewEvent:
-        self._refresh()
+        if not self._try_refresh():
+            return self._unavailable_event()
         selected = self._presenter.select_parent()
         return self._navigate_to("pgn.parent_variation", selected.node_id)
 
     def previous_game(self) -> PgnWebViewEvent:
-        try:
-            self._dispatch_registered("pgn.previous_game", {})
-        finally:
-            self._refresh()
-        return self._render_event()
+        return self._operate_and_render(
+            lambda: self._dispatch_registered("pgn.previous_game", {})
+        )
 
     def next_game(self) -> PgnWebViewEvent:
-        try:
-            self._dispatch_registered("pgn.next_game", {})
-        finally:
-            self._refresh()
-        return self._render_event()
+        return self._operate_and_render(
+            lambda: self._dispatch_registered("pgn.next_game", {})
+        )
 
     def _mutate_and_render(self, operation: Callable[[], PgnWebViewEvent]) -> PgnWebViewEvent:
-        operation()
-        self._refresh()
-        return self._render_event()
+        return self._operate_and_render(operation)
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
