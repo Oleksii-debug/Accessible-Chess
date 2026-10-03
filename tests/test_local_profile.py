@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import tempfile
 import threading
+import traceback
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -390,10 +391,65 @@ class LocalProfileStoreTests(unittest.TestCase):
             real_replace(source, target)
 
         with mock.patch("acs.local_profile.os.replace", side_effect=fail_primary_replace):
-            with self.assertRaisesRegex(LocalProfileError, "could not be saved"):
+            with self.assertRaisesRegex(LocalProfileError, "could not be saved") as caught:
                 self.store.rename(original, "Alice Two")
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("injected write failure", rendered)
         self.assertEqual(self.store.load(), original)
         self.assertEqual(parse_local_profile_bytes(self.store.backup_path.read_bytes()), original)
+
+    def test_lock_open_failure_is_sanitized_before_any_profile_publication(self) -> None:
+        with mock.patch(
+            "acs.local_profile.os.open",
+            side_effect=OSError(r"SECRET-PROFILE-PATH C:\\Users\\private\\profile.lock"),
+        ):
+            with self.assertRaisesRegex(
+                LocalProfileError,
+                "^local profile mutation lock is unavailable$",
+            ) as caught:
+                self.store.create("Alice")
+
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("SECRET-PROFILE-PATH", rendered)
+        self.assertNotIn("Users", rendered)
+        self.assertFalse(self.store.path.exists())
+        self.assertFalse(self.store.backup_path.exists())
+
+    def test_lock_seek_failure_is_sanitized_and_releases_open_descriptor(self) -> None:
+        with mock.patch(
+            "acs.local_profile.os.lseek",
+            side_effect=OSError("SECRET-LOCK-SEEK"),
+        ):
+            with self.assertRaisesRegex(
+                LocalProfileError,
+                "^local profile mutation lock is unavailable$",
+            ) as caught:
+                self.store.create("Alice")
+
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("SECRET-LOCK-SEEK", rendered)
+        self.assertFalse(self.store.path.exists())
+
+    def test_lock_close_failure_after_commit_does_not_falsify_success(self) -> None:
+        original = self.store.create("Alice")
+        real_close = os.close
+        close_calls = []
+
+        def close_then_fail(fd: int) -> None:
+            close_calls.append(fd)
+            real_close(fd)
+            raise OSError("SECRET-POST-COMMIT-CLOSE")
+
+        with mock.patch("acs.local_profile.os.close", side_effect=close_then_fail):
+            renamed = self.store.rename(original, "Alice Two")
+
+        self.assertTrue(close_calls)
+        self.assertEqual(renamed.display_name, "Alice Two")
+        self.assertEqual(renamed.revision, original.revision + 1)
+        self.assertEqual(self.store.load(), renamed)
 
     @unittest.skipUnless(hasattr(os, "symlink"), "symbolic links are unavailable")
     def test_mutation_lock_symlink_is_rejected_without_touching_target(self) -> None:
