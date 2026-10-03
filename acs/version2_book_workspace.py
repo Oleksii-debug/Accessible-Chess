@@ -376,13 +376,19 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 for comment in (safe(raw) for raw in item.trailing_comments)
                 if comment
             )
+            try:
+                line_result = item.result
+            except AttributeError as exc:
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree item result is unavailable"
+                ) from exc
             result = ""
-            if item.result is not None:
+            if line_result is not None:
                 if item.kind != "variation":
                     raise _BookSemanticTreeError(
                         "book semantic move unexpectedly carries a line result"
                     )
-                result = safe(item.result)
+                result = safe(line_result)
                 if result not in _BOOK_SEMANTIC_RESULTS:
                     raise _BookSemanticTreeError(
                         "book semantic variation result is invalid"
@@ -426,7 +432,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if players == "? — ?":
             players = ""
 
-        if len(view.tags) > _MAX_BOOK_SEMANTIC_DETAILS:
+        try:
+            view_tags = view.tags
+        except AttributeError as exc:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree metadata is unavailable"
+            ) from exc
+        if type(view_tags) is not tuple:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree metadata must be a tuple"
+            )
+        if len(view_tags) > _MAX_BOOK_SEMANTIC_DETAILS:
             raise _BookSemanticTreeError(
                 "book semantic GameTree exceeds the metadata detail limit"
             )
@@ -438,7 +454,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         }
         details: list[dict[str, str]] = []
         seen_detail_kinds: set[str] = set()
-        for tag_name, raw_value in view.tags:
+        for detail in view_tags:
+            if type(detail) is not tuple or len(detail) != 2:
+                raise _BookSemanticTreeError(
+                    "book semantic metadata entry is invalid"
+                )
+            tag_name, raw_value = detail
             if tag_name in {"White", "Black", "Result"}:
                 continue
             if type(tag_name) is not str or not tag_name.strip():
