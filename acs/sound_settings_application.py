@@ -280,6 +280,7 @@ class SoundSettingsApplication:
                     if installed_manifest is not None
                     else manifest
                 )
+                rights = entry.rights_evidence
                 represented.add(manifest.pack_id)
                 packs.append(
                     {
@@ -294,12 +295,16 @@ class SoundSettingsApplication:
                         "catalog_author": manifest.author,
                         "catalog_license_id": manifest.license_id,
                         "catalog_provenance": manifest.provenance,
+                        "rights_auditable": rights is not None,
+                        "rights_source_uri": "" if rights is None else rights.source_uri,
+                        "license_uri": "" if rights is None else rights.license_uri,
                         "compatible": entry.compatible,
                         "installed_compatible": installed_compatible,
                         "installed_version": status.installed_version,
                         "state": status.state.value,
                         "active": profile.pack_id == manifest.pack_id,
-                        "can_install": status.state
+                        "can_install": rights is not None
+                        and status.state
                         in {SoundPackState.NOT_INSTALLED, SoundPackState.DIFFERENT_VERSION},
                         "can_uninstall": status.installed_version is not None
                         and manifest.pack_id != self._packs.fallback_pack_id,
@@ -318,6 +323,9 @@ class SoundSettingsApplication:
                     "author": manifest.author,
                     "license_id": manifest.license_id,
                     "provenance": manifest.provenance,
+                    "rights_auditable": False,
+                    "rights_source_uri": "",
+                    "license_uri": "",
                     "compatible": compatible,
                     "installed_compatible": compatible,
                     "installed_version": manifest.version,
