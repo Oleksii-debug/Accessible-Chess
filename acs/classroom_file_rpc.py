@@ -12,10 +12,12 @@ from collections.abc import Mapping
 import hashlib
 from pathlib import Path
 import re
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .classroom_collaboration import (
     MAX_DOWNLOAD_TOKEN_CHARS,
+    AttachmentHistoryPage,
+    FileTransferProgress,
     MAX_FILE_BYTES_DEFAULT,
     MAX_SYNC_ATTACHMENTS,
     PreparedFile,
@@ -31,6 +33,7 @@ from .classroom_domain import MAX_WIRE_INTEGER
 
 RPC_VERSION = 1
 MAX_RPC_UPLOAD_BYTES = MAX_FILE_BYTES_DEFAULT
+_RPC_READ_CHUNK_BYTES = 1024 * 1024
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -41,7 +44,20 @@ class ClassroomFileRpcError(ValueError):
 class ClassroomFileRpcCallPort(Protocol):
     """Authenticated binary-capable request transport used by the desktop."""
 
-    def call(self, request: Mapping[str, object]) -> Mapping[str, object]:
+    def call(
+        self,
+        request: Mapping[str, object],
+        *,
+        binary_content: bytes | None = None,
+        on_upload_progress: Callable[[int], None] | None = None,
+    ) -> Mapping[str, object]:
+        """Perform one authenticated call.
+
+        For upload calls, binary_content is the opaque file body outside the
+        structured request. A successful call with binary content must
+        synchronously report monotonic transferred-byte counts and finish at
+        exactly len(binary_content).
+        """
         ...
 
 
@@ -73,7 +89,7 @@ class ClassroomFileRpcServerPort(Protocol):
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
         ...
 
     def state_updates_after(
@@ -122,14 +138,33 @@ class ClassroomFileRpcClient:
         self._transport = transport
         self._max_upload_bytes = _upload_limit(max_upload_bytes)
 
-    def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
-        return self._upload(prepared)
+    def upload(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None = None,
+    ) -> AttachmentMetadata:
+        return self._upload(prepared, on_progress=on_progress)
 
-    def retry(self, prepared: PreparedFile) -> AttachmentMetadata:
-        return self._upload(prepared)
+    def retry(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None = None,
+    ) -> AttachmentMetadata:
+        return self._upload(prepared, on_progress=on_progress)
 
-    def _upload(self, prepared: PreparedFile) -> AttachmentMetadata:
+    def _upload(
+        self,
+        prepared: PreparedFile,
+        *,
+        on_progress: Callable[[FileTransferProgress], None] | None,
+    ) -> AttachmentMetadata:
         metadata, content = self._read_prepared(prepared)
+        observe_transport, require_complete_progress = self._progress_observer(
+            metadata,
+            on_progress,
+        )
         response = self._call(
             {
                 "v": RPC_VERSION,
@@ -137,9 +172,11 @@ class ClassroomFileRpcClient:
                 "room_id": self.room_id,
                 "participant_id": self.participant_id,
                 "metadata": _attachment_to_wire(metadata),
-                "content": content,
-            }
+            },
+            binary_content=content,
+            on_upload_progress=observe_transport,
         )
+        require_complete_progress()
         _exact_keys(response, {"v", "ok", "attachment"}, "upload response")
         _version_ok(response)
         if response["ok"] is not True:
@@ -162,31 +199,86 @@ class ClassroomFileRpcClient:
             max_upload_bytes=self._max_upload_bytes,
         )
         path = prepared.local_path
+        remaining = metadata.size_bytes
+        digest = hashlib.sha256()
+        content = bytearray()
+        extra = b""
         try:
-            if not path.is_file():
-                raise OSError("not a regular file")
-            size = path.stat().st_size
-            if size != metadata.size_bytes:
-                raise ClassroomFileRpcError(
-                    "selected file changed before RPC upload"
-                )
-            if size > self._max_upload_bytes:
-                raise ClassroomFileRpcError("file exceeds RPC upload limit")
-            content = path.read_bytes()
-        except ClassroomFileRpcError:
-            raise
+            with path.open("rb") as source:
+                while remaining:
+                    chunk = source.read(min(_RPC_READ_CHUNK_BYTES, remaining))
+                    if not chunk:
+                        break
+                    content.extend(chunk)
+                    digest.update(chunk)
+                    remaining -= len(chunk)
+                extra = source.read(1)
         except OSError:
             raise ClassroomFileRpcError(
                 "selected file could not be read for upload"
             ) from None
         if (
-            len(content) != metadata.size_bytes
-            or hashlib.sha256(content).hexdigest() != metadata.sha256
+            remaining != 0
+            or extra
+            or digest.hexdigest() != metadata.sha256
         ):
             raise ClassroomFileRpcError(
                 "selected file changed before RPC upload"
             )
-        return metadata, content
+        return metadata, bytes(content)
+
+    @staticmethod
+    def _progress_observer(
+        metadata: AttachmentMetadata,
+        consumer: Callable[[FileTransferProgress], None] | None,
+    ) -> tuple[Callable[[int], None], Callable[[], None]]:
+        if consumer is not None and not callable(consumer):
+            raise ClassroomFileRpcError("file progress consumer must be callable")
+        last_transferred = -1
+
+        def observe(transferred_bytes: int) -> None:
+            nonlocal last_transferred
+            if (
+                type(transferred_bytes) is not int
+                or not 0 <= transferred_bytes <= metadata.size_bytes
+            ):
+                raise ClassroomFileRpcError(
+                    "file RPC transport returned invalid upload progress"
+                )
+            if transferred_bytes < last_transferred:
+                raise ClassroomFileRpcError(
+                    "file RPC transport progress moved backwards"
+                )
+            if transferred_bytes == last_transferred:
+                return
+            last_transferred = transferred_bytes
+            if consumer is not None:
+                try:
+                    consumer(
+                        FileTransferProgress(
+                            metadata.attachment_id,
+                            transferred_bytes,
+                            metadata.size_bytes,
+                        )
+                    )
+                except Exception:
+                    # Presentation is an observer. A broken UI callback cannot
+                    # turn an otherwise valid authenticated upload ambiguous.
+                    pass
+
+        def require_complete() -> None:
+            if metadata.size_bytes == 0:
+                if last_transferred not in {-1, 0}:
+                    raise ClassroomFileRpcError(
+                        "file RPC transport returned invalid upload progress"
+                    )
+                return
+            if last_transferred != metadata.size_bytes:
+                raise ClassroomFileRpcError(
+                    "file RPC transport omitted final upload progress"
+                )
+
+        return observe, require_complete
 
     def cancel(self, *, attachment_id: str) -> None:
         attachment = _opaque_id(attachment_id, "attachment id")
@@ -210,7 +302,7 @@ class ClassroomFileRpcClient:
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
+    ) -> AttachmentHistoryPage:
         room = _opaque_id(room_id, "room id")
         if room != self.room_id:
             raise ClassroomFileRpcError("file history crossed bound room")
@@ -226,7 +318,11 @@ class ClassroomFileRpcClient:
                 "limit": bounded,
             }
         )
-        _exact_keys(response, {"v", "ok", "attachments"}, "history response")
+        _exact_keys(
+            response,
+            {"v", "ok", "attachments", "snapshot_state_revision"},
+            "history response",
+        )
         _version_ok(response)
         if response["ok"] is not True:
             raise ClassroomFileRpcError("file history failed")
@@ -240,7 +336,16 @@ class ClassroomFileRpcClient:
             after_sequence=after,
             limit=bounded,
         )
-        return result
+        watermark = _optional_cursor(
+            response["snapshot_state_revision"],
+            "snapshot_state_revision",
+        )
+        try:
+            return AttachmentHistoryPage(result, watermark)
+        except Exception:
+            raise ClassroomFileRpcError(
+                "file history watermark is invalid"
+            ) from None
 
     def state_updates_after(
         self,
@@ -326,9 +431,21 @@ class ClassroomFileRpcClient:
         if response["ok"] is not True:
             raise ClassroomFileRpcError("file deletion failed")
 
-    def _call(self, request: Mapping[str, object]) -> dict[str, object]:
+    def _call(
+        self,
+        request: Mapping[str, object],
+        *,
+        binary_content: bytes | None = None,
+        on_upload_progress: Callable[[int], None] | None = None,
+    ) -> dict[str, object]:
         try:
-            response = self._transport.call(request)
+            response = self._transport.call(
+                request,
+                binary_content=binary_content,
+                on_upload_progress=on_upload_progress,
+            )
+        except ClassroomFileRpcError:
+            raise
         except Exception:
             raise ClassroomFileRpcError(
                 "classroom file service unavailable"
@@ -358,6 +475,7 @@ class ClassroomFileRpcService:
         *,
         authenticated_room_id: str,
         authenticated_participant_id: str,
+        binary_content: bytes | None = None,
     ) -> dict[str, object]:
         if type(request) is not dict:
             raise ClassroomFileRpcError("file request must be an object")
@@ -369,7 +487,16 @@ class ClassroomFileRpcService:
         _version_ok(request)
         op = request.get("op")
         if op == "upload":
-            return self._handle_upload(request, room=room, participant=participant)
+            return self._handle_upload(
+                request,
+                room=room,
+                participant=participant,
+                binary_content=binary_content,
+            )
+        if binary_content is not None:
+            raise ClassroomFileRpcError(
+                "binary file content is only valid for upload"
+            )
         if op == "cancel":
             return self._handle_cancel(request, room=room, participant=participant)
         if op == "history":
@@ -392,10 +519,11 @@ class ClassroomFileRpcService:
         *,
         room: str,
         participant: str,
+        binary_content: bytes | None,
     ) -> dict[str, object]:
         _exact_keys(
             request,
-            {"v", "op", "room_id", "participant_id", "metadata", "content"},
+            {"v", "op", "room_id", "participant_id", "metadata"},
             "upload request",
         )
         _require_authenticated_identity(request, room=room, participant=participant)
@@ -406,7 +534,7 @@ class ClassroomFileRpcService:
             participant_id=participant,
             max_upload_bytes=self._max_upload_bytes,
         )
-        content = request["content"]
+        content = binary_content
         if type(content) is not bytes:
             raise ClassroomFileRpcError("file upload content must be opaque bytes")
         if len(content) != metadata.size_bytes:
@@ -479,7 +607,7 @@ class ClassroomFileRpcService:
         after = _optional_cursor(request["after_sequence"], "after_sequence")
         limit = _sync_limit(request["limit"], "history limit")
         try:
-            attachments = self._backend.history_after(
+            page = self._backend.history_after(
                 trusted_caller_identity=participant,
                 room_id=room,
                 after_sequence=after,
@@ -487,20 +615,27 @@ class ClassroomFileRpcService:
             )
         except Exception:
             raise ClassroomFileRpcError("classroom file backend failed") from None
-        if type(attachments) is not tuple:
+        if type(page) is not AttachmentHistoryPage:
             raise ClassroomFileRpcError(
-                "classroom file backend returned invalid history"
+                "classroom file backend returned invalid history page"
             )
         _validate_history(
-            attachments,
+            page.attachments,
             room_id=room,
             after_sequence=after,
             limit=limit,
         )
+        watermark = _optional_cursor(
+            page.snapshot_state_revision,
+            "snapshot_state_revision",
+        )
         return {
             "v": RPC_VERSION,
             "ok": True,
-            "attachments": [_attachment_to_wire(item) for item in attachments],
+            "attachments": [
+                _attachment_to_wire(item) for item in page.attachments
+            ],
+            "snapshot_state_revision": watermark,
         }
 
     def _handle_state(
