@@ -372,6 +372,13 @@ def _validated_payload(
             raise LiveKitClientSdkStageError(
                 "LiveKit UMD bundle does not expose the expected browser API markers"
             )
+        if (
+            expected_integrity == LIVEKIT_CLIENT_NPM_INTEGRITY
+            and _sha256_bytes(bundle) != LIVEKIT_CLIENT_BUNDLE_SHA256
+        ):
+            raise LiveKitClientSdkStageError(
+                "LiveKit UMD bundle SHA-256 does not match the pinned release"
+            )
 
         license_bytes = _read_regular_member(
             archive,
