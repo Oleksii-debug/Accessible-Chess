@@ -650,9 +650,13 @@
     if (!runtime || typeof runtime.reconcileTransport !== "function") {
       return Promise.resolve();
     }
-    return Promise.resolve(
-      runtime.reconcileTransport(areaInvoke("media"))
-    ).then(function (result) {
+    let reconciliation;
+    try {
+      reconciliation = runtime.reconcileTransport(areaInvoke("media"));
+    } catch (_) {
+      return Promise.resolve();
+    }
+    return Promise.resolve(reconciliation).then(function (result) {
       if (!result || typeof result !== "object") return;
       const payload = result.payload && typeof result.payload === "object"
         ? result.payload
@@ -668,8 +672,7 @@
     }, function () {});
   }
 
-  function drainEvents() {
-    reconcileMediaProviderTransport();
+  function drainQueuedEvents() {
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
     bridge.v2_drain_events().then(function (events) {
@@ -723,6 +726,16 @@
         }, function () {});
       }
     }, function () {});
+  }
+
+  function drainEvents() {
+    // Keep WebView bridge mutations ordered: transport reconciliation can
+    // update canonical media state and must finish before queued application
+    // events are drained from the same host.
+    reconcileMediaProviderTransport().then(
+      drainQueuedEvents,
+      drainQueuedEvents
+    );
   }
 
   documentRef.addEventListener("focusin", function (event) {
