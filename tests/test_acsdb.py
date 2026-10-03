@@ -258,6 +258,11 @@ class AcsDatabaseTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.db.get_import_attempt(bad)
 
+        with self.assertRaises(TypeError):
+            self.db.store_game(object(), True)
+        with self.assertRaises(ValueError):
+            self.db.store_game(object(), 0)
+
         fen = '8/8/8/8/8/8/8/8 w - - 0 1'
         with self.assertRaises(TypeError):
             self.db.record_position(True, 0, fen)
