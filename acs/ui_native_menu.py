@@ -195,7 +195,7 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
 
     return [
         Menu(text["file"], [
-            MenuAction(text["new"], refresh(api.new_game)),
+            MenuAction(menu_caption(api, text["new"], "file.new"), refresh(api.new_game)),
             MenuAction(text["empty"], refresh(api.clear_board)),
             MenuSeparator(),
             MenuAction(text["exit"], lambda: window() and window().destroy()),
@@ -353,7 +353,7 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
 
     top_menus = (
         submenu(mn["file"], [
-            item(text["new"], lambda: _invoke_api(window, api.new_game)),
+            item(menu_caption(api, text["new"], "file.new"), lambda: _invoke_api(window, api.new_game)),
             item(text["empty"], lambda: _invoke_api(window, api.clear_board)),
             separator(), item(text["exit"], window.destroy),
         ]),
