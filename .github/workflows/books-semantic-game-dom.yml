@@ -72,7 +72,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "fd03c34af5efbaea02a0616a8aedfd26426be8d0"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "3a8cfc63d1c37c4ada781e3910e0d7d436a12c8b"
           test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "1266288420f5daabb6d73b939fa850fa43b7cce7"
-          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "748fd2fca49ac58702a5ada4828a330e1235c548"
+          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "1cfa885b53cd351ca8ffd8cd3a923e5417ab9ede"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "121c86a72dee4b1e64f510e7aa28521144161f95"
 
       - name: Validate browser semantic contract
