@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 import unittest
 from pathlib import Path
 
@@ -114,15 +115,19 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_game(Game(game_id=9), lookup=_ExplodingLookup())
         self.assertEqual(caught.exception.code, BookGameContentErrorCode.GAME_NOT_FOUND)
-        message = str(caught.exception)
-        self.assertNotIn("Users", message)
-        self.assertNotIn("library.db", message)
-        self.assertNotIn("sqlite", message)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("Users", rendered)
+        self.assertNotIn("library.db", rendered)
+        self.assertNotIn("sqlite", rendered)
 
     def test_missing_reference_has_stable_not_found_error(self) -> None:
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_game(Game(game_id=404), lookup=_MissingLookup())
         self.assertEqual(caught.exception.code, BookGameContentErrorCode.GAME_NOT_FOUND)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("404", rendered)
 
     def test_invalid_lookup_shape_or_return_type_fails_closed(self) -> None:
         class NoPort:
