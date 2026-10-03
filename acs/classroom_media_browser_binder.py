@@ -44,6 +44,7 @@ from .classroom_media_session_transactions import (
     MediaSessionProviderEffect,
 )
 from .classroom_realtime_media import (
+    ClassroomMediaController,
     JoinCredential,
     MediaDeviceKind,
     MediaSource,
@@ -234,6 +235,12 @@ class ClassroomMediaBrowserBinder:
     def active_transaction(self) -> PreparedMediaProviderTransaction | None:
         with self._lock:
             return None if self._active is None else self._active.prepared
+
+    @property
+    def controller(self) -> ClassroomMediaController:
+        """Canonical media authority shared by both transaction coordinators."""
+
+        return self._effects._controller
 
     @property
     def recovery_status(self) -> MediaProviderExecutionRecoveryStatus | None:
