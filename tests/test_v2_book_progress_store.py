@@ -890,6 +890,35 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
         self.assertFalse(self.path.exists())
 
+    def test_preexisting_empty_lock_is_rejected_without_initialization(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"")
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertEqual(self.store._lock_path.read_bytes(), b"")
+        self.assertFalse(self.path.exists())
+
+    def test_preexisting_wrong_lock_marker_is_rejected_without_mutation(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        foreign_bytes = b"X"
+        self.store._lock_path.write_bytes(foreign_bytes)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
+        self.assertFalse(self.path.exists())
+
     def test_hardlinked_lock_is_rejected_without_mutating_peer(self) -> None:
         self.path.parent.mkdir(parents=True)
         peer = self.store._lock_path.with_name("user-owned-peer.bin")
