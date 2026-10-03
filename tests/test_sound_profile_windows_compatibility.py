@@ -208,6 +208,47 @@ class SoundCachePlaybackLockTests(unittest.TestCase):
             )._cache_process_lock(cache)
             self.assertIs(first._play_lock, second._play_lock)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "ordinary Windows runners cannot reliably create symlinks",
+    )
+    def test_cache_ancestor_redirect_after_lock_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-cache-post-lock-") as raw:
+            root = Path(raw)
+            container = root / "container"
+            cache = container / "cache"
+            adapter = _cache_adapter(cache, mock.Mock())
+            adapter._play_lock = __import__(
+                "acs.sound_profile_windows",
+                fromlist=["_cache_process_lock"],
+            )._cache_process_lock(cache)
+            outside = root / "outside"
+            outside.mkdir()
+            locked_container = root / "locked-container"
+            real_lock = adapter._lock_descriptor
+            redirected = False
+
+            def redirect_after_lock(descriptor):
+                nonlocal redirected
+                real_lock(descriptor)
+                container.rename(locked_container)
+                container.symlink_to(outside, target_is_directory=True)
+                redirected = True
+
+            with mock.patch.object(
+                adapter,
+                "_lock_descriptor",
+                side_effect=redirect_after_lock,
+            ), self.assertRaisesRegex(
+                ValueError,
+                "real directory",
+            ):
+                with adapter._exclusive_playback():
+                    self.fail("redirected cache ancestor must fail after lock")
+
+            self.assertTrue(redirected)
+            self.assertEqual([], list(outside.iterdir()))
+
     def test_cache_lock_swap_after_lstat_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-cache-lock-swap-") as raw:
             root = Path(raw)
