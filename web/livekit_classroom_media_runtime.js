@@ -40,8 +40,15 @@
     const payload = event.payload && typeof event.payload === "object"
       ? event.payload
       : null;
-    exactKeys(payload, ["transaction_id", "provider", "focus_target"], "media provider dispatch");
+    exactKeys(
+      payload,
+      ["transaction_id", "provider", "provider_boundary_crossed", "focus_target"],
+      "media provider dispatch"
+    );
     const transaction = transactionId(payload.transaction_id);
+    if (typeof payload.provider_boundary_crossed !== "boolean") {
+      throw new TypeError("media provider dispatch boundary flag is invalid");
+    }
     const provider = payload.provider;
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) {
       throw new TypeError("media provider instruction is invalid");
@@ -101,7 +108,11 @@
         throw new TypeError("disconnect instruction must not publish media");
       }
     }
-    return { transaction, provider };
+    return {
+      transaction,
+      provider,
+      providerBoundaryCrossed: payload.provider_boundary_crossed
+    };
   }
 
   function requireInvoke(invoke) {
@@ -248,10 +259,12 @@
         }
       }
 
-      try {
-        await this._markDispatched(invoke, transaction);
-      } catch (_error) {
-        return this._providerNotStarted(invoke, transaction);
+      if (!parsed.providerBoundaryCrossed) {
+        try {
+          await this._markDispatched(invoke, transaction);
+        } catch (_error) {
+          return this._providerNotStarted(invoke, transaction);
+        }
       }
 
       try {
