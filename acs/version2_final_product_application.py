@@ -685,7 +685,12 @@ class Version2FinalProductApplication(Version2Application):
                 "Classroom media room state changed during credential fetch"
             )
 
-        now = now_provider()
+        try:
+            now = now_provider()
+        except Exception:
+            raise ClassroomJoinHttpClientError(
+                "classroom join clock failed"
+            ) from None
         if pending.reconnect:
             return self.prepare_classroom_media_reconnect(
                 credential,
@@ -787,6 +792,7 @@ class Version2FinalProductApplication(Version2Application):
                 ClassroomJoinHttpClientError,
                 ClassroomMediaError,
                 RuntimeError,
+                TypeError,
                 ValueError,
             ):
                 # Network/auth/session drift is intentionally secret-free here.
