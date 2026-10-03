@@ -239,6 +239,10 @@ class JsonSoundProfileStorage:
                 existing,
                 message="sound profile storage lock is not a regular file",
             )
+            if int(getattr(existing, "st_nlink", 1)) != 1:
+                raise SoundProfileFileError(
+                    "sound profile storage lock must not be hard-linked"
+                )
 
         flags = os.O_RDWR | os.O_CREAT
         flags |= getattr(os, "O_BINARY", 0)
@@ -258,6 +262,10 @@ class JsonSoundProfileStorage:
                 metadata,
                 message="sound profile storage lock is not a regular file",
             )
+            if int(getattr(metadata, "st_nlink", 1)) != 1:
+                raise SoundProfileFileError(
+                    "sound profile storage lock must not be hard-linked"
+                )
             if (
                 existing is not None
                 and self._file_identity(metadata) != self._file_identity(existing)
