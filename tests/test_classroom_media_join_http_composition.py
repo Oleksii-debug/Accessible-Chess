@@ -218,6 +218,119 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         self.assertEqual(clock_threads, [owner_thread])
         self.assertEqual(list(application._events), [rendered])
 
+    def test_shipping_event_pump_commits_ready_join_exactly_once(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            return_value=credential(),
+        ):
+            application.prepare_classroom_media_join_http("room-1")
+            pending = application._media_join_http_pending
+            self.assertIsNotNone(pending)
+            pending.future.exception(timeout=2.0)
+
+            events = application.drain_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "provider-dispatch")
+        self.assertNotIn(TOKEN, repr(events))
+        self.assertEqual(len(transactions.join_calls), 1)
+        self.assertIsNone(application._media_join_http_pending)
+        self.assertEqual(application.drain_events(), ())
+
+    def test_shipping_event_pump_never_waits_for_inflight_join_http(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+        started = threading.Event()
+        release = threading.Event()
+
+        def issue(_client, *, room_id, participant_id):
+            started.set()
+            self.assertTrue(release.wait(2.0))
+            return credential(room_id=room_id, participant_id=participant_id)
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            application.prepare_classroom_media_join_http("room-1")
+            self.assertTrue(started.wait(1.0))
+            self.assertEqual(application.drain_events(), ())
+            self.assertEqual(transactions.join_calls, [])
+            release.set()
+            pending = application._media_join_http_pending
+            self.assertIsNotNone(pending)
+            pending.future.exception(timeout=2.0)
+            events = application.drain_events()
+
+        self.assertEqual(events[0]["kind"], "provider-dispatch")
+        self.assertEqual(len(transactions.join_calls), 1)
+
+    def test_shipping_event_pump_surfaces_sanitized_join_failure(self):
+        application, _controller, transactions = self.application()
+        self.configure(application, lambda: "account-token")
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=ClassroomJoinHttpClientError(
+                "join credential service rejected the request"
+            ),
+        ):
+            application.prepare_classroom_media_join_http("room-1")
+            pending = application._media_join_http_pending
+            self.assertIsNotNone(pending)
+            pending.future.exception(timeout=2.0)
+            events = application.drain_events()
+
+        self.assertEqual(
+            events,
+            (
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "Could not obtain classroom media credentials."
+                    },
+                },
+            ),
+        )
+        self.assertNotIn(TOKEN, repr(events))
+        self.assertEqual(transactions.join_calls, [])
+        self.assertIsNone(transactions.binder.active_lease)
+        self.assertEqual(application.drain_events(), ())
+
+    def test_shipping_event_pump_localizes_join_failure_without_backend_detail(self):
+        application, _controller, _transactions = self.application()
+        application.shell.language = UILanguage.UA
+        self.configure(application, lambda: "account-token")
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=ValueError("private backend detail provider-secret-token"),
+        ):
+            application.prepare_classroom_media_join_http("room-1")
+            pending = application._media_join_http_pending
+            self.assertIsNotNone(pending)
+            pending.future.exception(timeout=2.0)
+            events = application.drain_events()
+
+        rendered = repr(events)
+        self.assertIn(
+            "Не вдалося отримати облікові дані для медіасеансу класу.",
+            rendered,
+        )
+        self.assertNotIn("private backend", rendered)
+        self.assertNotIn(TOKEN, rendered)
+
     def test_worker_failure_is_sanitized_and_never_creates_provider_lease(self):
         application, _controller, transactions = self.application()
         self.configure(application, lambda: "account-token")
