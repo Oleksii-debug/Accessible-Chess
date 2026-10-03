@@ -43,18 +43,14 @@ jobs:
           test "$BASE_REF" = "feature/classroom-collaboration-contract-20260926"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
 
-          # A stacked PR's event base SHA can lag the live base branch after the
-          # parent branch advances. Refresh the named base and prove that the
-          # event base is only an ancestor, never a divergent/rewritten lineage.
-          git fetch --no-tags origin             "$BASE_REF:refs/remotes/origin/$BASE_REF"
-          LIVE_BASE_SHA="$(git rev-parse "refs/remotes/origin/$BASE_REF")"
+          # Bind qualification to the immutable PR event. A queued run must not
+          # change meaning because the stacked base branch advances later.
           git cat-file -e "$EVENT_BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$LIVE_BASE_SHA"
-          git merge-base --is-ancestor "$LIVE_BASE_SHA" HEAD
-          test "$(git merge-base "$LIVE_BASE_SHA" HEAD)" = "$LIVE_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
 
-          git diff --check "$LIVE_BASE_SHA" HEAD
-          mapfile -t actual < <(git diff --name-only "$LIVE_BASE_SHA" HEAD | LC_ALL=C sort)
+          git diff --check "$EVENT_BASE_SHA" HEAD
+          mapfile -t actual < <(git diff --name-only "$EVENT_BASE_SHA" HEAD | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-file-progress-contract.yml'
             'acs/classroom_collaboration.py'
