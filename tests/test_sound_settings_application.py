@@ -460,6 +460,54 @@ class SoundSettingsApplicationTests(unittest.TestCase):
             item["rights_source_uri"],
         )
 
+    def test_missing_pack_in_coherent_audit_does_not_reread_storage_for_active_manifest(self) -> None:
+        classic = _manifest("classic")
+        soft = _manifest("soft")
+        entry = _entry(soft)
+        pack_storage = _PackStorage([classic, soft])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage(
+            {
+                "schema_version": 1,
+                "pack_id": "soft",
+                "master_enabled": True,
+                "master_volume_percent": 80,
+                "events": {},
+            }
+        )
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={"soft": entry},
+            installed_audit_provider=lambda: {},
+            pack_compatibility_provider=lambda _manifest: True,
+        )
+
+        with (
+            mock.patch.object(
+                coordinator,
+                "status",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as status,
+            mock.patch.object(
+                coordinator,
+                "resolve_usable_pack",
+                side_effect=AssertionError("unexpected storage reread"),
+            ) as resolve,
+        ):
+            snapshot = app.snapshot(language="en")
+
+        status.assert_not_called()
+        resolve.assert_not_called()
+        item = snapshot["packs"][0]
+        self.assertEqual("not_installed", item["state"])
+        self.assertIsNone(item["installed_version"])
+
     def test_coherent_audit_provider_cannot_be_combined_with_split_installed_providers(self) -> None:
         classic = _manifest("classic")
         manager = SoundPackManager(_Downloader(), _PackStorage([classic]))
