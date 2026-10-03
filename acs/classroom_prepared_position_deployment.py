@@ -562,10 +562,26 @@ def _digest(value: object) -> str:
 
 
 def _utf8_size(text: str) -> int:
-    try:
-        return len(text.encode("utf-8"))
-    except UnicodeEncodeError as exc:
-        raise PreparedPositionDeploymentError("deployment JSON contains invalid Unicode") from exc
+    if type(text) is not str:
+        raise PreparedPositionDeploymentError("deployment JSON must be exact text")
+    total = 0
+    for character in text:
+        codepoint = ord(character)
+        if codepoint <= 0x7F:
+            total += 1
+        elif codepoint <= 0x7FF:
+            total += 2
+        elif 0xD800 <= codepoint <= 0xDFFF:
+            raise PreparedPositionDeploymentError(
+                "deployment JSON contains invalid Unicode"
+            )
+        elif codepoint <= 0xFFFF:
+            total += 3
+        else:
+            total += 4
+        if total > MAX_DEPLOYMENT_JSON_BYTES:
+            return total
+    return total
 
 
 def _parse_wire_integer(value: str) -> int:
