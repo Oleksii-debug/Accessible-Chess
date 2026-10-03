@@ -2531,8 +2531,8 @@ async function run() {
     "forged custom metadata must preserve reading focus");
 
   const forgedFenDetail = semanticGameSnapshot();
-  forgedFenDetail.block.semantic_tree.details[2].kind = "custom:FEN";
-  forgedFenDetail.block.semantic_tree.details[2].label = "FEN";
+  forgedFenDetail.block.semantic_tree.details[2].kind = "custom:fen";
+  forgedFenDetail.block.semantic_tree.details[2].label = "fen";
   forgedFenDetail.block.semantic_tree.details[2].value =
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
   let forgedFenDetailRejected = false;
