@@ -810,9 +810,14 @@ class ClassroomCollaborationController:
                 "attachment state response is invalid or too large"
             )
         history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
+        # State updates are not attachment-discovery authority. Only metadata
+        # already proven authoritative locally, or metadata present in this
+        # authoritative history page, may be targeted. In particular, a stranded
+        # local pending/uploading/failed row must never be promoted to stored by
+        # the mutable state stream without its immutable server history record.
         known_attachment_ids = {
             item.attachment_id
-            for item in self._store.room_attachments(self.room_id)
+            for item in authoritative
         }
         known_attachment_ids.update(item.attachment_id for item in incoming)
         state_previous = state_after
