@@ -90,7 +90,7 @@ jobs:
             test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "d76bcfad2c2b042b8826bee845015763fc99b6bc"
             test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "a5acf344e47bd019d86e4b764f8ddbca34dde9fd"
             test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "8e8ceffc0e0a12708e84c3337d68cdafcddf05fa"
-            test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "87583407365588a16259b8baee4e7b4dce8b4864"
+            test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "adac7a10ca0f20f50f619fb1adc70b6578a72dc8"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
           else
             product_ref="refs/remotes/origin/$product_branch"
