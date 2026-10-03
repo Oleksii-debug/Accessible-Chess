@@ -783,6 +783,85 @@ def _measure_line(
     active.remove(identity)
 
 
+def _measure_game(
+    game: object,
+    budget: list[int],
+    seen: set[int],
+    active: set[int],
+    node_count: list[int],
+    token_count: list[int],
+) -> None:
+    """Validate one game against shared cumulative serialization budgets."""
+
+    if not isinstance(game, PgnGame) or type(game.tags) is not dict:
+        raise PgnRoundTripError(
+            "PGN serialization requires PgnGame values",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if type(game.warnings) is not list or game.warnings:
+        raise PgnRoundTripError(
+            "PGN serialization refuses recovery-warning state",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    serialized_tag_count = len(game.tags) + (0 if "Result" in game.tags else 1)
+    if serialized_tag_count > MAX_PGN_TAGS_PER_GAME:
+        _raise_limit(
+            "PGN game contains too many tag pairs",
+            PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
+        )
+    _claim_model_chars(budget, 64)
+    for key, value in game.tags.items():
+        if type(key) is not str or type(value) is not str:
+            raise PgnRoundTripError(
+                "PGN tags must contain exact text keys and values",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        if _contains_invalid_unicode_scalar(key) or _contains_invalid_unicode_scalar(value):
+            raise PgnRoundTripError(
+                "PGN tags contain an invalid Unicode scalar value",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        if len(key) > MAX_PGN_TOKEN_CHARS:
+            _raise_limit(
+                "PGN tag name exceeds the lexical safety limit",
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+            )
+        if len(value) > MAX_PGN_TAG_VALUE_CHARS:
+            _raise_limit(
+                "PGN tag value exceeds the field safety limit",
+                PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+            )
+        escaped_value_chars = (
+            len(value) + value.count("\\") + value.count('"')
+        )
+        _claim_model_chars(budget, len(key) + escaped_value_chars + 16)
+        _claim_model_tokens(token_count)
+    _measure_line(
+        game.line,
+        budget,
+        seen,
+        active,
+        node_count,
+        token_count,
+        depth=0,
+    )
+    root_result = game.line.result
+    if root_result is None:
+        raise PgnRoundTripError(
+            "PGN root movetext requires an explicit result",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    header_result = game.tags.get("Result")
+    if header_result is not None and header_result != root_result:
+        raise PgnRoundTripError(
+            "PGN Result tag must match the root movetext result",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if header_result is None:
+        _claim_model_chars(budget, len("Result") + len(root_result) + 16)
+        _claim_model_tokens(token_count)
+
+
 def _measure_games(games: tuple[PgnGame, ...]) -> None:
     if not games:
         raise PgnRoundTripError(
@@ -800,74 +879,7 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
     node_count = [0]
     token_count = [0]
     for game in games:
-        if not isinstance(game, PgnGame) or type(game.tags) is not dict:
-            raise PgnRoundTripError(
-                "PGN serialization requires PgnGame values",
-                code=PgnRoundTripErrorCode.INVALID_MODEL,
-            )
-        if type(game.warnings) is not list or game.warnings:
-            raise PgnRoundTripError(
-                "PGN serialization refuses recovery-warning state",
-                code=PgnRoundTripErrorCode.INVALID_MODEL,
-            )
-        serialized_tag_count = len(game.tags) + (0 if "Result" in game.tags else 1)
-        if serialized_tag_count > MAX_PGN_TAGS_PER_GAME:
-            _raise_limit(
-                "PGN game contains too many tag pairs",
-                PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
-            )
-        _claim_model_chars(budget, 64)
-        for key, value in game.tags.items():
-            if type(key) is not str or type(value) is not str:
-                raise PgnRoundTripError(
-                    "PGN tags must contain exact text keys and values",
-                    code=PgnRoundTripErrorCode.INVALID_MODEL,
-                )
-            if _contains_invalid_unicode_scalar(key) or _contains_invalid_unicode_scalar(value):
-                raise PgnRoundTripError(
-                    "PGN tags contain an invalid Unicode scalar value",
-                    code=PgnRoundTripErrorCode.INVALID_MODEL,
-                )
-            if len(key) > MAX_PGN_TOKEN_CHARS:
-                _raise_limit(
-                    "PGN tag name exceeds the lexical safety limit",
-                    PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
-                )
-            if len(value) > MAX_PGN_TAG_VALUE_CHARS:
-                _raise_limit(
-                    "PGN tag value exceeds the field safety limit",
-                    PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
-                )
-            escaped_value_chars = (
-                len(value) + value.count("\\") + value.count('"')
-            )
-            _claim_model_chars(budget, len(key) + escaped_value_chars + 16)
-            _claim_model_tokens(token_count)
-        _measure_line(
-            game.line,
-            budget,
-            seen,
-            active,
-            node_count,
-            token_count,
-            depth=0,
-        )
-        root_result = game.line.result
-        if root_result is None:
-            raise PgnRoundTripError(
-                "PGN root movetext requires an explicit result",
-                code=PgnRoundTripErrorCode.INVALID_MODEL,
-            )
-        header_result = game.tags.get("Result")
-        if header_result is not None and header_result != root_result:
-            raise PgnRoundTripError(
-                "PGN Result tag must match the root movetext result",
-                code=PgnRoundTripErrorCode.INVALID_MODEL,
-            )
-        if header_result is None:
-            _claim_model_chars(budget, len("Result") + len(root_result) + 16)
-            _claim_model_tokens(token_count)
-
+        _measure_game(game, budget, seen, active, node_count, token_count)
 
 def materialize_pgn_games_bounded(
     games: Iterable[PgnGame],
@@ -875,8 +887,11 @@ def materialize_pgn_games_bounded(
     """Materialize and validate a PGN iterable without reading past D06 limits.
 
     The count ceiling is enforced while consuming the iterable, before a caller can
-    allocate an unbounded tuple/deep copy. One-shot iterables remain supported and
-    an over-limit source is consumed only through the first disallowed item.
+    allocate an unbounded tuple/deep copy. Each yielded game is validated against
+    the same cumulative budgets before the next item is requested, so malformed
+    input cannot drive unrelated generator side effects. One-shot iterables remain
+    supported and an over-limit source is consumed only through the first
+    disallowed item.
     """
 
     snapshot: list[PgnGame] = []
@@ -888,6 +903,11 @@ def materialize_pgn_games_bounded(
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         ) from exc
 
+    budget = [0]
+    seen: set[int] = set()
+    active: set[int] = set()
+    node_count = [0]
+    token_count = [0]
     index = 0
     while True:
         try:
@@ -904,13 +924,16 @@ def materialize_pgn_games_bounded(
                 "PGN contains too many games",
                 PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
             )
+        _measure_game(game, budget, seen, active, node_count, token_count)
         snapshot.append(game)
         index += 1
 
-    bounded = tuple(snapshot)
-    _measure_games(bounded)
-    return bounded
-
+    if not snapshot:
+        raise PgnRoundTripError(
+            "PGN serialization requires at least one game",
+            code=PgnRoundTripErrorCode.EMPTY_PGN,
+        )
+    return tuple(snapshot)
 
 def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
     """Serialize only a bounded model that can be reparsed by the strict codec."""
