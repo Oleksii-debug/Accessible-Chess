@@ -360,19 +360,24 @@ class BookWebViewProjection:
         return self._render(block, announcement=self._result_announcement("restored"))
 
     def open_position(self) -> BookWebViewEvent:
+        # Complete presentation validation before the irreversible board handoff.
+        # A local announcement/schema failure must never activate Book Board while
+        # the browser receives an error and remains on the reading surface.
+        announcement = self._result_announcement("opened")
         # Presenter supplies FEN directly to the canonical dispatcher. Discard the
         # backend return value and expose no FEN/path/provider payload to WebView.
         self._presenter.open_current_position(self._dispatch)
         return BookWebViewEvent(
             "delegated",
-            {"action": "book.open_position", "announcement": self._result_announcement("opened")},
+            {"action": "book.open_position", "announcement": announcement},
         )
 
     def open_game(self) -> BookWebViewEvent:
+        announcement = self._result_announcement("game_opened")
         self._presenter.open_current_game(self._dispatch)
         return BookWebViewEvent(
             "delegated",
-            {"action": "book.open_game", "announcement": self._result_announcement("game_opened")},
+            {"action": "book.open_game", "announcement": announcement},
         )
 
     def return_from_board(self) -> BookWebViewEvent:
