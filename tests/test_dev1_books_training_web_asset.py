@@ -73,6 +73,7 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('root.setAttribute("aria-busy", "true")', text)
         self.assertIn('root.removeAttribute("aria-busy")', text)
         self.assertIn("renderEpoch(root) !== startedAtEpoch", text)
+        self.assertGreaterEqual(text.count("renderEpoch(root) === startedAtEpoch"), 2)
         self.assertGreaterEqual(text.count("markRendered(root)"), 2)
         self.assertIn("try {", text)
         self.assertIn("result = invoke(command, payload || {})", text)
