@@ -8,6 +8,21 @@ from acs.ui_native_menu import make_keymap_menu, menu_caption
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI, _shared_spoken_san
 
 
+def test_ctrl_n_global_action_resets_to_standard_position(tmp_path: Path) -> None:
+    api = KeymapAwareAccessibleChessAPI(keymap_path=tmp_path / "keymap.json")
+    assert api.make_move("e4")["ok"] is True
+    assert api.sans
+    resolved = api.keymap_resolve_binding("board", "Ctrl+N")
+    assert resolved is not None
+    assert resolved["actionId"] == "file.new"
+
+    reset = api.dispatch_action("file.new")
+
+    assert reset["ok"] is True
+    assert api.sans == []
+    assert reset["fen"].startswith("rnbqkbnr/pppppppp/")
+
+
 def test_move_entry_alias_remap_is_authoritative_and_persists(tmp_path: Path) -> None:
     profile = tmp_path / "keymap.json"
     api = KeymapAwareAccessibleChessAPI(keymap_path=profile)
