@@ -18,6 +18,8 @@ from .presentation_privacy import redact_local_paths
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 _MAX_BOOKMARK_NAME = 80
 _MAX_BOOK_LIST_ITEMS = 10_000
+_MAX_BOOK_HEADING_PATH_DEPTH = 256
+_MAX_BOOK_POSITION_TOKEN_CHARS = 4096
 # Accepted TXT/HTML ingress bounds visible content at 12 MiB. Preserve the
 # complete current semantic block up to that release budget instead of silently
 # truncating reader-visible/copyable content to a small UI preview.
@@ -199,7 +201,9 @@ class BookWebViewProjection:
             raise TypeError("BookReaderPresenter must return BookBlockView")
         if type(block.index) is not int or block.index < 0:
             raise ValueError("book block index is invalid")
-        role = str(block.role)
+        if type(block.role) is not str:
+            raise TypeError("book block role must be text")
+        role = block.role
         if role not in {"heading", "paragraph", "img", "group", "tree", "note", "list"}:
             raise ValueError("book block role is invalid")
         if (
@@ -214,8 +218,10 @@ class BookWebViewProjection:
             )
         ):
             raise ValueError("book heading level is inconsistent with its role")
-        if type(block.heading_path) is not tuple or any(
-            type(part) is not str or not part.strip() for part in block.heading_path
+        if (
+            type(block.heading_path) is not tuple
+            or len(block.heading_path) > _MAX_BOOK_HEADING_PATH_DEPTH
+            or any(type(part) is not str or not part.strip() for part in block.heading_path)
         ):
             raise ValueError("book heading path is invalid")
         if type(block.list_items) is not tuple or any(
@@ -235,6 +241,14 @@ class BookWebViewProjection:
                 raise ValueError("book list must contain items")
         elif block.list_items or block.list_ordered or block.list_start is not None:
             raise ValueError("non-list book block contains list metadata")
+        if block.position_fen is not None:
+            if (
+                type(block.position_fen) is not str
+                or not block.position_fen.strip()
+                or "\x00" in block.position_fen
+                or len(block.position_fen) > _MAX_BOOK_POSITION_TOKEN_CHARS
+            ):
+                raise ValueError("book board-position token is invalid")
         labels = _LABELS[self._language]
         safe_kind = _safe_text(block.kind, language=self._language, limit=80)
         safe_title = _safe_text(block.title, language=self._language, limit=360)
