@@ -259,6 +259,10 @@ function startNewGameVisualSequence() {
         finishNewGameVisualSequence();
         return false;
     }
+    if (currentSoundState && currentSoundState.newGameAnimation === false) {
+        finishNewGameVisualSequence();
+        return false;
+    }
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         finishNewGameVisualSequence();
         return false;
@@ -605,7 +609,7 @@ function installClockSoundPulse() {
 
 const soundLabels = {
     uk: {
-        legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
+        legend: 'Звуки', enabled: 'Увімкнути звуки', newGameAnimation: 'Анімація нової партії', volume: 'Гучність',
         previewEvent: 'Звук для прослуховування', variant: 'Варіант звуку', preview: 'Прослухати',
         tickPolicy: 'Коли звучить годинник',
         tickLastSeconds: 'Останні секунд (0 — увесь час)',
@@ -614,7 +618,7 @@ const soundLabels = {
         events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
     },
     en: {
-        legend: 'Sounds', enabled: 'Enable sounds', volume: 'Volume',
+        legend: 'Sounds', enabled: 'Enable sounds', newGameAnimation: 'New-game animation', volume: 'Volume',
         previewEvent: 'Sound to preview', variant: 'Sound variant', preview: 'Preview',
         tickPolicy: 'When the clock sounds',
         tickLastSeconds: 'Last seconds (0 — whole game)',
@@ -660,6 +664,7 @@ function renderSoundVariants() {
 async function loadSoundState() {
     const a = api();
     const enabled = byId('sound-enabled');
+    const newGameAnimation = byId('sound-newgame-animation');
     const volume = byId('sound-volume');
     const variant = byId('sound-variant');
     const tickPolicy = byId('sound-tick-policy');
@@ -668,6 +673,7 @@ async function loadSoundState() {
     if (!a || typeof a.get_sound_settings !== 'function') {
         if (status) status.textContent = text().unavailable;
         if (enabled) enabled.disabled = true;
+        if (newGameAnimation) newGameAnimation.disabled = true;
         if (volume) volume.disabled = true;
         if (variant) variant.disabled = true;
         if (tickPolicy) tickPolicy.disabled = true;
@@ -678,6 +684,7 @@ async function loadSoundState() {
         const state = await a.get_sound_settings();
         currentSoundState = state;
         if (enabled) enabled.checked = !!state.enabled;
+        if (newGameAnimation) newGameAnimation.checked = state.newGameAnimation !== false;
         if (volume) volume.value = String(state.volume ?? 80);
         if (tickPolicy) tickPolicy.value = String(state.tickPolicy ?? 'my_turn');
         if (tickLastSeconds) tickLastSeconds.value = String(state.tickLastSeconds ?? 0);
@@ -692,6 +699,7 @@ function applySoundLanguage() {
     const t = text();
     const legend = byId('sound-settings-legend');
     const enabledLabel = byId('sound-enabled-label');
+    const newGameAnimationLabel = byId('sound-newgame-animation-label');
     const volumeLabel = byId('sound-volume-label');
     const eventLabel = byId('sound-preview-event-label');
     const variantLabel = byId('sound-variant-label');
@@ -700,6 +708,7 @@ function applySoundLanguage() {
     const preview = byId('sound-preview');
     if (legend) legend.textContent = t.legend;
     if (enabledLabel) enabledLabel.textContent = t.enabled;
+    if (newGameAnimationLabel) newGameAnimationLabel.textContent = t.newGameAnimation;
     if (volumeLabel) volumeLabel.textContent = t.volume;
     if (eventLabel) eventLabel.textContent = t.previewEvent;
     if (variantLabel) variantLabel.textContent = t.variant;
@@ -743,6 +752,17 @@ function installSoundSettings() {
     enabledLabel.htmlFor = enabled.id;
     enabledRow.append(enabled, enabledLabel);
     fieldset.appendChild(enabledRow);
+
+    const newGameAnimationRow = document.createElement('div');
+    newGameAnimationRow.className = 'row';
+    const newGameAnimation = document.createElement('input');
+    newGameAnimation.type = 'checkbox';
+    newGameAnimation.id = 'sound-newgame-animation';
+    const newGameAnimationLabel = document.createElement('label');
+    newGameAnimationLabel.id = 'sound-newgame-animation-label';
+    newGameAnimationLabel.htmlFor = newGameAnimation.id;
+    newGameAnimationRow.append(newGameAnimation, newGameAnimationLabel);
+    fieldset.appendChild(newGameAnimationRow);
 
     const volumeRow = document.createElement('div');
     volumeRow.className = 'row';
@@ -831,6 +851,21 @@ function installSoundSettings() {
         try {
             const result = await a.set_sound_enabled(!!enabled.checked);
             enabled.checked = !!result.enabled;
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    newGameAnimation.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_newgame_animation_enabled !== 'function') return;
+        try {
+            const result = await a.set_newgame_animation_enabled(!!newGameAnimation.checked);
+            currentSoundState = result;
+            newGameAnimation.checked = result.newGameAnimation !== false;
             status.textContent = result.ok ? '' : (result.message || '');
             speak(result.message);
         } catch (_) {
