@@ -765,12 +765,14 @@ def _sqlite_backup(
     if not stat.S_ISREG(info.st_mode):
         raise Version2UpgradeError("library source must be a regular file")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, raw = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
-    )
-    os.close(fd)
-    temp = Path(raw)
+
+    # Do not hand SQLite a pre-created temporary pathname. sqlite3.connect()
+    # would reopen that name independently of mkstemp's authenticated inode,
+    # allowing a substituted file to become the backup target. Build the
+    # consistent SQLite snapshot in memory, serialize the validated database,
+    # then publish those bytes through the already identity-bound atomic writer.
     lock = reader = target = None
+    serialized: bytes | None = None
     try:
         try:
             # Separate connections avoid sqlite3.Connection.backup stalling on
@@ -786,13 +788,23 @@ def _sqlite_backup(
             reader.execute("PRAGMA busy_timeout=0")
             version = schema_validator(reader)
             state_digest = _sqlite_state_sha256(reader)
-            target = sqlite3.connect(str(temp))
+            target = sqlite3.connect(":memory:")
             reader.backup(target)
             target.commit()
             if schema_validator(target) != version:
                 raise Version2UpgradeError("library backup schema mismatch")
             if _sqlite_state_sha256(target) != state_digest:
                 raise Version2UpgradeError("library backup logical-state mismatch")
+            serialize = getattr(target, "serialize", None)
+            if not callable(serialize):
+                raise Version2UpgradeError(
+                    "library backup serialization is unavailable"
+                )
+            serialized = serialize()
+            if type(serialized) is not bytes or not serialized:
+                raise Version2UpgradeError(
+                    "library backup serialization produced invalid bytes"
+                )
         except sqlite3.DatabaseError as exc:
             raise Version2UpgradeError("library backup could not be validated") from exc
         finally:
@@ -804,22 +816,26 @@ def _sqlite_backup(
                 if lock.in_transaction:
                     lock.rollback()
                 lock.close()
-        # Windows CRT rejects fsync() on a read-only descriptor. Open the
-        # completed SQLite snapshot read/write so the durability flush works on
-        # Windows as well as POSIX before the atomic replace.
-        with temp.open("r+b") as handle:
-            os.fsync(handle.fileno())
-        os.replace(temp, destination)
-        _fsync_dir(destination.parent)
+
+        if serialized is None:
+            raise Version2UpgradeError("library backup serialization is unavailable")
+        _atomic_bytes(destination, serialized)
+        if (
+            _library_state_sha256(
+                destination,
+                schema_validator=schema_validator,
+            )
+            != state_digest
+        ):
+            raise Version2UpgradeError("library backup publication validation failed")
         return (
-            destination.stat().st_size,
-            _hash(destination),
+            len(serialized),
+            hashlib.sha256(serialized).hexdigest(),
             version,
             state_digest,
         )
-    finally:
-        if temp.exists():
-            temp.unlink()
+    except OSError as exc:
+        raise Version2UpgradeError("library backup could not be published") from exc
 
 
 class _UpgradeLock:
