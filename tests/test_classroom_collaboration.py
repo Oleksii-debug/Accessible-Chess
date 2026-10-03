@@ -12,6 +12,7 @@ from acs.classroom_collaboration import (
     ClassroomCollaborationController,
     CollaborationError,
     FileQuotaPolicy,
+    FileTransferProgress,
     PreparedFile,
 )
 from acs.classroom_collaboration_storage import (
@@ -140,6 +141,7 @@ class FakeFiles:
         self.history_override = None
         self.state_updates = []
         self.state_override = None
+        self.progress_samples = ()
 
     def _next_sequence(self, room_id):
         room_sequences = [
@@ -162,10 +164,12 @@ class FakeFiles:
         self.ordered.sort(key=lambda item: (item.room_id, item.sequence_no))
         return attachment
 
-    def upload(self, prepared):
+    def upload(self, prepared, *, on_progress):
         self.upload_calls.append(prepared)
         if self.fail_upload:
             raise RuntimeError("provider upload failed")
+        for sample in self.progress_samples:
+            on_progress(sample)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -181,10 +185,12 @@ class FakeFiles:
             )
         )
 
-    def retry(self, prepared):
+    def retry(self, prepared, *, on_progress):
         self.retry_calls.append(prepared)
         if self.fail_retry:
             raise RuntimeError("provider retry failed")
+        for sample in self.progress_samples:
+            on_progress(sample)
         current = self.attachments.get(prepared.metadata.attachment_id)
         sequence = (
             current.sequence_no
@@ -2190,6 +2196,202 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(stored.scan_state, "clean")
         self.assertEqual(stored.sha256, prepared.metadata.sha256)
         self.assertEqual(len(self.files.retry_calls), 1)
+
+    def test_upload_progress_is_bounded_monotonic_and_terminal(self):
+        controller = self.controller()
+        payload = b"abcdef"
+        prepared = controller.prepare_file(
+            attachment_id="progress-a1",
+            local_path=self.make_file("progress-a1.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress("progress-a1", 0, len(payload)),
+            FileTransferProgress("progress-a1", 2, len(payload)),
+            FileTransferProgress("progress-a1", 4, len(payload)),
+            FileTransferProgress("progress-a1", 4, len(payload)),
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple(item.transferred_bytes for item in observed),
+            (0, 2, 4, len(payload)),
+        )
+        self.assertTrue(
+            all(item.attachment_id == "progress-a1" for item in observed)
+        )
+        self.assertTrue(
+            all(item.total_bytes == len(payload) for item in observed)
+        )
+
+    def test_upload_progress_rejects_provider_identity_size_and_regression(self):
+        controller = self.controller()
+        payload = b"data"
+        cases = (
+            (
+                "wrong-id",
+                (FileTransferProgress("other-id", 1, len(payload)),),
+                "belongs to another attachment",
+            ),
+            (
+                "wrong-size",
+                (FileTransferProgress("progress-wrong-size", 1, len(payload) + 1),),
+                "changed attachment size",
+            ),
+            (
+                "backwards",
+                (
+                    FileTransferProgress("progress-backwards", 3, len(payload)),
+                    FileTransferProgress("progress-backwards", 2, len(payload)),
+                ),
+                "moved backwards",
+            ),
+        )
+        for suffix, samples, message in cases:
+            with self.subTest(suffix=suffix):
+                attachment_id = f"progress-{suffix}"
+                prepared = controller.prepare_file(
+                    attachment_id=attachment_id,
+                    local_path=self.make_file(f"{attachment_id}.bin", payload),
+                    sequence_no=91,
+                )
+                self.files.progress_samples = samples
+                with self.assertRaisesRegex(CollaborationError, message):
+                    controller.upload_file(prepared)
+                failed = tuple(
+                    item
+                    for item in self.store.room_attachments("room-1")
+                    if item.attachment_id == attachment_id
+                )
+                self.assertEqual(len(failed), 1)
+                self.assertEqual(failed[0].transfer_state, "failed")
+
+    def test_progress_bounds_and_consumer_failure_do_not_corrupt_transfer(self):
+        for transferred, total in (
+            (-1, 4),
+            (5, 4),
+            (0, -1),
+            (MAX_WIRE_INTEGER + 1, MAX_WIRE_INTEGER + 1),
+        ):
+            with self.subTest(transferred=transferred, total=total):
+                with self.assertRaises(CollaborationError):
+                    FileTransferProgress(
+                        "bounded-progress",
+                        transferred,
+                        total,
+                    )
+
+        controller = self.controller()
+        payload = b"consumer-safe"
+        prepared = controller.prepare_file(
+            attachment_id="progress-consumer",
+            local_path=self.make_file("progress-consumer.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-consumer",
+                3,
+                len(payload),
+            ),
+        )
+        consumer_calls = []
+
+        def broken_consumer(sample):
+            consumer_calls.append(sample)
+            raise RuntimeError("presentation callback failed")
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=broken_consumer,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertGreaterEqual(len(consumer_calls), 1)
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (stored,),
+        )
+
+    def test_progress_consumer_validation_precedes_state_mutation(self):
+        controller = self.controller()
+        payload = b"consumer-validation"
+        prepared = controller.prepare_file(
+            attachment_id="progress-consumer-validation",
+            local_path=self.make_file(
+                "progress-consumer-validation.bin",
+                payload,
+            ),
+            sequence_no=0,
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.upload_file(
+                prepared,
+                on_progress="not-callable",
+            )
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        failed = self.store.room_attachments("room-1")[0]
+        self.assertEqual(failed.transfer_state, "failed")
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.retry_file(
+                prepared,
+                on_progress=object(),
+            )
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (failed,),
+        )
+
+    def test_retry_reports_fresh_progress_sequence(self):
+        controller = self.controller()
+        payload = b"retry-progress"
+        prepared = controller.prepare_file(
+            attachment_id="progress-retry",
+            local_path=self.make_file("progress-retry.bin", payload),
+            sequence_no=0,
+        )
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+
+        self.files.fail_upload = False
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-retry",
+                5,
+                len(payload),
+            ),
+        )
+        observed = []
+
+        stored = controller.retry_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple(item.transferred_bytes for item in observed),
+            (0, 5, len(payload)),
+        )
 
     def test_retry_resets_failed_scan_to_pending_before_clean_rescan(self):
         controller = self.controller()
