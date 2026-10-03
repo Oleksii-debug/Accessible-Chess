@@ -641,6 +641,30 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertEqual(self.path.read_bytes(), external)
 
+    def test_restore_primary_never_falls_back_to_corrupt_primary_backup(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:strict-primary", reader)
+        reader.go_to(2)
+        self.store.save("book:strict-primary", reader)
+
+        self.path.write_bytes(b'{"schema_version":2,"generation":')
+        tolerant = self.store.restore(
+            "book:strict-primary",
+            self.original_document(),
+        )
+        self.assertEqual(tolerant.index, 1)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.restore_primary(
+                "book:strict-primary",
+                self.original_document(),
+            )
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+
     @unittest.skipIf(os.name == "nt", "Windows symlink creation requires environment-specific privileges")
     def test_symlink_store_is_rejected(self) -> None:
         real = Path(self.tempdir.name) / "real.json"
