@@ -443,6 +443,61 @@ def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
 
+def _stat_identity(info: os.stat_result) -> tuple[int, int]:
+    return int(info.st_dev), int(info.st_ino)
+
+
+def _remove_exact_regular_file(
+    path: Path,
+    *,
+    label: str,
+    expected_identity: tuple[int, int] | None = None,
+) -> None:
+    """Remove only the exact regular inode observed at an owned pathname.
+
+    Move the pathname to a randomized same-directory quarantine first. If a
+    substitution wins the inspect->rename race, the foreign bytes are preserved
+    at that quarantine path and the operation fails closed instead of unlinking
+    them. Only a quarantined inode with the authenticated identity is deleted.
+    """
+    try:
+        before = _safe_stat(path, label)
+    except OSError as exc:
+        raise Version2UpgradeError(f"{label} could not be inspected safely") from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise Version2UpgradeError(f"{label} must be a regular file")
+    identity = _stat_identity(before)
+    if expected_identity is not None and identity != expected_identity:
+        raise Version2UpgradeError(f"{label} changed unexpectedly")
+
+    quarantine: Path | None = None
+    for _ in range(8):
+        candidate = path.parent / (
+            f".{path.name}.remove-quarantine-{secrets.token_hex(8)}"
+        )
+        if candidate.exists() or candidate.is_symlink():
+            continue
+        quarantine = candidate
+        break
+    if quarantine is None:
+        raise Version2UpgradeError(f"{label} quarantine could not be allocated")
+
+    try:
+        os.replace(path, quarantine)
+    except OSError as exc:
+        raise Version2UpgradeError(f"{label} could not be quarantined safely") from exc
+
+    moved = _safe_stat(quarantine, f"{label} quarantine")
+    if not stat.S_ISREG(moved.st_mode) or _stat_identity(moved) != identity:
+        raise Version2UpgradeError(f"{label} changed during removal")
+
+    try:
+        quarantine.unlink()
+    except OSError as exc:
+        raise Version2UpgradeError(f"{label} could not be removed safely") from exc
+    _fsync_dir(path.parent)
+
+
 def _require_published_temp_identity(
     path: Path,
     expected: os.stat_result | None,
@@ -629,8 +684,12 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
                 and _same_file_identity(temp_identity, current)
             ):
                 try:
-                    temp.unlink()
-                except OSError:
+                    _remove_exact_regular_file(
+                        temp,
+                        label="atomic write temporary file",
+                        expected_identity=_stat_identity(temp_identity),
+                    )
+                except Version2UpgradeError:
                     pass
 
 
@@ -638,10 +697,6 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
 class _PublicationGuard:
     path: Path
     identity: tuple[int, int]
-
-
-def _stat_identity(info: os.stat_result) -> tuple[int, int]:
-    return int(info.st_dev), int(info.st_ino)
 
 
 def _require_publication_guard(guard: _PublicationGuard) -> os.stat_result:
@@ -747,13 +802,17 @@ def _publication_guard_hash(guard: _PublicationGuard) -> str:
 
 def _remove_publication_guard(guard: _PublicationGuard) -> None:
     """Remove only the exact guard inode that this upgrader created."""
-    # Once a guard has been created, disappearance is itself a coordination
-    # failure.  Treat it exactly like substitution instead of silently
-    # accepting a window in which the guarded old inode may have been lost.
+    # Once a guard has been created, disappearance/substitution is itself a
+    # coordination failure. Quarantine-before-delete prevents a last-moment
+    # pathname swap from turning guard cleanup into deletion of foreign bytes.
     _require_publication_guard(guard)
     try:
-        guard.path.unlink()
-    except OSError as exc:
+        _remove_exact_regular_file(
+            guard.path,
+            label="tracked publication guard",
+            expected_identity=guard.identity,
+        )
+    except Version2UpgradeError as exc:
         raise Version2UpgradeError(
             "tracked publication guard could not be removed safely"
         ) from exc
@@ -809,7 +868,11 @@ def _publication_guard(path: Path) -> _PublicationGuard:
                         stat.S_ISREG(cleanup_info.st_mode)
                         and _stat_identity(cleanup_info) == target_identity
                     ):
-                        guard_path.unlink()
+                        _remove_exact_regular_file(
+                            guard_path,
+                            label="tracked publication guard",
+                            expected_identity=target_identity,
+                        )
                 except (OSError, Version2UpgradeError):
                     pass
             raise
@@ -963,8 +1026,12 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
                 and _same_file_identity(temp_identity, current)
             ):
                 try:
-                    temp.unlink()
-                except OSError:
+                    _remove_exact_regular_file(
+                        temp,
+                        label="backup copy temporary file",
+                        expected_identity=_stat_identity(temp_identity),
+                    )
+                except Version2UpgradeError:
                     pass
 
 
@@ -1910,7 +1977,16 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "library sidecar is not a regular file"
                 )
-            sidecar.unlink()
+            try:
+                _remove_exact_regular_file(
+                    sidecar,
+                    label="library sidecar",
+                    expected_identity=_stat_identity(info),
+                )
+            except Version2UpgradeError as exc:
+                raise Version2UpgradeRecoveryError(
+                    "library sidecar changed during removal"
+                ) from exc
 
     def _prepare_library_publication(self, expected_original: str) -> None:
         """Normalize a quiescent live SQLite file before atomic publication.
@@ -2055,7 +2131,16 @@ class Version2UpgradeCoordinator:
                         raise Version2UpgradeRecoveryError(
                             "upgrade-created tracked data is not a file"
                         )
-                    destination.unlink()
+                    try:
+                        _remove_exact_regular_file(
+                            destination,
+                            label="upgrade-created tracked data",
+                            expected_identity=_stat_identity(info),
+                        )
+                    except Version2UpgradeError as exc:
+                        raise Version2UpgradeRecoveryError(
+                            "upgrade-created tracked data changed during removal"
+                        ) from exc
                 continue
             assert entry is not None
             relative = str(entry["path"])
@@ -2561,7 +2646,12 @@ class Version2UpgradeCoordinator:
                             expected_identity,
                             label="library migration temporary",
                         )
-                        candidate.unlink()
+                        assert expected_identity is not None
+                        _remove_exact_regular_file(
+                            candidate,
+                            label="library migration temporary",
+                            expected_identity=_stat_identity(expected_identity),
+                        )
                     except Exception:
                         pass
                 for suffix in _DB_SIDECARS:
@@ -2570,7 +2660,11 @@ class Version2UpgradeCoordinator:
                         try:
                             info = _safe_stat(path, "library migration temporary")
                             if stat.S_ISREG(info.st_mode):
-                                path.unlink()
+                                _remove_exact_regular_file(
+                                    path,
+                                    label="library migration temporary",
+                                    expected_identity=_stat_identity(info),
+                                )
                         except Exception:
                             pass
 
