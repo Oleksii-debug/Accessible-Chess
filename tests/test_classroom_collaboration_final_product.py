@@ -6,7 +6,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-from acs.classroom_collaboration import ClassroomCollaborationController
+from acs.classroom_collaboration import (
+    ClassroomCollaborationController,
+    FileTransferProgress,
+)
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     ChatMessageMetadata,
@@ -137,6 +140,9 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         selected.write_bytes(b"abcdef")
         self.collaboration._file_picker = lambda: selected
         self.files.scan_state = "clean"
+        self.files.progress_samples = (
+            FileTransferProgress("attachment-composition-1", 6, 6),
+        )
         bridged: list[dict[str, object]] = []
         app = self.bare_app()
 
@@ -154,15 +160,23 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
 
         self.assertEqual("collaboration.file.sent", uploaded["kind"])
         self.assertEqual(
-            [0, 6],
+            [0, 6, 6],
             [
                 event["payload"]["file_progress"]["transferred_bytes"]
                 for event in bridged
             ],
         )
         self.assertEqual(
-            [False, True],
+            [False, False, True],
             [event["payload"]["file_progress"]["complete"] for event in bridged],
+        )
+        self.assertEqual(
+            "All bytes transferred; finalizing transfer: whole-product-progress.bin.",
+            bridged[-2]["payload"]["file_progress"]["text"],
+        )
+        self.assertEqual(
+            "Transferred 6 B of 6 B: whole-product-progress.bin.",
+            bridged[-1]["payload"]["file_progress"]["text"],
         )
         transfer_keys = {
             event["payload"]["file_progress"]["transfer_key"]
