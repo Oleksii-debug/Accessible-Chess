@@ -233,6 +233,42 @@ class SoundPackCatalogTests(unittest.TestCase):
             SoundEventPreference(False, 44),
         )
 
+    def test_external_fallback_allows_provider_storage_without_classic_manifest(self):
+        active = make_manifest("soft.wood")
+        storage = FakeStorage({"soft.wood": active})
+        manager = SoundPackManager(
+            FakeDownloader(make_download(make_entry(active))),
+            storage,
+            external_fallback_available=True,
+        )
+        profile = SoundProfile(
+            pack_id="soft.wood",
+            master_enabled=False,
+            master_volume_percent=31,
+            events={"move": SoundEventPreference(False, 44, "quiet.move")},
+        )
+
+        self.assertEqual(manager.resolve_usable_pack("classic"), "classic")
+        self.assertEqual(manager.resolve_usable_pack("missing.pack"), "classic")
+        resolved = manager.uninstall("soft.wood", active_profile=profile)
+
+        self.assertEqual(storage.uninstall_calls, ["soft.wood"])
+        self.assertEqual(resolved.pack_id, "classic")
+        self.assertEqual(resolved.master_enabled, profile.master_enabled)
+        self.assertEqual(resolved.master_volume_percent, profile.master_volume_percent)
+        self.assertEqual(
+            resolved.preference_for("move"),
+            SoundEventPreference(False, 44),
+        )
+
+    def test_external_fallback_flag_requires_exact_boolean(self):
+        with self.assertRaisesRegex(TypeError, "external_fallback_available"):
+            SoundPackManager(
+                FakeDownloader(make_download(make_entry())),
+                FakeStorage({}),
+                external_fallback_available=1,  # type: ignore[arg-type]
+            )
+
     def test_fallback_pack_cannot_be_uninstalled(self):
         classic = make_manifest("classic")
         storage = FakeStorage({"classic": classic})
