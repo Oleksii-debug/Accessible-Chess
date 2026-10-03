@@ -83,9 +83,9 @@ jobs:
               'tests/test_v2_book_progress_store.py' \
               'tests/test_version2_application.py' | sort)"
             if [ "$books_delta" = "$books_expected" ]; then
-              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "3dd04cbcafb4219738acf4568a3a6e436a9aa1ef"
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "616053698dacf4ca409a7742e9b34b83d96cc1bd"
               test "$(git rev-parse HEAD:acs/version2_application.py)" = "a54e1ceb5102d13d6439ab82c686679ee061fade"
-              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "ae85ba96da66f339a530e2ddbbf311161fb9832e"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "4d0810f6ab265ad7f8b40519ec8d19a26db980db"
               test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "26b56e9aaff896007ad403008cafc77e33350596"
               current_books_recovery=true
             fi
@@ -115,10 +115,10 @@ jobs:
             test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
             test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "0546dcb2d5dfad7c378d29a1c7c680a890b3d0f9"
-            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "1d1fcd8a9ac9fdd278b53b60a7a85cb2c63b1932"
-            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "3dd04cbcafb4219738acf4568a3a6e436a9aa1ef"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "6ee250c10374f1032998570cea6e544d85fd57d5"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "616053698dacf4ca409a7742e9b34b83d96cc1bd"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "a54e1ceb5102d13d6439ab82c686679ee061fade"
-            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "ae85ba96da66f339a530e2ddbbf311161fb9832e"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "4d0810f6ab265ad7f8b40519ec8d19a26db980db"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "26b56e9aaff896007ad403008cafc77e33350596"
             orphan_backup_successor=true
           fi
