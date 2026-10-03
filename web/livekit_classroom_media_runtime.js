@@ -179,8 +179,26 @@
         // provider session is proven quiescent. Never silently retarget a live
         // or cleanup-required LiveKit room.
         const previous = this._adapter.snapshot();
-        if (!previous || previous.connected !== false ||
-            previous.cleanup_required !== false) {
+        exactKeys(
+          previous,
+          [
+            "connected",
+            "cleanup_required",
+            "room_id",
+            "participant_id",
+            "microphone_enabled",
+            "camera_enabled",
+            "screen_share_enabled"
+          ],
+          "prior media provider snapshot"
+        );
+        if (previous.connected !== false ||
+            previous.cleanup_required !== false ||
+            previous.room_id !== null ||
+            previous.participant_id !== null ||
+            previous.microphone_enabled !== false ||
+            previous.camera_enabled !== false ||
+            previous.screen_share_enabled !== false) {
           throw new Error(
             "media provider configuration changed while prior adapter is active"
           );
