@@ -414,6 +414,27 @@ class BookProgressStore:
         except OSError:
             pass
 
+    @classmethod
+    def _discard_owned_lock_unlocked(
+        cls,
+        path: Path,
+        expected: os.stat_result | None,
+    ) -> None:
+        """Remove only a failed lock inode exclusively created by this store."""
+        if expected is None:
+            return
+        try:
+            current = os.lstat(path)
+            cls._require_private_lock_metadata(current)
+        except (FileNotFoundError, OSError, BookProgressStoreError):
+            return
+        if not cls._same_file_identity(expected, current):
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def _read_raw_file_unlocked(self, path: Path, *, missing_ok: bool) -> bytes | None:
         """Read through the exact descriptor whose file identity was validated.
 
@@ -687,6 +708,7 @@ class BookProgressStore:
             # window. Failing this race closed avoids adopting and initializing
             # an unknown user-owned file as the coordination object.
             flags |= os.O_CREAT | os.O_EXCL
+        created_lock_identity: os.stat_result | None = None
         try:
             descriptor = os.open(self._lock_path, flags, 0o600)
         except FileExistsError:
@@ -702,6 +724,10 @@ class BookProgressStore:
         try:
             metadata = os.fstat(descriptor)
             self._require_private_lock_metadata(metadata)
+            if existing is None:
+                # From this point onward cleanup may remove the lock only while
+                # the pathname still names this exact O_EXCL-created private inode.
+                created_lock_identity = metadata
             if existing is not None and not self._same_file_identity(existing, metadata):
                 raise BookProgressStoreError(
                     "book progress storage lock changed while being opened",
@@ -756,8 +782,39 @@ class BookProgressStore:
                         "book progress storage lock changed while being initialized",
                         code=BookProgressStoreErrorCode.IO_FAILURE,
                     )
-                os.write(descriptor, b"\0")
-                os.fsync(descriptor)
+                try:
+                    written = os.write(descriptor, b"\0")
+                    if written != 1:
+                        raise OSError("short Book-progress lock marker write")
+                    os.fsync(descriptor)
+                except OSError:
+                    raise BookProgressStoreError(
+                        "book progress storage lock could not be initialized",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    ) from None
+                try:
+                    initialized = os.fstat(descriptor)
+                    self._require_private_lock_metadata(initialized)
+                    if (
+                        initialized.st_size != 1
+                        or not self._same_file_identity(metadata, initialized)
+                    ):
+                        raise BookProgressStoreError(
+                            "book progress storage lock changed while being initialized",
+                            code=BookProgressStoreErrorCode.IO_FAILURE,
+                        )
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    marker = os.read(descriptor, 2)
+                except OSError:
+                    raise BookProgressStoreError(
+                        "book progress storage lock could not be validated",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    ) from None
+                if marker != b"\0":
+                    raise BookProgressStoreError(
+                        "book progress storage lock changed while being initialized",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    )
             try:
                 final_path = os.lstat(self._lock_path)
             except OSError:
@@ -773,13 +830,20 @@ class BookProgressStore:
                 )
             return descriptor
         except BaseException:
-            # Preserve the validation failure as the public authority; cleanup
-            # of a descriptor opened only for the failed acquisition is
-            # best-effort and must never mask that error.
+            # Preserve the validation/initialization failure as the public
+            # authority. If this attempt exclusively created the lock, remove
+            # only that exact inode after closing it so a transient write/fsync
+            # failure cannot poison every later startup. A substituted or
+            # hard-linked pathname is deliberately preserved.
             try:
                 os.close(descriptor)
             except OSError:
                 pass
+            if existing is None:
+                self._discard_owned_lock_unlocked(
+                    self._lock_path,
+                    created_lock_identity,
+                )
             raise
 
     def _cleanup_stale_temps_unlocked(self) -> None:
@@ -1018,6 +1082,7 @@ class BookProgressStore:
                     assert type(primary_generation) is int
                     if backup_generation > primary_generation or (
                         backup_generation == primary_generation
+                        and primary_generation > 0
                         and backup_base_raw != previous_raw
                     ):
                         raise BookProgressStoreError(
