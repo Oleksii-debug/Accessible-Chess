@@ -247,6 +247,21 @@
     if (typeof block.role !== "string" || roles.indexOf(block.role) < 0) {
       throw new TypeError("Book snapshot block role is invalid");
     }
+    const roleByKind = {
+      Heading: "heading",
+      Paragraph: "paragraph",
+      List: "list",
+      Position: "group",
+      Diagram: "img",
+      Game: "group",
+      VariationTree: "tree",
+      Exercise: "group",
+      Note: "note"
+    };
+    if (!Object.prototype.hasOwnProperty.call(roleByKind, block.kind) ||
+        roleByKind[block.kind] !== block.role) {
+      throw new TypeError("Book snapshot block kind/role is inconsistent");
+    }
     requireBoundedText(block.kind, "Book snapshot block kind", true, 80);
     requireBoundedText(block.title, "Book snapshot block title", true, 360);
     requireBoundedText(
@@ -261,6 +276,10 @@
     requireBoundedText(block.warning, "Book warning", true, 1000);
     if (typeof block.has_position !== "boolean") {
       throw new TypeError("Book snapshot position flag is invalid");
+    }
+    const positionKinds = ["Position", "Diagram", "Exercise", "VariationTree"];
+    if (block.has_position !== (positionKinds.indexOf(block.kind) >= 0)) {
+      throw new TypeError("Book snapshot position flag disagrees with semantic kind");
     }
     if (!Array.isArray(block.heading_path) ||
         block.heading_path.length > MAX_BOOK_HEADING_PATH_PARTS ||
