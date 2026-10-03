@@ -369,7 +369,7 @@ class ClassroomChatServerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ClassroomChatServerError,
-            "stored classroom chat message is invalid",
+            "stored message sequence is invalid",
         ) as raised:
             self.store.history_after(
                 room_id=ROOM,
