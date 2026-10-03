@@ -482,6 +482,99 @@ async function run() {
   check(document.activeElement === trainingSnapshotFocus,
     "malformed direct Training solution must preserve focus");
 
+  function expectTrainingRenderRejected(snapshot, focusTarget, solutionValue, message) {
+    let rejected = false;
+    try {
+      window.AccessibleChessTrainingSurface.render(
+        trainingSnapshotRoot,
+        snapshot,
+        trainingInvoke,
+        announce,
+        focusTarget,
+        "Action failed",
+        solutionValue
+      );
+    } catch (error) {
+      rejected = true;
+    }
+    check(rejected, message + " must fail closed");
+    check(
+      trainingSnapshotRoot.replaceChildrenCalls === trainingSnapshotReplaceCount,
+      message + " must preserve prior readable DOM"
+    );
+    check(document.activeElement === trainingSnapshotFocus,
+      message + " must preserve focus");
+  }
+
+  const malformedTrainingAnswerLength = trainingSnapshot();
+  malformedTrainingAnswerLength.answer.max_length = "128";
+  expectTrainingRenderRejected(
+    malformedTrainingAnswerLength,
+    "training-answer",
+    [],
+    "malformed Training answer length"
+  );
+
+  const mismatchedTrainingCompletion = trainingSnapshot();
+  mismatchedTrainingCompletion.status = "completed";
+  expectTrainingRenderRejected(
+    mismatchedTrainingCompletion,
+    "training-answer",
+    [],
+    "Training completion/status mismatch"
+  );
+
+  const inconsistentTrainingActionState = trainingSnapshot();
+  inconsistentTrainingActionState.actions[0].enabled = false;
+  expectTrainingRenderRejected(
+    inconsistentTrainingActionState,
+    "training-answer",
+    [],
+    "inconsistent Training action availability"
+  );
+
+  const unknownTrainingAction = trainingSnapshot();
+  unknownTrainingAction.actions[0].command = "training.raw_fen";
+  expectTrainingRenderRejected(
+    unknownTrainingAction,
+    "training-answer",
+    [],
+    "unknown Training action"
+  );
+
+  const malformedResetDialog = trainingSnapshot();
+  malformedResetDialog.reset_dialog.text = { text: "bad" };
+  expectTrainingRenderRejected(
+    malformedResetDialog,
+    "training-answer",
+    [],
+    "malformed Training reset dialog"
+  );
+
+  const sparseTrainingSolution = new Array(2);
+  sparseTrainingSolution[1] = "e4";
+  expectTrainingRenderRejected(
+    trainingSnapshot(),
+    "training-answer",
+    sparseTrainingSolution,
+    "sparse Training solution"
+  );
+
+  const excessiveTrainingSolution = new Array(65).fill("e4");
+  expectTrainingRenderRejected(
+    trainingSnapshot(),
+    "training-answer",
+    excessiveTrainingSolution,
+    "excessive Training solution"
+  );
+
+  expectTrainingRenderRejected(
+    trainingSnapshot(),
+    "training-solution",
+    [],
+    "stale Training solution focus"
+  );
+
   const malformedTrainingRoot = new FakeElement("div");
   const malformedTrainingInvoke = () => ({
     kind: "render",
