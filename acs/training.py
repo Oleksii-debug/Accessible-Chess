@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from itertools import islice
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Mapping
@@ -123,18 +124,25 @@ class ExerciseDefinition:
 
         try:
             step_count = len(self.steps)
-        except TypeError as exc:
-            raise TypeError("exercise steps must be a finite sized collection") from exc
+        except TypeError:
+            try:
+                steps = tuple(islice(iter(self.steps), _MAX_EXERCISE_STEPS + 1))
+            except TypeError as exc:
+                raise TypeError("exercise steps must be a finite collection") from exc
+            if len(steps) > _MAX_EXERCISE_STEPS:
+                raise ValueError("exercise has too many steps")
+            step_count = len(steps)
+        else:
+            if step_count > _MAX_EXERCISE_STEPS:
+                raise ValueError("exercise has too many steps")
+            try:
+                steps = tuple(self.steps)
+            except TypeError as exc:
+                raise TypeError("exercise steps must be a finite collection") from exc
+            if len(steps) != step_count:
+                raise ValueError("exercise steps changed during validation")
         if step_count < 1:
             raise ValueError("exercise requires at least one step")
-        if step_count > _MAX_EXERCISE_STEPS:
-            raise ValueError("exercise has too many steps")
-        try:
-            steps = tuple(self.steps)
-        except TypeError as exc:
-            raise TypeError("exercise steps must be a finite collection") from exc
-        if len(steps) != step_count:
-            raise ValueError("exercise steps changed during validation")
         if any(not isinstance(step, ExerciseStep) for step in steps):
             raise TypeError("exercise steps must contain ExerciseStep values")
 
@@ -142,21 +150,32 @@ class ExerciseDefinition:
             raise TypeError("exercise title must be a string")
         if len(self.title) > _MAX_EXERCISE_AUX_TEXT:
             raise ValueError("exercise title is too long")
-        if self.source_id is not None and (
-            type(self.source_id) is not str
-            or len(self.source_id) > _MAX_EXERCISE_AUX_TEXT
-        ):
-            raise ValueError("exercise source_id must be bounded text or None")
+        if self.source_id is not None:
+            if type(self.source_id) is not str:
+                raise TypeError("exercise source_id must be a string or None")
+            if len(self.source_id) > _MAX_EXERCISE_AUX_TEXT:
+                raise ValueError("exercise source_id is too long")
 
         try:
             tag_count = len(self.tags)
-        except TypeError as exc:
-            raise TypeError("exercise tags must be a finite sized collection") from exc
-        if tag_count > _MAX_EXERCISE_TAGS:
-            raise ValueError("exercise has too many tags")
-        tags = tuple(_normalize_tag(tag) for tag in self.tags)
-        if len(tags) != tag_count:
-            raise ValueError("exercise tags changed during validation")
+        except TypeError:
+            try:
+                raw_tags = tuple(islice(iter(self.tags), _MAX_EXERCISE_TAGS + 1))
+            except TypeError as exc:
+                raise TypeError("exercise tags must be a finite collection") from exc
+            if len(raw_tags) > _MAX_EXERCISE_TAGS:
+                raise ValueError("exercise has too many tags")
+            tag_count = len(raw_tags)
+        else:
+            if tag_count > _MAX_EXERCISE_TAGS:
+                raise ValueError("exercise has too many tags")
+            try:
+                raw_tags = tuple(self.tags)
+            except TypeError as exc:
+                raise TypeError("exercise tags must be a finite collection") from exc
+            if len(raw_tags) != tag_count:
+                raise ValueError("exercise tags changed during validation")
+        tags = tuple(_normalize_tag(tag) for tag in raw_tags)
 
         if not isinstance(self.metadata, Mapping):
             raise TypeError("exercise metadata must be a mapping")
