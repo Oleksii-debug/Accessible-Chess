@@ -172,6 +172,47 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             return True
         return False
 
+    def _current_action_rejected_event(self) -> PgnWebViewEvent:
+        snapshot = self._snapshot_current()
+        return PgnWebViewEvent(
+            "selection",
+            {
+                "snapshot": snapshot,
+                "focus_target": snapshot.get("focus_target", ""),
+                "announcement": str(snapshot.get("error_message", "")),
+            },
+        )
+
+    def _resync_rejected_action(self) -> PgnWebViewEvent:
+        # A browser/NVDA command belongs to the presentation the user actually
+        # read.  If canonical workspace state moved independently, never
+        # reinterpret the stale intent against the newer game/cursor.
+        if not self._try_refresh():
+            return self._unavailable_event()
+        return self._current_action_rejected_event()
+
+    def _prepare_browser_action(self) -> PgnWebViewEvent | None:
+        try:
+            presented_identity = self._view_identity(self._workspace_view)
+            current_identity = self._view_identity(self._workspace.view())
+        except Exception:
+            return self._unavailable_event()
+
+        if current_identity != presented_identity:
+            return self._resync_rejected_action()
+
+        # Preserve #1435's pre-action capture guarantee.  A failed or drifting
+        # capture must not permit the browser command to act from stale state.
+        if not self._try_refresh():
+            return self._unavailable_event()
+        try:
+            refreshed_identity = self._view_identity(self._workspace_view)
+        except Exception:
+            return self._unavailable_event()
+        if refreshed_identity != presented_identity:
+            return self._current_action_rejected_event()
+        return None
+
     def _snapshot_current(self) -> dict[str, object]:
         snapshot = PgnWebViewProjection.snapshot(self)
         snapshot["workspace"] = {
@@ -269,7 +310,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return self._render_event()
 
     def _operate_and_render(self, operation: Callable[[], object]) -> PgnWebViewEvent:
-        before_identity = self._view_identity(self._workspace.view())
+        try:
+            presented_identity = self._view_identity(self._workspace_view)
+            before_identity = self._view_identity(self._workspace.view())
+        except Exception:
+            return self._unavailable_event()
+        if before_identity != presented_identity:
+            return self._resync_rejected_action()
         try:
             operation()
         except Exception:
@@ -294,39 +341,47 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def select(self, node_id: str) -> PgnWebViewEvent:
-        if not self._try_refresh():
-            return self._unavailable_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         selected = self._presenter.select(node_id)
         return self._navigate_to("pgn.select_item", selected.node_id)
 
     def move_selection(self, delta: int) -> PgnWebViewEvent:
-        if not self._try_refresh():
-            return self._unavailable_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         selected = self._presenter.move_selection(delta)
         action_id = "pgn.previous_item" if delta < 0 else "pgn.next_item"
         return self._navigate_to(action_id, selected.node_id)
 
     def select_parent(self) -> PgnWebViewEvent:
-        if not self._try_refresh():
-            return self._unavailable_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         selected = self._presenter.select_parent()
         return self._navigate_to("pgn.parent_variation", selected.node_id)
 
     def previous_game(self) -> PgnWebViewEvent:
-        if not self._try_refresh():
-            return self._unavailable_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         return self._operate_and_render(
             lambda: self._dispatch_registered("pgn.previous_game", {})
         )
 
     def next_game(self) -> PgnWebViewEvent:
-        if not self._try_refresh():
-            return self._unavailable_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         return self._operate_and_render(
             lambda: self._dispatch_registered("pgn.next_game", {})
         )
 
     def _mutate_and_render(self, operation: Callable[[], PgnWebViewEvent]) -> PgnWebViewEvent:
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         return self._operate_and_render(operation)
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
