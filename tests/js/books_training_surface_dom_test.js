@@ -393,6 +393,59 @@ async function run() {
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
 
+  const eventContractSnapshot = bookSnapshot(3, "Event contract");
+  const eventContractInvoke = () => ({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(4, "Must not publish"),
+      focus_target: { bad: true },
+      announcement: "Must not announce"
+    }
+  });
+  window.AccessibleChessBookSurface.render(
+    bookRoot,
+    eventContractSnapshot,
+    eventContractInvoke,
+    announce,
+    "book-block-3",
+    "Action failed"
+  );
+  const eventContractReplaceCount = bookRoot.replaceChildrenCalls;
+  const eventContractFocus = document.activeElement;
+  find(bookRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  check(bookRoot.replaceChildrenCalls === eventContractReplaceCount,
+    "malformed Book event must not replace readable DOM");
+  check(document.activeElement === eventContractFocus,
+    "malformed Book event must preserve reading focus");
+  check(!announcements.includes("Must not announce"),
+    "malformed Book event must not publish its announcement");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "malformed Book event must use the safe fallback announcement");
+
+  const unknownEventInvoke = () => ({
+    kind: "raw",
+    payload: { announcement: "Forged event" }
+  });
+  window.AccessibleChessBookSurface.render(
+    bookRoot,
+    bookSnapshot(3, "Unknown event kind"),
+    unknownEventInvoke,
+    announce,
+    "book-block-3",
+    "Action failed"
+  );
+  const unknownEventReplaceCount = bookRoot.replaceChildrenCalls;
+  const unknownEventFocus = document.activeElement;
+  find(bookRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  check(bookRoot.replaceChildrenCalls === unknownEventReplaceCount,
+    "unknown Book event kind must not replace readable DOM");
+  check(document.activeElement === unknownEventFocus,
+    "unknown Book event kind must preserve reading focus");
+  check(!announcements.includes("Forged event"),
+    "unknown Book event kind must not publish an announcement");
+
   const controlsReplaceCount = bookRoot.replaceChildrenCalls;
   const controlsFocus = document.activeElement;
 
