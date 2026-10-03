@@ -1190,12 +1190,21 @@ class BookProgressStore:
             # absent. Recheck recovery data immediately before publication so
             # an ordinary first-save path does not silently supersede it.
             self._require_no_orphan_backup_unlocked()
-        self._atomic_publish_bytes_unlocked(
-            self._path,
-            encoded,
-            require_no_orphan_backup_before_replace=previous_raw is None,
-            expected_target_raw=previous_raw,
-        )
+        if previous_raw is None:
+            self._atomic_publish_bytes_unlocked(
+                self._path,
+                encoded,
+                require_no_orphan_backup_before_replace=True,
+                expected_target_raw=None,
+            )
+        else:
+            self._atomic_publish_bytes_unlocked(
+                self._path,
+                encoded,
+                expected_target_raw=previous_raw,
+                expected_guard_path=self.backup_path,
+                expected_guard_raw=previous_raw,
+            )
 
     @staticmethod
     def _next_generation(payload: Mapping[str, object]) -> int:
