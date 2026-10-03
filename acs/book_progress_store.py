@@ -810,15 +810,25 @@ class BookProgressStore:
             temp_path = None
             try:
                 _sync_published_path(target)
-            except OSError:
+                visible = self._read_raw_file_unlocked(target, missing_ok=False)
+            except (OSError, BookProgressStoreError):
                 # Replacement already succeeded. The published bytes may be
-                # visible even though crash durability could not be confirmed.
-                # Callers must reload canonical state before deciding whether a
-                # retry or UI rollback is safe.
+                # visible even though crash durability or canonical pathname
+                # identity could not be confirmed. Callers must reload visible
+                # canonical state before deciding whether UI rollback is safe.
                 raise BookProgressStoreError(
                     "book progress was published but durable storage could not be confirmed",
                     code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
                 ) from None
+            if visible != encoded:
+                # A non-cooperating writer replaced the canonical pathname after
+                # our atomic publication. Our bytes were published, but they are
+                # no longer authoritative; force the application down the same
+                # canonical-reload path as any other post-replace ambiguity.
+                raise BookProgressStoreError(
+                    "book progress was published but canonical storage changed before confirmation",
+                    code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+                )
         except BookProgressStoreError:
             raise
         except OSError:
