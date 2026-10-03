@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -114,7 +115,7 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             )
 
     @unittest.skipIf(
-        __import__("os").name == "nt",
+        os.name == "nt",
         "Windows symlink creation requires environment-specific privileges",
     )
     def test_exact_generated_name_symlink_fails_closed_before_classification(self):
