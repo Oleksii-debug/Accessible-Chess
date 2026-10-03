@@ -21,6 +21,11 @@ from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
 from .release_app import _user_root
 from .settings import Settings
+from .sound_pack_catalog import (
+    SoundPackCatalogEntry,
+    SoundPackDownloadPort,
+    SoundPackSignatureVerifier,
+)
 from .sound_profile_composition import create_local_sound_composition
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
@@ -367,6 +372,9 @@ def create_version2_release_application(
     application_dir: str | Path | None = None,
     runtime_factory: Callable[[StockfishRuntimeConfig], Any] = StockfishRuntime,
     sound_playback: Any | None = None,
+    sound_pack_catalog: Mapping[str, SoundPackCatalogEntry] | None = None,
+    sound_pack_downloader: SoundPackDownloadPort | None = None,
+    sound_pack_signature_verifier: SoundPackSignatureVerifier | None = None,
     settings_path: str | Path | None = None,
     data_root: str | Path | None = None,
     copy_text: Callable[[str], Any] = _copy_text_to_windows_clipboard,
@@ -407,11 +415,19 @@ def create_version2_release_application(
             language = UILanguage(language_value)
         except (TypeError, ValueError):
             language = UILanguage.UA
+        sound_provider_kwargs: dict[str, Any] = {}
+        if sound_pack_catalog is not None:
+            sound_provider_kwargs["catalog"] = sound_pack_catalog
+        if sound_pack_downloader is not None:
+            sound_provider_kwargs["pack_downloader"] = sound_pack_downloader
+        if sound_pack_signature_verifier is not None:
+            sound_provider_kwargs["signature_verifier"] = sound_pack_signature_verifier
         sound = create_local_sound_composition(
             application_dir=app_dir,
             data_root=layout.root,
             legacy_settings=settings.data,
             asset_playback=sound_playback,
+            **sound_provider_kwargs,
         )
 
         api = Version2ReleaseAccessibleChessAPI(
