@@ -341,6 +341,7 @@ class ClassroomCollaborationWebView:
         # Ephemeral presentation state only. Durable transfer truth remains in the
         # canonical collaboration store/provider; this merely survives DOM redraws.
         self._file_progress: tuple[str, str, int, int, bool] | None = None
+        self._file_progress_attempt_token: bytes | None = None
 
     @property
     def language(self) -> UILanguage:
@@ -383,6 +384,7 @@ class ClassroomCollaborationWebView:
         self._removed_participant_ids.clear()
         self._prepared.clear()
         self._file_progress = None
+        self._file_progress_attempt_token = None
 
     def _label(self, participant_id: str) -> str:
         try:
@@ -445,11 +447,14 @@ class ClassroomCollaborationWebView:
         return hmac.new(self._action_secret, material, sha256).hexdigest()
 
     def _progress_key(self, attachment_id: str) -> str:
-        """Return a session-bound opaque identity with no browser action authority."""
+        """Return a per-attempt session-bound identity with no action authority."""
 
+        token = self._file_progress_attempt_token
+        if token is None:
+            raise RuntimeError("file progress attempt is not active")
         material = (
             f"{self._controller.room_id}\0progress\0{attachment_id}"
-        ).encode("utf-8")
+        ).encode("utf-8") + b"\0" + token
         return hmac.new(self._action_secret, material, sha256).hexdigest()
 
     def _attachment_for_key(self, file_key: object) -> AttachmentMetadata:
@@ -1265,6 +1270,7 @@ class ClassroomCollaborationWebView:
             sequence_no=sequence,
             retention=self._file_retention,
         )
+        self._file_progress_attempt_token = secrets.token_bytes(16)
         try:
             uploaded = self._controller.upload_file(
                 prepared,
@@ -1275,6 +1281,7 @@ class ClassroomCollaborationWebView:
             # the collaboration surface and must not preserve a stale partial
             # meter into a later retry sequence.
             self._file_progress = None
+            self._file_progress_attempt_token = None
             # Keep the local source path only when canonical durable metadata
             # proves there is a failed transfer that the user can retry.
             try:
@@ -1298,6 +1305,7 @@ class ClassroomCollaborationWebView:
             )
         if uploaded.transfer_state == "failed":
             self._file_progress = None
+            self._file_progress_attempt_token = None
             if uploaded.scan_state != "blocked":
                 self._prepared[uploaded.attachment_id] = prepared
             else:
@@ -1385,6 +1393,7 @@ class ClassroomCollaborationWebView:
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
         self._file_progress = None
+        self._file_progress_attempt_token = secrets.token_bytes(16)
         try:
             retried = self._controller.retry_file(
                 prepared,
@@ -1392,6 +1401,7 @@ class ClassroomCollaborationWebView:
             )
         except Exception:
             self._file_progress = None
+            self._file_progress_attempt_token = None
             return self._error(
                 message=self._file_announcement(
                     "file_retry_failed",
@@ -1400,6 +1410,7 @@ class ClassroomCollaborationWebView:
             )
         if retried.transfer_state == "failed":
             self._file_progress = None
+            self._file_progress_attempt_token = None
             if retried.scan_state == "blocked":
                 self._prepared.pop(retried.attachment_id, None)
             return self._error(
@@ -1429,6 +1440,7 @@ class ClassroomCollaborationWebView:
         self._prepared.pop(attachment.attachment_id, None)
         if self._file_progress is not None and self._file_progress[0] == attachment.attachment_id:
             self._file_progress = None
+            self._file_progress_attempt_token = None
         return self._event(
             "collaboration.file.cancelled",
             announcement=self._file_announcement("file_cancelled", attachment.display_name),
