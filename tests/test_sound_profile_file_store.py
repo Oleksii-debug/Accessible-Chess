@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.sound_profile_file_store import (
     JsonSoundProfileStorage,
@@ -62,6 +63,35 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
 
             self.assertEqual(storage.read_profile(), profile.to_mapping())
             self.assertFalse(path.with_suffix(path.suffix + ".tmp").exists())
+
+    def test_atomic_publish_flushes_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "settings" / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+
+            with mock.patch(
+                "acs.sound_profile_file_store._fsync_directory"
+            ) as sync_directory:
+                storage.write_profile_atomically(SoundProfile().to_mapping())
+
+            sync_directory.assert_called_once_with(path.parent)
+            self.assertEqual(storage.read_profile(), SoundProfile().to_mapping())
+
+    def test_post_replace_directory_sync_failure_is_refreshable_uncertain_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+            manager = SoundProfileManager(storage, self._resolver)
+
+            with mock.patch(
+                "acs.sound_profile_file_store._fsync_directory",
+                side_effect=SoundProfileFileError("directory sync failed"),
+            ), self.assertRaisesRegex(SoundProfileFileError, "directory sync failed"):
+                manager.load()
+
+            self.assertTrue(path.is_file())
+            self.assertEqual(SoundProfile(), manager.current)
+            self.assertEqual(storage.read_profile(), SoundProfile().to_mapping())
 
     def test_two_process_owners_fail_closed_instead_of_lost_update(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
