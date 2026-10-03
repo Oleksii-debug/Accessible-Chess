@@ -518,6 +518,41 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertEqual(reopened.drain_pending_deletions(), 0)
         reopened.integrity_check()
 
+    def test_deletion_recovery_failure_does_not_block_later_tombstones(self):
+        first = self.student1.upload(
+            self.prepared(attachment_id="drain-first-a0")
+        )
+        second = self.student1.upload(
+            self.prepared(attachment_id="drain-second-a1")
+        )
+        self.store.cancel(
+            trusted_sender_id="student-1",
+            attachment_id=first.attachment_id,
+        )
+        self.store.cancel(
+            trusted_sender_id="student-1",
+            attachment_id=second.attachment_id,
+        )
+        self.objects.delete_failures = 1
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "deletion recovery incomplete",
+        ) as raised:
+            self.service.drain_pending_deletions()
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertIn(first.object_key, self.objects.objects)
+        self.assertNotIn(second.object_key, self.objects.objects)
+        self.assertEqual(
+            self.store.pending_deletions(),
+            ((first.attachment_id, first.object_key),),
+        )
+
+        self.assertEqual(self.service.drain_pending_deletions(), 1)
+        self.assertNotIn(first.object_key, self.objects.objects)
+        self.assertEqual(self.store.pending_deletions(), ())
+
     def test_ambiguous_put_then_cancel_delete_failure_recovers_after_restart(self):
         prepared = self.prepared(attachment_id="provisional-cancel-recovery")
         self.objects.raise_after_put_once = True
