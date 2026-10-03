@@ -139,6 +139,16 @@ class LibraryExportWebViewTests(unittest.TestCase):
         self.assertTrue(actions["library.export_filtered"]["enabled"])
 
 
+    def test_export_selection_cannot_exceed_browser_snapshot_bound(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        projection._export_game_ids = set(range(100, 5100))
+        self.assertEqual(len(projection.export_game_ids), 5000)
+        with self.assertRaisesRegex(ValueError, "browser contract"):
+            projection.toggle_export_selection(2)
+        self.assertEqual(len(projection.export_game_ids), 5000)
+        self.assertNotIn(2, projection.export_game_ids)
+
+
 class LibraryExportWebAssetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
