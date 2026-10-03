@@ -699,6 +699,49 @@ async function run() {
   check(announcements[announcements.length - 1] === "Action failed",
     "malformed reset response must use the safe fallback announcement");
 
+  const rejectedResetRoot = new FakeElement("div");
+  let rejectedResetCalls = 0;
+  const rejectedResetInvoke = (command) => {
+    check(command === "training.reset", "unexpected rejected reset command");
+    rejectedResetCalls += 1;
+    return {
+      kind: "error",
+      payload: { message: "Reset rejected safely" }
+    };
+  };
+  window.AccessibleChessTrainingSurface.render(
+    rejectedResetRoot,
+    trainingSnapshot(),
+    rejectedResetInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const rejectedResetReplaceCount = rejectedResetRoot.replaceChildrenCalls;
+  const rejectedResetButton = find(rejectedResetRoot, "BUTTON", "Reset");
+  rejectedResetButton.focus();
+  rejectedResetButton.listeners.click();
+  const rejectedResetDialog = rejectedResetRoot.querySelector("#training-reset-dialog");
+  const rejectedResetConfirm = find(rejectedResetDialog, "BUTTON", "Confirm");
+  rejectedResetConfirm.listeners.click();
+  await flushPromises();
+  check(rejectedResetCalls === 1, "rejected reset must make one host call");
+  check(rejectedResetDialog.open,
+    "rejected reset must keep its dialog open for retry");
+  check(!rejectedResetConfirm.disabled,
+    "rejected reset must re-enable confirmation");
+  check(document.activeElement === rejectedResetConfirm,
+    "rejected reset must restore confirmation focus");
+  check(rejectedResetRoot.replaceChildrenCalls === rejectedResetReplaceCount,
+    "rejected reset must preserve readable DOM");
+  check(announcements[announcements.length - 1] === "Reset rejected safely",
+    "rejected reset must announce the sanitized error");
+  rejectedResetConfirm.listeners.click();
+  await flushPromises();
+  check(rejectedResetCalls === 2,
+    "rejected reset confirmation must be retryable");
+
   const deferredResetRoot = new FakeElement("div");
   let deferredResetResolve = null;
   let deferredResetCalls = 0;
