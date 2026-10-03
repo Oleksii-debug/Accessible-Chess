@@ -35,9 +35,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.sha }}'
+          base_ref='${{ github.base_ref }}'
+          if [ -z "$base_ref" ]; then
+            echo 'Missing pull-request base ref' >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           merge_base="$(git merge-base "$base" HEAD)"
-          changed="$(git diff --name-only "$merge_base" HEAD | sort)"
+          if [ "$merge_base" != "$base" ]; then
+            printf 'Keybinding candidate is stale relative to current base: current_base=%s merge_base=%s\n' "$base" "$merge_base" >&2
+            exit 1
+          fi
+          changed="$(git diff --name-only "$base" HEAD | sort)"
           if [ "${{ github.head_ref }}" = "integration/current-keybindings-composition-20260926" ]; then
             expected="$(printf '%s\n' \
               '.github/workflows/full-product-native-menu-keymap-refresh.yml' \
