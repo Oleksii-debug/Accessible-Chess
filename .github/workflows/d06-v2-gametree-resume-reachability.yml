@@ -6,6 +6,7 @@ on:
       - 'acs/version2_gametree_resume.py'
       - 'acs/version2_release_app.py'
       - 'tests/test_d06_v2_gametree_resume_reachability.py'
+      - 'tests/test_d06_v2_gametree_resume_discard_guard.py'
       - '.github/workflows/d06-v2-gametree-resume-reachability.yml'
 
 permissions:
@@ -17,8 +18,12 @@ concurrency:
 
 env:
   D06_V2_RESUME_OWNER: c2a080712ab76bd318dc6a6c3037db464ab67857
-  D06_RESUME_BLOB: 585574d61de42c3f956e050b0d7acf5e19dc7942
+  D06_RESUME_BLOB: 9a73abf3018e208f2650cdaec6a649c81904097e
+  D06_DISCARD_GUARD_TEST_BLOB: cfc36af55568679036e9e1703f8ee484d79d4a49
   D06_TEST_BLOB: 3a52ce7a15ac296b362d25e3ca470bd99497961a
+  D06_STORE_PARENT_BLOB: 5f3dfcbf60edab1ccb717ffe9abe0e7b83ba5583
+  D06_DESCRIPTOR_TEST_BLOB: c940ad72de2a98d9f8705aca87727f4219c49b95
+  D06_LOCK_TEST_BLOB: 1885d191d692251fb2ad8628bd956658fb91f9b8
 
 jobs:
   v2-resume-reachability:
@@ -63,7 +68,11 @@ jobs:
           git merge-base --is-ancestor "$D06_V2_RESUME_OWNER" HEAD
           git diff --check "$base" HEAD
           test "$(git rev-parse HEAD:acs/version2_gametree_resume.py)" = "$D06_RESUME_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_discard_guard.py)" = "$D06_DISCARD_GUARD_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_reachability.py)" = "$D06_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "$D06_STORE_PARENT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_gametree_resume_descriptor_read.py)" = "$D06_DESCRIPTOR_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_w1_d06_resume_lock_toctou.py)" = "$D06_LOCK_TEST_BLOB"
           # version2_release_app.py is the Product composition surface for this
           # retained D06 owner. It may evolve independently; compatibility is
           # proved below by compile, focused release-app tests and full suites.
@@ -76,12 +85,18 @@ jobs:
           python -m py_compile
           acs/version2_gametree_resume.py
           acs/version2_release_app.py
+          tests/test_d06_v2_gametree_resume_discard_guard.py
           tests/test_d06_v2_gametree_resume_reachability.py
+          tests/test_d06_gametree_resume_descriptor_read.py
+          tests/test_w1_d06_resume_lock_toctou.py
 
       - name: Focused D06 release-resume and close-boundary regressions
         run: >-
           python -m unittest -v
+          tests.test_d06_v2_gametree_resume_discard_guard
           tests.test_d06_v2_gametree_resume_reachability
+          tests.test_d06_gametree_resume_descriptor_read
+          tests.test_w1_d06_resume_lock_toctou
           tests.test_d06_gametree_snapshot_resume
           tests.test_version2_release_app
           tests.test_version2_shutdown
