@@ -15,7 +15,7 @@ import json
 from typing import Any
 
 from .classroom_collaboration import ChatDraft, CollaborationError
-from .secret_store import SecretStore, SecretStoreError
+from .secret_store import SecretStore
 
 
 _MAX_PENDING_CHAT_DRAFTS = 32
@@ -175,7 +175,7 @@ class SecretStoreChatOutbox:
             raise ChatOutboxError("chat outbox document exceeds size limit")
         try:
             self.secret_store.write(self.slot_name, raw)
-        except (SecretStoreError, Exception):
+        except Exception:
             raise ChatOutboxError("chat outbox cannot be persisted safely") from None
 
     def entries(self) -> tuple[ChatDraft, ...]:
