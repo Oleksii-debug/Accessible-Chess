@@ -143,6 +143,50 @@ class D07LibraryImportServiceTests(unittest.TestCase):
         self.assertEqual(attempt["warning_count"], 1)
         self.assertIsNone(attempt["error_message"])
 
+    def test_mutable_input_sequence_is_snapshotted_before_cancel_callback(self) -> None:
+        caller_games = [game(0), game(1)]
+        mutated = False
+
+        def cancel() -> bool:
+            nonlocal mutated
+            if not mutated:
+                caller_games[:] = [game(90), game(91)]
+                mutated = True
+            return False
+
+        result = self.service.import_games(
+            caller_games,
+            source_name="snapshot-cancel.pgn",
+            source_format="pgn",
+            source_sha256=DIGEST,
+            cancel_check=cancel,
+        )
+
+        self.assertEqual(result.game_count, 2)
+        self.assertEqual([item.source_index for item in caller_games], [90, 91])
+        rows = self.db.conn.execute("SELECT source_index FROM games ORDER BY id").fetchall()
+        self.assertEqual([int(row["source_index"]) for row in rows], [0, 1])
+
+    def test_mutable_input_sequence_is_snapshotted_before_progress_callback(self) -> None:
+        caller_games = [game(0), game(1), game(2)]
+
+        def progress(item: LibraryImportProgress) -> None:
+            if item.processed_games == 0:
+                caller_games[:] = [game(70), game(71), game(72)]
+
+        result = self.service.import_games(
+            caller_games,
+            source_name="snapshot-progress.pgn",
+            source_format="pgn",
+            source_sha256=DIGEST,
+            progress_callback=progress,
+        )
+
+        self.assertEqual(result.game_count, 3)
+        self.assertEqual([item.source_index for item in caller_games], [70, 71, 72])
+        rows = self.db.conn.execute("SELECT source_index FROM games ORDER BY id").fetchall()
+        self.assertEqual([int(row["source_index"]) for row in rows], [0, 1, 2])
+
     def test_progress_callback_failure_is_sanitized_and_atomic(self) -> None:
         def progress(item: LibraryImportProgress) -> None:
             if item.processed_games == 2:
