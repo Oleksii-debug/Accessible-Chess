@@ -169,6 +169,23 @@ class SoundPackManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too many sound ids"):
             self._pack(files=files)
 
+    def test_manifest_and_profile_defensively_freeze_validated_mappings(self) -> None:
+        files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
+        manifest = self._pack(files=files)
+        files["move"] = "../tampered.wav"
+
+        self.assertEqual("audio/move.wav", manifest.files["move"])
+        with self.assertRaises(TypeError):
+            manifest.files["move"] = "audio/other.wav"  # type: ignore[index]
+
+        events = {"move": SoundEventPreference(volume_percent=37)}
+        profile = SoundProfile(events=events)
+        events["move"] = SoundEventPreference(volume_percent=99)
+
+        self.assertEqual(37, profile.preference_for("move").volume_percent)
+        with self.assertRaises(TypeError):
+            profile.events["move"] = SoundEventPreference()  # type: ignore[index]
+
     def test_missing_core_sound_fails_closed(self) -> None:
         with self.assertRaises(ValueError):
             self._pack(files={"move": "move.wav"})
