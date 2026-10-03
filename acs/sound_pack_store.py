@@ -10,6 +10,7 @@ publishes a new version directory first and only then atomically replaces a tiny
 active-version pointer.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import errno
 import hashlib
@@ -19,7 +20,8 @@ from pathlib import Path
 import shutil
 import stat
 import tempfile
-from typing import Mapping
+import threading
+from typing import Iterator, Mapping
 
 from .sound_pack_catalog import (
     DEFAULT_MAX_SOUND_PACK_BYTES,
@@ -40,6 +42,19 @@ _MANIFEST_NAME = "manifest.json"
 _INTEGRITY_NAME = "integrity.json"
 _ACTIVE_NAME = "active.json"
 _MAX_METADATA_BYTES = 128 * 1024
+
+_PROCESS_MUTATION_LOCKS_GUARD = threading.Lock()
+_PROCESS_MUTATION_LOCKS: dict[str, threading.RLock] = {}
+
+
+def _process_mutation_lock_for(path: Path) -> threading.RLock:
+    key = os.path.normcase(os.path.abspath(os.fspath(path)))
+    with _PROCESS_MUTATION_LOCKS_GUARD:
+        lock = _PROCESS_MUTATION_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PROCESS_MUTATION_LOCKS[key] = lock
+        return lock
 
 
 class SoundPackStoreError(ValueError):
@@ -398,6 +413,10 @@ class FilesystemSoundPackStore:
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
         self.max_bytes = max_bytes
+        self._mutation_lock_path = self.root.with_name(self.root.name + ".lock")
+        self._process_mutation_lock = _process_mutation_lock_for(
+            self._mutation_lock_path
+        )
 
         source = {} if built_in is None else built_in
         if not isinstance(source, Mapping):
@@ -415,6 +434,106 @@ class FilesystemSoundPackStore:
                 raise ValueError("duplicate built-in sound pack id")
             normalized[pack_id] = manifest
         self._built_in = normalized
+
+    @staticmethod
+    def _lock_descriptor(descriptor: int) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack storage mutation lock is unavailable"
+            ) from exc
+
+    @staticmethod
+    def _unlock_descriptor(descriptor: int) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError:
+            pass
+
+    def _open_mutation_lock_descriptor(self) -> int:
+        try:
+            self._mutation_lock_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack storage mutation lock is unavailable"
+            ) from exc
+        _require_real_dir(
+            self._mutation_lock_path.parent,
+            "sound pack storage parent",
+        )
+        try:
+            existing = os.lstat(self._mutation_lock_path)
+        except FileNotFoundError:
+            existing = None
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack storage mutation lock is unavailable"
+            ) from exc
+        if existing is not None:
+            _require_regular_file(
+                self._mutation_lock_path,
+                "sound pack storage mutation lock",
+            )
+
+        flags = os.O_RDWR | os.O_CREAT
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(self._mutation_lock_path, flags, 0o600)
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack storage mutation lock is unavailable"
+            ) from exc
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                stat.S_ISLNK(metadata.st_mode)
+                or _is_reparse_point(metadata)
+                or not stat.S_ISREG(metadata.st_mode)
+            ):
+                raise SoundPackStoreError(
+                    "sound pack storage mutation lock is not a regular file"
+                )
+            if metadata.st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    @contextmanager
+    def _exclusive_mutation(self) -> Iterator[None]:
+        with self._process_mutation_lock:
+            descriptor = self._open_mutation_lock_descriptor()
+            acquired = False
+            try:
+                self._lock_descriptor(descriptor)
+                acquired = True
+                yield
+            finally:
+                if acquired:
+                    self._unlock_descriptor(descriptor)
+                os.close(descriptor)
 
     def _pack_dir(self, pack_id: str) -> Path:
         return self.root / _stable_id(pack_id, allow_dot=True)
@@ -797,6 +916,10 @@ class FilesystemSoundPackStore:
                     pass
 
     def install_atomically(self, downloaded: DownloadedSoundPack) -> None:
+        with self._exclusive_mutation():
+            self._install_atomically_locked(downloaded)
+
+    def _install_atomically_locked(self, downloaded: DownloadedSoundPack) -> None:
         digests = self._validate_downloaded(downloaded)
         if downloaded.total_bytes > self.max_bytes:
             raise SoundPackStoreError(
@@ -1111,6 +1234,10 @@ class FilesystemSoundPackStore:
             ) from exc
 
     def uninstall(self, pack_id: str) -> None:
+        with self._exclusive_mutation():
+            self._uninstall_locked(pack_id)
+
+    def _uninstall_locked(self, pack_id: str) -> None:
         identity = _stable_id(pack_id, allow_dot=True)
         if identity in self._built_in:
             raise SoundPackStoreError("built-in sound pack id is immutable")
