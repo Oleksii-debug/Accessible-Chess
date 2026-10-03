@@ -325,11 +325,26 @@
 
     const metadata = documentRef.createElement("p");
     metadata.id = "sound-pack-" + safeId + "-metadata";
-    const installed = item.compatible === false
-      ? text("несумісний із цією версією", "incompatible with this version")
-      : item.installed_version == null
-        ? text("не встановлено", "not installed")
-        : text("встановлено ", "installed ") + String(item.installed_version);
+    const installedCompatible = item.installed_compatible == null
+      ? item.compatible !== false
+      : item.installed_compatible !== false;
+    let installed;
+    if (item.installed_version == null) {
+      installed = item.compatible === false
+        ? text("несумісний із цією версією", "incompatible with this version")
+        : text("не встановлено", "not installed");
+    } else if (!installedCompatible) {
+      installed = text("встановлено ", "installed ") + String(item.installed_version) +
+        text(", але несумісний із цією версією", ", but incompatible with this version");
+    } else {
+      installed = text("встановлено ", "installed ") + String(item.installed_version);
+      if (item.compatible === false) {
+        installed += text(
+          "; доступне оновлення несумісне",
+          "; available update is incompatible"
+        );
+      }
+    }
     metadata.textContent =
       text("Версія ", "Version ") + String(item.version || "") + ". " +
       text("Автор: ", "Author: ") + String(item.author || "") + ". " +
@@ -345,7 +360,7 @@
       group.appendChild(active);
     }
 
-    if (item.installed_version != null && item.active !== true && item.compatible !== false) {
+    if (item.installed_version != null && item.active !== true && installedCompatible) {
       const select = documentRef.createElement("button");
       select.type = "button";
       select.id = "sound-pack-" + safeId + "-select";
