@@ -1092,6 +1092,11 @@ class ClassroomCollaborationController:
 
         def observe_provider(sample: FileTransferProgress) -> None:
             nonlocal last_transferred
+            if terminal_emitted:
+                # A provider callback is synchronous by contract. Ignore any
+                # retained/late callback after controller-authoritative
+                # completion so presentation can never regress from terminal.
+                return
             if type(sample) is not FileTransferProgress:
                 raise CollaborationError(
                     "file transport returned invalid progress metadata"
