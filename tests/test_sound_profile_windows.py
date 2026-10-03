@@ -124,10 +124,11 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             adapter.play_sound(request)
         return fake
 
-    def test_classic_event_reuses_packaged_semantic_asset(self) -> None:
+    def test_classic_event_plays_from_content_addressed_snapshot(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-classic-") as raw:
             root = Path(raw)
             resolver, _store, adapter = self._adapter(root)
+            source = resolver.resolve(SoundEvent.MOVE)
             fake = self._play(
                 adapter,
                 SoundAssetRequest(
@@ -138,15 +139,20 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                     preview=False,
                 ),
             )
-            self.assertEqual(str(resolver.resolve(SoundEvent.MOVE)), fake.calls[0][0])
+            played = Path(fake.calls[0][0])
+            self.assertNotEqual(source, played)
+            self.assertEqual(root / "cache", played.parent)
+            self.assertTrue(played.is_file())
+            self.assertIn("classic-move-v100-s1-", played.name)
             self.assertEqual(
                 _WinSound.SND_FILENAME | _WinSound.SND_NODEFAULT, fake.calls[0][1]
             )
 
-    def test_classic_low_time_preview_uses_tick_without_adding_runtime_event(self) -> None:
+    def test_classic_low_time_preview_uses_tick_snapshot_without_adding_runtime_event(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-low-time-") as raw:
             root = Path(raw)
             resolver, _store, adapter = self._adapter(root)
+            source = resolver.resolve(SoundEvent.TICK)
             fake = self._play(
                 adapter,
                 SoundAssetRequest(
@@ -157,8 +163,51 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                     preview=True,
                 ),
             )
-            self.assertEqual(str(resolver.resolve(SoundEvent.TICK)), fake.calls[0][0])
+            played = Path(fake.calls[0][0])
+            self.assertNotEqual(source, played)
+            self.assertEqual(root / "cache", played.parent)
+            self.assertIn("classic-tick-v100-s1-", played.name)
             self.assertNotIn("low_time", {event.value for event in SoundEvent})
+
+    def test_classic_source_swap_after_lstat_fails_before_cache_publication(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-classic-swap-") as raw:
+            root = Path(raw)
+            resolver, _store, adapter = self._adapter(root)
+            source = resolver.resolve(SoundEvent.MOVE)
+            replacement = source.with_name("replacement.wav")
+            replacement.write_bytes(source.read_bytes())
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(path) == source and not swapped:
+                    swapped = True
+                    os.replace(replacement, source)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            request = SoundAssetRequest(
+                pack_id="classic",
+                event_id="move",
+                sound_id="move",
+                volume=100,
+                preview=False,
+            )
+            with mock.patch(
+                "acs.sound_profile_windows.os.open",
+                side_effect=swap_before_open,
+            ), mock.patch.object(
+                sys, "platform", "win32"
+            ), self.assertRaisesRegex(
+                ValueError,
+                "changed before secure read",
+            ):
+                adapter.play_sound(request)
+
+            self.assertTrue(swapped)
+            self.assertEqual([], list((root / "cache").glob("classic-move-v100-*.wav")))
 
     def test_classic_low_time_dispatch_is_rejected_until_distinct_asset_exists(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-low-time-dispatch-") as raw:
