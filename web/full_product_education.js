@@ -379,6 +379,7 @@
       ...snapshot,
       files: {
         ...files,
+        progress_revision: previous.progress.progress_revision,
         transfer_progress: { ...previous.progress }
       }
     };
@@ -1210,12 +1211,27 @@
       "aria-label",
       files.progress_label || "File transfer progress"
     );
-    if (files.transfer_progress && typeof files.transfer_progress === "object") {
-      paintCollaborationFileProgress(
-        transferProgress,
-        files.transfer_progress,
-        String(snapshot.session_key || "")
+    const snapshotProgressRevision = files.progress_revision;
+    if (
+      typeof snapshotProgressRevision === "number" &&
+      Number.isSafeInteger(snapshotProgressRevision) &&
+      snapshotProgressRevision >= 0
+    ) {
+      transferProgress.setAttribute(
+        "data-progress-revision",
+        String(snapshotProgressRevision)
       );
+      if (
+        files.transfer_progress &&
+        typeof files.transfer_progress === "object" &&
+        files.transfer_progress.progress_revision === snapshotProgressRevision
+      ) {
+        paintCollaborationFileProgress(
+          transferProgress,
+          files.transfer_progress,
+          String(snapshot.session_key || "")
+        );
+      }
     }
     fileSection.appendChild(transferProgress);
     const olderFiles = node("button", files.older_label || "Older files");
