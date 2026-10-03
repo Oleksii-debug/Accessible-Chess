@@ -473,9 +473,13 @@ class ClassroomMediaSessionHandoffs:
                 )
             effect = pending.effect
             if effect.credential is not None:
-                if type(now) is not datetime:
+                if (
+                    type(now) is not datetime
+                    or now.tzinfo is None
+                    or now.utcoffset() is None
+                ):
                     raise MediaSessionHandoffError(
-                        "current time is required for credential handoff"
+                        "timezone-aware current time is required for credential handoff"
                     )
                 try:
                     effect.credential.assert_usable(now)
