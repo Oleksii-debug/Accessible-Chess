@@ -1,0 +1,76 @@
+name: Full Product Book Command Authority
+
+on:
+  push:
+    branches:
+      - fix/full-product-book-command-authority-20261004
+    paths:
+      - 'acs/version2_application.py'
+      - 'tests/test_full_product_book_command_authority.py'
+      - '.github/workflows/full-product-book-command-authority.yml'
+  pull_request:
+    branches:
+      - fix/integration-library-browser-contract-successor-20261004
+    paths:
+      - 'acs/version2_application.py'
+      - 'tests/test_full_product_book_command_authority.py'
+      - '.github/workflows/full-product-book-command-authority.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-product-book-command-authority-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact parent and bounded successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='52ad1adee0130563d20d72f16355b05d96c648f0'
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/full-product-book-command-authority.yml' \
+            'acs/version2_application.py' \
+            'tests/test_full_product_book_command_authority.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git hash-object acs/version2_application.py)" = 'a2e0e00ba0c0274831bb847d8eaa8ba9688f669b'
+          test "$(git hash-object tests/test_full_product_book_command_authority.py)" = '953697afb6a458eef9e4eea6136ef92000af8942'
+          git diff --check "$base" HEAD
+
+      - name: Compile authority surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_application.py
+          tests/test_full_product_book_command_authority.py
+
+      - name: Run focused Book command authority regression
+        run: >-
+          python -m unittest -v
+          tests.test_full_product_book_command_authority
+
+      - name: Run application and reverse-progress regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_v2_book_board_workflow
+
+      - name: Run core selftest
+        run: python -m acs.selftest
