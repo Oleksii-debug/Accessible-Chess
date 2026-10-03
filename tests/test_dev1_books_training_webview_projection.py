@@ -441,6 +441,22 @@ class BookProjectionTests(unittest.TestCase):
             self.projection.save_bookmark("   ")
         self.assertEqual(0, self.presenter.current().index)
 
+    def test_bookmark_raw_bound_and_exact_string_precede_normalization(self) -> None:
+        class SplitBomb(str):
+            def split(self, *args, **kwargs):
+                raise AssertionError("bookmark subclass split must never execute")
+
+        before = self.presenter.current()
+        before_name = self.projection.bookmark_name
+
+        with self.assertRaisesRegex(TypeError, "bookmark name must be text"):
+            self.projection.save_bookmark(SplitBomb("safe"))
+        with self.assertRaisesRegex(ValueError, "bookmark name is invalid"):
+            self.projection.save_bookmark(" " * 80 + "x")
+
+        self.assertEqual(before, self.presenter.current())
+        self.assertEqual(before_name, self.projection.bookmark_name)
+
     def test_bookmark_utf16_bound_fails_before_reader_mutation(self) -> None:
         before = self.presenter.current()
         with self.assertRaisesRegex(ValueError, "bookmark name"):
