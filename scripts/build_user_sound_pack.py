@@ -262,9 +262,9 @@ def _validate_event_paths(destination: Path) -> None:
             info = _wave_info(path)
             if info["compression"] != "NONE":
                 raise SoundPackBuildError(f"compressed WAV is not supported: {file_name}")
-            if info["sample_width_bytes"] != 2:
+            if info["sample_width_bytes"] not in {1, 2}:
                 raise SoundPackBuildError(
-                    f"selectable runtime variants must be 16-bit PCM: {file_name}"
+                    f"selectable runtime variants must be 8-bit or 16-bit PCM: {file_name}"
                 )
 
 
