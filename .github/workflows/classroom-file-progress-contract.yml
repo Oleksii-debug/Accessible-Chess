@@ -35,18 +35,26 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           test "$BASE_REF" = "feature/classroom-collaboration-contract-20260926"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
-          git cat-file -e "$BASE_SHA^{commit}"
-          git merge-base --is-ancestor "$BASE_SHA" HEAD
-          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          git diff --check "$BASE_SHA" HEAD
-          mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
+
+          # A stacked PR's event base SHA can lag the live base branch after the
+          # parent branch advances. Refresh the named base and prove that the
+          # event base is only an ancestor, never a divergent/rewritten lineage.
+          git fetch --no-tags origin             "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          LIVE_BASE_SHA="$(git rev-parse "refs/remotes/origin/$BASE_REF")"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$LIVE_BASE_SHA"
+          git merge-base --is-ancestor "$LIVE_BASE_SHA" HEAD
+          test "$(git merge-base "$LIVE_BASE_SHA" HEAD)" = "$LIVE_BASE_SHA"
+
+          git diff --check "$LIVE_BASE_SHA" HEAD
+          mapfile -t actual < <(git diff --name-only "$LIVE_BASE_SHA" HEAD | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-file-progress-contract.yml'
             'acs/classroom_collaboration.py'
