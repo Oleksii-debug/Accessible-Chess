@@ -133,6 +133,24 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         self.assertGreaterEqual(repair.count("focusProfilePrimaryAction();"), 3)
         self.assertNotIn("profileName.focus();", repair)
 
+    def test_profile_mutations_refocus_primary_action_after_state_changes(self) -> None:
+        source = self.source
+        save = source.split("function saveProfileName()", 1)[1]
+        save = save.split('profileSave.addEventListener("click"', 1)[0]
+        self.assertIn(
+            "if (!ok || profileDialog.open) focusProfilePrimaryAction();",
+            save,
+        )
+        self.assertIn("focusProfilePrimaryAction();", save)
+
+        skip = source.split('profileSkip.addEventListener("click"', 1)[1]
+        skip = skip.split('profileRepair.addEventListener("click"', 1)[0]
+        self.assertIn(
+            "if (!ok || profileDialog.open) focusProfilePrimaryAction();",
+            skip,
+        )
+        self.assertNotIn("profileName.focus();", skip)
+
     def test_unavailable_profile_bridge_fails_visible_without_trapping_core_product(self) -> None:
         source = self.source
         self.assertIn("function profileFeatureUnavailable()", source)
