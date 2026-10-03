@@ -202,6 +202,106 @@ class PackagedSoundResolverTests(unittest.TestCase):
                 ["1", "2"],
             )
 
+    def test_layer_catalog_resolves_original_move_impact_sequence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "assets" / "sounds"
+            files = {}
+            events = {}
+            for event in REQUIRED_SOUND_EVENTS:
+                name = f"{event.value}.wav"
+                files[event.value] = name
+                self._write_silent_wav(root / name)
+                events[event.value] = [
+                    {
+                        "id": "1",
+                        "file": name,
+                        "label_uk": "Варіант 1",
+                        "label_en": "Variant 1",
+                    }
+                ]
+            impact = root / "library" / "Board" / "MOVEHIT1.WAV"
+            self._write_silent_wav(impact)
+            (root / "manifest.json").write_text(
+                json.dumps({"schema_version": 1, "files": files}), encoding="utf-8"
+            )
+            (root / "variants.json").write_text(
+                json.dumps({"schema_version": 1, "events": events}), encoding="utf-8"
+            )
+            (root / "layers.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "events": {
+                            "move": {
+                                "1": ["move.wav", "library/Board/MOVEHIT1.WAV"]
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            resolver = PackagedSoundAssetResolver(tmp)
+
+            self.assertEqual(
+                resolver.resolve_sequence(SoundEvent.MOVE),
+                ((root / "move.wav").resolve(), impact.resolve()),
+            )
+            self.assertEqual(
+                resolver.resolve_sequence(SoundEvent.CHECK),
+                ((root / "check.wav").resolve(),),
+            )
+
+    def test_layer_catalog_rejects_async_or_wrong_primary_sequences(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "assets" / "sounds"
+            files = {}
+            events = {}
+            for event in REQUIRED_SOUND_EVENTS:
+                name = f"{event.value}.wav"
+                files[event.value] = name
+                self._write_silent_wav(root / name)
+                events[event.value] = [
+                    {
+                        "id": "1",
+                        "file": name,
+                        "label_uk": "Варіант 1",
+                        "label_en": "Variant 1",
+                    }
+                ]
+            extra = root / "extra.wav"
+            self._write_silent_wav(extra)
+            (root / "manifest.json").write_text(
+                json.dumps({"schema_version": 1, "files": files}), encoding="utf-8"
+            )
+            (root / "variants.json").write_text(
+                json.dumps({"schema_version": 1, "events": events}), encoding="utf-8"
+            )
+
+            (root / "layers.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "events": {"start": {"1": ["start.wav", "extra.wav"]}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "asynchronous sound event"):
+                PackagedSoundAssetResolver(tmp).load_layer_catalog()
+
+            (root / "layers.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "events": {"move": {"1": ["extra.wav", "move.wav"]}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "must start with its selected variant"):
+                PackagedSoundAssetResolver(tmp).load_layer_catalog()
+
     def test_variant_catalog_rejects_path_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "assets" / "sounds"
@@ -504,6 +604,44 @@ class PackagedSoundResolverTests(unittest.TestCase):
 
             self.assertEqual(resolver.calls, [(SoundEvent.MOVE, "2")])
             self.assertEqual(calls[0][0], str(source))
+
+    def test_windows_playback_plays_declared_move_layers_in_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "move.wav"
+            second = Path(tmp) / "movehit.wav"
+            self._write_silent_wav(first)
+            self._write_silent_wav(second)
+
+            class LayerResolver:
+                def resolve_sequence(self, event, *, variant_id=None):
+                    self.call = (event, variant_id)
+                    return (first, second)
+
+            resolver = LayerResolver()
+            calls = []
+            fake_winsound = types.SimpleNamespace(
+                SND_FILENAME=0x00020000,
+                SND_NODEFAULT=0x00000002,
+                PlaySound=lambda sound, flags: calls.append((sound, flags)),
+            )
+            adapter = WindowsSoundPlaybackAdapter(
+                resolver,
+                cache_dir=Path(tmp) / "cache",
+                variant_provider=lambda event: "1",
+            )
+
+            with patch("acs.sound_windows.sys.platform", "win32"), patch.dict(
+                sys.modules,
+                {"winsound": fake_winsound},
+            ):
+                adapter.play(SoundEvent.MOVE, volume=100)
+
+            expected_flags = fake_winsound.SND_FILENAME | fake_winsound.SND_NODEFAULT
+            self.assertEqual(resolver.call, (SoundEvent.MOVE, "1"))
+            self.assertEqual(
+                calls,
+                [(str(first), expected_flags), (str(second), expected_flags)],
+            )
 
     def test_long_start_and_clock_assets_use_non_blocking_windows_playback(self):
         with tempfile.TemporaryDirectory() as tmp:
