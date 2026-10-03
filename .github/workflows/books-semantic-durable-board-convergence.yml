@@ -17,11 +17,13 @@ on:
       - 'acs/full_product_actions.py'
       - 'acs/full_product_ui_shell.py'
       - 'acs/training_progress_store.py'
+      - 'acs/training_webview_bridge.py'
       - 'acs/training_webview_projection.py'
       - 'acs/version2_application.py'
       - 'acs/version2_training_workspace.py'
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_dev1_books_training_webview_bridge.py'
       - 'tests/test_dev1_books_training_webview_projection.py'
       - 'tests/test_dev1_full_product_webview_adapter.py'
       - 'tests/test_v2_book_progress_store.py'
@@ -100,11 +102,13 @@ jobs:
               'acs/full_product_actions.py' \
               'acs/full_product_ui_shell.py' \
               'acs/training_progress_store.py' \
+              'acs/training_webview_bridge.py' \
               'acs/training_webview_projection.py' \
               'acs/version2_application.py' \
               'acs/version2_training_workspace.py' \
               'tests/js/books_training_surface_dom_test.js' \
               'tests/js/version2_release_bootstrap_dom_test.js' \
+              'tests/test_dev1_books_training_webview_bridge.py' \
               'tests/test_dev1_books_training_webview_projection.py' \
               'tests/test_dev1_full_product_webview_adapter.py' \
               'tests/test_v2_book_progress_store.py' \
@@ -130,12 +134,14 @@ jobs:
           test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "6c8018269a1421ab594d0a44db4b662387931a18"
           test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "85e4ef957d587d607c47f3b6c143970fdb5fa9d2"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "df53e5b1cff5b530dd9be8f2a520842dd6a8cd75"
-          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "7385378ad80dbfc08496f28bfda6775f4057fa21"
+          test "$(git rev-parse HEAD:acs/training_webview_bridge.py)" = "b148f4640fffcaa5749108a9340cdcbe937daf9a"
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "af72eccfd3ba550a5cfc18ca95e350a0f5d74d62"
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "043d8efd1be94b425d9ed153ce7f25e8b9057fed"
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "81d5eb59a0b4b8f292480d2dd4c1f82fa4a36b7a"
           test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "6c6ed29a7ea4b366912d2bac526c566bbb972003"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "514426af1c45aac3057d3d53f22fd1a0202f2b11"
-          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "87f3f5829193639b5d654b1f8f4f4f43ba364d63"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = "c9fdb55bd327ba0351eb985a14664a213860f40f"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "6f9bba134e8f844a20485ca4fdf9b3bec460fc43"
 
       - name: Validate combined browser behavior
         run: |
@@ -155,6 +161,7 @@ jobs:
           python -m compileall -q
           acs/book_progress_store.py
           acs/book_webview_projection.py
+          acs/training_webview_bridge.py
           acs/training_webview_projection.py
           acs/version2_application.py
           acs/version2_book_workspace.py
@@ -173,6 +180,7 @@ jobs:
           tests.test_version2_book_workspace
           tests.test_v2_book_board_workflow
           tests.test_book_bidirectional_semantic_navigation
+          tests.test_dev1_books_training_webview_bridge
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_full_product_webview_adapter
           tests.test_v2_book_training_route_rollback
