@@ -51,9 +51,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.sha }}'
-          merge_base="$(git merge-base "$base" HEAD)"
-          changed="$(git diff --name-only "$merge_base" HEAD | sort)"
+          base="$(git rev-parse HEAD^1)"
+          remote_base="$(git rev-parse "origin/${{ github.base_ref }}")"
+          if [ "$base" != "$remote_base" ]; then
+            printf 'Outbox first parent %s is not current base tip %s\n' "$base" "$remote_base" >&2
+            exit 1
+          fi
+          changed="$(git diff --name-only "$base" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/classroom-durable-chat-outbox.yml' \
             'acs/classroom_collaboration_outbox.py' \
