@@ -1311,6 +1311,56 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room"), (uploading,))
 
+    def test_state_updates_require_authoritative_attachment_history(self) -> None:
+        provisional = AttachmentMetadata(
+            "state-only-a1",
+            "room-a",
+            "teacher-1",
+            77,
+            "state-only.bin",
+            "application/octet-stream",
+            4,
+            content_sha256(b"data"),
+            "rooms/room-a/state-only-a1",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        update = AttachmentStateUpdate(
+            room_id="room-a",
+            attachment_id=provisional.attachment_id,
+            revision=0,
+            transfer_state="stored",
+            scan_state="clean",
+        )
+
+        for apply_update in (
+            lambda: self.store.apply_attachment_state_updates(
+                room_id="room-a",
+                updates=(update,),
+            ),
+            lambda: self.store.reconcile_attachment_sync_atomic(
+                room_id="room-a",
+                attachments=(),
+                updates=(update,),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                CollaborationStorageError,
+                "attachment state update requires authoritative history",
+            ):
+                apply_update()
+            self.assertEqual(
+                self.store.room_attachments("room-a"),
+                (uploading,),
+            )
+            self.assertIsNone(self.store.attachment_state_revision("room-a"))
+
     def test_attachment_sync_commits_history_and_state_in_one_transaction(self) -> None:
         incoming = AttachmentMetadata(
             "remote-sync",
