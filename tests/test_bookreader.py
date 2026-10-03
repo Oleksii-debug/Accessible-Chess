@@ -49,6 +49,21 @@ class BookReaderTests(unittest.TestCase):
         self.assertEqual(restored.block_id, "diagram")
         self.assertEqual(restored.heading_path, ("Part I", "Chapter"))
 
+    def test_return_point_name_raw_bound_fails_closed_for_live_and_persisted_input(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(3)
+        before = reader.snapshot()
+        oversized = " " * 256 + "x"
+
+        with self.assertRaisesRegex(ValueError, "exceeds 256"):
+            reader.save_return_point(oversized)
+        self.assertEqual(before, reader.snapshot())
+
+        malformed = dict(before)
+        malformed["return_points"] = {oversized: before["current_target"]}
+        with self.assertRaisesRegex(ValueError, "exceeds 256"):
+            BookReader.restore_snapshot(self.make_book(), malformed)
+
     def test_boundaries_and_invalid_return_points_fail_explicitly(self):
         reader = BookReader(self.make_book())
         with self.assertRaisesRegex(LookupError, "Beginning"):
