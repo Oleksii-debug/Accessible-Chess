@@ -19,24 +19,38 @@ class LibraryAcsdbSearchV4WorkflowTests(unittest.TestCase):
         text = self.workflow
         self.assertIn(f"PRODUCT_BRANCH: {PRODUCT_BRANCH}", text)
         self.assertIn("expected='${{ github.event.pull_request.head.sha || github.sha }}'", text)
-        self.assertIn("base_branch='${{ github.event.pull_request.base.ref }}'", text)
-        self.assertIn('if [ -z "$base_branch" ]; then', text)
-        self.assertIn('base_branch="$PRODUCT_BRANCH"', text)
-        self.assertIn('git fetch --no-tags origin "$base_branch"', text)
-        self.assertIn('live_base="$(git rev-parse "origin/$base_branch")"', text)
-        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', text)
-        self.assertIn('test "$(git merge-base "$live_base" HEAD)" = "$live_base"', text)
-        self.assertIn('git diff --check "$live_base" HEAD', text)
-
-    def test_shared_gate_does_not_require_direct_product_ancestry_for_every_pr(self) -> None:
-        text = self.workflow
-        self.assertNotIn('live_product=', text)
-        self.assertNotIn('git fetch --no-tags origin "$PRODUCT_BRANCH"', text)
-        self.assertNotIn('git merge-base --is-ancestor "$PRODUCT_BRANCH" HEAD', text)
-        self.assertLess(
-            text.index("base_branch='${{ github.event.pull_request.base.ref }}'"),
-            text.index('base_branch="$PRODUCT_BRANCH"'),
+        self.assertIn("PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}", text)
+        self.assertIn("PR_BASE_REF: ${{ github.event.pull_request.base.ref }}", text)
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"',
+            text,
         )
+        self.assertIn('live_base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"', text)
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', text)
+        self.assertIn('qualification_base="$live_base"', text)
+        self.assertIn('git diff --check "$qualification_base" HEAD', text)
+
+    def test_product_pr_uses_only_latest_serial_increment_after_live_head_check(self) -> None:
+        text = self.workflow
+        self.assertIn(
+            'if test -n "${PR_HEAD_REF:-}" && test "$PR_HEAD_REF" = "$PRODUCT_BRANCH"; then',
+            text,
+        )
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
+            text,
+        )
+        self.assertIn('live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"', text)
+        self.assertIn('test "$live_product" = "$actual"', text)
+        self.assertIn('qualification_base="$(git rev-parse HEAD^)"', text)
+
+    def test_manual_dispatch_falls_back_to_live_product_ancestry(self) -> None:
+        text = self.workflow
+        fallback = text.index("else\n            git fetch --no-tags origin")
+        ancestry = text.index('git merge-base --is-ancestor "$live_product" HEAD', fallback)
+        assignment = text.index('qualification_base="$live_product"', ancestry)
+        self.assertLess(fallback, ancestry)
+        self.assertLess(ancestry, assignment)
 
     def test_does_not_replace_candidate_acsdb_with_historical_fixture(self) -> None:
         text = self.workflow
