@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import os
 import tempfile
 import unittest
 from unittest import mock
@@ -303,6 +304,48 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                     restarted_application,
                     restarted_analysis,
                 )
+
+    def test_post_publication_unlock_failure_keeps_language_memory_disk_and_surfaces_converged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings = Settings(root / "settings.json")
+            api, application, analysis = self._real_application(root, settings)
+            self._materialize_real_surfaces(application, root)
+            native_refresh = mock.Mock(return_value=True)
+            api.bind_version2_language_refresh(native_refresh)
+            lock_target = "msvcrt.locking" if os.name == "nt" else "fcntl.flock"
+
+            try:
+                with mock.patch(
+                    lock_target,
+                    side_effect=[
+                        None,
+                        OSError("simulated post-publication unlock failure"),
+                    ],
+                ):
+                    result = api.set_language("en")
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(settings.get("language"), "en")
+                self.assertEqual(
+                    Settings(root / "settings.json").get("language"),
+                    "en",
+                )
+                self.assertEqual(api.lang, "en")
+                self.assertEqual(application.shell.language, UILanguage.EN)
+                self.assertEqual(application.pgn.projection.language, UILanguage.EN)
+                self.assertEqual(application.library.projection.language, UILanguage.EN)
+                self.assertEqual(application.books.projection.language, UILanguage.EN)
+                self.assertEqual(application.training_workspace.language, UILanguage.EN)
+                self.assertEqual(application.training.projection.language, UILanguage.EN)
+                self._assert_all_snapshot_languages(application, "en")
+                native_refresh.assert_called_once_with()
+                self.assertEqual(
+                    application.drain_events(),
+                    ({"kind": "language", "payload": {}},),
+                )
+            finally:
+                self._close_real_application(api, application, analysis)
 
     def test_live_switch_relocalizes_training_presentation_feedback(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
