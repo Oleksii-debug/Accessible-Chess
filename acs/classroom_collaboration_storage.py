@@ -79,6 +79,8 @@ class ChatMessageMetadata:
             raise ValueError("message body must be non-empty text")
         if len(self.body) > MAX_CHAT_BODY_CHARS or "\x00" in self.body:
             raise ValueError("message body exceeds safety boundary")
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in self.body):
+            raise ValueError("message body contains invalid Unicode surrogate")
         if self.retention not in {"transient", "session", "persistent"}:
             raise ValueError("unsupported retention policy")
         if type(self.hidden) is not bool:
@@ -1281,14 +1283,15 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationConflictError(
                     "file authority arrived outside active upload transition"
                 )
-            expected_sequence = _next_authoritative_attachment_sequence(
-                db,
-                current.room_id,
-            )
-            if attachment.sequence_no > expected_sequence:
-                raise CollaborationSequenceGapError(
-                    "attachment sequence has an unresolved gap"
+            if attachment.transfer_state in {"stored", "deleted"}:
+                expected_sequence = _next_authoritative_attachment_sequence(
+                    db,
+                    current.room_id,
                 )
+                if attachment.sequence_no > expected_sequence:
+                    raise CollaborationSequenceGapError(
+                        "attachment sequence has an unresolved gap"
+                    )
             _validate_transfer_transition(
                 current.transfer_state,
                 attachment.transfer_state,
