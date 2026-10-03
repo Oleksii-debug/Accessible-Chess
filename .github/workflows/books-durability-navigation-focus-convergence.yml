@@ -44,13 +44,16 @@ jobs:
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           latest_parent='eb23bdc5ea0e2914a7f742697b20d32edd78a950'
           durability_parent='f31e1f29e9a8a02ed12b85d7516f42f18fd780c2'
+          ingress_focus_parent='5c673511721185d7b6e32e7c42e2709eee90ddf0'
           latest_branch='fix/v2-release-navigation-schema-focus-20261003'
 
           test "$(git rev-parse HEAD)" = "$expected_head"
           git cat-file -e "$latest_parent^{commit}"
           git cat-file -e "$durability_parent^{commit}"
+          git cat-file -e "$ingress_focus_parent^{commit}"
           git merge-base --is-ancestor "$latest_parent" HEAD
           git merge-base --is-ancestor "$durability_parent" HEAD
+          git merge-base --is-ancestor "$ingress_focus_parent" HEAD
 
           if [ '${{ github.event_name }}' = 'pull_request' ]; then
             test '${{ github.event.pull_request.base.ref }}' = "$latest_branch"
@@ -72,7 +75,7 @@ jobs:
           test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "e739071cf5d8a40f7622559c0fcd598cf4c7c945"
-          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "218cc0955e5a7f9e651b371dd8efb6bddade2f1b"
+          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "bfd2db22df832127f1a82e8ef1c7ad18613df7d8"
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "7bb116ea0587de51a191560cd39070aac9ead014"
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "f916c50d3c08a93570a1f70c158c26fab618fbdd"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "66bcf463dea9eb70803462f78dbc5f7a3ef37a22"
