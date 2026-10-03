@@ -139,6 +139,36 @@ class SoundPackManifestTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self._pack(**{field: ""})
 
+    def test_manifest_metadata_is_bounded_and_single_line(self) -> None:
+        cases = (
+            ("title", "x" * 257, "resource limit"),
+            ("author", "x" * 257, "resource limit"),
+            ("license_id", "x" * 257, "resource limit"),
+            ("provenance", "x" * 4097, "resource limit"),
+            ("title", "Visible\nSpoofed", "control characters"),
+            ("author", "Author\tHidden", "control characters"),
+            ("provenance", "source\u2028second-line", "control characters"),
+        )
+        for field, value, message in cases:
+            with self.subTest(field=field, value=value[:20]), self.assertRaisesRegex(
+                ValueError,
+                message,
+            ):
+                self._pack(**{field: value})
+
+    def test_manifest_bounds_identifier_version_and_sound_id_cardinality(self) -> None:
+        with self.assertRaisesRegex(ValueError, "resource limit"):
+            self._pack(pack_id="p" * 129)
+        with self.assertRaisesRegex(ValueError, "resource limit"):
+            self._pack(version="1.0.0-" + "a" * 122)
+
+        files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
+        for index in range(2048 - len(files) + 1):
+            files[f"variant.{index}"] = f"audio/variant-{index}.wav"
+        self.assertGreater(len(files), 2048)
+        with self.assertRaisesRegex(ValueError, "too many sound ids"):
+            self._pack(files=files)
+
     def test_missing_core_sound_fails_closed(self) -> None:
         with self.assertRaises(ValueError):
             self._pack(files={"move": "move.wav"})
