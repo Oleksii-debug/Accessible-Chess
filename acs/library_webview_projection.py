@@ -107,7 +107,7 @@ _IMPORT_LABELS = {
 }
 
 
-def _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> str:
+_JS_MAX_SAFE_INTEGER = (1 << 53) - 1\n\n\ndef _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
