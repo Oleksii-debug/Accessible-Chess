@@ -39,9 +39,10 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
           git fetch --no-tags origin "${EVENT_BASE_REF}"
           LIVE_BASE_SHA="$(git rev-parse "origin/${EVENT_BASE_REF}")"
-          test "$LIVE_BASE_SHA" = "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$LIVE_BASE_SHA" HEAD
           test "$(git merge-base "$LIVE_BASE_SHA" HEAD)" = "$LIVE_BASE_SHA"
           git diff --check "$LIVE_BASE_SHA" HEAD
           mapfile -t changed < <(git diff --name-only "$LIVE_BASE_SHA" HEAD | sort)
