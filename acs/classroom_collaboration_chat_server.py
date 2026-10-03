@@ -42,7 +42,7 @@ MAX_SERVER_HISTORY_MESSAGES = MAX_SYNC_MESSAGES
 # Canonical classroom rosters are bounded to 5,000 participants. A teacher's
 # one-shot all-student moderation command must remain composable at that bound.
 MAX_SERVER_MODERATION_COMMANDS = 5000
-_SERVER_SCHEMA_VERSION = 2
+_SERVER_SCHEMA_VERSION = 3
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -243,6 +243,101 @@ class ClassroomChatServerSQLiteStore:
                 "classroom chat server message ordering constraint is missing"
             )
 
+    @staticmethod
+    def _reconcile_hidden_state_migration(
+        db: sqlite3.Connection,
+    ) -> None:
+        expected_sequence: dict[str, int] = {}
+        message_keys: set[tuple[str, str]] = set()
+        hidden_messages: list[ChatMessageMetadata] = []
+        for stored in db.execute(
+            """
+            SELECT * FROM classroom_chat_server_messages
+            ORDER BY room_id, sequence_no
+            """
+        ):
+            message = ClassroomChatServerSQLiteStore._row_message(stored)
+            expected = expected_sequence.get(message.room_id, 0)
+            if message.sequence_no != expected:
+                raise ClassroomChatServerError(
+                    "legacy server message sequence is not contiguous"
+                )
+            expected_sequence[message.room_id] = expected + 1
+            key = (message.room_id, message.message_id)
+            message_keys.add(key)
+            if message.hidden:
+                hidden_messages.append(message)
+
+        next_revision: dict[str, int] = {}
+        state_message_keys: set[tuple[str, str]] = set()
+        for stored in db.execute(
+            """
+            SELECT room_id, revision, message_id, hidden
+            FROM classroom_chat_server_state_updates
+            ORDER BY room_id, revision
+            """
+        ):
+            room = _identifier(
+                stored["room_id"],
+                "stored moderation state room id",
+            )
+            message_id = _identifier(
+                stored["message_id"],
+                "stored moderation state message id",
+            )
+            revision = _stored_nonnegative_integer(
+                stored["revision"],
+                "moderation revision",
+                maximum=MAX_WIRE_INTEGER,
+            )
+            expected = next_revision.get(room, 0)
+            if revision != expected:
+                raise ClassroomChatServerError(
+                    "legacy moderation revision is not contiguous"
+                )
+            if not _stored_bool(
+                stored["hidden"],
+                "moderation hidden flag",
+            ):
+                raise ClassroomChatServerError(
+                    "legacy moderation state is not hidden"
+                )
+            key = (room, message_id)
+            if key not in message_keys:
+                raise ClassroomChatServerError(
+                    "legacy moderation state references unknown message"
+                )
+            if key in state_message_keys:
+                raise ClassroomChatServerError(
+                    "legacy moderation state duplicates hidden message"
+                )
+            state_message_keys.add(key)
+            next_revision[room] = revision + 1
+
+        for message in hidden_messages:
+            key = (message.room_id, message.message_id)
+            if key in state_message_keys:
+                continue
+            revision = next_revision.get(message.room_id, 0)
+            if revision > MAX_WIRE_INTEGER:
+                raise ClassroomChatServerError(
+                    "legacy moderation revision is exhausted"
+                )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (
+                    message.room_id,
+                    revision,
+                    message.message_id,
+                ),
+            )
+            state_message_keys.add(key)
+            next_revision[message.room_id] = revision + 1
+
     def _ensure_schema(self) -> None:
         with closing(self._connect()) as db, db:
             try:
@@ -370,38 +465,8 @@ class ClassroomChatServerSQLiteStore:
                         """,
                         (_SERVER_SCHEMA_VERSION,),
                     )
-                elif version < 2:
-                    expected_sequence: dict[str, int] = {}
-                    next_revision: dict[str, int] = {}
-                    for stored in db.execute(
-                        """
-                        SELECT * FROM classroom_chat_server_messages
-                        ORDER BY room_id, sequence_no
-                        """
-                    ):
-                        message = self._row_message(stored)
-                        expected = expected_sequence.get(message.room_id, 0)
-                        if message.sequence_no != expected:
-                            raise ClassroomChatServerError(
-                                "version one message sequence is not contiguous"
-                            )
-                        expected_sequence[message.room_id] = expected + 1
-                        if not message.hidden:
-                            continue
-                        revision = next_revision.get(message.room_id, 0)
-                        db.execute(
-                            """
-                            INSERT INTO classroom_chat_server_state_updates(
-                                room_id, revision, message_id, hidden
-                            ) VALUES(?,?,?,1)
-                            """,
-                            (
-                                message.room_id,
-                                revision,
-                                message.message_id,
-                            ),
-                        )
-                        next_revision[message.room_id] = revision + 1
+                elif version < _SERVER_SCHEMA_VERSION:
+                    self._reconcile_hidden_state_migration(db)
                     db.execute(
                         """
                         UPDATE classroom_chat_server_meta

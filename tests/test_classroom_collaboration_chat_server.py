@@ -181,7 +181,7 @@ class ClassroomChatServerTests(unittest.TestCase):
         self.store.integrity_check()
         with closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(
-                2,
+                3,
                 db.execute(
                     "SELECT value FROM classroom_chat_server_meta "
                     "WHERE key='schema_version'"
@@ -647,7 +647,7 @@ class ClassroomChatServerTests(unittest.TestCase):
             )
 
     def test_corrupt_schema_version_is_sanitized_and_never_auto_repaired(self) -> None:
-        for value in ("not-an-integer", 0, 1.5, 3):
+        for value in ("not-an-integer", 0, 1.5, 4):
             with self.subTest(value=value):
                 path = Path(self.tmp.name) / f"schema-{str(value).replace(' ', '-')}.sqlite3"
                 ClassroomChatServerSQLiteStore(path)
@@ -853,6 +853,123 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
             self.assertEqual(
+                3,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+
+    def test_version_two_upgrade_repairs_missing_hidden_state_at_stream_tail(self) -> None:
+        path = Path(self.tmp.name) / "schema-v2-hidden-repair.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,1,?)
+                """,
+                (
+                    "missing-v2-state",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Missing old migration event",
+                    "session",
+                    1700000000000,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,1,?)
+                """,
+                (
+                    "existing-v2-state",
+                    ROOM,
+                    STUDENT,
+                    1,
+                    "Already represented",
+                    "session",
+                    1700000001000,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, "existing-v2-state"),
+            )
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=2
+                WHERE key='schema_version'
+                """
+            )
+
+        repaired = ClassroomChatServerSQLiteStore(path)
+        updates = repaired.state_updates_after(
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+
+        self.assertEqual(
+            [
+                (0, "existing-v2-state"),
+                (1, "missing-v2-state"),
+            ],
+            [(item.revision, item.message_id) for item in updates],
+        )
+        repaired.integrity_check()
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(
+                3,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+
+    def test_version_two_upgrade_rejects_inconsistent_existing_state(self) -> None:
+        path = Path(self.tmp.name) / "schema-v2-inconsistent-state.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, "unknown-v2-message"),
+            )
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=2
+                WHERE key='schema_version'
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "legacy moderation state references unknown message",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(
                 2,
                 db.execute(
                     """
@@ -989,7 +1106,7 @@ class ClassroomChatServerTests(unittest.TestCase):
 
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(
-                2,
+                3,
                 db.execute(
                     """
                     SELECT value FROM classroom_chat_server_meta
