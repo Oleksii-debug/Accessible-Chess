@@ -5,6 +5,7 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import wave
 
 from acs.sound_pack_catalog import DownloadedSoundPack, SoundAssetDigest
@@ -101,6 +102,49 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertTrue(
                 (root / "packs" / manifest.pack_id / "active.json").is_file()
             )
+
+    def test_version_directory_is_flushed_before_active_pointer_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+            order = []
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=lambda path: order.append(("sync", Path(path))),
+            ), mock.patch.object(
+                store,
+                "_publish_active",
+                side_effect=lambda pack_dir, pack_id, version: order.append(
+                    ("active", Path(pack_dir))
+                ),
+            ):
+                store.install_atomically(downloaded)
+
+            versions_dir = root / "packs" / manifest.pack_id / "versions"
+            self.assertEqual(("sync", versions_dir), order[0])
+            self.assertEqual(("active", versions_dir.parent), order[1])
+
+    def test_directory_sync_failure_never_advances_active_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            first = _manifest(version="1.0.0")
+            first_download, _ = _staged_download(root, first, seed=b"a")
+            store.install_atomically(first_download)
+            second = _manifest(version="1.1.0")
+            second_download, _ = _staged_download(root, second, seed=b"b")
+
+            with mock.patch(
+                "acs.sound_pack_store._fsync_directory",
+                side_effect=SoundPackStoreError("directory sync failed"),
+            ), self.assertRaisesRegex(SoundPackStoreError, "directory sync failed"):
+                store.install_atomically(second_download)
+
+            self.assertEqual("1.0.0", store.active_version(first.pack_id))
+            self.assertEqual(first, store.installed()[first.pack_id])
 
     def test_update_keeps_old_version_and_switches_active_only_after_new_publish(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
