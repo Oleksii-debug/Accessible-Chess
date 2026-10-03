@@ -405,7 +405,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
 
         backend = FakeBackend()
         backend.mutate_delivery = True
-        service = ClassroomChatRpcService(authority=self.authority, backend=backend)
+        service = ClassroomChatRpcService(backend=backend)
         client = ClassroomChatRpcClient(
             room_id="room-1",
             participant_id="student-1",
