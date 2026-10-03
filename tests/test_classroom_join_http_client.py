@@ -191,6 +191,32 @@ class ClassroomJoinHttpClientTests(unittest.TestCase):
         )
         self.assertTrue(all(item.closed for item in FakeConnection.instances))
 
+    def test_invalid_request_identity_is_rejected_before_bearer_or_connection(self) -> None:
+        client = self.client()
+        invalid = (
+            ("bad room", "student-1"),
+            ("/room", "student-1"),
+            ("room-1", "bad participant"),
+            ("room-1", ""),
+            ("room-1", 7),
+        )
+        with mock.patch(
+            "acs.classroom_join_http_client.http.client.HTTPSConnection",
+            FakeConnection,
+        ):
+            for room_id, participant_id in invalid:
+                with self.subTest(room_id=room_id, participant_id=participant_id):
+                    with self.assertRaisesRegex(
+                        ClassroomJoinHttpClientError,
+                        "^join credential request (room|participant) id is invalid$",
+                    ):
+                        client.issue(
+                            room_id=room_id,
+                            participant_id=participant_id,
+                        )
+        self.assertEqual(self.token_calls, 0)
+        self.assertEqual(FakeConnection.instances, [])
+
     def test_remote_plain_http_is_rejected_before_bearer_or_connection(self) -> None:
         with self.assertRaisesRegex(ValueError, "must use HTTPS"):
             self.client(
