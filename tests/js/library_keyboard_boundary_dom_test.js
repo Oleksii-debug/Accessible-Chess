@@ -176,12 +176,40 @@ async function main() {
   check(calls[1].command === "library.move", "ArrowUp dispatched wrong command");
   check(calls[1].payload.delta === -1, "ArrowUp dispatched wrong delta");
 
+  const firstHome = keyEvent("Home");
+  options[0].listeners.keydown(firstHome.event);
+  await flushPromises();
+  check(firstHome.state.prevented, "Home boundary did not prevent browser scrolling");
+  check(calls.length === 2, "Home on first option reached backend");
+
+  const firstEnd = keyEvent("End");
+  options[0].listeners.keydown(firstEnd.event);
+  await flushPromises();
+  check(firstEnd.state.prevented, "End did not prevent browser scrolling");
+  check(calls.length === 3, "End did not dispatch selection");
+  check(calls[2].command === "library.select", "End dispatched wrong command");
+  check(calls[2].payload.game_id === 2, "End did not target last game");
+
+  const secondEnd = keyEvent("End");
+  options[1].listeners.keydown(secondEnd.event);
+  await flushPromises();
+  check(secondEnd.state.prevented, "End boundary did not prevent browser scrolling");
+  check(calls.length === 3, "End on last option reached backend");
+
+  const secondHome = keyEvent("Home");
+  options[1].listeners.keydown(secondHome.event);
+  await flushPromises();
+  check(secondHome.state.prevented, "Home did not prevent browser scrolling");
+  check(calls.length === 4, "Home did not dispatch selection");
+  check(calls[3].command === "library.select", "Home dispatched wrong command");
+  check(calls[3].payload.game_id === 1, "Home did not target first game");
+
   const enter = keyEvent("Enter");
   options[0].listeners.keydown(enter.event);
   await flushPromises();
   check(enter.state.prevented, "Enter did not prevent default activation");
-  check(calls.length === 3, "Enter did not dispatch exactly once");
-  check(calls[2].command === "library.open_game", "Enter dispatched wrong command");
+  check(calls.length === 5, "Enter did not dispatch exactly once");
+  check(calls[4].command === "library.open_game", "Enter dispatched wrong command");
   check(announcements.length === 0, "normal listbox boundaries announced an error");
 
   console.log("Library keyboard boundary DOM contract PASS");
