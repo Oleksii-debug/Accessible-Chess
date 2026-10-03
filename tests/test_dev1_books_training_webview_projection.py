@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from acs.bookdocument import BookDocument, Diagram, Heading, Paragraph
+from acs.bookdocument import BookDocument, Diagram, Heading, ListBlock, Paragraph
 from acs.bookreader import BookReader
 from acs.book_webview_projection import BookWebViewProjection
 from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
@@ -85,6 +85,50 @@ class BookProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.projection.save_bookmark("   ")
         self.assertEqual(0, self.presenter.current().index)
+
+    def test_list_projection_rejects_excessive_dom_item_count(self) -> None:
+        document = BookDocument(
+            title="Large accessible list",
+            blocks=[ListBlock(items=["item"] * 10_001)],
+        )
+        presenter = BookReaderPresenter(
+            BookReader(document),
+            language=UILanguage.EN,
+        )
+        projection = BookWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+
+        with self.assertRaisesRegex(ValueError, "item budget"):
+            projection.snapshot()
+
+    def test_list_projection_rejects_excessive_visible_text(self) -> None:
+        half_budget = (6 * 1024 * 1024) + 1
+        document = BookDocument(
+            title="Oversized accessible list",
+            blocks=[
+                ListBlock(
+                    items=[
+                        "a" * half_budget,
+                        "b" * half_budget,
+                    ]
+                )
+            ],
+        )
+        presenter = BookReaderPresenter(
+            BookReader(document),
+            language=UILanguage.EN,
+        )
+        projection = BookWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+
+        with self.assertRaisesRegex(ValueError, "visible-text budget"):
+            projection.snapshot()
 
     def test_language_switch_changes_labels_without_changing_location(self) -> None:
         before = self.projection.snapshot()
