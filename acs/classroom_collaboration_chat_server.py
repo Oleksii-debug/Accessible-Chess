@@ -832,6 +832,36 @@ class ClassroomChatServerSQLiteStore:
                             target["hidden"],
                             "message hidden flag",
                         )
+                        target_state_rows = db.execute(
+                            """
+                            SELECT revision, hidden
+                            FROM classroom_chat_server_state_updates
+                            WHERE room_id=? AND message_id=?
+                            ORDER BY revision
+                            """,
+                            (room, command.message_id),
+                        ).fetchall()
+                        for target_state in target_state_rows:
+                            _stored_nonnegative_integer(
+                                target_state["revision"],
+                                "moderation revision",
+                                maximum=MAX_WIRE_INTEGER,
+                            )
+                            if not _stored_bool(
+                                target_state["hidden"],
+                                "moderation hidden flag",
+                            ):
+                                raise ClassroomChatServerError(
+                                    "stored moderation state is not hidden"
+                                )
+                        if target_hidden and len(target_state_rows) != 1:
+                            raise ClassroomChatServerError(
+                                "stored hidden message state is inconsistent"
+                            )
+                        if not target_hidden and target_state_rows:
+                            raise ClassroomChatServerError(
+                                "stored visible message state is inconsistent"
+                            )
                         if not target_hidden:
                             db.execute(
                                 """
