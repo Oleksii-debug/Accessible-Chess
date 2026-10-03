@@ -189,51 +189,30 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 b"keep-cache-name",
             )
 
-    def test_root_lock_named_directories_remain_user_data(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td) / "AccessibleChess"
-            root.mkdir()
-            for name, payload in (
-                ("sound-profile.json.lock", b"profile-directory-data"),
-                ("sound-packs.lock", b"packs-directory-data"),
-                ("gametree-resume.json.lock", b"resume-directory-data"),
-                ("book-progress.json.lock", b"book-progress-directory-data"),
-            ):
+    def test_root_lock_named_directories_fail_closed(self):
+        for name, payload in (
+            ("sound-profile.json.lock", b"profile-directory-data"),
+            ("sound-packs.lock", b"packs-directory-data"),
+            ("gametree-resume.json.lock", b"resume-directory-data"),
+            ("book-progress.json.lock", b"book-progress-directory-data"),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "AccessibleChess"
+                root.mkdir()
                 directory = root / name
                 directory.mkdir()
-                (directory / "keep.bin").write_bytes(payload)
+                kept = directory / "keep.bin"
+                kept.write_bytes(payload)
 
-            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
-            coordinator._ensure_roots()
-            files = self._relative_files(coordinator)
+                coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+                coordinator._ensure_roots()
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "control entry must be a regular file",
+                ):
+                    coordinator._files()
 
-            self.assertIn("sound-profile.json.lock/keep.bin", files)
-            self.assertIn("sound-packs.lock/keep.bin", files)
-            self.assertIn("gametree-resume.json.lock/keep.bin", files)
-            self.assertIn("book-progress.json.lock/keep.bin", files)
-            backup, manifest = coordinator._create_backup("sound-lock-directories")
-            paths = {str(item["path"]) for item in manifest["entries"]}
-            self.assertIn("sound-profile.json.lock/keep.bin", paths)
-            self.assertIn("sound-packs.lock/keep.bin", paths)
-            self.assertIn("gametree-resume.json.lock/keep.bin", paths)
-            self.assertIn("book-progress.json.lock/keep.bin", paths)
-            self.assertEqual(
-                (backup / "data" / "sound-profile.json.lock" / "keep.bin").read_bytes(),
-                b"profile-directory-data",
-            )
-            self.assertEqual(
-                (backup / "data" / "sound-packs.lock" / "keep.bin").read_bytes(),
-                b"packs-directory-data",
-            )
-            self.assertEqual(
-                (backup / "data" / "gametree-resume.json.lock" / "keep.bin").read_bytes(),
-                b"resume-directory-data",
-            )
-            self.assertEqual(
-                (backup / "data" / "book-progress.json.lock" / "keep.bin").read_bytes(),
-                b"book-progress-directory-data",
-            )
-
+                self.assertEqual(kept.read_bytes(), payload)
     def test_exact_root_gametree_discard_control_subtree_is_derived_and_nested_names_are_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
