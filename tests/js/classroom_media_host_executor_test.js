@@ -249,6 +249,80 @@ async function testDisconnectDoesNotRequestCredential() {
   assert.strictEqual(result.provider_snapshot.cleanup_required, false);
 }
 
+async function testConnectSemanticSnapshotMismatchFailsClosed() {
+  const adapter = new FakeAdapter();
+  adapter.connect = async function (credential, enabledSources) {
+    this.calls.push(["connect", credential, enabledSources.slice()]);
+    this.current = snapshot({
+      connected: true,
+      room_id: credential.room_id,
+      participant_id: "different-participant"
+    });
+    return this.current;
+  };
+  const executor = create(adapter);
+  const result = await executor.execute({
+    transaction_id: SESSION_ID,
+    operation: "connect",
+    credential_required: true,
+    enabled_sources: []
+  });
+  assert.strictEqual(result.status, "failed");
+  assert.strictEqual(result.provider_snapshot.participant_id, "different-participant");
+  assert(!JSON.stringify(result).includes(TOKEN));
+}
+
+async function testReconnectSourceSnapshotMismatchFailsClosed() {
+  const adapter = new FakeAdapter();
+  adapter.reconnect = async function (credential, enabledSources) {
+    this.calls.push(["reconnect", credential, enabledSources.slice()]);
+    this.current = snapshot({
+      connected: true,
+      room_id: credential.room_id,
+      participant_id: credential.participant_id,
+      microphone_enabled: false,
+      camera_enabled: false,
+      screen_share_enabled: false
+    });
+    return this.current;
+  };
+  const executor = create(adapter);
+  const result = await executor.execute({
+    transaction_id: SESSION_ID,
+    operation: "reconnect",
+    credential_required: true,
+    enabled_sources: ["microphone"]
+  });
+  assert.strictEqual(result.status, "failed");
+  assert.strictEqual(result.provider_snapshot.microphone_enabled, false);
+}
+
+async function testDirtyDisconnectSnapshotFailsClosed() {
+  const adapter = new FakeAdapter();
+  adapter.disconnect = async function () {
+    this.calls.push(["disconnect"]);
+    this.current = snapshot({
+      connected: false,
+      cleanup_required: false,
+      room_id: null,
+      participant_id: null,
+      microphone_enabled: true,
+      camera_enabled: false,
+      screen_share_enabled: false
+    });
+    return this.current;
+  };
+  const executor = create(adapter);
+  const result = await executor.execute({
+    transaction_id: SESSION_ID,
+    operation: "disconnect",
+    credential_required: false,
+    enabled_sources: []
+  });
+  assert.strictEqual(result.status, "failed");
+  assert.strictEqual(result.provider_snapshot.microphone_enabled, true);
+}
+
 async function testConnectFailureReturnsSanitizedCleanSnapshot() {
   const adapter = new FakeAdapter();
   adapter.fail.add("connect");
@@ -467,6 +541,9 @@ async function main() {
     testConnectUsesCredentialOnceAndNeverReturnsSecret,
     testReconnectPreservesExactEnabledSources,
     testDisconnectDoesNotRequestCredential,
+    testConnectSemanticSnapshotMismatchFailsClosed,
+    testReconnectSourceSnapshotMismatchFailsClosed,
+    testDirtyDisconnectSnapshotFailsClosed,
     testConnectFailureReturnsSanitizedCleanSnapshot,
     testConnectFailureWithCleanupRequiredIsVisibleWithoutSecret,
     testProviderFailureWithoutValidSnapshotReturnsNullSnapshot,
