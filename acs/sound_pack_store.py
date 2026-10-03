@@ -26,6 +26,7 @@ from .sound_pack_catalog import (
     DEFAULT_MAX_SOUND_PACK_BYTES,
     DownloadedSoundPack,
     SoundAssetDigest,
+    SoundPackInstalledAudit,
     SoundPackRightsEvidence,
 )
 from .sound_profiles import (
@@ -1409,8 +1410,8 @@ class FilesystemSoundPackStore:
             rights_evidence=rights_evidence,
         )
 
-    def installed(self) -> Mapping[str, SoundPackManifest]:
-        result = dict(self._built_in)
+    def _installed_disk_inventory(self) -> dict[str, InstalledSoundPack]:
+        result: dict[str, InstalledSoundPack] = {}
         if not self.root.exists():
             return result
         _require_real_dir_chain(self.root, "sound pack root")
@@ -1442,13 +1443,36 @@ class FilesystemSoundPackStore:
                         installed = self._installed_disk_pack(identity)
                     except (TypeError, ValueError, SoundPackStoreError):
                         continue
-                    result[identity] = installed.manifest
+                    result[identity] = installed
         except SoundPackStoreError:
             raise
         except OSError as exc:
             raise SoundPackStoreError(
                 "sound pack root could not be listed"
             ) from exc
+        return result
+
+    def installed(self) -> Mapping[str, SoundPackManifest]:
+        result = dict(self._built_in)
+        for pack_id, installed in self._installed_disk_inventory().items():
+            if pack_id not in result:
+                result[pack_id] = installed.manifest
+        return result
+
+    def installed_audit(self) -> Mapping[str, SoundPackInstalledAudit]:
+        """Return manifest and rights from the same verified active-version scan."""
+
+        result = {
+            pack_id: SoundPackInstalledAudit(manifest, None)
+            for pack_id, manifest in self._built_in.items()
+        }
+        for pack_id, installed in self._installed_disk_inventory().items():
+            if pack_id in result:
+                continue
+            result[pack_id] = SoundPackInstalledAudit(
+                installed.manifest,
+                installed.rights_evidence,
+            )
         return result
 
     def active_version(self, pack_id: str) -> str | None:
