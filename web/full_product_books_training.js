@@ -18,6 +18,22 @@
     "1/2-1/2": true,
     "*": true
   });
+  const BOOK_ACTION_IDS = Object.freeze({
+    "book.previous": true,
+    "book.next": true,
+    "book.previous_heading": true,
+    "book.next_heading": true,
+    "book.previous_position": true,
+    "book.next_position": true,
+    "book.previous_game": true,
+    "book.next_game": true,
+    "book.open_position": true,
+    "book.return_from_board": true
+  });
+  const MAX_BOOK_ACTIONS = 10;
+  const MAX_STARTER_MATERIALS = 64;
+  const MAX_STARTER_TEXT = 360;
+  const BOOKMARK_MAX_LENGTH = 80;
 
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
@@ -129,6 +145,129 @@
       out.push({ kind: kind, label: label, value: detailValue });
     }
     return out;
+  }
+
+  function requiredUiText(value, name, maxLength) {
+    if (typeof value !== "string" || !value.trim()) {
+      throw new TypeError(name + " must contain visible text");
+    }
+    if (!Number.isSafeInteger(maxLength) || maxLength < 1 || value.length > maxLength) {
+      throw new TypeError(name + " exceeds its text limit");
+    }
+    return value;
+  }
+
+  function validateBookActions(value) {
+    if (!Array.isArray(value) || value.length < 1 || value.length > MAX_BOOK_ACTIONS) {
+      throw new TypeError("book actions must be a bounded non-empty array");
+    }
+    const seen = Object.create(null);
+    return value.map(function (action, index) {
+      if (!Object.prototype.hasOwnProperty.call(value, index)) {
+        throw new TypeError("book actions must be dense");
+      }
+      if (!action || typeof action !== "object" || Array.isArray(action)) {
+        throw new TypeError("book action must be an object");
+      }
+      const command = action.command;
+      if (
+        typeof command !== "string" ||
+        !Object.prototype.hasOwnProperty.call(BOOK_ACTION_IDS, command)
+      ) {
+        throw new TypeError("book action command is invalid");
+      }
+      if (seen[command]) throw new TypeError("book action command is duplicated");
+      seen[command] = true;
+      if (typeof action.enabled !== "boolean") {
+        throw new TypeError("book action enabled flag is invalid");
+      }
+      return {
+        command: command,
+        label: requiredUiText(action.label, "book action label", 160),
+        enabled: action.enabled
+      };
+    });
+  }
+
+  function validateBookmark(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("book bookmark specification is invalid");
+    }
+    if (value.max_length !== BOOKMARK_MAX_LENGTH) {
+      throw new TypeError("book bookmark length contract is invalid");
+    }
+    const bookmarkValue = requiredUiText(
+      value.value, "book bookmark value", BOOKMARK_MAX_LENGTH
+    );
+    return {
+      label: requiredUiText(value.label, "book bookmark label", 160),
+      value: bookmarkValue,
+      save_label: requiredUiText(value.save_label, "book bookmark save label", 160),
+      restore_label: requiredUiText(
+        value.restore_label, "book bookmark restore label", 160
+      ),
+      max_length: BOOKMARK_MAX_LENGTH
+    };
+  }
+
+  function validateStarterCatalogue(value) {
+    if (value === undefined || value === null) return null;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("starter material catalogue must be an object");
+    }
+    if (
+      !Array.isArray(value.items) ||
+      value.items.length < 1 ||
+      value.items.length > MAX_STARTER_MATERIALS
+    ) {
+      throw new TypeError("starter material inventory is invalid");
+    }
+    const seen = Object.create(null);
+    const items = value.items.map(function (item, index) {
+      if (!Object.prototype.hasOwnProperty.call(value.items, index)) {
+        throw new TypeError("starter material inventory must be dense");
+      }
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new TypeError("starter material entry must be an object");
+      }
+      const materialId = requiredUiText(
+        item.material_id, "starter material id", 160
+      );
+      if (seen[materialId]) throw new TypeError("starter material id is duplicated");
+      seen[materialId] = true;
+      return {
+        material_id: materialId,
+        title: requiredUiText(item.title, "starter material title", MAX_STARTER_TEXT)
+      };
+    });
+    const currentId = value.current_id;
+    if (
+      typeof currentId !== "string" ||
+      (currentId && !Object.prototype.hasOwnProperty.call(seen, currentId))
+    ) {
+      throw new TypeError("starter material current id is invalid");
+    }
+    if (
+      !Number.isSafeInteger(value.booklet_count) ||
+      value.booklet_count < 0 ||
+      value.booklet_count !== items.length - 1
+    ) {
+      throw new TypeError("starter material booklet count is invalid");
+    }
+    if (typeof value.description !== "string" || value.description.length > 2000) {
+      throw new TypeError("starter material description is invalid");
+    }
+    return {
+      heading: requiredUiText(value.heading, "starter material heading", MAX_STARTER_TEXT),
+      label: requiredUiText(value.label, "starter material label", MAX_STARTER_TEXT),
+      open_label: requiredUiText(
+        value.open_label, "starter material open label", MAX_STARTER_TEXT
+      ),
+      description: value.description,
+      current_id: currentId,
+      booklet_count: value.booklet_count,
+      items: items
+    };
   }
 
   function appendSemanticDetails(container, label, items, headingId) {
@@ -477,38 +616,32 @@
     if (result.kind === "error" && payload.message) announce(String(payload.message));
   }
 
-  function renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage) {
-    const catalogue = snapshot.starter_materials;
-    const items = catalogue && Array.isArray(catalogue.items) ? catalogue.items : [];
-    if (!catalogue || !items.length) return;
+  function renderStarterMaterials(main, catalogue, invoke, announce, fallbackMessage) {
+    if (!catalogue) return;
+    const items = catalogue.items;
 
     const section = node("section");
-    const heading = node("h3", catalogue.heading || "");
+    const heading = node("h3", catalogue.heading);
     heading.id = "book-starter-materials-heading";
     section.setAttribute("aria-labelledby", heading.id);
     section.appendChild(heading);
     if (catalogue.description) section.appendChild(node("p", catalogue.description));
 
-    const label = node("label", catalogue.label || "");
+    const label = node("label", catalogue.label);
     const select = node("select");
     select.id = "book-starter-material";
     label.htmlFor = select.id;
     items.forEach(function (item) {
-      if (!item || typeof item !== "object") return;
-      const materialId = String(item.material_id || "");
-      if (!materialId) return;
-      const option = node("option", item.title || materialId);
-      option.value = materialId;
+      const option = node("option", item.title);
+      option.value = item.material_id;
       select.appendChild(option);
     });
-    const currentId = String(catalogue.current_id || "");
-    if (currentId && items.some(function (item) { return String(item.material_id || "") === currentId; })) {
-      select.value = currentId;
-    }
+    const currentId = catalogue.current_id;
+    if (currentId) select.value = currentId;
     label.appendChild(select);
     section.appendChild(label);
 
-    const open = node("button", catalogue.open_label || "");
+    const open = node("button", catalogue.open_label);
     open.type = "button";
     open.addEventListener("click", function () {
       const materialId = String(select.value || "");
@@ -555,24 +688,26 @@
     if (requestedFocus && requestedFocus !== expectedBlockId) {
       throw new TypeError("Book focus target does not match the rendered block");
     }
+    const actions = validateBookActions(snapshot.actions);
+    const bookmark = validateBookmark(snapshot.bookmark);
+    const starterCatalogue = validateStarterCatalogue(snapshot.starter_materials);
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
     applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
-    renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage);
+    renderStarterMaterials(main, starterCatalogue, invoke, announce, fallbackMessage);
     const block = snapshot.block;
     renderBookBlock(main, block);
 
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
-    const actions = Array.isArray(snapshot.actions) ? snapshot.actions : [];
     actions.forEach(function (action) {
-      const button = node("button", action.label || action.command || "");
+      const button = node("button", action.label);
       button.type = "button";
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
-        safeInvoke(invoke, String(action.command || ""), {}, function (result) {
+        safeInvoke(invoke, action.command, {}, function (result) {
           applyBookEvent(root, result, invoke, announce, fallbackMessage);
         }, announce, fallbackMessage);
       });
@@ -580,20 +715,19 @@
     });
     main.appendChild(toolbar);
 
-    const bookmark = snapshot.bookmark || {};
     const form = node("form");
-    const label = node("label", bookmark.label || "");
+    const label = node("label", bookmark.label);
     const input = node("input");
     input.id = "book-bookmark-name";
     input.type = "text";
-    input.maxLength = Number(bookmark.max_length || 80);
-    input.value = bookmark.value || "default";
+    input.maxLength = bookmark.max_length;
+    input.value = bookmark.value;
     label.htmlFor = input.id;
     form.appendChild(label);
     form.appendChild(input);
-    const save = node("button", bookmark.save_label || "");
+    const save = node("button", bookmark.save_label);
     save.type = "submit";
-    const restore = node("button", bookmark.restore_label || "");
+    const restore = node("button", bookmark.restore_label);
     restore.type = "button";
     form.appendChild(save);
     form.appendChild(restore);
