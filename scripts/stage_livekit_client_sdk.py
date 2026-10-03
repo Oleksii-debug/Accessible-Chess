@@ -635,6 +635,22 @@ def verify_staged_livekit_client_sdk(
     return staged
 
 
+def _print_staged_identity(staged: Path) -> None:
+    resources = (
+        ("BUNDLE", "livekit-client.umd.js", _MAX_BUNDLE_BYTES),
+        ("LICENSE", "LICENSE", _MAX_LICENSE_BYTES),
+        ("NOTICE", "NOTICE", _MAX_NOTICE_BYTES),
+    )
+    print(f"LIVEKIT_CLIENT_VERSION={LIVEKIT_CLIENT_VERSION}")
+    for label, name, max_bytes in resources:
+        payload = _read_staged_file_snapshot(
+            staged / name,
+            label=f"staged LiveKit {label.casefold()}",
+            max_bytes=max_bytes,
+        )
+        print(f"LIVEKIT_CLIENT_{label}_SHA256={hashlib.sha256(payload).hexdigest()}")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", nargs="?", help="downloaded livekit-client npm .tgz")
@@ -668,27 +684,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("archive and output are required")
     if args.verify_existing:
         verified = verify_staged_livekit_client_sdk(args.archive, args.output)
-        bundle_sha256 = hashlib.sha256(
-            _read_staged_file_snapshot(
-                verified / "livekit-client.umd.js",
-                label="verified LiveKit browser SDK",
-                max_bytes=_MAX_BUNDLE_BYTES,
-            )
-        ).hexdigest()
-        print(f"LIVEKIT_CLIENT_VERSION={LIVEKIT_CLIENT_VERSION}")
-        print(f"LIVEKIT_CLIENT_BUNDLE_SHA256={bundle_sha256}")
+        _print_staged_identity(verified)
         print("LIVEKIT_CLIENT_SDK_VERIFY=PASS")
         return 0
     staged = stage_livekit_client_sdk(args.archive, args.output)
-    bundle_sha256 = hashlib.sha256(
-        _read_staged_file_snapshot(
-            staged / "livekit-client.umd.js",
-            label="staged LiveKit browser SDK",
-            max_bytes=_MAX_BUNDLE_BYTES,
-        )
-    ).hexdigest()
-    print(f"LIVEKIT_CLIENT_VERSION={LIVEKIT_CLIENT_VERSION}")
-    print(f"LIVEKIT_CLIENT_BUNDLE_SHA256={bundle_sha256}")
+    _print_staged_identity(staged)
     print("LIVEKIT_CLIENT_SDK_STAGE=PASS")
     return 0
 
