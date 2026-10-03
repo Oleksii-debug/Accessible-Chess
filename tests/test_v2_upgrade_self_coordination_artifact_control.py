@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from acs.version2_upgrade_base import (
     UpgradeLimits,
     UserDataLayout,
     Version2UpgradeCoordinator,
+    _UpgradeLock,
     Version2UpgradeError,
 )
 
@@ -27,6 +29,69 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             path.relative_to(root).as_posix()
             for path in coordinator._files()
         }
+
+    def test_upgrade_lock_rejects_hardlink_without_mutating_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            target = root / "user-owned.bin"
+            target.write_bytes(b"")
+            lock = root / ".v2-upgrade.lock"
+            try:
+                os.link(target, lock)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "private regular file",
+            ):
+                with _UpgradeLock(lock):
+                    pass
+
+            self.assertEqual(target.read_bytes(), b"")
+            self.assertEqual(os.lstat(target).st_nlink, 2)
+
+    def test_upgrade_lock_path_swap_to_symlink_fails_before_target_write(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink support is unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            lock = root / ".v2-upgrade.lock"
+            lock.write_bytes(b"")
+            target = root / "user-owned.bin"
+            target.write_bytes(b"do-not-touch")
+            original_open = upgrade_base.os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777):
+                nonlocal swapped
+                if Path(path) == lock and not swapped:
+                    swapped = True
+                    lock.unlink()
+                    try:
+                        os.symlink(target, lock)
+                    except (OSError, NotImplementedError):
+                        self.skipTest(
+                            "symlink creation is unavailable on this runner"
+                        )
+                return original_open(path, flags, mode)
+
+            with patch.object(
+                upgrade_base.os,
+                "open",
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "opened safely|changed while opening",
+                ):
+                    with _UpgradeLock(lock):
+                        pass
+
+            self.assertTrue(swapped)
+            self.assertEqual(target.read_bytes(), b"do-not-touch")
 
     def test_exact_root_settings_and_upgrade_residue_is_derived(self):
         with tempfile.TemporaryDirectory() as td:
