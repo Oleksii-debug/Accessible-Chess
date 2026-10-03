@@ -43,7 +43,7 @@ env:
   V2_ACCEPTED_ENGINE_TIMEOUT_STAGE1_UI_BLOB: 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
   V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB: b579ca0f59ba20f6b69b3a4b7d89589256d54852
   V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
-  V2_ACCEPTED_PGN_DOCUMENT_NEW_POSITION_BLOB: e967712503a2b96d5878f74b257da6fc4a852ad4
+  V2_ACCEPTED_PGN_DOCUMENT_NEW_POSITION_BLOB: c098f028c9e8811a9c40c682ee5abcbb994dbf4c
   V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB: 6ec93d183da623c80c15b542fb7095725b91af52
 
 jobs:
@@ -115,8 +115,9 @@ jobs:
           fi
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui_core.py'; then
             actual_stage1_core_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-            if [ "${{ github.event.pull_request.head.ref }}" != "integration/clock-engine-serial-intake-20261002" ] \
-               || [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
+            # The takeback-recovery successor is canonical Product. If this
+            # path changes, only that exact reviewed identity is accepted.
+            if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
               echo "Unexpected Stage 1 core blob: $actual_stage1_core_blob" >&2
               exit 1
             fi
