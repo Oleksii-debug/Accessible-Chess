@@ -1302,6 +1302,14 @@ class FilesystemSoundPackStore:
                         raise SoundPackStoreError(
                             "sound pack active pointer id does not match directory"
                         )
+            else:
+                # A crash can leave a fully published version directory before
+                # active.json is durably visible. Missing pointer metadata is not
+                # permission to roll back below those already-published version
+                # identities; same/newer reinstall remains the repair path.
+                current_version = _highest_version_name_for_rollback(
+                    pack_dir / "versions"
+                )
         if (
             current_version is not None
             and _semantic_version_key(current_version)
