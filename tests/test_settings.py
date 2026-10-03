@@ -1,8 +1,11 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
+import acs.settings as settings_module
 from acs.settings import DEFAULTS, SCHEMA_VERSION, Settings, SettingsError
 
 
@@ -42,6 +45,113 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(raw["schema_version"], SCHEMA_VERSION)
             self.assertEqual(raw["values"]["volume"], 42)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_save_rejects_symlink_upgrade_lock_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "settings.json"
+            lock = root / ".v2-upgrade.lock"
+            target = root / "foreign-lock-target.bin"
+            target_bytes = b"foreign-lock-target"
+            target.write_bytes(target_bytes)
+            try:
+                os.symlink(target, lock)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation is unavailable on this runner")
+
+            settings = Settings(path)
+            with self.assertRaises(SettingsError):
+                settings.set("volume", 41)
+
+            self.assertEqual(target_bytes, target.read_bytes())
+            self.assertTrue(lock.is_symlink())
+            self.assertFalse(path.exists())
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open lock pathname is not portable on Windows",
+    )
+    def test_save_rejects_lock_path_swap_after_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "settings.json"
+            lock = root / ".v2-upgrade.lock"
+            lock.write_bytes(b"\0")
+            foreign = root / "foreign-lock.bin"
+            foreign_bytes = b"foreign-lock-path"
+            foreign.write_bytes(foreign_bytes)
+            real_open = settings_module.os.open
+            injected = False
+
+            def swap_after_open(candidate, flags, mode=0o777):
+                nonlocal injected
+                descriptor = real_open(candidate, flags, mode)
+                if Path(candidate) == lock and not injected:
+                    os.replace(foreign, lock)
+                    injected = True
+                return descriptor
+
+            settings = Settings(path)
+            with mock.patch.object(
+                settings_module.os,
+                "open",
+                side_effect=swap_after_open,
+            ):
+                with self.assertRaisesRegex(
+                    SettingsError,
+                    "lock changed while held|lock changed while opening",
+                ):
+                    settings.set("volume", 42)
+
+            self.assertTrue(injected)
+            self.assertEqual(foreign_bytes, lock.read_bytes())
+            self.assertFalse(path.exists())
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open lock pathname is not portable on Windows",
+    )
+    def test_save_rechecks_lock_identity_before_final_settings_replace(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "settings.json"
+            settings = Settings(path)
+            original_assert = settings_module._SettingsSaveLock.assert_current
+            checks = 0
+            injected = False
+            foreign_bytes = b"foreign-mid-save-lock"
+
+            def racing_assert(lock_self):
+                nonlocal checks, injected
+                checks += 1
+                if checks == 5 and not injected:
+                    replacement = root / "replacement-lock.bin"
+                    replacement.write_bytes(foreign_bytes)
+                    os.replace(replacement, lock_self.path)
+                    injected = True
+                return original_assert(lock_self)
+
+            with mock.patch.object(
+                settings_module._SettingsSaveLock,
+                "assert_current",
+                autospec=True,
+                side_effect=racing_assert,
+            ):
+                with self.assertRaisesRegex(
+                    SettingsError,
+                    "lock changed while held",
+                ):
+                    settings.set("volume", 43)
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                foreign_bytes,
+                (root / ".v2-upgrade.lock").read_bytes(),
+            )
+            self.assertFalse(
+                path.exists(),
+                "Settings payload was published after lock continuity was lost",
+            )
 
     def test_invalid_value_does_not_persist_or_mutate(self):
         with tempfile.TemporaryDirectory() as td:
