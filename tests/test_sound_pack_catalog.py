@@ -218,6 +218,10 @@ class SoundPackCatalogTests(unittest.TestCase):
             ("source_uri", " https://example.invalid/source"),
             ("source_uri", "https://:443/source"),
             ("source_uri", "https://example.invalid:notaport/source"),
+            ("source_uri", "https://example.invalid/source?token=secret"),
+            ("source_uri", "https://example.invalid/source#private-fragment"),
+            ("license_uri", "urn:accessible-chess:test:license?token=secret"),
+            ("license_uri", "urn:accessible-chess:test:license#fragment"),
             ("license_uri", "relative/license.txt"),
             ("license_uri", "javascript:alert(1)"),
         ):
