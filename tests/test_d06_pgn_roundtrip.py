@@ -267,6 +267,32 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 b'[Result "*"]',
             )
 
+    def test_preflight_counts_recovery_tokenizer_expansion_before_materialization(self):
+        sources = (
+            '[Result "*"]\n\n1.e4 *',
+            '[Result "*"]\n\n{{x}} *',
+            '[Result "*"]\n\n$x *',
+            '[Result "*"]\n\n}} *',
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                with (
+                    patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 3),
+                    patch(
+                        "acs.pgn_roundtrip.parse_games",
+                        side_effect=AssertionError(
+                            "parser token materialization must not run"
+                        ),
+                    ) as parser,
+                ):
+                    self.assert_code(
+                        PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                        parse_pgn_text,
+                        source,
+                        strict=False,
+                    )
+                    parser.assert_not_called()
+
     def test_game_preflight_preserves_multiline_nested_comment_frame_state(self):
         source = (
             '[Result "*"]\n\n'
