@@ -99,12 +99,13 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         document: BookDocument,
         open_route: bool,
         persist_new: bool,
-    ) -> None:
+    ) -> dict[str, object]:
         """Stage one bundled document through the canonical Books authority.
 
         Existing progress is durably saved before replacement. The new reader,
-        workflow and WebView are constructed before publication, so a failure
-        cannot leave a half-switched Books surface.
+        workflow, WebView and initial render snapshot are all constructed before
+        persistence/publication, so a render failure cannot leave a half-switched
+        Books surface or create progress for a material the user never saw open.
         """
 
         if self.book_workflow is not None and self.book_workflow.active:
@@ -135,6 +136,10 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             self.router.dispatch,
             language=self.shell.language,
         )
+        # Rendering is part of accepting the staged material. Validate it while
+        # every canonical application owner still points at the previous book.
+        # Reuse this exact snapshot after publication instead of rendering again.
+        initial_snapshot = bridge.projection.snapshot()
 
         if persist_new and not has_progress:
             self.progress_store.save(book_key, reader)
@@ -148,6 +153,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._starter_current_material_id = material_id
         if open_route:
             self.shell.open_route("books")
+        return initial_snapshot
 
     def _install_starter_course(self) -> None:
         """Stage the canonical built-in course without changing the active route."""
@@ -227,14 +233,14 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                 raise ValueError("starter material identity is not current")
             book_key = self._starter_book_key(material_id)
 
-        self._stage_book_document(
+        snapshot = self._stage_book_document(
             material_id=material_id,
             book_key=book_key,
             document=document,
             open_route=True,
             persist_new=True,
         )
-        snapshot = self._decorate_book_snapshot(self.books.projection.snapshot())
+        snapshot = self._decorate_book_snapshot(snapshot)
         labels = _CATALOGUE_LABELS[self.shell.language]
         return {
             "kind": "render",
