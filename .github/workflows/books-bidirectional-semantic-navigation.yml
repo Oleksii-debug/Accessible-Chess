@@ -84,7 +84,7 @@ jobs:
               'tests/js/books_training_surface_dom_test.js'
               'web/full_product_books_training.js'
             )
-            test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "79d910bfba15a17a72bc161c1fa93b7f3855bd2a"
+            test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "9d1e7bcc15eefea3c343ff0761e15db74bb52fa3"
             test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "8bccfd0b43e43d384bbd753b031babd879230ec3"
             test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "fd3a942467b6bab3aea0477311d3d360816d79df"
             test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "c07bf0a0eda80b2b49982e2e28053ca2d65e3dc5"
