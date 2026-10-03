@@ -1214,6 +1214,31 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(self.store.room_attachments("room-1"), (stored,))
         self.assertEqual(self.files.upload_calls[0].metadata.sequence_no, 73)
 
+    def test_upload_failed_result_keeps_provisional_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="provider-failed",
+            local_path=self.make_file("provider-failed.bin", b"opaque"),
+            sequence_no=93,
+            retention="persistent",
+        )
+        failed_result = replace(
+            prepared.metadata,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        with patch.object(self.files, "upload", return_value=failed_result):
+            failed = controller.upload_file(prepared)
+
+        self.assertEqual(failed.sequence_no, 93)
+        self.assertEqual(failed.transfer_state, "failed")
+        self.assertEqual(failed.scan_state, "failed")
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (failed,),
+        )
+
     def test_upload_recovers_concurrent_remote_prefix_before_own_sequence(self):
         remote = tuple(
             AttachmentMetadata(
