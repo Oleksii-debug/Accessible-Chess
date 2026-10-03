@@ -185,6 +185,8 @@ class ExerciseDefinition:
             raise ValueError("exercise metadata changed while being read")
         if any(type(key) is not str for key in metadata_keys):
             raise TypeError("exercise metadata must map strings to strings")
+        if len(set(metadata_keys)) != len(metadata_keys):
+            raise ValueError("exercise metadata contains duplicate keys")
         metadata: dict[str, str] = {}
         try:
             for key in metadata_keys:
