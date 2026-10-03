@@ -16,7 +16,7 @@ concurrency:
 
 env:
   CURRENT_PRODUCT_BASE: 3a00ff766ccec869a2cb761f26739fe1c85dc9ef
-  RESUME_SOURCE_BLOB: fb373a97ca1d8fbcca9b250de59639c577302855
+  RESUME_SOURCE_BLOB: f58f5c2d476dda82a0151e7dcab114de7b8579fe
   DESCRIPTOR_TEST_BLOB: c940ad72de2a98d9f8705aca87727f4219c49b95
   SNAPSHOT_RESUME_TEST_BLOB: 87e54b3d282ba4c2288737d745d2f29f4ae7076b
   LOCK_TOCTOU_TEST_BLOB: 7bfd54c53faae2d7e2f2f31f1f5f4179782a6911
@@ -74,7 +74,7 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/gametree_resume.py=fb373a97ca1d8fbcca9b250de59639c577302855
+          acs/gametree_resume.py=f58f5c2d476dda82a0151e7dcab114de7b8579fe
           tests/test_d06_gametree_resume_descriptor_read.py=c940ad72de2a98d9f8705aca87727f4219c49b95
           tests/test_d06_gametree_snapshot_resume.py=87e54b3d282ba4c2288737d745d2f29f4ae7076b
           tests/test_w1_d06_resume_lock_toctou.py=7bfd54c53faae2d7e2f2f31f1f5f4179782a6911
