@@ -517,6 +517,13 @@ class SoundSettingsApplication:
             entry = self._catalog[pack_id]
         except KeyError as exc:
             raise ValueError("unknown sound pack") from exc
+        status = self._packs.status(entry)
+        if (
+            entry.rights_evidence is None
+            or status.state
+            not in {SoundPackState.NOT_INSTALLED, SoundPackState.DIFFERENT_VERSION}
+        ):
+            raise ValueError("sound pack is not installable in its current state")
         installed = self._packs.install(entry, activate=False)
         if activate:
             self._save_pack_profile(installed.manifest.pack_id, installed.manifest)
