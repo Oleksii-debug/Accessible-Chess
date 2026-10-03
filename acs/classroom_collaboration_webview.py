@@ -125,6 +125,7 @@ _LABELS = {
         "new_many": "Нових повідомлень: {count}.",
         "unread": "Непрочитаних: {count}",
         "unread_message": "Непрочитане",
+        "redacted_message": "Вміст повідомлення більше недоступний.",
         "type": "Тип",
         "size": "Розмір",
         "status": "Стан",
@@ -207,6 +208,7 @@ _LABELS = {
         "new_many": "New messages: {count}.",
         "unread": "Unread: {count}",
         "unread_message": "Unread",
+        "redacted_message": "Message content is no longer available.",
         "type": "Type",
         "size": "Size",
         "status": "Status",
@@ -533,6 +535,14 @@ class ClassroomCollaborationWebView:
             sha256,
         ).hexdigest()
 
+    def _pending_chat_draft_key(self, message_id: str) -> str:
+        """Return opaque presentation correlation for one ambiguous chat send."""
+
+        material = (
+            f"{self._controller.room_id}\0pending-chat-draft\0{message_id}"
+        ).encode("utf-8")
+        return hmac.new(self._pending_chat_secret, material, sha256).hexdigest()
+
     @staticmethod
     def _announcement_body(value: str) -> str:
         normalized = unicodedata.normalize("NFC", value)
@@ -557,8 +567,13 @@ class ClassroomCollaborationWebView:
         )
         sender_label = self._label(item.sender_id)
         action_sender = self._announcement_body(sender_label)
+        presentation_body = (
+            _LABELS[self._language]["redacted_message"]
+            if item.redacted
+            else item.body
+        )
         action_message = self._announcement_body(
-            f"{sender_label}: {item.body}"
+            f"{sender_label}: {presentation_body}"
         )
         view: dict[str, object] = {
             "dom_id": self._dom_id("message", item.message_id),
@@ -566,11 +581,15 @@ class ClassroomCollaborationWebView:
             "action_sender": action_sender,
             "action_message": action_message,
             "body": item.body,
+            "redacted": item.redacted,
             "retention_label": (
                 f"{_LABELS[self._language]['retention']}: "
                 f"{_RETENTION_LABELS[self._language][item.retention]}"
             ),
-            "unread": item.message_id in self._unread_message_ids,
+            "unread": (
+                not item.redacted
+                and item.message_id in self._unread_message_ids
+            ),
             "can_hide": moderator,
             "can_moderate_sender": sender_moderatable,
             "can_remove_sender": (
@@ -579,6 +598,8 @@ class ClassroomCollaborationWebView:
                 and self._participant_moderation_ready()
             ),
         }
+        if item.redacted:
+            view["redacted_label"] = _LABELS[self._language]["redacted_message"]
         if item.sent_at_unix_ms is not None:
             timestamp_text, timestamp_datetime = self._message_timestamp(item.sent_at_unix_ms)
             view["timestamp_text"] = timestamp_text
@@ -809,8 +830,12 @@ class ClassroomCollaborationWebView:
             can_older_files,
             can_newer_files,
         ) = self._file_page_projection(attachments)
-        visible_ids = {item.message_id for item in messages}
-        self._unread_message_ids.intersection_update(visible_ids)
+        readable_ids = {
+            item.message_id
+            for item in messages
+            if not item.redacted
+        }
+        self._unread_message_ids.intersection_update(readable_ids)
         unread_count = len(self._unread_message_ids)
         moderation_available = self._moderator()
         return {
@@ -903,12 +928,15 @@ class ClassroomCollaborationWebView:
         *,
         announcement: str = "",
         focus_target: str = "",
+        clear_chat_draft_keys: tuple[str, ...] = (),
     ) -> ClassroomCollaborationWebViewEvent:
         payload: dict[str, object] = {"collaboration": self.safe_snapshot()}
         if announcement:
             payload["announcement"] = announcement
         if focus_target:
             payload["focus_target"] = focus_target
+        if clear_chat_draft_keys:
+            payload["clear_chat_draft_keys"] = clear_chat_draft_keys
         return ClassroomCollaborationWebViewEvent(kind, payload)
 
     def _error(
@@ -916,6 +944,7 @@ class ClassroomCollaborationWebView:
         *,
         message: str = "",
         focus_target: str = "",
+        pending_chat_draft_key: str = "",
     ) -> ClassroomCollaborationWebViewEvent:
         payload: dict[str, object] = {
             "message": message or _GENERIC_FAILURE[self._language]
@@ -923,6 +952,8 @@ class ClassroomCollaborationWebView:
         payload["collaboration"] = self.safe_snapshot()
         if focus_target:
             payload["focus_target"] = focus_target
+        if pending_chat_draft_key:
+            payload["pending_chat_draft_key"] = pending_chat_draft_key
         return ClassroomCollaborationWebViewEvent("error", payload)
 
     def _file_progress_view(self) -> dict[str, object] | None:
@@ -1027,6 +1058,7 @@ class ClassroomCollaborationWebView:
             return self._error(
                 message=_LABELS[self._language]["send_failed"],
                 focus_target="collaboration-chat-input",
+                pending_chat_draft_key=self._pending_chat_draft_key(message_id),
             )
         self._pending_chat.pop(fingerprint, None)
         self._chat_page_bucket = None
@@ -1096,6 +1128,11 @@ class ClassroomCollaborationWebView:
         return self._event(
             "collaboration.chat.received",
             announcement=announcement,
+            clear_chat_draft_keys=(
+                (self._pending_chat_draft_key(received.message_id),)
+                if pending_recovered
+                else ()
+            ),
         )
 
     def refresh_chat(self) -> ClassroomCollaborationWebViewEvent:
@@ -1126,10 +1163,11 @@ class ClassroomCollaborationWebView:
         visible_message_ids = {
             item.message_id
             for item in current_messages
-            if not item.hidden
+            if not item.hidden and not item.redacted
         }
         self._unread_message_ids.intersection_update(visible_message_ids)
         recovered_fingerprints: list[str] = []
+        recovered_draft_keys: list[str] = []
         pending_conflict = False
         for fingerprint, message_id in self._pending_chat.items():
             item = current_by_id.get(message_id)
@@ -1138,9 +1176,15 @@ class ClassroomCollaborationWebView:
             if (
                 item.sender_id == self._controller.local_participant_id
                 and item.retention == self._chat_retention
-                and self._chat_draft_fingerprint(item.body) == fingerprint
+                and (
+                    item.redacted
+                    or self._chat_draft_fingerprint(item.body) == fingerprint
+                )
             ):
                 recovered_fingerprints.append(fingerprint)
+                recovered_draft_keys.append(
+                    self._pending_chat_draft_key(message_id)
+                )
             else:
                 pending_conflict = True
         for fingerprint in recovered_fingerprints:
@@ -1156,11 +1200,25 @@ class ClassroomCollaborationWebView:
             for item in incoming
             if item.message_id not in before
             and not item.hidden
+            and not item.redacted
             and item.sender_id != self._controller.local_participant_id
         )
         self._unread_message_ids.update(item.message_id for item in new_remote)
         announcement = ""
-        if len(new_remote) == 1:
+        if pending_recovered and new_remote:
+            sent = _LABELS[self._language]["sent"]
+            if len(new_remote) == 1:
+                item = new_remote[0]
+                compact_body = self._announcement_body(item.body)
+                announcement = (
+                    f"{sent} {self._label(item.sender_id)}: {compact_body}"
+                )
+            else:
+                announcement = (
+                    f"{sent} "
+                    f"{_LABELS[self._language]['new_many'].format(count=len(new_remote))}"
+                )
+        elif len(new_remote) == 1:
             item = new_remote[0]
             compact_body = self._announcement_body(item.body)
             announcement = f"{self._label(item.sender_id)}: {compact_body}"
@@ -1168,7 +1226,11 @@ class ClassroomCollaborationWebView:
             announcement = _LABELS[self._language]["new_many"].format(count=len(new_remote))
         elif pending_recovered:
             announcement = _LABELS[self._language]["sent"]
-        return self._event("collaboration.chat.synced", announcement=announcement)
+        return self._event(
+            "collaboration.chat.synced",
+            announcement=announcement,
+            clear_chat_draft_keys=tuple(recovered_draft_keys),
+        )
 
     def refresh_files(self) -> ClassroomCollaborationWebViewEvent:
         """Refresh canonical file/history state after a trusted host notification."""

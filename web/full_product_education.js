@@ -193,10 +193,16 @@
     if (!root || typeof root.querySelector !== "function") return null;
     const input = root.querySelector("#collaboration-chat-input");
     if (!input) return null;
+    const pendingChatDraftKey = String(
+      input.getAttribute("data-pending-chat-draft-key") || ""
+    );
     return {
       value: String(input.value || ""),
       selectionStart: Number.isInteger(input.selectionStart) ? input.selectionStart : null,
-      selectionEnd: Number.isInteger(input.selectionEnd) ? input.selectionEnd : null
+      selectionEnd: Number.isInteger(input.selectionEnd) ? input.selectionEnd : null,
+      pendingChatDraftKey: /^[0-9a-f]{64}$/.test(pendingChatDraftKey)
+        ? pendingChatDraftKey
+        : ""
     };
   }
 
@@ -205,6 +211,14 @@
     const input = root.querySelector("#collaboration-chat-input");
     if (!input) return;
     input.value = draft.value;
+    if (
+      typeof draft.pendingChatDraftKey === "string" &&
+      /^[0-9a-f]{64}$/.test(draft.pendingChatDraftKey)
+    ) {
+      input.setAttribute("data-pending-chat-draft-key", draft.pendingChatDraftKey);
+    } else {
+      input.removeAttribute("data-pending-chat-draft-key");
+    }
     if (
       typeof input.setSelectionRange === "function" &&
       Number.isInteger(draft.selectionStart) &&
@@ -216,6 +230,56 @@
         // Keep the draft even when this host cannot restore a text selection.
       }
     }
+  }
+
+  function collaborationDraftShouldClear(draft, payload) {
+    if (
+      !draft ||
+      typeof draft.pendingChatDraftKey !== "string" ||
+      !/^[0-9a-f]{64}$/.test(draft.pendingChatDraftKey) ||
+      !payload ||
+      !Array.isArray(payload.clear_chat_draft_keys)
+    ) {
+      return false;
+    }
+    return payload.clear_chat_draft_keys.some(function (candidate) {
+      return (
+        typeof candidate === "string" &&
+        /^[0-9a-f]{64}$/.test(candidate) &&
+        candidate === draft.pendingChatDraftKey
+      );
+    });
+  }
+
+  function collaborationOpenDisclosureIds(root) {
+    if (!root || typeof root.querySelector !== "function") return [];
+    const wrapper = root.querySelector("#classroom-collaboration");
+    if (!wrapper || typeof wrapper.querySelectorAll !== "function") return [];
+    const ids = [];
+    wrapper.querySelectorAll("DETAILS").forEach(function (details) {
+      if (!details.open || typeof details.querySelector !== "function") return;
+      const summary = details.querySelector("SUMMARY");
+      if (summary && typeof summary.id === "string" && summary.id) {
+        ids.push(summary.id);
+      }
+    });
+    return ids;
+  }
+
+  function restoreCollaborationOpenDisclosures(root, summaryIds) {
+    if (
+      !root ||
+      typeof root.querySelector !== "function" ||
+      !Array.isArray(summaryIds)
+    ) {
+      return;
+    }
+    summaryIds.forEach(function (summaryId) {
+      if (typeof summaryId !== "string" || !summaryId) return;
+      const summary = root.querySelector("#" + summaryId);
+      const details = summary ? summary.parentNode : null;
+      if (details && details.tagName === "DETAILS") details.open = true;
+    });
   }
 
   function setCollaborationStatus(wrapper, message) {
@@ -499,6 +563,8 @@
     const collaborationWasFocused = collaborationOwnsFocus(root);
     const previousPending = collaborationPendingState(root);
     const previousDraft = collaborationDraftInside(root);
+    const previousOpenDisclosures = collaborationOpenDisclosureIds(root);
+    const clearRecoveredDraft = collaborationDraftShouldClear(previousDraft, payload);
     const previousStatus = root.querySelector("#classroom-collaboration-status");
     const previousStatusText = previousStatus
       ? String(previousStatus.textContent || "")
@@ -527,9 +593,13 @@
         previousCollaboration.replaceWith(
           renderCollaboration(collaborationSnapshot, invoke, announce, fallbackMessage)
         );
-        if (result.kind !== "collaboration.chat.sent") {
+        if (
+          result.kind !== "collaboration.chat.sent" &&
+          !clearRecoveredDraft
+        ) {
           restoreCollaborationDraft(root, previousDraft);
         }
+        restoreCollaborationOpenDisclosures(root, previousOpenDisclosures);
         if (
           previousPending &&
           previousPending.command !== String(settledCollaborationCommand || "")
@@ -805,6 +875,31 @@
         fallbackMessage,
         pending.command
       );
+      if (
+        pending.command === "collaboration.chat.send" &&
+        result &&
+        result.kind === "error" &&
+        typeof resultPayload.pending_chat_draft_key === "string" &&
+        /^[0-9a-f]{64}$/.test(resultPayload.pending_chat_draft_key)
+      ) {
+        const settledComposer = (
+          root && typeof root.querySelector === "function"
+            ? root.querySelector("#collaboration-chat-input")
+            : null
+        );
+        const submittedBody = (
+          payload && typeof payload.body === "string" ? payload.body : ""
+        );
+        if (
+          settledComposer &&
+          String(settledComposer.value || "") === submittedBody
+        ) {
+          settledComposer.setAttribute(
+            "data-pending-chat-draft-key",
+            resultPayload.pending_chat_draft_key
+          );
+        }
+      }
       if (wrapper.parentNode) releasePendingState();
     }, announce, fallbackMessage, function () {
       const current = (
@@ -967,6 +1062,9 @@
     input.setAttribute("dir", "auto");
     const maxBody = Number(chat.max_body_chars || 0);
     if (Number.isFinite(maxBody) && maxBody > 0) input.maxLength = maxBody;
+    input.addEventListener("input", function () {
+      input.removeAttribute("data-pending-chat-draft-key");
+    });
     form.appendChild(input);
     const send = node("button", chat.send_label || "Send");
     send.id = "collaboration-chat-send";
@@ -1002,17 +1100,29 @@
         const item = node("li");
         item.id = String(message.dom_id || "");
         item.tabIndex = -1;
-        if (message.unread) item.setAttribute("data-unread", "true");
+        const messageUnread = !!message.unread && !message.redacted;
+        if (messageUnread) item.setAttribute("data-unread", "true");
         const sender = node("strong");
         const senderText = node("bdi", message.sender || "");
         senderText.setAttribute("dir", "auto");
         sender.appendChild(senderText);
         item.appendChild(sender);
         item.appendChild(document.createTextNode(": "));
-        const body = node("bdi", message.body || "");
-        body.setAttribute("dir", "auto");
-        item.appendChild(body);
-        if (message.unread) {
+        if (message.redacted) {
+          const redacted = node(
+            "span",
+            message.redacted_label || "Message content is no longer available."
+          );
+          redacted.id = item.id + "-redacted";
+          redacted.setAttribute("data-message-redacted", "true");
+          redacted.setAttribute("aria-live", "off");
+          item.appendChild(redacted);
+        } else {
+          const body = node("bdi", message.body || "");
+          body.setAttribute("dir", "auto");
+          item.appendChild(body);
+        }
+        if (messageUnread) {
           item.appendChild(document.createTextNode(" — "));
           const unreadMarker = node(
             "span",
