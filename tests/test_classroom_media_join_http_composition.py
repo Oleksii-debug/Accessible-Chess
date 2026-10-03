@@ -53,6 +53,7 @@ class FakeTransactions:
         self.reconnect_calls = []
 
     def prepare_join(self, value: JoinCredential, *, now: datetime):
+        value.assert_usable(now)
         self.join_calls.append((value, now))
         return ClassroomMediaWebViewEvent(
             "provider-dispatch",
@@ -64,6 +65,7 @@ class FakeTransactions:
         )
 
     def prepare_reconnect(self, value: JoinCredential, *, now: datetime):
+        value.assert_usable(now)
         self.reconnect_calls.append((value, now))
         return ClassroomMediaWebViewEvent(
             "provider-dispatch",
@@ -90,10 +92,15 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         application._assert_thread = lambda: None
         return application, controller, transactions
 
-    def configure(self, application, bearer):
+    def configure(self, application, bearer, now_provider=None):
         application.configure_classroom_media_join_http(
             endpoint_url="https://classroom.example/v1/classroom/join-credential",
             bearer_token_provider=bearer,
+            now_provider=(
+                (lambda: NOW + timedelta(seconds=1))
+                if now_provider is None
+                else now_provider
+            ),
         )
 
     def test_configuration_is_lazy_and_requires_transactional_media(self):
@@ -123,10 +130,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
             return_value=issued,
         ) as issue:
-            rendered = application.prepare_classroom_media_join_http(
-                "room-1",
-                now=NOW + timedelta(seconds=1),
-            )
+            rendered = application.prepare_classroom_media_join_http("room-1")
 
         issue.assert_called_once_with(
             application._media_join_http,
@@ -137,6 +141,43 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         self.assertEqual(rendered["kind"], "provider-dispatch")
         self.assertNotIn(TOKEN, repr(rendered))
         self.assertEqual(list(application._events), [rendered])
+
+    def test_join_samples_validity_clock_after_http_issuance(self):
+        application, _controller, transactions = self.application()
+        order = []
+        issued = JoinCredential(
+            room_id="room-1",
+            participant_id="student-1",
+            token=TOKEN,
+            issued_at=NOW + timedelta(seconds=5),
+            expires_at=NOW + timedelta(minutes=1),
+        )
+
+        def now_provider():
+            order.append("clock")
+            return NOW + timedelta(seconds=6)
+
+        self.configure(application, lambda: "account-token", now_provider=now_provider)
+
+        def issue(_client, *, room_id, participant_id):
+            self.assertEqual((room_id, participant_id), ("room-1", "student-1"))
+            order.append("issue")
+            return issued
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            side_effect=issue,
+        ):
+            rendered = application.prepare_classroom_media_join_http("room-1")
+
+        self.assertEqual(order, ["issue", "clock"])
+        self.assertEqual(
+            transactions.join_calls,
+            [(issued, NOW + timedelta(seconds=6))],
+        )
+        self.assertEqual(rendered["kind"], "provider-dispatch")
 
     def test_invalid_room_fails_before_bearer_or_network(self):
         bearer_calls = []
@@ -152,7 +193,6 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         ):
             application.prepare_classroom_media_join_http(
                 "bad room",
-                now=NOW,
             )
 
         self.assertEqual(bearer_calls, [])
@@ -168,7 +208,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         ) as issue:
             transactions.binder.active_lease = object()
             with self.assertRaisesRegex(RuntimeError, "not quiescent"):
-                application.prepare_classroom_media_join_http("room-1", now=NOW)
+                application.prepare_classroom_media_join_http("room-1")
             transactions.binder.active_lease = None
             controller.blocked = True
             with self.assertRaisesRegex(RuntimeError, "not allowed"):
@@ -191,9 +231,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
             return_value=issued,
         ) as issue:
-            rendered = application.prepare_classroom_media_reconnect_http(
-                now=NOW + timedelta(seconds=1),
-            )
+            rendered = application.prepare_classroom_media_reconnect_http()
 
         issue.assert_called_once_with(
             application._media_join_http,
@@ -216,7 +254,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             autospec=True,
         ) as issue:
             with self.assertRaisesRegex(RuntimeError, "no room"):
-                application.prepare_classroom_media_reconnect_http(now=NOW)
+                application.prepare_classroom_media_reconnect_http()
             controller.state = SimpleNamespace(
                 room_id="room-1",
                 participant_id="student-1",
