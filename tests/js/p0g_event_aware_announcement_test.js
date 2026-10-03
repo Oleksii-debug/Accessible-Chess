@@ -61,9 +61,12 @@ assert(
   'direct board.current user feedback must carry a fresh event identity'
 );
 assert(
-  onBoardKey.includes('analysisViewingTemporaryPosition') &&
-    onBoardKey.includes('announceUserAction('),
-  'temporary-variation board action warning must carry a fresh event identity'
+  executeAction.includes("id==='board.activate'") &&
+    executeAction.includes("id==='board.activate_alternative'") &&
+    executeAction.includes('analysisViewingTemporaryPosition') &&
+    executeAction.includes('announceUserAction(') &&
+    onBoardKey.includes('executeAction(a.actionId)'),
+  'temporary-variation warning must stay event-aware through the centralized board action boundary'
 );
 
 const writes = [];
@@ -88,6 +91,7 @@ const context = {
   setTimeout,
   clearTimeout,
   document: {
+    documentElement: { lang: 'uk' },
     getElementById(id) {
       if (id === 'live') return live;
       throw new Error(`unexpected element lookup: ${id}`);
@@ -104,8 +108,8 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(
-  [declaration, helpers, announcement, apiAction,
-   'this.testApiAction=apiAction;this.testAnnounce=announce;this.testNextEvent=nextAnnouncementEvent;this.testUserAction=announceUserAction;'].join('\n'),
+  [declaration, helpers, announcement, apiAction, executeAction,
+   'this.testApiAction=apiAction;this.testAnnounce=announce;this.testNextEvent=nextAnnouncementEvent;this.testUserAction=announceUserAction;this.testExecuteAction=executeAction;this.setTestState=value=>{state=value;};'].join('\n'),
   context
 );
 
@@ -148,6 +152,25 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     writes,
     ['', 'Повторне попередження', '', 'Повторне попередження'],
     'distinct direct keyboard actions must both reach the live region'
+  );
+
+  // Remappable board activation is centralized in executeAction().  The P0-G
+  // contract follows that action boundary rather than requiring the warning to
+  // remain lexically inside onBoardKey().
+  writes.length = 0;
+  context.setTestState({ analysisViewingTemporaryPosition: true });
+  context.testExecuteAction('board.activate');
+  context.testExecuteAction('board.activate_alternative');
+  await sleep(150);
+  assert.deepStrictEqual(
+    writes,
+    [
+      '',
+      'Поверніться з тимчасового варіанта перед зміною дошки.',
+      '',
+      'Поверніться з тимчасового варіанта перед зміною дошки.',
+    ],
+    'two distinct blocked board actions must publish two fresh accessible warning events'
   );
 
   // A duplicate emission from one event must stay suppressed even when another
