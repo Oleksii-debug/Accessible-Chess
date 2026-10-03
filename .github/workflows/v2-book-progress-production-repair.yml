@@ -123,7 +123,12 @@ jobs:
             focus_parent_ref="refs/remotes/origin/$PR_BASE_REF"
             git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:$focus_parent_ref"
             focus_parent="$(git rev-parse "$focus_parent_ref")"
-            test "$PR_BASE_SHA" = "$focus_parent"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$focus_parent"
+            git merge-base --is-ancestor "$focus_parent" HEAD
+            test "$(git merge-base "$focus_parent" HEAD)" = "$focus_parent"
+            git diff --check "$focus_parent" HEAD
+            focus_changed="$(git diff --name-only "$focus_parent" HEAD | sort)"
             focus_recovery_expected="$(printf '%s\n' \
               '.github/workflows/d01-pgn-workspace-webview.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
@@ -133,7 +138,7 @@ jobs:
               'tests/test_v2_book_progress_store.py' \
               'tests/test_v2_book_progress_store_production.py' \
               'tests/test_version2_application.py' | sort)"
-            test "$changed" = "$focus_recovery_expected"
+            test "$focus_changed" = "$focus_recovery_expected"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$FOCUS_RECOVERY_PRODUCTION_TEST_BLOB"
