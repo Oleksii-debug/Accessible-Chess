@@ -227,6 +227,51 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertEqual(self.app.shell.current_route.route_id, "library")
 
+    def test_failed_delegated_library_search_preserves_committed_library_state(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+        self.app.import_ui_ready(self.mailbox)
+        searched = self.app.browser_command(
+            "library",
+            "library.search",
+            {"player": "петренко"},
+        )
+        self.assertEqual(searched["kind"], "render")
+        toggled = self.app.browser_command(
+            "library",
+            "library.toggle_export_selection",
+            {"game_id": 1},
+        )
+        self.assertEqual(toggled["kind"], "render")
+        before = self.app.library.projection.snapshot()
+        before_query = self.app.library.projection.query
+
+        self.app.shell.open_route("board")
+        self.app.record_focus("board-square-e4")
+        with patch.object(
+            AcsDatabase,
+            "search_games",
+            side_effect=PermissionError(
+                r"C:\Users\BlindTeacher\private-library.sqlite"
+            ),
+        ):
+            command = self.app.adapter.activate_action(
+                "library.search",
+                current_focus_id="board-square-e4",
+            )
+
+        self.assertEqual(command.kind, "error")
+        self.assertNotIn("BlindTeacher", command.payload["message"])
+        self.assertNotIn("private-library", command.payload["message"])
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "board-square-e4",
+        )
+        self.assertEqual(self.app.library.projection.query, before_query)
+        self.assertEqual(self.app.library.projection.export_game_ids, (1,))
+        self.assertEqual(self.app.library.projection.snapshot(), before)
+
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
