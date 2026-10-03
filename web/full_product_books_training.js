@@ -270,6 +270,7 @@
     requireFunction(invoke, "Book invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Book announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Book snapshot is required");
+    requireBookSnapshot(snapshot);
 
     const fragment = document.createDocumentFragment();
     const main = node("main");\n    main.setAttribute("lang", snapshot.document.lang);
@@ -404,6 +405,7 @@
     requireFunction(invoke, "Training invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Training snapshot is required");
+    requireTrainingSnapshot(snapshot);
 
     const fragment = document.createDocumentFragment();
     const main = node("main");\n    main.setAttribute("lang", snapshot.document.lang);
