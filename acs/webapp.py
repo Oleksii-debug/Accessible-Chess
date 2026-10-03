@@ -314,8 +314,8 @@ class AccessibleChessAPI:
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
         try:
-            side = turn if turn in ("w", "b") else self.board.turn
-            fen = parse_position_text(text or "", side)
+            side = self.board.turn if turn is None else turn
+            fen = parse_position_text(text, side, language=self.lang)
             self.board = Board(fen)
             self._reset_history()
             return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
