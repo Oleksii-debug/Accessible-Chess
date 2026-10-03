@@ -292,6 +292,30 @@ class SoundPackCatalogTests(unittest.TestCase):
         self.assertEqual(storage.items[old.pack_id].version, "2.0.0")
         self.assertEqual(manager.status(entry).state, SoundPackState.CURRENT)
 
+    def test_same_version_catalog_manifest_conflict_is_not_current_or_installable(self):
+        installed = make_manifest(version="2.0.0")
+        conflicting = SoundPackManifest(
+            pack_id=installed.pack_id,
+            version=installed.version,
+            title="Conflicting title",
+            license_id=installed.license_id,
+            files=dict(installed.files),
+            author=installed.author,
+            provenance="https://example.invalid/conflicting-pack",
+        )
+        entry = make_entry(conflicting)
+        storage = FakeStorage({"classic": make_manifest("classic"), installed.pack_id: installed})
+        downloader = FakeDownloader(make_download(entry))
+        manager = SoundPackManager(downloader, storage)
+
+        self.assertEqual(manager.status(entry).state, SoundPackState.VERSION_CONFLICT)
+        with self.assertRaisesRegex(SoundPackInstallError, "metadata conflicts"):
+            manager.install(entry)
+
+        self.assertEqual([], downloader.calls)
+        self.assertEqual([], storage.install_calls)
+        self.assertEqual(installed, storage.items[installed.pack_id])
+
     def test_stale_catalog_cannot_downgrade_newer_installed_pack(self):
         installed = make_manifest(version="2.0.0")
         stale = make_manifest(version="1.5.0")
