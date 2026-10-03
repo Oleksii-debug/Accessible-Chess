@@ -260,6 +260,7 @@ def _generated_runtime_file_is_authenticated_hardlink(
 
 
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
+_MAX_RECOVERY_JSON_BYTES = 8 * 1024 * 1024
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
     "CON", "PRN", "AUX", "NUL",
@@ -889,11 +890,133 @@ def _atomic_json(path: Path, value: Mapping[str, object]) -> None:
     )
 
 
-def _hash(path: Path) -> str:
+def _read_exact_regular_bytes(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int | None = None,
+) -> bytes:
+    """Read one exact regular inode through a descriptor-bound snapshot."""
+    before = _safe_stat(path, label)
+    if not stat.S_ISREG(before.st_mode):
+        raise Version2UpgradeError(f"{label} must be a regular file")
+    if max_bytes is not None and (
+        type(max_bytes) is not int
+        or max_bytes < 0
+        or int(before.st_size) > max_bytes
+    ):
+        raise Version2UpgradeError(f"{label} exceeds the read limit")
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    descriptor = -1
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or not _same_file_identity(before, opened)
+        ):
+            raise Version2UpgradeError(f"{label} changed while opening")
+        opened_state = (
+            int(opened.st_size),
+            int(getattr(opened, "st_mtime_ns", 0)),
+        )
+
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            total += len(block)
+            if max_bytes is not None and total > max_bytes:
+                raise Version2UpgradeError(f"{label} exceeds the read limit")
+            chunks.append(block)
+
+        after = os.fstat(descriptor)
+        if (
+            not _same_file_identity(opened, after)
+            or (
+                int(after.st_size),
+                int(getattr(after, "st_mtime_ns", 0)),
+            )
+            != opened_state
+        ):
+            raise Version2UpgradeError(f"{label} changed while being read")
+    except Version2UpgradeError:
+        raise
+    except OSError as exc:
+        raise Version2UpgradeError(f"{label} could not be read safely") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+    current = _safe_stat(path, label)
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or not _same_file_identity(opened, current)
+    ):
+        raise Version2UpgradeError(f"{label} changed while being read")
+    return b"".join(chunks)
+
+
+def _hash(path: Path, *, label: str = "hashed file") -> str:
+    before = _safe_stat(path, label)
+    if not stat.S_ISREG(before.st_mode):
+        raise Version2UpgradeError(f"{label} must be a regular file")
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    descriptor = -1
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
+    try:
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or not _same_file_identity(before, opened)
+        ):
+            raise Version2UpgradeError(f"{label} changed while opening")
+        opened_state = (
+            int(opened.st_size),
+            int(getattr(opened, "st_mtime_ns", 0)),
+        )
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
             digest.update(block)
+        after = os.fstat(descriptor)
+        if (
+            not _same_file_identity(opened, after)
+            or (
+                int(after.st_size),
+                int(getattr(after, "st_mtime_ns", 0)),
+            )
+            != opened_state
+        ):
+            raise Version2UpgradeError(f"{label} changed while being hashed")
+    except Version2UpgradeError:
+        raise
+    except OSError as exc:
+        raise Version2UpgradeError(f"{label} could not be hashed safely") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+    current = _safe_stat(path, label)
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or not _same_file_identity(opened, current)
+    ):
+        raise Version2UpgradeError(f"{label} changed while being hashed")
     return digest.hexdigest()
 
 
@@ -1717,18 +1840,25 @@ class Version2UpgradeCoordinator:
 
     def _read_json(self, path: Path, label: str) -> dict[str, object]:
         try:
-            info = _safe_stat(path, label)
-            if not stat.S_ISREG(info.st_mode):
-                raise Version2UpgradeRecoveryError(f"{label} must be a file")
+            payload = _read_exact_regular_bytes(
+                path,
+                label=label,
+                max_bytes=_MAX_RECOVERY_JSON_BYTES,
+            )
             value = json.loads(
-                path.read_text(encoding="utf-8"),
+                payload.decode("utf-8"),
                 object_pairs_hook=_unique_json_object,
             )
         except _DuplicateJsonKeyError as exc:
             raise Version2UpgradeRecoveryError(
                 f"{label} contains duplicate JSON keys"
             ) from exc
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            Version2UpgradeError,
+        ) as exc:
             raise Version2UpgradeRecoveryError(f"{label} is unreadable") from exc
         if not isinstance(value, dict):
             raise Version2UpgradeRecoveryError(f"{label} must be an object")
@@ -1882,10 +2012,19 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup checksum mismatch"
                 ) from exc
+            try:
+                candidate_digest = _hash(
+                    candidate,
+                    label="upgrade backup file",
+                )
+            except Version2UpgradeError as exc:
+                raise Version2UpgradeRecoveryError(
+                    "upgrade backup checksum mismatch"
+                ) from exc
             if (
                 not stat.S_ISREG(candidate_info.st_mode)
                 or candidate_info.st_size != size
-                or _hash(candidate) != digest
+                or candidate_digest != digest
             ):
                 raise Version2UpgradeRecoveryError(
                     "upgrade backup checksum mismatch"
@@ -1926,7 +2065,7 @@ class Version2UpgradeCoordinator:
             return _library_state_sha256(
                 path, schema_validator=self._validate_library_schema
             )
-        return _hash(path)
+        return _hash(path, label="tracked user data")
 
     def _assert_tracked_original(
         self, manifest: Mapping[str, object], name: str
@@ -2364,7 +2503,7 @@ class Version2UpgradeCoordinator:
                 guard = _publication_guard(path)
                 if (
                     _publication_guard_hash(guard) != original_state
-                    or _hash(path) != original_state
+                    or _hash(path, label="settings publication target") != original_state
                 ):
                     raise Version2UpgradeError(
                         "tracked user data changed during settings publication"
@@ -2383,7 +2522,7 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeError(
                     "tracked user data changed during settings publication"
                 )
-            if _hash(path) != expected:
+            if _hash(path, label="settings publication target") != expected:
                 raise Version2UpgradeError(
                     "settings migration publication verification failed"
                 )
@@ -2706,7 +2845,10 @@ class Version2UpgradeCoordinator:
             if (
                 not stat.S_ISREG(info.st_mode)
                 or info.st_size != item["size"]
-                or _hash(current) != item["sha256"]
+                or _hash(
+                    current,
+                    label="preserved user-data file",
+                ) != item["sha256"]
             ):
                 raise Version2UpgradeError(
                     "preserved user-data file changed during upgrade"
