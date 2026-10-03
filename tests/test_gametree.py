@@ -1,5 +1,6 @@
 import unittest
 from acs.gametree import (
+    CanonicalPgnGameFramer,
     Comment,
     CommentStyle,
     GameTreeContractError,
@@ -7,6 +8,7 @@ from acs.gametree import (
     GameTreeSerializationError,
     MoveNode,
     PgnGame,
+    PgnGameFrameSizeError,
     VariationLine,
     parse_games,
     serialize_games,
@@ -14,6 +16,24 @@ from acs.gametree import (
 
 
 class GameTreeTests(unittest.TestCase):
+    def test_unbounded_framer_skips_unused_utf8_byte_accounting(self):
+        framer = CanonicalPgnGameFramer()
+        self.assertEqual(framer._frame_bytes, 0)
+
+        self.assertIsNone(framer.feed_line("😀😀"))
+        self.assertEqual(
+            framer._frame_bytes,
+            0,
+            "unbounded framing must not encode text just to maintain an unused byte counter",
+        )
+
+        bounded = CanonicalPgnGameFramer(max_frame_bytes=8)
+        with self.assertRaisesRegex(
+            PgnGameFrameSizeError,
+            "frame safety limit",
+        ):
+            bounded.feed_line("😀😀")
+
     def test_nested_rav_comments_and_nags_are_preserved(self):
         text = '''[Event "Nested"]
 [White "A"]
