@@ -32,7 +32,7 @@ _MAX_BOOK_SEMANTIC_DEPTH = 256
 _MAX_BOOK_SEMANTIC_DETAILS = 4_096
 _MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
 _BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
-_BOOK_SEMANTIC_HIDDEN_TAGS = frozenset({"White", "Black", "Result", "FEN"})
+_BOOK_SEMANTIC_HIDDEN_TAGS = frozenset({"white", "black", "result", "fen"})
 
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
@@ -461,12 +461,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     "book semantic metadata entry is invalid"
                 )
             tag_name, raw_value = detail
-            if tag_name in _BOOK_SEMANTIC_HIDDEN_TAGS:
-                continue
             if type(tag_name) is not str or not tag_name.strip():
                 raise _BookSemanticTreeError(
                     "book semantic metadata tag name is invalid"
                 )
+            if tag_name.casefold() in _BOOK_SEMANTIC_HIDDEN_TAGS:
+                continue
             localized = localized_detail_labels.get(tag_name)
             if localized is None:
                 detail_label = safe(tag_name)
