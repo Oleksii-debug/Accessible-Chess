@@ -1,0 +1,306 @@
+/*
+ * Accessible Chess visual layer.
+ * Presentation only: semantic HTML, UIA roles, text selection and keyboard
+ * behavior remain owned by the existing product surfaces.
+ */
+:root {
+  --ac-board-light: #e9edf2;
+  --ac-board-dark: #60758b;
+  --ac-board-selected: #ffd54f;
+  --ac-surface: color-mix(in srgb, var(--pico-background-color) 94%, var(--pico-primary) 6%);
+  --ac-surface-raised: color-mix(in srgb, var(--pico-background-color) 88%, var(--pico-primary) 12%);
+  --ac-border: color-mix(in srgb, var(--pico-muted-border-color) 72%, var(--pico-primary) 28%);
+  --ac-shadow: 0 .45rem 1.25rem rgba(15, 23, 42, .11);
+  --ac-radius: .8rem;
+  --ac-focus: 0 0 0 .22rem color-mix(in srgb, var(--pico-primary-focus) 82%, transparent);
+  color-scheme: light dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 10% -10%, color-mix(in srgb, var(--pico-primary) 13%, transparent), transparent 34rem),
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--pico-secondary) 10%, transparent), transparent 28rem),
+    var(--pico-background-color);
+  color: var(--pico-color);
+}
+
+body > header {
+  max-width: 76rem;
+  margin-inline: auto;
+  padding: 1.1rem 0 .25rem;
+}
+
+body > header h1 {
+  margin: 0;
+  letter-spacing: -.025em;
+  font-weight: 720;
+}
+
+#main-content {
+  width: min(76rem, 100%);
+  margin-inline: auto;
+}
+
+#main-content > section {
+  margin-block: 1rem;
+  padding: clamp(.9rem, 2vw, 1.25rem);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius);
+  background: var(--ac-surface);
+  box-shadow: var(--ac-shadow);
+}
+
+#main-content > section > h2:first-child {
+  margin-top: 0;
+}
+
+section section {
+  margin-top: 1rem;
+  padding-top: .9rem;
+  border-top: 1px solid var(--ac-border);
+}
+
+.block {
+  border-color: var(--ac-border) !important;
+  border-radius: .55rem;
+  background: color-mix(in srgb, var(--pico-background-color) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--pico-color) 8%, transparent);
+}
+
+.row {
+  gap: .65rem !important;
+}
+
+button,
+input,
+select,
+textarea {
+  border-radius: .55rem !important;
+}
+
+button {
+  font-weight: 620;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="gridcell"]:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--pico-primary-focus) !important;
+  outline-offset: 3px !important;
+  box-shadow: var(--ac-focus);
+}
+
+fieldset {
+  border-color: var(--ac-border);
+  border-radius: .7rem;
+  background: color-mix(in srgb, var(--pico-background-color) 90%, transparent);
+}
+
+legend {
+  padding-inline: .4rem;
+  font-weight: 650;
+}
+
+.skip-link {
+  border-radius: .45rem;
+  box-shadow: var(--ac-shadow);
+}
+
+#live:not(:empty) {
+  width: min(76rem, calc(100% - 2rem));
+  margin: .5rem auto;
+  padding: .7rem .9rem;
+  border-left: .3rem solid var(--pico-primary);
+  border-radius: .4rem;
+  background: var(--ac-surface-raised);
+}
+
+#board-application {
+  margin-top: .75rem;
+  padding: .8rem;
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius);
+  background: color-mix(in srgb, var(--pico-background-color) 82%, var(--pico-primary) 4%);
+  overflow-x: auto;
+}
+
+#board-grid {
+  width: min(100%, 52rem);
+  aspect-ratio: 1 / 1;
+  margin-inline: auto;
+  gap: 0 !important;
+  border: .35rem solid color-mix(in srgb, var(--pico-color) 72%, transparent);
+  border-radius: .45rem;
+  box-shadow: 0 .55rem 1.7rem rgba(0, 0, 0, .2);
+  overflow: hidden;
+}
+
+#board-grid [role="gridcell"] {
+  display: grid;
+  place-items: center;
+  min-width: 3.4rem;
+  min-height: 3.4rem;
+  padding: .2rem !important;
+  border: 0 !important;
+  color: #101820;
+  font-weight: 650;
+  text-shadow: 0 1px rgba(255, 255, 255, .28);
+}
+
+#board-grid [role="gridcell"]:nth-child(16n + 1),
+#board-grid [role="gridcell"]:nth-child(16n + 3),
+#board-grid [role="gridcell"]:nth-child(16n + 5),
+#board-grid [role="gridcell"]:nth-child(16n + 7),
+#board-grid [role="gridcell"]:nth-child(16n + 10),
+#board-grid [role="gridcell"]:nth-child(16n + 12),
+#board-grid [role="gridcell"]:nth-child(16n + 14),
+#board-grid [role="gridcell"]:nth-child(16n + 16) {
+  background: var(--ac-board-light);
+}
+
+#board-grid [role="gridcell"]:nth-child(16n + 2),
+#board-grid [role="gridcell"]:nth-child(16n + 4),
+#board-grid [role="gridcell"]:nth-child(16n + 6),
+#board-grid [role="gridcell"]:nth-child(16n + 8),
+#board-grid [role="gridcell"]:nth-child(16n + 9),
+#board-grid [role="gridcell"]:nth-child(16n + 11),
+#board-grid [role="gridcell"]:nth-child(16n + 13),
+#board-grid [role="gridcell"]:nth-child(16n + 15) {
+  background: var(--ac-board-dark);
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .5);
+}
+
+#board-grid [role="gridcell"][aria-selected="true"] {
+  outline: .28rem solid var(--ac-board-selected) !important;
+  outline-offset: -.28rem !important;
+  z-index: 4;
+}
+
+#board-grid .stage1-visual-piece {
+  filter: drop-shadow(0 .08rem .08rem rgba(0, 0, 0, .32));
+}
+
+#analysis-lines {
+  display: grid;
+  gap: .45rem;
+  padding-left: 1.4rem !important;
+}
+
+#analysis-lines li::marker {
+  font-weight: 700;
+}
+
+#analysis-lines button {
+  border: 1px solid var(--ac-border);
+  background: color-mix(in srgb, var(--pico-background-color) 92%, var(--pico-primary) 8%);
+}
+
+#analysis-lines button[aria-pressed="true"] {
+  border-color: var(--pico-primary);
+  background: color-mix(in srgb, var(--pico-primary-background) 22%, var(--pico-background-color));
+}
+
+.binding-item {
+  border-color: var(--ac-border) !important;
+  border-radius: .65rem;
+  background: color-mix(in srgb, var(--pico-background-color) 92%, transparent);
+}
+
+dialog {
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius);
+  box-shadow: 0 1.4rem 4rem rgba(0, 0, 0, .32);
+}
+
+dialog::backdrop {
+  backdrop-filter: blur(3px);
+}
+
+@media (max-width: 52rem) {
+  body {
+    padding-inline: .75rem !important;
+  }
+
+  #main-content > section {
+    padding: .8rem;
+  }
+
+  #board-grid {
+    min-width: 31rem;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --ac-border: currentColor;
+    --ac-shadow: none;
+  }
+
+  #main-content > section,
+  .block,
+  fieldset {
+    border-width: 2px !important;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="gridcell"]:focus-visible,
+  a:focus-visible {
+    outline-width: 4px !important;
+  }
+}
+
+@media (forced-colors: active) {
+  body,
+  #main-content > section,
+  .block,
+  #board-application,
+  #board-grid [role="gridcell"],
+  #analysis-lines button {
+    background: Canvas !important;
+    color: CanvasText !important;
+    box-shadow: none !important;
+  }
+
+  #board-grid [role="gridcell"] {
+    border: 1px solid CanvasText !important;
+  }
+
+  #board-grid [role="gridcell"][aria-selected="true"] {
+    outline-color: Highlight !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *:not(.stage1-visual-piece),
+  *:not(.stage1-visual-piece)::before,
+  *:not(.stage1-visual-piece)::after {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* P0 #730: semantic application text must stay natively selectable/copyable. */
+main,
+section,
+.block,
+#analysis-lines,
+.binding-item,
+[role="status"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
