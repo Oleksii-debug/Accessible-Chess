@@ -310,200 +310,205 @@ def _build_sound_pack_unchecked(
             dir=str(destination.parent),
         )
     )
-    library = staging / "library"
-    library.mkdir()
-
-    inventory: list[dict[str, object]] = []
-    source_fingerprint_rows: list[bytes] = []
-    seen_casefold: set[str] = set()
-    for source_path in sorted(sounds.rglob("*"), key=lambda item: item.as_posix().casefold()):
-        if not source_path.is_file():
-            continue
-        relative = _safe_relative(source_path, sounds)
-        if source_path.suffix.casefold() != ".wav":
-            continue
-        folded = relative.as_posix().casefold()
-        if folded in seen_casefold:
-            raise SoundPackBuildError(f"case-insensitive duplicate sound path: {relative}")
-        seen_casefold.add(folded)
-
-        source_digest = _sha256(source_path)
-        source_fingerprint_rows.append(
-            f"{relative.as_posix()}\0{source_digest}\n".encode("utf-8")
-        )
-
-        target = library / Path(*relative.parts)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source_path, target)
-        info = _wave_info(target)
-        inventory.append(
-            {
-                "file": f"library/{relative.as_posix()}",
-                "sha256": source_digest,
-                "bytes": target.stat().st_size,
-                **info,
-            }
-        )
-
-    if len(inventory) != EXPECTED_SOURCE_WAV_COUNT:
-        raise SoundPackBuildError(
-            f"expected {EXPECTED_SOURCE_WAV_COUNT} WAV files from the supplied archive, "
-            f"found {len(inventory)}"
-        )
-    source_inventory_sha256 = hashlib.sha256(
-        b"".join(source_fingerprint_rows)
-    ).hexdigest()
-    if source_inventory_sha256 != EXPECTED_SOURCE_INVENTORY_SHA256:
-        raise SoundPackBuildError(
-            "source sound inventory does not match the exact user-supplied archive"
-        )
-
-    _validate_event_paths(destination)
-    for event, by_variant in SOUND_LAYERS.items():
-        variants_for_event = {
-            variant_id: file_name
-            for variant_id, file_name, _uk, _en in EVENT_VARIANTS[event]
-        }
-        for variant_id, sequence in by_variant.items():
-            if variant_id not in variants_for_event:
-                raise SoundPackBuildError(
-                    f"sound layer references unknown variant: {event}/{variant_id}"
-                )
-            if sequence[0] != variants_for_event[variant_id]:
-                raise SoundPackBuildError(
-                    f"sound layer does not start with selected variant: {event}/{variant_id}"
-                )
-            for file_name in sequence:
-                layer_path = staging / Path(file_name)
-                if not layer_path.is_file():
-                    raise SoundPackBuildError(f"missing layered sound asset: {file_name}")
-                info = _wave_info(layer_path)
-                if info["compression"] != "NONE" or info["sample_width_bytes"] != 2:
-                    raise SoundPackBuildError(
-                        f"layered runtime sound must be 16-bit PCM: {file_name}"
-                    )
-
-    manifest = {
-        "schema_version": 1,
-        "files": DEFAULT_EVENT_FILES,
-    }
-    variants = {
-        "schema_version": 1,
-        "events": {
-            event: [
-                {
-                    "id": variant_id,
-                    "file": file_name,
-                    "label_uk": label_uk,
-                    "label_en": label_en,
-                }
-                for variant_id, file_name, label_uk, label_en in options
-            ]
-            for event, options in EVENT_VARIANTS.items()
-        },
-    }
-    layers = {
-        "schema_version": 1,
-        "events": {
-            event: {
-                variant_id: list(sequence)
-                for variant_id, sequence in by_variant.items()
-            }
-            for event, by_variant in SOUND_LAYERS.items()
-        },
-    }
-    provenance = {
-        "schema_version": 1,
-        "events": {
-            event: {
-                "file": file_name,
-                "sha256": _sha256(staging / Path(file_name)),
-                "license_id": PROVENANCE_LICENSE,
-                "source": PROVENANCE_SOURCE,
-                "creator": PROVENANCE_CREATOR,
-            }
-            for event, file_name in DEFAULT_EVENT_FILES.items()
-        },
-    }
-    inventory_doc = {
-        "schema_version": 1,
-        "source": PROVENANCE_SOURCE,
-        "license_id": PROVENANCE_LICENSE,
-        "creator": PROVENANCE_CREATOR,
-        "file_count": len(inventory),
-        "source_inventory_sha256": source_inventory_sha256,
-        "files": inventory,
-    }
-
-    (staging / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (staging / "variants.json").write_text(
-        json.dumps(variants, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (staging / "layers.json").write_text(
-        json.dumps(layers, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (staging / "provenance.json").write_text(
-        json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (staging / "inventory.json").write_text(
-        json.dumps(inventory_doc, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (staging / "newgame_impacts.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "default_variant": "1",
-                "variants": {
-                    variant_id: {
-                        "source_file": next(
-                            file_name
-                            for current_id, file_name, _uk, _en
-                            in EVENT_VARIANTS["start"]
-                            if current_id == variant_id
-                        ),
-                        "duration_seconds": NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
-                        "impact_count": len(impacts),
-                        "impacts_ms": list(impacts),
-                    }
-                    for variant_id, impacts in NEW_GAME_IMPACTS_BY_VARIANT.items()
-                },
-                "analysis": {
-                    "window_ms": 20,
-                    "hop_ms": 5,
-                    "threshold_percentile": 60,
-                    "minimum_peak_separation_ms": 90,
-                    "three_d_selection": "32 strongest separated candidate peaks",
-                },
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ) + "\n",
-        encoding="utf-8",
-    )
-    (staging / "README.txt").write_text(
-        "Accessible Chess user-supplied sound pack\n"
-        "All 330 WAV files from the supplied archive are retained under library/.\n"
-        "Runtime defaults and selectable variants are declared in manifest.json and variants.json.\n"
-        "Original MOVEHIT/CAPHIT landing layers are declared in layers.json.\n"
-        "NEWGAME impact timing for the visual placement sequence is declared in newgame_impacts.json.\n"
-        "Variant 1 is the default for every event.\n"
-        "Redistribution rights are not inferred by this builder; provenance records the pack as user-provided.\n",
-        encoding="utf-8",
-    )
     try:
-        staging.replace(destination)
+        library = staging / "library"
+        library.mkdir()
+
+        inventory: list[dict[str, object]] = []
+        source_fingerprint_rows: list[bytes] = []
+        seen_casefold: set[str] = set()
+        for source_path in sorted(sounds.rglob("*"), key=lambda item: item.as_posix().casefold()):
+            if not source_path.is_file():
+                continue
+            relative = _safe_relative(source_path, sounds)
+            if source_path.suffix.casefold() != ".wav":
+                continue
+            folded = relative.as_posix().casefold()
+            if folded in seen_casefold:
+                raise SoundPackBuildError(f"case-insensitive duplicate sound path: {relative}")
+            seen_casefold.add(folded)
+
+            source_digest = _sha256(source_path)
+            source_fingerprint_rows.append(
+                f"{relative.as_posix()}\0{source_digest}\n".encode("utf-8")
+            )
+
+            target = library / Path(*relative.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_path, target)
+            info = _wave_info(target)
+            inventory.append(
+                {
+                    "file": f"library/{relative.as_posix()}",
+                    "sha256": source_digest,
+                    "bytes": target.stat().st_size,
+                    **info,
+                }
+            )
+
+        if len(inventory) != EXPECTED_SOURCE_WAV_COUNT:
+            raise SoundPackBuildError(
+                f"expected {EXPECTED_SOURCE_WAV_COUNT} WAV files from the supplied archive, "
+                f"found {len(inventory)}"
+            )
+        source_inventory_sha256 = hashlib.sha256(
+            b"".join(source_fingerprint_rows)
+        ).hexdigest()
+        if source_inventory_sha256 != EXPECTED_SOURCE_INVENTORY_SHA256:
+            raise SoundPackBuildError(
+                "source sound inventory does not match the exact user-supplied archive"
+            )
+
+        _validate_event_paths(destination)
+        for event, by_variant in SOUND_LAYERS.items():
+            variants_for_event = {
+                variant_id: file_name
+                for variant_id, file_name, _uk, _en in EVENT_VARIANTS[event]
+            }
+            for variant_id, sequence in by_variant.items():
+                if variant_id not in variants_for_event:
+                    raise SoundPackBuildError(
+                        f"sound layer references unknown variant: {event}/{variant_id}"
+                    )
+                if sequence[0] != variants_for_event[variant_id]:
+                    raise SoundPackBuildError(
+                        f"sound layer does not start with selected variant: {event}/{variant_id}"
+                    )
+                for file_name in sequence:
+                    layer_path = staging / Path(file_name)
+                    if not layer_path.is_file():
+                        raise SoundPackBuildError(f"missing layered sound asset: {file_name}")
+                    info = _wave_info(layer_path)
+                    if info["compression"] != "NONE" or info["sample_width_bytes"] != 2:
+                        raise SoundPackBuildError(
+                            f"layered runtime sound must be 16-bit PCM: {file_name}"
+                        )
+
+        manifest = {
+            "schema_version": 1,
+            "files": DEFAULT_EVENT_FILES,
+        }
+        variants = {
+            "schema_version": 1,
+            "events": {
+                event: [
+                    {
+                        "id": variant_id,
+                        "file": file_name,
+                        "label_uk": label_uk,
+                        "label_en": label_en,
+                    }
+                    for variant_id, file_name, label_uk, label_en in options
+                ]
+                for event, options in EVENT_VARIANTS.items()
+            },
+        }
+        layers = {
+            "schema_version": 1,
+            "events": {
+                event: {
+                    variant_id: list(sequence)
+                    for variant_id, sequence in by_variant.items()
+                }
+                for event, by_variant in SOUND_LAYERS.items()
+            },
+        }
+        provenance = {
+            "schema_version": 1,
+            "events": {
+                event: {
+                    "file": file_name,
+                    "sha256": _sha256(staging / Path(file_name)),
+                    "license_id": PROVENANCE_LICENSE,
+                    "source": PROVENANCE_SOURCE,
+                    "creator": PROVENANCE_CREATOR,
+                }
+                for event, file_name in DEFAULT_EVENT_FILES.items()
+            },
+        }
+        inventory_doc = {
+            "schema_version": 1,
+            "source": PROVENANCE_SOURCE,
+            "license_id": PROVENANCE_LICENSE,
+            "creator": PROVENANCE_CREATOR,
+            "file_count": len(inventory),
+            "source_inventory_sha256": source_inventory_sha256,
+            "files": inventory,
+        }
+
+        (staging / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (staging / "variants.json").write_text(
+            json.dumps(variants, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (staging / "layers.json").write_text(
+            json.dumps(layers, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (staging / "provenance.json").write_text(
+            json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (staging / "inventory.json").write_text(
+            json.dumps(inventory_doc, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (staging / "newgame_impacts.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "default_variant": "1",
+                    "variants": {
+                        variant_id: {
+                            "source_file": next(
+                                file_name
+                                for current_id, file_name, _uk, _en
+                                in EVENT_VARIANTS["start"]
+                                if current_id == variant_id
+                            ),
+                            "duration_seconds": NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                            "impact_count": len(impacts),
+                            "impacts_ms": list(impacts),
+                        }
+                        for variant_id, impacts in NEW_GAME_IMPACTS_BY_VARIANT.items()
+                    },
+                    "analysis": {
+                        "window_ms": 20,
+                        "hop_ms": 5,
+                        "threshold_percentile": 60,
+                        "minimum_peak_separation_ms": 90,
+                        "three_d_selection": "32 strongest separated candidate peaks",
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        (staging / "README.txt").write_text(
+            "Accessible Chess user-supplied sound pack\n"
+            "All 330 WAV files from the supplied archive are retained under library/.\n"
+            "Runtime defaults and selectable variants are declared in manifest.json and variants.json.\n"
+            "Original MOVEHIT/CAPHIT landing layers are declared in layers.json.\n"
+            "NEWGAME impact timing for the visual placement sequence is declared in newgame_impacts.json.\n"
+            "Variant 1 is the default for every event.\n"
+            "Redistribution rights are not inferred by this builder; provenance records the pack as user-provided.\n",
+            encoding="utf-8",
+        )
+        try:
+            staging.replace(destination)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        return inventory_doc
+
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    return inventory_doc
 
 
 def build_sound_pack(
