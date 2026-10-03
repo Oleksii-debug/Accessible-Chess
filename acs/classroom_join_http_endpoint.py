@@ -25,9 +25,10 @@ from .classroom_join_credentials import (
 JOIN_CREDENTIAL_PATH = "/v1/classroom/join-credential"
 MAX_AUTHORIZATION_BYTES = 8192
 MAX_REQUEST_HEADER_BYTES = 16 * 1024
-# Bound ASGI fragmentation independently of request byte size so authenticated
-# peers cannot consume unbounded event-loop turns with zero-byte frames.
-MAX_REQUEST_BODY_EVENTS = 16 * 1024
+# A maximally fragmented valid request can use one event per body byte plus
+# one final empty event carrying more_body=False. Anything beyond that cannot
+# encode additional valid request bytes and only burns event-loop turns.
+MAX_REQUEST_BODY_EVENTS = MAX_JOIN_REQUEST_BYTES + 1
 _BEARER_CHALLENGE = (
     (
         b"www-authenticate",
