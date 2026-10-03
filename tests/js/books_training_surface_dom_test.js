@@ -96,7 +96,7 @@ function trainingSnapshot(completed, canContinue) {
   completed = completed === true;
   canContinue = canContinue === true;
   return {
-    document: { lang: "en" },
+    document: { lang: "en", landmark: "main" },
     heading: "Training",
     title: "Opening line",
     status: completed ? "completed" : "ready",
@@ -134,7 +134,7 @@ function trainingSnapshot(completed, canContinue) {
 
 function bookSnapshot(index, text) {
   return {
-    document: { lang: "uk" },
+    document: { lang: "uk", landmark: "main" },
     heading: "Chess book reader",
     block: {
       dom_id: "book-block-" + String(index),
@@ -345,6 +345,8 @@ async function run() {
   const trainingSection = find(trainingRoot, "SECTION");
   check(trainingSection !== null && trainingSection.attributes.lang === "en",
     "training local language is not exposed on the DOM subtree");
+  check(trainingSection.tagName === "SECTION",
+    "Training surface must not nest a second main landmark inside V2 workspace");
   const firstAnswer = trainingRoot.querySelector("#training-answer");
   check(firstAnswer !== null, "training answer input missing");
   check(document.activeElement === firstAnswer, "initial training focus missing");
@@ -439,6 +441,29 @@ async function run() {
   );
   const trainingSnapshotReplaceCount = trainingSnapshotRoot.replaceChildrenCalls;
   const trainingSnapshotFocus = document.activeElement;
+
+  const malformedTrainingLandmark = trainingSnapshot();
+  malformedTrainingLandmark.document.landmark = "region";
+  let malformedTrainingLandmarkRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      trainingSnapshotRoot,
+      malformedTrainingLandmark,
+      trainingInvoke,
+      announce,
+      "training-answer",
+      "Action failed",
+      []
+    );
+  } catch (error) {
+    malformedTrainingLandmarkRejected = true;
+  }
+  check(malformedTrainingLandmarkRejected,
+    "forged Training document landmark must fail closed");
+  check(trainingSnapshotRoot.replaceChildrenCalls === trainingSnapshotReplaceCount,
+    "forged Training landmark must preserve prior readable DOM");
+  check(document.activeElement === trainingSnapshotFocus,
+    "forged Training landmark must preserve focus");
 
   const malformedTrainingCounter = trainingSnapshot();
   malformedTrainingCounter.progress.attempts = "0";
@@ -1518,6 +1543,10 @@ async function run() {
   check(!announcements.includes("Forged event"),
     "unknown Book event kind must not publish an announcement");
 
+  const bookSurfaceSection = find(bookRoot, "SECTION");
+  check(bookSurfaceSection !== null && bookSurfaceSection.tagName === "SECTION",
+    "Book surface must not nest a second main landmark inside V2 workspace");
+
   const controlsReplaceCount = bookRoot.replaceChildrenCalls;
   const controlsFocus = document.activeElement;
 
@@ -1736,6 +1765,22 @@ async function run() {
     "blank bookmark value must preserve prior readable DOM");
   check(document.activeElement === controlsFocus,
     "blank bookmark value must preserve reading focus");
+
+  const malformedLandmark = bookSnapshot(3, "Malformed landmark");
+  malformedLandmark.document.landmark = "region";
+  let malformedLandmarkRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, malformedLandmark, bookInvoke, announce, "book-block-3", "Action failed"
+    );
+  } catch (error) {
+    malformedLandmarkRejected = true;
+  }
+  check(malformedLandmarkRejected, "forged Book document landmark must fail closed");
+  check(bookRoot.replaceChildrenCalls === controlsReplaceCount,
+    "forged Book landmark must preserve prior readable DOM");
+  check(document.activeElement === controlsFocus,
+    "forged Book landmark must preserve reading focus");
 
   const malformedLanguage = bookSnapshot(3, "Malformed language");
   malformedLanguage.document.lang = "ua";
