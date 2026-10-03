@@ -102,12 +102,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
     def _sound_state(self) -> dict[str, Any]:
         enabled = True
         volume = 80
+        tick_policy = "my_turn"
+        tick_last_seconds = 0
         if self._settings is not None:
             try:
                 enabled = bool(self._settings.get("sounds", True))
                 volume = int(self._settings.get("volume", 80))
+                tick_policy = str(self._settings.get("tick_policy", "my_turn"))
+                tick_last_seconds = int(self._settings.get("tick_last_seconds", 0))
             except Exception:
-                enabled, volume = True, 80
+                enabled, volume, tick_policy, tick_last_seconds = True, 80, "my_turn", 0
 
         variants: dict[str, list[dict[str, str]]] = {}
         selected: dict[str, str] = {}
@@ -128,6 +132,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return {
             "enabled": enabled,
             "volume": max(0, min(100, volume)),
+            "tickPolicy": tick_policy if tick_policy in {"off", "my_turn", "both"} else "my_turn",
+            "tickLastSeconds": max(0, min(3600, tick_last_seconds)),
             "events": [event.value for event in SoundEvent],
             "variants": variants,
             "selectedVariants": selected,
@@ -243,6 +249,74 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "message": self._sound_message(
                 f"Гучність {volume} відсотків.",
                 f"Volume {volume} percent.",
+            ),
+        }
+
+    def set_clock_sound_policy(self, policy: str) -> dict[str, Any]:
+        if policy not in {"off", "my_turn", "both"} or self._settings is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Некоректний режим звуку годинника.",
+                    "Invalid clock sound mode.",
+                ),
+            }
+        try:
+            self._settings.set("tick_policy", policy)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти режим годинника.",
+                    "Clock sound mode could not be saved.",
+                ),
+            }
+        labels = {
+            "off": ("Звук годинника вимкнено.", "Clock sound disabled."),
+            "my_turn": ("Годинник звучить лише під час мого ходу.", "Clock sounds only on my turn."),
+            "both": ("Годинник звучить під час ходу обох сторін.", "Clock sounds on both turns."),
+        }
+        uk, en = labels[policy]
+        return {"ok": True, **self._sound_state(), "message": self._sound_message(uk, en)}
+
+    def set_clock_sound_last_seconds(self, seconds: int) -> dict[str, Any]:
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, int)
+            or not 0 <= seconds <= 3600
+            or self._settings is None
+        ):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Кількість секунд має бути від 0 до 3600.",
+                    "Seconds must be from 0 to 3600.",
+                ),
+            }
+        try:
+            self._settings.set("tick_last_seconds", seconds)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти межу звуку годинника.",
+                    "Clock sound threshold could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Годинник звучить увесь час."
+                if seconds == 0
+                else f"Годинник звучить останні {seconds} секунд.",
+                "Clock sounds for the whole timed game."
+                if seconds == 0
+                else f"Clock sounds during the last {seconds} seconds.",
             ),
         }
 
