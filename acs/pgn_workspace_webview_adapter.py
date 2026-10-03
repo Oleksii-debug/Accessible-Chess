@@ -313,11 +313,15 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return self._navigate_to("pgn.parent_variation", selected.node_id)
 
     def previous_game(self) -> PgnWebViewEvent:
+        if not self._try_refresh():
+            return self._unavailable_event()
         return self._operate_and_render(
             lambda: self._dispatch_registered("pgn.previous_game", {})
         )
 
     def next_game(self) -> PgnWebViewEvent:
+        if not self._try_refresh():
+            return self._unavailable_event()
         return self._operate_and_render(
             lambda: self._dispatch_registered("pgn.next_game", {})
         )
