@@ -302,6 +302,67 @@ class BookProjectionTests(unittest.TestCase):
         returned = self.projection.return_from_board()
         self.assertEqual(2, returned.payload["snapshot"]["block"]["index"])
 
+    def test_failed_bookmark_save_render_never_publishes_reader_mutation(self) -> None:
+        before = self.presenter.current()
+        before_name = self.projection.bookmark_name
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated bookmark render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "bookmark render"):
+                self.projection.save_bookmark("not-published")
+
+        self.assertEqual(before, self.presenter.current())
+        self.assertEqual(before_name, self.projection.bookmark_name)
+        with self.assertRaises(LookupError):
+            self.presenter.restore_bookmark("not-published")
+
+    def test_failed_bookmark_restore_render_restores_cursor_and_input_name(self) -> None:
+        self.projection.save_bookmark("origin")
+        self.projection.next_position()
+        self.projection.save_bookmark("current")
+        before = self.presenter.current()
+        self.assertEqual("current", self.projection.bookmark_name)
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated restore render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "restore render"):
+                self.projection.restore_bookmark("origin")
+
+        self.assertEqual(before, self.presenter.current())
+        self.assertEqual("current", self.projection.bookmark_name)
+
+    def test_failed_board_return_render_restores_pre_return_cursor(self) -> None:
+        self.projection.next_position()
+        self.projection.open_position()
+        self.projection.next()
+        before = self.presenter.current()
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=ValueError("simulated return render failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "return render"):
+                self.projection.return_from_board()
+
+        self.assertEqual(before, self.presenter.current())
+
+    def test_bookmark_presenter_failure_restores_transient_input_name(self) -> None:
+        before_name = self.projection.bookmark_name
+        with patch.object(
+            self.presenter,
+            "bookmark",
+            side_effect=RuntimeError("simulated reader bookmark failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "reader bookmark"):
+                self.projection.save_bookmark("not-committed")
+        self.assertEqual(before_name, self.projection.bookmark_name)
+
     def test_bookmark_name_is_bounded_before_reader_mutation(self) -> None:
         with self.assertRaises(ValueError):
             self.projection.save_bookmark("x" * 81)

@@ -380,10 +380,15 @@ class BookWebViewProjection:
             },
         )
 
-    def _navigate(self, operation: Callable[[], BookBlockView]) -> BookWebViewEvent:
+    def _navigate(
+        self,
+        operation: Callable[[], BookBlockView],
+        *,
+        announcement: str = "",
+    ) -> BookWebViewEvent:
         before_index = self._presenter.cursor_index
         try:
-            return self._render(operation())
+            return self._render(operation(), announcement=announcement)
         except Exception:
             if self._presenter.cursor_index != before_index:
                 self._presenter.restore_cursor(before_index)
@@ -415,15 +420,32 @@ class BookWebViewProjection:
 
     def save_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
-        block = self._presenter.bookmark(token)
+        previous_name = self._last_bookmark
+        announcement = self._result_announcement("saved")
+        # Saving a bookmark does not move the canonical cursor. Validate the
+        # exact post-save WebView snapshot first so a presentation failure can
+        # never leave behind a bookmark that the browser did not accept.
         self._last_bookmark = token
-        return self._render(block, announcement=self._result_announcement("saved"))
+        try:
+            event = self._render(self._presenter.current(), announcement=announcement)
+            self._presenter.bookmark(token)
+        except Exception:
+            self._last_bookmark = previous_name
+            raise
+        return event
 
     def restore_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
-        block = self._presenter.restore_bookmark(token)
+        previous_name = self._last_bookmark
         self._last_bookmark = token
-        return self._render(block, announcement=self._result_announcement("restored"))
+        try:
+            return self._navigate(
+                lambda: self._presenter.restore_bookmark(token),
+                announcement=self._result_announcement("restored"),
+            )
+        except Exception:
+            self._last_bookmark = previous_name
+            raise
 
     def open_position(self) -> BookWebViewEvent:
         # Complete presentation validation before the irreversible board handoff.
@@ -447,8 +469,10 @@ class BookWebViewProjection:
         )
 
     def return_from_board(self) -> BookWebViewEvent:
-        block = self._presenter.return_from_board()
-        return self._render(block, announcement=self._result_announcement("returned"))
+        return self._navigate(
+            self._presenter.return_from_board,
+            announcement=self._result_announcement("returned"),
+        )
 
     def generic_error(self) -> BookWebViewEvent:
         return BookWebViewEvent(
