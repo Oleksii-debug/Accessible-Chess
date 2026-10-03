@@ -172,7 +172,7 @@ def _bookmark_name(value: object) -> str:
     if "\x00" in value:
         raise ValueError("bookmark name contains NUL")
     token = " ".join(value.split())
-    if not token or len(token) > _MAX_BOOKMARK_NAME:
+    if not token or _utf16_units(token) > _MAX_BOOKMARK_NAME:
         raise ValueError("bookmark name is invalid")
     return token
 
