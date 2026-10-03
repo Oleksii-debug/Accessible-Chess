@@ -101,6 +101,9 @@ def _make_tree(root: Path) -> None:
     web.mkdir()
     web_files = (
         "index.html",
+        "accessible-chess-theme.css",
+        "vendor/pico-2.1.1/pico.min.css",
+        "vendor/pico-2.1.1/LICENSE.md",
         "stage1_release_bootstrap.js",
         "stage1_board_actions.js",
         "full_product_pgn.js",
@@ -112,7 +115,9 @@ def _make_tree(root: Path) -> None:
         "version2_release_bootstrap.js",
     )
     for name in web_files:
-        (web / name).write_text(f"// fixture {name}\n", encoding="utf-8")
+        target = web / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"/* fixture {name} */\n", encoding="utf-8")
 
     assets = product / "assets"
     assets.mkdir()
