@@ -156,6 +156,12 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             )
             try:
                 self.assertTrue(api.set_sound_volume(35)["ok"])
+                clock_mode = api.set_clock_sound_policy("both")
+                self.assertTrue(clock_mode["ok"], clock_mode)
+                self.assertEqual(clock_mode["tickPolicy"], "both")
+                clock_limit = api.set_clock_sound_last_seconds(25)
+                self.assertTrue(clock_limit["ok"], clock_limit)
+                self.assertEqual(clock_limit["tickLastSeconds"], 25)
                 selected = api.set_sound_variant("move", "2")
                 self.assertTrue(selected["ok"], selected)
                 self.assertEqual(selected["selectedVariants"]["move"], "2")
@@ -181,6 +187,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 restored = api2.get_sound_settings()
                 self.assertFalse(restored["enabled"])
                 self.assertEqual(restored["volume"], 35)
+                self.assertEqual(restored["tickPolicy"], "both")
+                self.assertEqual(restored["tickLastSeconds"], 25)
                 self.assertEqual(restored["selectedVariants"]["move"], "2")
             finally:
                 api2.close_analysis()
@@ -375,6 +383,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         text = self.bootstrap
         for element_id in (
             "sound-settings", "sound-enabled", "sound-volume",
+            "sound-tick-policy", "sound-tick-last-seconds",
             "sound-preview-event", "sound-variant", "sound-preview",
             "sound-settings-status",
         ):
@@ -382,6 +391,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("a.get_sound_settings", text)
         self.assertIn("a.set_sound_enabled", text)
         self.assertIn("a.set_sound_volume", text)
+        self.assertIn("a.set_clock_sound_policy", text)
+        self.assertIn("a.set_clock_sound_last_seconds", text)
         self.assertIn("a.set_sound_variant", text)
         self.assertIn("a.preview_sound", text)
         self.assertIn("status.setAttribute('aria-live', 'off')", text)
