@@ -73,6 +73,10 @@ _LIVEKIT_VENDOR_ROOT = Path("web") / "vendor" / "livekit"
 _LIVEKIT_LICENSE_NOTICE = "LiveKit-client-LICENSE.txt"
 _LIVEKIT_TEXT_NOTICE = "LiveKit-client-NOTICE.txt"
 _LIVEKIT_PROVENANCE_NOTICE = "LIVEKIT_CLIENT_PROVENANCE.json"
+_MAX_LIVEKIT_BUNDLE_BYTES = 8 * 1024 * 1024
+_MAX_LIVEKIT_LICENSE_BYTES = 128 * 1024
+_MAX_LIVEKIT_NOTICE_BYTES = 256 * 1024
+_MAX_LIVEKIT_PROVENANCE_BYTES = 64 * 1024
 _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _MAX_STOCKFISH_ARCHIVE_FILES = 8192
 _MAX_STOCKFISH_ARCHIVE_UNCOMPRESSED = 2 * 1024 * 1024 * 1024
@@ -143,12 +147,122 @@ class _StockfishArchiveContents:
     source_members: tuple[zipfile.ZipInfo, ...]
 
 
+def _reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
+def _stable_regular_metadata(path: Path, *, label: str) -> os.stat_result:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise Version2ReleasePayloadError(f"{label} is missing or unreadable") from exc
+    if stat.S_ISLNK(info.st_mode) or _reparse(info) or not stat.S_ISREG(info.st_mode):
+        raise Version2ReleasePayloadError(
+            f"{label} must be a regular non-reparse file"
+        )
+    return info
+
+
 def _sha256(path: Path) -> str:
+    before = _stable_regular_metadata(path, label="release payload file")
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _reparse(opened)
+            or not _same_file_snapshot(before, opened)
+        ):
+            raise Version2ReleasePayloadError(
+                "release payload file changed while being opened"
+            )
+        copied = 0
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            copied += len(chunk)
             digest.update(chunk)
+        after_read = os.fstat(source.fileno())
+        after_path = _stable_regular_metadata(path, label="release payload file")
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+            or copied != int(after_read.st_size)
+        ):
+            raise Version2ReleasePayloadError(
+                "release payload file changed while being hashed"
+            )
+    except Version2ReleasePayloadError:
+        raise
+    except OSError as exc:
+        raise Version2ReleasePayloadError(
+            "release payload file cannot be read safely"
+        ) from exc
+    finally:
+        if source is not None:
+            source.close()
     return digest.hexdigest()
+
+
+def _read_stable_regular_bytes(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> bytes:
+    before = _stable_regular_metadata(path, label=label)
+    if before.st_size <= 0 or before.st_size > max_bytes:
+        raise Version2ReleasePayloadError(f"{label} has an unsafe size")
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _reparse(opened)
+            or not _same_file_snapshot(before, opened)
+        ):
+            raise Version2ReleasePayloadError(f"{label} changed while being opened")
+        data = source.read(max_bytes + 1)
+        after_read = os.fstat(source.fileno())
+        after_path = _stable_regular_metadata(path, label=label)
+        if (
+            len(data) > max_bytes
+            or len(data) != int(after_read.st_size)
+            or not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+        ):
+            raise Version2ReleasePayloadError(f"{label} changed while being read")
+        return data
+    except Version2ReleasePayloadError:
+        raise
+    except OSError as exc:
+        raise Version2ReleasePayloadError(f"{label} cannot be read safely") from exc
+    finally:
+        if source is not None:
+            source.close()
 
 
 def _is_link_like(path: Path) -> bool:
@@ -158,11 +272,7 @@ def _is_link_like(path: Path) -> bool:
         return False
     except OSError:
         return True
-    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    return bool(
-        stat.S_ISLNK(info.st_mode)
-        or (getattr(info, "st_file_attributes", 0) & reparse_flag)
-    )
+    return bool(stat.S_ISLNK(info.st_mode) or _reparse(info))
 
 
 def _reject_linked_output_ancestors(output: Path) -> None:
