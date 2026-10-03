@@ -148,7 +148,7 @@ class BrowserMediaInvocation:
 
 
 class _FrozenProviderMapping(dict):
-    """JSON-compatible non-secret provider mapping frozen after authorization."""
+    """JSON-compatible provider mapping frozen after authorization."""
 
     @staticmethod
     def _immutable(*_args, **_kwargs):
@@ -162,6 +162,15 @@ class _FrozenProviderMapping(dict):
     setdefault = _immutable
     update = _immutable
     __ior__ = _immutable
+
+
+class _SecretProviderMapping(_FrozenProviderMapping):
+    """Immutable credential mapping whose diagnostics never render secrets."""
+
+    def __repr__(self) -> str:
+        return "<redacted media credential>"
+
+    __str__ = __repr__
 
 
 @dataclass(frozen=True, slots=True)
@@ -745,7 +754,10 @@ class ClassroomMediaBrowserBinder:
                 if operation == MediaSessionEffectKind.CONNECT.value
                 else "reconnect"
             )
-            arguments = (credential, tuple(enabled_sources))
+            arguments = (
+                _SecretProviderMapping(credential),
+                tuple(enabled_sources),
+            )
         elif operation == MediaSessionEffectKind.DISCONNECT.value:
             if (
                 payload.get("credential_required") is not False
