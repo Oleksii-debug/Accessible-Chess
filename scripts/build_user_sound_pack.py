@@ -273,6 +273,8 @@ def _build_sound_pack_unchecked(
     destination: Path,
     *,
     expected_source_archive_sha256: str | None = None,
+    _source_archive_sha256: str | None = None,
+    _source_archive_bytes: int | None = None,
 ) -> dict[str, object]:
     source = Path(source)
     if source.is_file():
@@ -290,14 +292,12 @@ def _build_sound_pack_unchecked(
         with tempfile.TemporaryDirectory(prefix="accessible-chess-sounds-") as temp_dir:
             extracted = Path(temp_dir)
             _extract_sound_zip(source, extracted)
-            report = _build_sound_pack_unchecked(extracted, destination)
-            report["source_archive_sha256"] = archive_sha256
-            report["source_archive_bytes"] = source.stat().st_size
-            (destination / "inventory.json").write_text(
-                json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
+            return _build_sound_pack_unchecked(
+                extracted,
+                destination,
+                _source_archive_sha256=archive_sha256,
+                _source_archive_bytes=source.stat().st_size,
             )
-            return report
 
     sounds = _locate_sounds(source)
     destination = Path(destination)
@@ -435,6 +435,14 @@ def _build_sound_pack_unchecked(
             "source_inventory_sha256": source_inventory_sha256,
             "files": inventory,
         }
+
+        if _source_archive_sha256 is not None:
+            if _source_archive_bytes is None or _source_archive_bytes < 1:
+                raise SoundPackBuildError("source archive byte identity is invalid")
+            inventory_doc["source_archive_sha256"] = _source_archive_sha256
+            inventory_doc["source_archive_bytes"] = _source_archive_bytes
+        elif _source_archive_bytes is not None:
+            raise SoundPackBuildError("source archive identity is incomplete")
 
         (staging / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
