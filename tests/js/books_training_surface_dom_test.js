@@ -140,7 +140,18 @@ function bookSnapshot(index, text) {
       source_anchor: "",
       warning: ""
     },
-    actions: [{ command: "book.next", label: "Next", enabled: true }],
+    actions: [
+      { command: "book.previous", label: "Previous", enabled: false },
+      { command: "book.next", label: "Next", enabled: true },
+      { command: "book.previous_heading", label: "Previous heading", enabled: false },
+      { command: "book.next_heading", label: "Next heading", enabled: false },
+      { command: "book.previous_position", label: "Previous position", enabled: false },
+      { command: "book.next_position", label: "Next position", enabled: false },
+      { command: "book.previous_game", label: "Previous game", enabled: false },
+      { command: "book.next_game", label: "Next game", enabled: false },
+      { command: "book.open_position", label: "Open on board", enabled: false },
+      { command: "book.return_from_board", label: "Return to book", enabled: false }
+    ],
     bookmark: {
       label: "Bookmark",
       value: "default",
@@ -586,9 +597,8 @@ async function run() {
     "unknown Book command must preserve reading focus");
 
   const duplicateBookAction = bookSnapshot(3, "Duplicate action");
-  duplicateBookAction.actions.push({
-    command: "book.next", label: "Next duplicate", enabled: true
-  });
+  duplicateBookAction.actions[0].command = "book.next";
+  duplicateBookAction.actions[0].label = "Next duplicate";
   let duplicateBookActionRejected = false;
   try {
     window.AccessibleChessBookSurface.render(
