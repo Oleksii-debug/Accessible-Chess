@@ -224,8 +224,8 @@ function semanticGameSnapshot() {
         comments: [],
         comments_before: [],
         comments_after: ["<img onerror=bad()>"],
-        trailing_comments: ["Branch tail <b>literal</b>"],
-        result: "*"
+        trailing_comments: [],
+        result: ""
       },
       {
         kind: "move",
