@@ -1127,6 +1127,42 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
+    def test_live_store_rechecks_trigger_free_authority_before_writes(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """
+                CREATE TRIGGER late_chat_body_mutator
+                AFTER INSERT ON classroom_chat_server_messages
+                BEGIN
+                    UPDATE classroom_chat_server_messages
+                    SET body='late tamper'
+                    WHERE message_id=NEW.message_id;
+                END
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema contains unsupported trigger",
+        ):
+            self.send(self.draft("must-not-cross-late-trigger"))
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "schema contains unsupported trigger",
+        ):
+            self.store.integrity_check()
+
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertIsNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM classroom_chat_server_messages
+                    WHERE message_id='must-not-cross-late-trigger'
+                    """
+                ).fetchone()
+            )
+
     def test_current_schema_rejects_wrong_permission_primary_key(self) -> None:
         path = Path(self.tmp.name) / "schema-wrong-permission-key.sqlite3"
         ClassroomChatServerSQLiteStore(path)
