@@ -5,7 +5,7 @@ from __future__ import annotations
 This module composes the exact transaction authorities supplied by the classroom
 media foundation stack:
 
-* ClassroomMediaSessionHandoffs: secret connect/reconnect/disconnect lifecycle;
+* ClassroomMediaSessionHostTransactions: secret connect/reconnect/disconnect lifecycle;
 * ClassroomMediaHostTransactions: non-secret source/moderation/device effects;
 * ClassroomMediaProviderExecutionArbiter: one shared provider-execution owner.
 
@@ -37,11 +37,10 @@ from .classroom_media_provider_execution import (
     MediaProviderExecutionOwner,
     MediaProviderExecutionRecoveryStatus,
 )
-from .classroom_media_session_handoff import (
-    ClassroomMediaSessionHandoffs,
-    MediaSessionEffectSummary,
-    MediaSessionOperation,
-    MediaSessionRecoveryRequired,
+from .classroom_media_session_transactions import (
+    ClassroomMediaSessionHostTransactions,
+    MediaSessionEffectKind,
+    MediaSessionProviderEffect,
 )
 from .classroom_realtime_media import (
     JoinCredential,
@@ -179,12 +178,14 @@ class ClassroomMediaBrowserBinder:
     def __init__(
         self,
         *,
-        session: ClassroomMediaSessionHandoffs,
+        session: ClassroomMediaSessionHostTransactions,
         effects: ClassroomMediaHostTransactions,
         arbiter: ClassroomMediaProviderExecutionArbiter,
     ) -> None:
-        if not isinstance(session, ClassroomMediaSessionHandoffs):
-            raise TypeError("session coordinator must be ClassroomMediaSessionHandoffs")
+        if not isinstance(session, ClassroomMediaSessionHostTransactions):
+            raise TypeError(
+                "session coordinator must be ClassroomMediaSessionHostTransactions"
+            )
         if not isinstance(effects, ClassroomMediaHostTransactions):
             raise TypeError("effect coordinator must be ClassroomMediaHostTransactions")
         if not isinstance(arbiter, ClassroomMediaProviderExecutionArbiter):
@@ -198,11 +199,16 @@ class ClassroomMediaBrowserBinder:
             raise ValueError(
                 "session and effect coordinators must share one canonical media controller"
             )
-        session_port = getattr(session, "_port", None)
+        session_port = getattr(session, "_session_port", None)
+        outer_port = getattr(session, "_outer_port", None)
         effect_port = getattr(effects, "_port", None)
-        if getattr(effect_port, "_session_port", None) is not session_port:
+        if (
+            getattr(session, "_host_transactions", None) is not effects
+            or outer_port is not effect_port
+            or getattr(effect_port, "_session_port", None) is not session_port
+        ):
             raise ValueError(
-                "effect transaction port must delegate session lifecycle to session handoff port"
+                "session transactions must share the exact effect transaction owner"
             )
         if arbiter.active_lease is not None or arbiter.recovery_status is not None:
             raise ValueError("provider execution arbiter must be idle when binder is created")
@@ -245,11 +251,16 @@ class ClassroomMediaBrowserBinder:
             lambda: self._session.prepare_reconnect(credential, now=now),
         )
 
-    def prepare_leave(self) -> PreparedMediaProviderTransaction | None:
+    def prepare_disconnect(self) -> PreparedMediaProviderTransaction | None:
         return self._begin(
             MediaProviderExecutionOwner.SESSION,
-            self._session.prepare_leave,
+            self._session.prepare_disconnect,
         )
+
+    def prepare_leave(self) -> PreparedMediaProviderTransaction | None:
+        """Compatibility alias for the canonical disconnect preparation."""
+
+        return self.prepare_disconnect()
 
     def prepare_local_source(
         self,
@@ -364,10 +375,15 @@ class ClassroomMediaBrowserBinder:
     def claim_browser_invocation(
         self,
         lease_id: str,
-        *,
-        now: datetime | None = None,
     ) -> BrowserMediaInvocation:
-        """Claim exactly one provider call immediately before browser dispatch."""
+        """Claim exactly one provider call immediately before browser dispatch.
+
+        For connect/reconnect, taking the one-shot credential is itself the
+        provider boundary: after the secret leaves the coordinator, a stale
+        browser callback could use it even if the host later reports that normal
+        dispatch never began. The shared arbiter is therefore crossed before the
+        credential-bearing invocation is returned.
+        """
 
         self._assert_owner_thread()
         with self._lock:
@@ -378,20 +394,46 @@ class ClassroomMediaBrowserBinder:
                 )
             prepared = active.prepared
             if prepared.owner is MediaProviderExecutionOwner.SESSION:
-                try:
-                    payload = self._session.claim_browser_payload(
-                        prepared.transaction_id,
-                        now=now,
+                payload = self._session.pending_browser_payload
+                if (
+                    payload is None
+                    or payload.get("transaction_id") != prepared.transaction_id
+                ):
+                    raise ClassroomMediaBrowserBinderError(
+                        "session coordinator has no matching browser payload"
                     )
-                except Exception:
-                    # Expiry at the disclosure boundary retires the session
-                    # coordinator transaction. Other caller/input errors leave it
-                    # pending so the same lease can retry safely.
-                    if self._session.pending_effect is None:
-                        self._arbiter.release_without_provider(prepared.lease_id)
-                        self._active = None
-                    raise
-                invocation = self._session_invocation(prepared, payload)
+                credential: Mapping[str, str] | None = None
+                if payload.get("credential_required") is True:
+                    try:
+                        credential = self._session.take_credential(
+                            prepared.transaction_id
+                        )
+                    except Exception:
+                        # Expiry at the one-shot disclosure boundary retires the
+                        # coordinator transaction before any secret is exposed.
+                        if self._session.pending_effect is None:
+                            self._arbiter.release_without_provider(
+                                prepared.lease_id
+                            )
+                            self._active = None
+                        raise
+                    lease = self._arbiter.active_lease
+                    if (
+                        lease is None
+                        or lease.lease_id != prepared.lease_id
+                    ):
+                        raise ClassroomMediaBrowserBinderError(
+                            "shared provider execution lease is inconsistent"
+                        )
+                    if not lease.provider_boundary_crossed:
+                        self._arbiter.mark_provider_boundary_crossed(
+                            prepared.lease_id
+                        )
+                invocation = self._session_invocation(
+                    prepared,
+                    payload,
+                    credential,
+                )
             else:
                 payload = self._effects.pending_browser_payload
                 if payload is None:
@@ -447,7 +489,7 @@ class ClassroomMediaBrowserBinder:
                     self._session.provider_not_started(prepared.transaction_id)
                 else:
                     self._effects.provider_not_started(prepared.transaction_id)
-            except (MediaSessionRecoveryRequired, MediaHostRecoveryRequired) as exc:
+            except MediaHostRecoveryRequired as exc:
                 self._latch_coordinator_recovery(active)
                 raise ClassroomMediaBrowserRecoveryRequired(str(exc)) from exc
 
@@ -471,11 +513,9 @@ class ClassroomMediaBrowserBinder:
     def session_connection_failed_clean(
         self,
         lease_id: str,
-        *,
-        connected: bool,
-        cleanup_required: bool,
+        provider_snapshot: Mapping[str, object],
     ) -> None:
-        """Release a failed connect/reconnect only after #1160 accepts cleanup proof."""
+        """Release failed connect/reconnect only after exact clean snapshot proof."""
 
         self._assert_owner_thread()
         with self._lock:
@@ -486,8 +526,7 @@ class ClassroomMediaBrowserBinder:
                 )
             self._session.provider_connection_failed_clean(
                 active.prepared.transaction_id,
-                connected=connected,
-                cleanup_required=cleanup_required,
+                provider_snapshot,
             )
             self._arbiter.release_after_verified_clean_failure(
                 active.prepared.lease_id
@@ -497,6 +536,8 @@ class ClassroomMediaBrowserBinder:
     def acknowledge_provider_success(
         self,
         lease_id: str,
+        *,
+        provider_snapshot: Mapping[str, object] | None = None,
     ) -> MediaProviderStepResult:
         """Commit exact provider success; retain the lease for later moderation chunks."""
 
@@ -505,17 +546,26 @@ class ClassroomMediaBrowserBinder:
             active = self._require_dispatched(lease_id)
             prepared = active.prepared
             if prepared.owner is MediaProviderExecutionOwner.SESSION:
+                if provider_snapshot is None:
+                    raise ClassroomMediaBrowserBinderError(
+                        "session provider success requires an exact provider snapshot"
+                    )
                 try:
                     result = self._session.acknowledge_provider_success(
-                        prepared.transaction_id
+                        prepared.transaction_id,
+                        provider_snapshot,
                     )
-                except MediaSessionRecoveryRequired as exc:
+                except MediaHostRecoveryRequired as exc:
                     self._latch_coordinator_recovery(active)
                     raise ClassroomMediaBrowserRecoveryRequired(str(exc)) from exc
                 self._arbiter.complete(prepared.lease_id)
                 self._active = None
                 return MediaProviderStepResult(completed=True, result=result)
 
+            if provider_snapshot is not None:
+                raise ClassroomMediaBrowserBinderError(
+                    "effect success does not accept provider snapshot authority"
+                )
             try:
                 result = self._effects.acknowledge_provider_chunk_success(
                     prepared.transaction_id,
@@ -566,7 +616,7 @@ class ClassroomMediaBrowserBinder:
     def _begin(
         self,
         owner: MediaProviderExecutionOwner,
-        prepare: Callable[[], MediaSessionEffectSummary | MediaProviderEffect | None],
+        prepare: Callable[[], MediaSessionProviderEffect | MediaProviderEffect | None],
     ) -> PreparedMediaProviderTransaction | None:
         self._assert_owner_thread()
         with self._lock:
@@ -658,30 +708,50 @@ class ClassroomMediaBrowserBinder:
     def _session_invocation(
         prepared: PreparedMediaProviderTransaction,
         payload: Mapping[str, object],
+        credential: Mapping[str, str] | None,
     ) -> BrowserMediaInvocation:
-        if payload.get("transaction_id") != prepared.transaction_id:
+        expected_fields = {
+            "transaction_id",
+            "operation",
+            "credential_required",
+            "enabled_sources",
+        }
+        if (
+            set(payload) != expected_fields
+            or payload.get("transaction_id") != prepared.transaction_id
+        ):
             raise ClassroomMediaBrowserBinderError(
                 "session browser payload transaction is inconsistent"
             )
         operation = payload.get("operation")
+        enabled_sources = payload.get("enabled_sources")
+        if type(enabled_sources) is not list:
+            raise ClassroomMediaBrowserBinderError(
+                "session browser enabled sources are invalid"
+            )
         if operation in {
-            MediaSessionOperation.CONNECT.value,
-            MediaSessionOperation.RECONNECT.value,
+            MediaSessionEffectKind.CONNECT.value,
+            MediaSessionEffectKind.RECONNECT.value,
         }:
-            credential = payload.get("credential")
-            enabled_sources = payload.get("enabled_sources")
-            if not isinstance(credential, Mapping) or type(enabled_sources) is not tuple:
+            if (
+                payload.get("credential_required") is not True
+                or not isinstance(credential, Mapping)
+            ):
                 raise ClassroomMediaBrowserBinderError(
-                    "session browser payload shape is inconsistent"
+                    "session browser credential shape is inconsistent"
                 )
             method = (
                 "connect"
-                if operation == MediaSessionOperation.CONNECT.value
+                if operation == MediaSessionEffectKind.CONNECT.value
                 else "reconnect"
             )
-            arguments = (credential, enabled_sources)
-        elif operation == MediaSessionOperation.DISCONNECT.value:
-            if set(payload) != {"transaction_id", "operation"}:
+            arguments = (credential, tuple(enabled_sources))
+        elif operation == MediaSessionEffectKind.DISCONNECT.value:
+            if (
+                payload.get("credential_required") is not False
+                or credential is not None
+                or enabled_sources
+            ):
                 raise ClassroomMediaBrowserBinderError(
                     "disconnect browser payload shape is inconsistent"
                 )
