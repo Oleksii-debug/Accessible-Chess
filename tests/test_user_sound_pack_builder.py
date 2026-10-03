@@ -11,6 +11,7 @@ from unittest.mock import patch
 from scripts.build_user_sound_pack import (
     DEFAULT_EVENT_FILES,
     EVENT_VARIANTS,
+    NEW_GAME_3D_IMPACT_MS,
     NEW_GAME_IMPACT_MS,
     build_sound_pack,
 )
@@ -77,8 +78,18 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             variants = json.loads((destination / "variants.json").read_text(encoding="utf-8"))
             impacts = json.loads((destination / "newgame_impacts.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["files"], DEFAULT_EVENT_FILES)
-            self.assertEqual(impacts["impact_count"], 32)
-            self.assertEqual(tuple(impacts["impacts_ms"]), NEW_GAME_IMPACT_MS)
+            self.assertEqual(impacts["schema_version"], 2)
+            self.assertEqual(impacts["default_variant"], "1")
+            self.assertEqual(impacts["variants"]["1"]["impact_count"], 32)
+            self.assertEqual(
+                tuple(impacts["variants"]["1"]["impacts_ms"]),
+                NEW_GAME_IMPACT_MS,
+            )
+            self.assertEqual(impacts["variants"]["3d"]["impact_count"], 32)
+            self.assertEqual(
+                tuple(impacts["variants"]["3d"]["impacts_ms"]),
+                NEW_GAME_3D_IMPACT_MS,
+            )
             for event, default_file in DEFAULT_EVENT_FILES.items():
                 self.assertEqual(variants["events"][event][0]["id"], "1")
                 self.assertEqual(variants["events"][event][0]["file"], default_file)
