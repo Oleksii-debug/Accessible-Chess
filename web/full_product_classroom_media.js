@@ -259,6 +259,7 @@
         });
 
         if (count === 0) {
+          delete selectedDeviceIds[definition.kind];
           moveFocusBeforeDisable(select);
           select.disabled = true;
           const missing = node(
