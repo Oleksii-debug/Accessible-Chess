@@ -822,12 +822,14 @@ class ClassroomCollaborationController:
         # tombstone was committed by an earlier authoritative sync.
         self._drain_file_deletions()
         existing = self._store.room_attachments(self.room_id)
-        existing_ids = {item.attachment_id for item in existing}
         authoritative = tuple(
             item
             for item in existing
             if item.transfer_state in {"stored", "deleted"}
         )
+        existing_authoritative_ids = {
+            item.attachment_id for item in authoritative
+        }
         # Advance only through the locally complete authoritative prefix. A
         # later terminal row must never cause reconnect to skip missing history.
         after: int | None = None
@@ -928,7 +930,7 @@ class ClassroomCollaborationController:
             current_by_id[item.attachment_id]
             for item in persisted
             if (
-                item.attachment_id not in existing_ids
+                item.attachment_id not in existing_authoritative_ids
                 and current_by_id[item.attachment_id].transfer_state == "stored"
             )
         )
