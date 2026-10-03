@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import contextmanager
+import errno
 import hashlib
 import json
 import os
@@ -73,6 +74,38 @@ def _reject_duplicate_pairs(
 
 def _malformed_payload() -> dict[str, object]:
     return {"schema_version": _MALFORMED_SCHEMA_MARKER}
+
+
+def _fsync_directory(path: Path) -> None:
+    """Durably publish a completed atomic rename where the platform supports it."""
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if os.name == "nt" or exc.errno in {
+            errno.EACCES,
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+        }:
+            return
+        raise SoundProfileFileError(
+            "sound profile storage directory could not be synchronized"
+        ) from exc
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            if os.name == "nt" or exc.errno in {
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+            }:
+                return
+            raise SoundProfileFileError(
+                "sound profile storage directory could not be synchronized"
+            ) from exc
+    finally:
+        os.close(descriptor)
 
 
 class JsonSoundProfileStorage:
@@ -383,6 +416,7 @@ class JsonSoundProfileStorage:
                     os.fsync(stream.fileno())
                 os.replace(temp_path, self.path)
                 temp_path = None
+                _fsync_directory(self.path.parent)
                 _written, self._observed_token = self._read_raw_with_token()
                 if _written != encoded:
                     raise SoundProfileFileError(
