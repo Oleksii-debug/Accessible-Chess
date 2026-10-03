@@ -484,6 +484,7 @@ jobs:
           if int(inventory.get('source_archive_bytes', -1)) <= 0:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SIZE_MISSING')
 
+          manifest = json.loads((sound_root / 'manifest.json').read_text(encoding='utf-8'))
           variants = json.loads((sound_root / 'variants.json').read_text(encoding='utf-8'))
           layers = json.loads((sound_root / 'layers.json').read_text(encoding='utf-8'))
           impacts = json.loads((sound_root / 'newgame_impacts.json').read_text(encoding='utf-8'))
