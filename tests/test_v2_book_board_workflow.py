@@ -85,6 +85,83 @@ class BookBoardWorkflowTests(unittest.TestCase):
             analysis,
         )
 
+    def test_semantic_game_snapshot_is_detached_read_only_and_variation_complete(self) -> None:
+        document = BookDocument(
+            title="Book",
+            blocks=[
+                Game(
+                    pgn=EMBEDDED_GAME,
+                    title="Annotated game",
+                    block_id="game",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        progress_before = reader.snapshot()
+        workflow, _engine, _analysis = self._workflow(reader)
+
+        mode, game, warnings = workflow.semantic_game_snapshot(0)
+
+        self.assertEqual(mode, BookBoardMode.GAME)
+        self.assertEqual(game.line.moves[0].san, "e4")
+        self.assertEqual(game.line.moves[0].variations[0].moves[0].san, "d4")
+        self.assertIn("Main", tuple(c.text for c in game.line.moves[0].comments_after))
+        self.assertEqual(tuple(game.warnings), warnings)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+        game.tags["Event"] = "mutated detached copy"
+        _, second, _ = workflow.semantic_game_snapshot(0)
+        self.assertEqual(second.tags.get("Event"), "Book workflow")
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_semantic_game_snapshot_fails_closed_on_wrong_reader_location(self) -> None:
+        document = BookDocument(
+            title="Book",
+            blocks=[
+                Paragraph(text="Before"),
+                Game(pgn=EMBEDDED_GAME, block_id="game"),
+            ],
+        )
+        reader = BookReader(document)
+        reader.go_to(1)
+        progress_before = reader.snapshot()
+        workflow, _engine, _analysis = self._workflow(reader)
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.semantic_game_snapshot(0)
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_semantic_game_snapshot_rejects_nonexact_or_unsupported_index(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[Paragraph(text="No game here")],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+        progress_before = reader.snapshot()
+
+        for invalid in (True, -1, 0.0, "0"):
+            with self.subTest(index=invalid):
+                with self.assertRaises(BookBoardWorkflowError) as caught:
+                    workflow.semantic_game_snapshot(invalid)  # type: ignore[arg-type]
+                self.assertEqual(caught.exception.code, BookBoardWorkflowCode.INVALID_COMMAND)
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.semantic_game_snapshot(0)
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.UNSUPPORTED_BLOCK)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
     def test_fen_position_opens_on_canonical_board_and_returns_exactly(self) -> None:
         document = BookDocument(
             title="Book",
