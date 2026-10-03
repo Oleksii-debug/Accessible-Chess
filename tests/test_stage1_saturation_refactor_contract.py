@@ -94,11 +94,15 @@ class Stage1SaturationRefactorContractTests(unittest.TestCase):
             {
                 "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6",  # frozen Product
                 "b579ca0f59ba20f6b69b3a4b7d89589256d54852",  # #1063 recovery
+                "0ee5a42a2d684e90892787cde7744c4371dc8427",  # #1135 sound/clock/settings
             },
         )
-        self.assertEqual(
+        self.assertIn(
             _git_blob_sha(ROOT / "acs" / "webapp_keymap_core.py"),
-            "0ba06f548d39dad7372e0339b3e121fd1717cc05",
+            {
+                "0ba06f548d39dad7372e0339b3e121fd1717cc05",  # frozen Product
+                "303e5deb86183353beb54ccaadfee8aa943abdd5",  # #1135 Ctrl+N routing
+            },
         )
 
     def test_facades_preserve_frozen_public_import_surface(self) -> None:
