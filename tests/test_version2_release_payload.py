@@ -760,6 +760,27 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             self._prepare(output)
         self._assert_no_publication(output)
 
+    def test_sound_inventory_rejects_nonfinite_duration_atomically(self) -> None:
+        count, inventory_sha, _alt = self._enable_inventory_sound_pack()
+        inventory_path = self.sounds / "inventory.json"
+        raw = json.loads(inventory_path.read_text(encoding="utf-8"))
+        raw["files"][0]["duration_seconds"] = float("nan")
+        inventory_path.write_text(
+            json.dumps(raw, sort_keys=True),
+            encoding="utf-8",
+        )
+        output = self.root / "payload-inventory-nan"
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+            self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "non-finite JSON number: NaN",
+            ),
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
     def test_variant_catalog_without_inventory_fails_atomically(self) -> None:
         count, inventory_sha, _alt = self._enable_inventory_sound_pack()
         (self.sounds / "inventory.json").unlink()
