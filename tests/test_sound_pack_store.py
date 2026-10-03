@@ -995,6 +995,35 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             self.assertEqual([], errors)
             self.assertNotIn(manifest.pack_id, remover_store.installed())
 
+    def test_conditional_uninstall_does_not_delete_new_active_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            first = _manifest(version="1.0.0")
+            second = _manifest(version="2.0.0")
+            first_download, _ = _staged_download(root, first, seed=b"a")
+            second_download, _ = _staged_download(root, second, seed=b"b")
+            store.install_atomically(first_download)
+            store.install_atomically(second_download)
+
+            with self.assertRaisesRegex(
+                SoundPackStoreError,
+                "changed before conditional uninstall",
+            ):
+                store.uninstall(
+                    first.pack_id,
+                    expected_manifest=first,
+                )
+
+            self.assertEqual(
+                second,
+                store.installed()[second.pack_id],
+            )
+            self.assertEqual(
+                second.version,
+                store.active_version(second.pack_id),
+            )
+
     def test_install_and_uninstall_are_serialized_across_store_instances(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
