@@ -516,7 +516,33 @@ def _validate_regular_path(path: Path, *, allow_missing: bool) -> bool:
 
 
 def _read_store_bytes(path: Path) -> bytes:
-    _validate_regular_path(path, allow_missing=False)
+    try:
+        validated = path.lstat()
+    except FileNotFoundError as exc:
+        raise GameTreeResumeError(
+            "resume store does not exist",
+            code=GameTreeResumeCode.IO_FAILURE,
+        ) from exc
+    except OSError as exc:
+        raise GameTreeResumeError(
+            "resume store metadata could not be read safely",
+            code=GameTreeResumeCode.IO_FAILURE,
+        ) from exc
+    if (
+        stat.S_ISLNK(validated.st_mode)
+        or _is_reparse_point(validated)
+        or not stat.S_ISREG(validated.st_mode)
+    ):
+        raise GameTreeResumeError(
+            "resume store must be a regular file",
+            code=GameTreeResumeCode.IO_FAILURE,
+        )
+    if validated.st_size > MAX_RESUME_RECORD_BYTES + 1:
+        raise GameTreeResumeError(
+            "resume store exceeds the safety limit",
+            code=GameTreeResumeCode.RESOURCE_LIMIT,
+        )
+
     flags = (
         os.O_RDONLY
         | getattr(os, "O_BINARY", 0)
@@ -528,13 +554,14 @@ def _read_store_bytes(path: Path) -> bytes:
         opened_before = os.fstat(fd)
         current_before = path.lstat()
 
+        validated_identity = (validated.st_dev, validated.st_ino)
         if (
             stat.S_ISLNK(current_before.st_mode)
             or _is_reparse_point(current_before)
             or not stat.S_ISREG(current_before.st_mode)
             or not stat.S_ISREG(opened_before.st_mode)
-            or (opened_before.st_dev, opened_before.st_ino)
-            != (current_before.st_dev, current_before.st_ino)
+            or (opened_before.st_dev, opened_before.st_ino) != validated_identity
+            or (current_before.st_dev, current_before.st_ino) != validated_identity
         ):
             raise GameTreeResumeError(
                 "resume store changed while being opened",
@@ -583,8 +610,8 @@ def _read_store_bytes(path: Path) -> bytes:
         or _is_reparse_point(current_after)
         or not stat.S_ISREG(current_after.st_mode)
         or not stat.S_ISREG(opened_after.st_mode)
-        or (opened_after.st_dev, opened_after.st_ino)
-        != (current_after.st_dev, current_after.st_ino)
+        or (opened_after.st_dev, opened_after.st_ino) != validated_identity
+        or (current_after.st_dev, current_after.st_ino) != validated_identity
     ):
         raise GameTreeResumeError(
             "resume store changed while being read",
@@ -601,7 +628,8 @@ def _read_store_bytes(path: Path) -> bytes:
         )
 
     if (
-        state_key(opened_before) != state_key(opened_after)
+        state_key(validated) != state_key(opened_before)
+        or state_key(opened_before) != state_key(opened_after)
         or state_key(current_before) != state_key(current_after)
         or state_key(opened_after) != state_key(current_after)
     ):
