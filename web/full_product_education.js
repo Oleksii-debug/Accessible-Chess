@@ -448,7 +448,10 @@
     }
     const container = wrapper.querySelector("#collaboration-file-transfer-progress");
     if (!container || typeof container.replaceChildren !== "function") return false;
-    const baselineRevision = Number(container.getAttribute("data-progress-revision"));
+    const baselineRevisionText = container.getAttribute("data-progress-revision");
+    const baselineRevision = (
+      baselineRevisionText === null ? Number.NaN : Number(baselineRevisionText)
+    );
     const hasBaselineRevision = (
       Number.isSafeInteger(baselineRevision) && baselineRevision >= 0
     );
