@@ -7,6 +7,7 @@ on:
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
+      - 'run_accessible_chess_v2.py'
       - 'acs/full_product_actions.py'
       - 'acs/full_product_presenters.py'
       - 'acs/full_product_webview_adapter.py'
@@ -18,6 +19,10 @@ on:
       - 'acs/version2_application.py'
       - 'acs/version2_education_mutation_release.py'
       - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'acs/version2_final_product_profile.py'
+      - 'acs/version2_release_diagnostics.py'
       - 'acs/webview2_accessibility.py'
       - 'acs/ui_analysis_adapter.py'
       - 'acs/ui_keymap_adapter.py'
@@ -50,6 +55,8 @@ on:
       - 'tests/test_nvda_p0_contract.py'
       - 'tests/test_p0_dynamic_selection_action_delivery.py'
       - 'tests/test_p0_semantic_document_copy.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/test_v2_windows_*.py'
       - 'tests/test_ui_semantic_gate_workflow.py'
       - '.github/workflows/ui-semantic-gate.yml'
@@ -59,6 +66,7 @@ on:
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
+      - 'run_accessible_chess_v2.py'
       - 'acs/full_product_actions.py'
       - 'acs/full_product_presenters.py'
       - 'acs/full_product_webview_adapter.py'
@@ -70,6 +78,10 @@ on:
       - 'acs/version2_application.py'
       - 'acs/version2_education_mutation_release.py'
       - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'acs/version2_final_product_profile.py'
+      - 'acs/version2_release_diagnostics.py'
       - 'acs/webview2_accessibility.py'
       - 'acs/ui_analysis_adapter.py'
       - 'acs/ui_keymap_adapter.py'
@@ -102,6 +114,8 @@ on:
       - 'tests/test_nvda_p0_contract.py'
       - 'tests/test_p0_dynamic_selection_action_delivery.py'
       - 'tests/test_p0_semantic_document_copy.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/test_v2_windows_*.py'
       - 'tests/test_ui_semantic_gate_workflow.py'
       - '.github/workflows/ui-semantic-gate.yml'
@@ -189,6 +203,10 @@ jobs:
           python -m unittest tests.test_stage1_webview2_accessibility_boundary -v
           python -m unittest tests.test_p0_dynamic_selection_action_delivery -v
           python -m unittest tests.test_p0_semantic_document_copy -v
+          python -m unittest tests.test_version2_release_accessibility_contract -v
+
+      - name: Behavioral Version 2 release DOM accessibility
+        run: node tests/js/version2_release_bootstrap_dom_test.js
 
       - name: Complete release diagnostics
         run: |
