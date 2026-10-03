@@ -15,6 +15,13 @@ class V2PgnWebViewPathPrivacyTests(unittest.TestCase):
             (r"\\server\private-share\secret.pgn", "private-share"),
             (r"\\?\C:\Users\PrivateUser\secret.pgn", "PrivateUser"),
             ("file:///C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
+            ("file:///C:/Users/Public/My Private Folder/PrivateUser/secret.pgn", "PrivateUser"),
+            ("file://private-server/Public Share/PrivateUser/secret.pgn", "PrivateUser"),
+            ("file://private-server/private-share/secret.pgn", "private-server"),
+            ("file://localhost/C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
+            ("file:/C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
+            ("file:C:/Users/PrivateUser/secret.pgn", "PrivateUser"),
+            ("FILE://private-server/private%20share/secret.pgn", "private-server"),
             ("/home/private-user/book.pgn", "private-user"),
             ("/opt/accessible-chess/private/book.pgn", "accessible-chess"),
             ("/srv/accessible-chess/private/book.pgn", "accessible-chess"),
@@ -40,10 +47,14 @@ class V2PgnWebViewPathPrivacyTests(unittest.TestCase):
     def test_safe_chess_web_and_relative_text_is_not_redacted(self):
         safe = (
             "https://example.com/docs/game.pgn",
+            "https://example.com/home/private/game.pgn",
+            "https://example.com/C:/Users/Public/game.pgn",
             "Invalid command /help",
             "Line e4/e5 continues with Nf3/Nc6",
             "FEN rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
             "relative source incoming/game.pgn",
+            "file format: PGN",
+            "profile:file-not-a-uri",
             "Result 1-0",
         )
         for text in safe:
