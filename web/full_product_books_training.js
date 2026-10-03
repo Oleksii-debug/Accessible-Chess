@@ -182,10 +182,12 @@
     if (!Array.isArray(value) || value.length !== BOOK_ACTION_ORDER.length) {
       throw new TypeError("book actions must contain the canonical command set");
     }
-    return value.map(function (action, index) {
+    for (let index = 0; index < value.length; index += 1) {
       if (!Object.prototype.hasOwnProperty.call(value, index)) {
         throw new TypeError("book actions must be dense");
       }
+    }
+    return value.map(function (action, index) {
       if (!action || typeof action !== "object" || Array.isArray(action)) {
         throw new TypeError("book action must be an object");
       }
@@ -240,11 +242,13 @@
     ) {
       throw new TypeError("starter material inventory is invalid");
     }
-    const seen = Object.create(null);
-    const items = value.items.map(function (item, index) {
+    for (let index = 0; index < value.items.length; index += 1) {
       if (!Object.prototype.hasOwnProperty.call(value.items, index)) {
         throw new TypeError("starter material inventory must be dense");
       }
+    }
+    const seen = Object.create(null);
+    const items = value.items.map(function (item, index) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("starter material entry must be an object");
       }
