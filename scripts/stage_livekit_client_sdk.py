@@ -56,6 +56,8 @@ _WINDOWS_RESERVED_NAMES = {
     "lpt¹",
     "lpt²",
     "lpt³",
+    "conin$",
+    "conout$",
 }
 
 # client-sdk-js@v2.22.3 upstream NOTICE. npm may omit NOTICE because its package
