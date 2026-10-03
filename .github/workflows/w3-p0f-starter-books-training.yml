@@ -101,8 +101,8 @@ jobs:
                   'tests/test_p0f_starter_training_canonical_legality.py' \
                   'tests/test_training.py' | sort)"
                 test "$changed" = "$expected"
-                test "$(git rev-parse HEAD:acs/training.py)" = "02ec352911e2a645f2b246430913b056c484ae7b"
-                test "$(git rev-parse HEAD:tests/test_training.py)" = "8f44686e7e2a44e9124170f92783b4e8fbfe47cb"
+                test "$(git rev-parse HEAD:acs/training.py)" = "96b3b4b0db1276bceceb985e6677b3e9978235a3"
+                test "$(git rev-parse HEAD:tests/test_training.py)" = "4d40cda5aa2467af42e00e7b9da27ab357d5c9b9"
                 test "$(git rev-parse HEAD:tests/test_d08_training_canonical_resume.py)" = "f71f3084568b68f1f46c97351f00452036708c73"
                 test "$(git rev-parse HEAD:tests/test_p0f_starter_training_canonical_legality.py)" = "20406c9b6be408fa294fa2de9e7de12190501fd0"
                 echo 'P0F_TRAINING_TOPOLOGY=SESSION_V4_SUCCESSOR'
