@@ -141,20 +141,18 @@ class V2UpgradeBookProgressTempArtifactControlTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
-            (
-                root / ".book-progress.json.bad.token.tmp"
-            ).write_bytes(b"user-data")
+            (root / ".book-progress.json.bad.token.tmp").write_bytes(b"user-data")
+            (root / "second-user-file.bin").write_bytes(b"user-data")
 
             coordinator = Version2UpgradeCoordinator(
                 UserDataLayout(root),
-                limits=UpgradeLimits(max_files=0, max_bytes=1024),
+                limits=UpgradeLimits(max_files=1, max_bytes=1024),
             )
             with self.assertRaisesRegex(
                 Version2UpgradeError,
-                "backup exceeds file limit",
+                "backup exceeds file-count limit",
             ):
                 coordinator._files()
-
 
 if __name__ == "__main__":
     unittest.main()
