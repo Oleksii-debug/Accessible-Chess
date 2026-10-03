@@ -517,34 +517,94 @@ def _validate_regular_path(path: Path, *, allow_missing: bool) -> bool:
 
 def _read_store_bytes(path: Path) -> bytes:
     _validate_regular_path(path, allow_missing=False)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    fd = -1
     try:
-        before = path.lstat()
-        with path.open("rb") as handle:
-            payload = handle.read(MAX_RESUME_RECORD_BYTES + 2)
-        after = path.lstat()
+        fd = os.open(path, flags)
+        opened_before = os.fstat(fd)
+        current_before = path.lstat()
+
+        if (
+            stat.S_ISLNK(current_before.st_mode)
+            or _is_reparse_point(current_before)
+            or not stat.S_ISREG(current_before.st_mode)
+            or not stat.S_ISREG(opened_before.st_mode)
+            or (opened_before.st_dev, opened_before.st_ino)
+            != (current_before.st_dev, current_before.st_ino)
+        ):
+            raise GameTreeResumeError(
+                "resume store changed while being opened",
+                code=GameTreeResumeCode.STALE_WRITER,
+            )
+        if (
+            opened_before.st_size > MAX_RESUME_RECORD_BYTES + 1
+            or current_before.st_size > MAX_RESUME_RECORD_BYTES + 1
+        ):
+            raise GameTreeResumeError(
+                "resume store exceeds the safety limit",
+                code=GameTreeResumeCode.RESOURCE_LIMIT,
+            )
+
+        payload_parts: list[bytes] = []
+        remaining = MAX_RESUME_RECORD_BYTES + 2
+        while remaining > 0:
+            block = os.read(fd, min(1024 * 1024, remaining))
+            if not block:
+                break
+            payload_parts.append(block)
+            remaining -= len(block)
+        payload = b"".join(payload_parts)
+
+        opened_after = os.fstat(fd)
+        current_after = path.lstat()
+    except GameTreeResumeError:
+        raise
     except OSError as exc:
         raise GameTreeResumeError(
             "resume store could not be read safely",
             code=GameTreeResumeCode.IO_FAILURE,
         ) from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
     if len(payload) > MAX_RESUME_RECORD_BYTES + 1:
         raise GameTreeResumeError(
             "resume store exceeds the safety limit",
             code=GameTreeResumeCode.RESOURCE_LIMIT,
         )
-    before_key = (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        getattr(before, "st_mtime_ns", None),
-    )
-    after_key = (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        getattr(after, "st_mtime_ns", None),
-    )
-    if before_key != after_key:
+
+    if (
+        stat.S_ISLNK(current_after.st_mode)
+        or _is_reparse_point(current_after)
+        or not stat.S_ISREG(current_after.st_mode)
+        or not stat.S_ISREG(opened_after.st_mode)
+        or (opened_after.st_dev, opened_after.st_ino)
+        != (current_after.st_dev, current_after.st_ino)
+    ):
+        raise GameTreeResumeError(
+            "resume store changed while being read",
+            code=GameTreeResumeCode.STALE_WRITER,
+        )
+
+    def state_key(info: os.stat_result) -> tuple[object, ...]:
+        return (
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            getattr(info, "st_mtime_ns", None),
+            getattr(info, "st_ctime_ns", None),
+        )
+
+    if (
+        state_key(opened_before) != state_key(opened_after)
+        or state_key(current_before) != state_key(current_after)
+        or state_key(opened_after) != state_key(current_after)
+    ):
         raise GameTreeResumeError(
             "resume store changed while being read",
             code=GameTreeResumeCode.STALE_WRITER,
