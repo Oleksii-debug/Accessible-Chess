@@ -496,6 +496,36 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
+    def test_disabled_low_time_cue_does_not_swallow_clock_tick(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                started = api.start_engine_game("white", 5, 1, 0)
+                self.assertTrue(started["ok"], started)
+                session = api._engine_session
+                self.assertIsNotNone(session)
+                clock = session._clock
+                self.assertIsNotNone(clock)
+                api._clock_sound_not_before = 0.0
+                api._settings.set("tick_policy", "my_turn")
+                api._settings.set("low_time_policy", "my_turn")
+                api._settings.set("low_time_seconds", 30)
+                api._settings.set("sound_low_time_enabled", False)
+                clock.set_remaining("w", 25_000)
+
+                result = api.clock_sound_pulse()
+
+                self.assertTrue(result["ok"], result)
+                self.assertTrue(result["played"], result)
+                self.assertEqual(result["event"], "tick")
+                self.assertEqual(playback.calls[-1], (SoundEvent.TICK, 80))
+                self.assertNotIn(SoundEvent.LOW_TIME, [event for event, _ in playback.calls])
+                self.assertNotIn("w", api._low_time_warned_sides)
+            finally:
+                api.close_analysis()
+                runtime.close()
+
     def test_clock_sound_pump_is_non_announcing_and_segment_sized(self) -> None:
         text = self.bootstrap
         self.assertIn("a.clock_sound_pulse()", text)
