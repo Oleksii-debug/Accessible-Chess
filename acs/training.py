@@ -206,6 +206,11 @@ class ExerciseSession:
         self._status = ExerciseStatus.READY
 
     @property
+    def canonical_definition(self) -> ExerciseDefinition:
+        """Return the exact definition authority bound to this live session."""
+        return self._bound_definition()
+
+    @property
     def status(self) -> ExerciseStatus:
         return self._status
 
