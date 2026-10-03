@@ -1990,6 +1990,40 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (),
         )
 
+    def test_pending_file_cleanup_does_not_wait_for_history_provider(self):
+        tombstone = AttachmentMetadata(
+            "cleanup-offline-a0",
+            "room-1",
+            "student-1",
+            0,
+            "cleanup-offline.bin",
+            None,
+            1,
+            "e" * 64,
+            "rooms/room-1/cleanup-offline-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        controller = self.controller("teacher-1")
+
+        def unavailable_history(**_kwargs):
+            raise RuntimeError("simulated file history outage")
+
+        self.files.history_after = unavailable_history
+        with self.assertRaisesRegex(RuntimeError, "simulated file history outage"):
+            controller.sync_files()
+
+        self.assertEqual(
+            self.file_store.delete_calls,
+            [tombstone.object_key],
+        )
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room-1"),
+            (),
+        )
+
     def test_file_state_for_next_history_page_is_deferred(self):
         teacher = self.controller("teacher-1")
         self.files.scan_state = "clean"

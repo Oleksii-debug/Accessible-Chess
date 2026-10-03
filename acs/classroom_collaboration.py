@@ -771,6 +771,10 @@ class ClassroomCollaborationController:
 
     def sync_files(self) -> tuple[AttachmentMetadata, ...]:
         self._require_member(self.local_participant_id)
+        # Retry already-durable cleanup before any network dependency. A
+        # provider outage after restart must not strand object-store bytes whose
+        # tombstone was committed by an earlier authoritative sync.
+        self._drain_file_deletions()
         authoritative = tuple(
             item
             for item in self._store.room_attachments(self.room_id)
