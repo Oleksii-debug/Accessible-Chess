@@ -384,6 +384,7 @@ def _resolve_package_href(
     href: object,
     *,
     allow_fragment: bool = False,
+    allow_surrounding_whitespace: bool = False,
 ) -> str:
     if type(href) is not str or not href.strip():
         raise _error(
@@ -391,6 +392,11 @@ def _resolve_package_href(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     raw_href = href.strip()
+    if not allow_surrounding_whitespace and raw_href != href:
+        raise _error(
+            "EPUB package href contains surrounding whitespace",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     parts = urlsplit(raw_href)
     if "#" in raw_href and not allow_fragment:
         raise _error(
@@ -617,6 +623,7 @@ def _resolved_asset(entry_name: str, reference: str) -> str | None:
             posixpath.dirname(entry_name),
             reference,
             allow_fragment=True,
+            allow_surrounding_whitespace=True,
         )
     except BookEpubImportError:
         return None
