@@ -614,7 +614,7 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
                 ):
                     self._coordinator(root)._files()
 
-    def test_hardlinked_control_name_fails_closed(self):
+    def test_hardlinked_control_name_is_preservation_backed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
@@ -626,12 +626,28 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             except (OSError, NotImplementedError):
                 self.skipTest("hard-link creation is unavailable on this runner")
 
-            with self.assertRaisesRegex(
-                Version2UpgradeError,
-                "control entry must be a private file",
-            ):
-                self._coordinator(root)._files()
+            coordinator = self._coordinator(root)
+            files = {
+                path.relative_to(root).as_posix()
+                for path in coordinator._files()
+            }
+            self.assertIn("important-user-data.bin", files)
+            self.assertIn("book-progress.json.lock", files)
 
+            backup, manifest = coordinator._create_backup(
+                "hardlinked-control-preservation"
+            )
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            self.assertIn("important-user-data.bin", paths)
+            self.assertIn("book-progress.json.lock", paths)
+            self.assertEqual(
+                (backup / "data" / "important-user-data.bin").read_bytes(),
+                b"preserve-control-alias-source",
+            )
+            self.assertEqual(
+                (backup / "data" / "book-progress.json.lock").read_bytes(),
+                b"preserve-control-alias-source",
+            )
             self.assertEqual(source.read_bytes(), b"preserve-control-alias-source")
             self.assertEqual(control.read_bytes(), b"preserve-control-alias-source")
 
