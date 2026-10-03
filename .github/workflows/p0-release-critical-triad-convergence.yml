@@ -59,6 +59,7 @@ jobs:
               ;;
             fix/delegated-focus-roundtrip-current-20261003)
               test "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-ci-recovery-20261003"
+              test "${{ github.event.pull_request.base.sha }}" = "4fab1b458895c91bccacf90c4836c4dc371ccc9c"
               expected="$(printf '%s\n' \
                 '.github/workflows/d01-pgn-workspace-webview.yml' \
                 '.github/workflows/p0-release-critical-triad-convergence.yml' \
