@@ -562,21 +562,22 @@ class ClassroomCollaborationSQLiteStore:
                     ).fetchone()
                     loaded = self._message_from_row(existing)
                 return loaded
-            latest = db.execute(
+            sequence_rows = db.execute(
                 """
-                SELECT MAX(sequence_no)
+                SELECT sequence_no
                 FROM collaboration_messages
                 WHERE room_id=?
+                ORDER BY sequence_no
                 """,
                 (message.room_id,),
-            ).fetchone()[0]
-            if (
-                latest is None
-                and message.sequence_no != 0
-            ) or (
-                latest is not None
-                and message.sequence_no > int(latest) + 1
-            ):
+            ).fetchall()
+            expected_sequence = 0
+            for row in sequence_rows:
+                sequence = int(row["sequence_no"])
+                if sequence != expected_sequence:
+                    break
+                expected_sequence += 1
+            if message.sequence_no > expected_sequence:
                 raise CollaborationSequenceGapError(
                     "message sequence has an unresolved gap"
                 )
