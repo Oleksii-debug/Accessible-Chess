@@ -612,7 +612,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         missing["events"].pop(next(iter(SoundEvent)).value)
         self.sound_provenance.write_text(json.dumps(missing), encoding="utf-8")
         output = self.root / "payload-provenance-event-missing"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all semantic"):
             self._prepare(output)
         self._assert_no_publication(output)
         self.sound_provenance.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
