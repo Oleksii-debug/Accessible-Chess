@@ -411,27 +411,52 @@
       return this._room;
     }
 
+    _notifyTransportLost() {
+      const callback = this._onTransportLost;
+      if (callback !== null) {
+        const snapshot = this.snapshot();
+        Promise.resolve().then(() => callback(snapshot)).catch(() => {});
+      }
+    }
+
     _bindUnexpectedDisconnect(room) {
       const events = this._livekit.RoomEvent;
       if (!events || typeof events.Disconnected !== "string" ||
+          typeof events.Moved !== "string" ||
           !room || typeof room.on !== "function") {
-        throw new LiveKitClassroomMediaError("LiveKit disconnect events are unavailable");
+        throw new LiveKitClassroomMediaError("LiveKit room identity events are unavailable");
       }
       room.on(events.Disconnected, () => {
+        if (this._intentionalDisconnectRoom === room) return;
+        if (this._room === room) {
+          // LiveKit's final Disconnected event means automatic recovery has
+          // stopped. Retire only the provider-side session identity here; the
+          // canonical Python controller is reconciled by the serialized runtime.
+          this._room = null;
+          this._roomId = null;
+          this._participantId = null;
+          this._notifyTransportLost();
+          return;
+        }
+        if (this._cleanupRoom === room) {
+          // A prior provider move may have been awaiting explicit cleanup. A
+          // subsequent final disconnect proves that cleanup completed.
+          this._cleanupRoom = null;
+          this._notifyTransportLost();
+        }
+      });
+      room.on(events.Moved, () => {
         if (this._intentionalDisconnectRoom === room || this._room !== room) {
           return;
         }
-        // LiveKit's final Disconnected event means automatic recovery has
-        // stopped. Retire only the provider-side session identity here; the
-        // canonical Python controller is reconciled by the serialized runtime.
+        // A provider-side room move is not canonical classroom authority.
+        // Stop exposing the moved room as connected and retain the only Room
+        // handle for explicit cleanup before Python may mark transport lost.
         this._room = null;
         this._roomId = null;
         this._participantId = null;
-        const callback = this._onTransportLost;
-        if (callback !== null) {
-          const snapshot = this.snapshot();
-          Promise.resolve().then(() => callback(snapshot)).catch(() => {});
-        }
+        this._cleanupRoom = room;
+        this._notifyTransportLost();
       });
     }
 
