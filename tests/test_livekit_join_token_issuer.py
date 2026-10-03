@@ -12,6 +12,9 @@ import unittest
 
 from acs.classroom_join_credentials import ClassroomJoinGrant
 from acs.classroom_realtime_media import MAX_JOIN_TTL_SECONDS, MediaSource
+from acs.livekit_classroom_identities import (
+    MODERATION_SERVICE_PARTICIPANT_IDENTITY,
+)
 from acs.livekit_join_token_issuer import (
     LIVEKIT_API_VERSION,
     LiveKitJoinTokenIssuer,
@@ -25,6 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ISSUER_WORKFLOW = ROOT / ".github" / "workflows" / "livekit-join-token-issuer.yml"
 TWO_CLIENT_WORKFLOW = (
     ROOT / ".github" / "workflows" / "classroom-livekit-two-client-media-smoke.yml"
+)
+RESERVED_IDENTITY_WORKFLOW = (
+    ROOT / ".github" / "workflows" / "livekit-reserved-moderation-identity.yml"
 )
 
 
@@ -152,6 +158,24 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         self.assertTrue(api.grant.can_subscribe)
         self.assertTrue(api.grant.can_publish_data)
         self.assertEqual(api.grant.can_publish_sources, ["microphone"])
+
+    def test_reserved_moderation_service_identity_cannot_receive_member_token(self):
+        issuer, api = self.issuer()
+        reserved = ClassroomJoinGrant(
+            room_id="room-1",
+            participant_id=MODERATION_SERVICE_PARTICIPANT_IDENTITY,
+            publish_sources=(MediaSource.MICROPHONE,),
+        )
+
+        with self.assertRaisesRegex(
+            LiveKitJoinTokenIssuerError,
+            "^LiveKit join grant participant identity is reserved$",
+        ):
+            self.issue(issuer, reserved)
+
+        self.assertIsNone(api.access_credentials)
+        self.assertIsNone(api.identity)
+        self.assertIsNone(api.grant)
 
     def test_every_privileged_provider_grant_is_explicitly_disabled(self):
         issuer, api = self.issuer()
@@ -360,6 +384,22 @@ class LiveKitJoinTokenIssuerTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveKitJoinTokenIssuerError, "timezone-aware"):
             self.issue(issuer, issued=NOW.replace(tzinfo=None))
         self.assertIsNone(api.access_credentials)
+
+    def test_reserved_identity_workflow_uses_immutable_pull_request_base(self):
+        workflow = RESERVED_IDENTITY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn("refs/remotes/origin/$EXPECTED_BASE_REF", workflow)
 
     def test_qualification_workflows_bind_scope_to_immutable_event_base(self):
         issuer_workflow = ISSUER_WORKFLOW.read_text(encoding="utf-8")

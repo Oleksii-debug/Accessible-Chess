@@ -27,6 +27,9 @@ from .classroom_realtime_media import (
     MAX_JOIN_TTL_SECONDS,
     MediaSource,
 )
+from .livekit_classroom_identities import (
+    RESERVED_MEMBER_PARTICIPANT_IDENTITIES,
+)
 
 
 LIVEKIT_API_DISTRIBUTION = "livekit-api"
@@ -83,6 +86,10 @@ class LiveKitJoinTokenIssuer:
     ) -> str:
         if type(grant) is not ClassroomJoinGrant:
             raise LiveKitJoinTokenIssuerError("LiveKit join grant is invalid")
+        if grant.participant_id in RESERVED_MEMBER_PARTICIPANT_IDENTITIES:
+            raise LiveKitJoinTokenIssuerError(
+                "LiveKit join grant participant identity is reserved"
+            )
         issued = _utc(issued_at, "LiveKit token issued_at")
         expires = _utc(expires_at, "LiveKit token expires_at")
         outer_ttl = expires - issued

@@ -23,6 +23,9 @@ from types import ModuleType
 from typing import Callable
 
 from .classroom_realtime_media import MAX_JOIN_TTL_SECONDS
+from .livekit_classroom_identities import (
+    MODERATION_SERVICE_PARTICIPANT_IDENTITY,
+)
 from .livekit_join_token_issuer import (
     LIVEKIT_API_DISTRIBUTION,
     LIVEKIT_API_VERSION,
@@ -33,7 +36,6 @@ from .livekit_join_token_issuer import (
 
 MAX_SERVICE_IDENTIFIER_CHARS = 128
 MIN_MODERATION_SERVICE_TTL_SECONDS = 2
-MODERATION_SERVICE_PARTICIPANT_IDENTITY = "moderation-service"
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _PROVIDER_CLOCK_SAFETY = timedelta(seconds=1)
 
