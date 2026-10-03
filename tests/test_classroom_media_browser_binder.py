@@ -210,6 +210,26 @@ class ClassroomMediaBrowserBinderTests(unittest.TestCase):
         self.assertIsNone(arbiter.active_lease)
         self.assertIsNone(binder.recovery_status)
 
+    def test_pending_session_browser_payload_is_non_secret_and_isolated(self):
+        _controller, _session, _effects, _arbiter, binder = self.make_binder()
+        prepared = binder.prepare_join(
+            credential("student-1", "never-public-token"),
+            now=NOW + timedelta(seconds=1),
+        )
+
+        payload = binder.pending_browser_payload(prepared.lease_id)
+
+        self.assertEqual(payload["transaction_id"], prepared.transaction_id)
+        self.assertEqual(payload["operation"], "connect")
+        self.assertTrue(payload["credential_required"])
+        self.assertEqual(payload["enabled_sources"], [])
+        self.assertNotIn("token", repr(payload))
+        self.assertNotIn("credential", payload)
+
+        payload["enabled_sources"].append("camera")
+        fresh = binder.pending_browser_payload(prepared.lease_id)
+        self.assertEqual(fresh["enabled_sources"], [])
+
     def test_invocation_repr_and_type_do_not_snapshot_secret_arguments(self):
         _controller, _session, _effects, _arbiter, binder = self.make_binder()
         prepared = binder.prepare_join(
