@@ -566,7 +566,10 @@ class BookProgressStore:
                 pass
 
     @staticmethod
-    def _decode_payload(raw: bytes) -> dict[str, object]:
+    def _decode_payload_with_source_schema(
+        raw: bytes,
+    ) -> tuple[dict[str, object], int]:
+        """Decode one store while retaining its on-disk schema generation."""
         try:
             text = raw.decode("utf-8")
             parsed = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
@@ -577,7 +580,16 @@ class BookProgressStore:
                 "book progress store is corrupt",
                 code=BookProgressStoreErrorCode.CORRUPT_STORE,
             ) from None
-        return _validate_payload(parsed)
+        validated = _validate_payload(parsed)
+        assert isinstance(parsed, Mapping)
+        source_schema_version = parsed["schema_version"]
+        assert type(source_schema_version) is int
+        return validated, source_schema_version
+
+    @staticmethod
+    def _decode_payload(raw: bytes) -> dict[str, object]:
+        validated, _ = BookProgressStore._decode_payload_with_source_schema(raw)
+        return validated
 
     def _read_state_unlocked(
         self,
@@ -1082,7 +1094,10 @@ class BookProgressStore:
                 # application's ordinary save instead of being silently
                 # downgraded to the current primary.
                 try:
-                    backup_payload = self._decode_payload(backup_base_raw)
+                    (
+                        backup_payload,
+                        backup_source_schema,
+                    ) = self._decode_payload_with_source_schema(backup_base_raw)
                 except BookProgressStoreError as backup_error:
                     if backup_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                         raise
@@ -1091,15 +1106,24 @@ class BookProgressStore:
                     # publication below is allowed to repair it from that exact
                     # current primary.
                 else:
-                    primary_payload = self._decode_payload(previous_raw)
+                    (
+                        primary_payload,
+                        primary_source_schema,
+                    ) = self._decode_payload_with_source_schema(previous_raw)
                     backup_generation = backup_payload["generation"]
                     primary_generation = primary_payload["generation"]
                     assert type(backup_generation) is int
                     assert type(primary_generation) is int
+                    legacy_pair = (
+                        primary_source_schema
+                        == LEGACY_BOOK_PROGRESS_STORE_SCHEMA_VERSION
+                        and backup_source_schema
+                        == LEGACY_BOOK_PROGRESS_STORE_SCHEMA_VERSION
+                    )
                     if backup_generation > primary_generation or (
                         backup_generation == primary_generation
-                        and primary_generation > 0
                         and backup_base_raw != previous_raw
+                        and not legacy_pair
                     ):
                         raise BookProgressStoreError(
                             "book progress recovery data is newer or divergent",
