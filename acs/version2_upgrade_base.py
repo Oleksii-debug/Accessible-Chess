@@ -96,10 +96,9 @@ _TEMPFILE_TOKEN_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyz0123456789_"
 )
 # CPython's tempfile._RandomNameSequence, used by every canonical mkstemp
-# writer classified here, emits exactly eight characters from the alphabet
-# above. The upgrade classifier is intentionally tied to the shipped writer
-# grammar: accepting arbitrary lengths can misclassify preservation-backed user
-# files as disposable crash residue.
+# writer classified here, emits exactly eight characters from this alphabet.
+# Keep the classifier tied to the shipped writer grammar so preservation-backed
+# near-misses are never discarded merely because they look temp-like.
 _TEMPFILE_TOKEN_LENGTH = 8
 _HEX_CHARACTERS = frozenset("0123456789abcdef")
 
@@ -124,6 +123,46 @@ def _is_generated_education_workspace_file(
     return _is_tempfile_token(token)
 
 
+def _upgrade_publication_guard_target(
+    relative_path: PurePosixPath,
+    *,
+    settings_name: str,
+    library_name: str,
+) -> str | None:
+    """Return the exact tracked target named by a publication-guard candidate."""
+    if len(relative_path.parts) != 1:
+        return None
+    name = relative_path.parts[0].casefold()
+    for target_name in (settings_name, library_name):
+        target = target_name.casefold()
+        prefix = f".{target}.publish-guard-"
+        if not name.startswith(prefix):
+            continue
+        token = name[len(prefix) :]
+        if len(token) == 12 and all(
+            character in _HEX_CHARACTERS for character in token
+        ):
+            return target_name
+    return None
+
+
+def _is_upgrade_publication_guard_file(
+    relative_path: PurePosixPath,
+    *,
+    settings_name: str,
+    library_name: str,
+) -> bool:
+    """Classify exact publication-guard filename grammar."""
+    return (
+        _upgrade_publication_guard_target(
+            relative_path,
+            settings_name=settings_name,
+            library_name=library_name,
+        )
+        is not None
+    )
+
+
 def _is_upgrade_generated_root_runtime_file(
     relative_path: PurePosixPath,
     *,
@@ -136,7 +175,6 @@ def _is_upgrade_generated_root_runtime_file(
 
     name = relative_path.parts[0].casefold()
     settings = settings_name.casefold()
-    library = library_name.casefold()
 
     # Settings.save() owns one fixed sibling temporary pathname.
     if name == f"{settings}.tmp":
@@ -152,20 +190,11 @@ def _is_upgrade_generated_root_runtime_file(
             if _is_tempfile_token(token):
                 return True
 
-    # Publication guards are same-filesystem hard links to the authenticated
-    # pre-publication Settings/Library inode.  A crash may strand them, but
-    # they are coordination state and must never consume preservation quota.
-    for target in (settings, library):
-        prefix = f".{target}.publish-guard-"
-        if not name.startswith(prefix):
-            continue
-        token = name[len(prefix) :]
-        if len(token) == 12 and all(
-            character in _HEX_CHARACTERS for character in token
-        ):
-            return True
-
-    return False
+    return _is_upgrade_publication_guard_file(
+        relative_path,
+        settings_name=settings_name,
+        library_name=library_name,
+    )
 
 
 def _generated_runtime_file_is_authenticated_hardlink(
@@ -177,7 +206,7 @@ def _generated_runtime_file_is_authenticated_hardlink(
     settings_name: str,
     library_name: str,
 ) -> bool:
-    """Authenticate an intentional writer hardlink against its canonical inode."""
+    """Authenticate a writer-owned hardlink against its canonical target."""
     if len(relative_path.parts) != 1:
         return False
     name = relative_path.parts[0].casefold()
@@ -407,6 +436,39 @@ def _safe_stat(path: Path, label: str) -> os.stat_result:
     return info
 
 
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    try:
+        return os.path.samestat(first, second)
+    except (AttributeError, OSError):
+        return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
+def _require_published_temp_identity(
+    path: Path,
+    expected: os.stat_result | None,
+    *,
+    label: str,
+) -> None:
+    """Require a published pathname to remain the exact prepared private inode."""
+    try:
+        current = os.lstat(path)
+    except OSError as exc:
+        raise Version2UpgradeError(
+            f"{label} changed before durability confirmation"
+        ) from exc
+    if (
+        stat.S_ISLNK(current.st_mode)
+        or _reparse(current)
+        or not stat.S_ISREG(current.st_mode)
+        or int(getattr(current, "st_nlink", 1)) != 1
+        or expected is None
+        or not _same_file_identity(expected, current)
+    ):
+        raise Version2UpgradeError(
+            f"{label} changed before durability confirmation"
+        )
+
+
 def _dir_chain(
     root: Path,
     directory: Path,
@@ -460,20 +522,218 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
     fd, raw = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
     )
-    temp = Path(raw)
+    temp: Path | None = Path(raw)
+    temp_identity: os.stat_result | None = None
     try:
-        with os.fdopen(fd, "wb") as handle:
+        created = os.fstat(fd)
+        if (
+            not stat.S_ISREG(created.st_mode)
+            or int(getattr(created, "st_nlink", 1)) != 1
+        ):
+            raise Version2UpgradeError(
+                "atomic write temporary file must be private"
+            )
+        stream = os.fdopen(fd, "wb")
+        fd = -1
+        with stream as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+            prepared = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(prepared.st_mode)
+                or int(getattr(prepared, "st_nlink", 1)) != 1
+                or not _same_file_identity(created, prepared)
+            ):
+                raise Version2UpgradeError(
+                    "atomic write temporary file changed while being prepared"
+                )
+            temp_identity = prepared
+
+        assert temp is not None
+        try:
+            current = os.lstat(temp)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "atomic write temporary file changed before publication"
+            ) from exc
+        if (
+            stat.S_ISLNK(current.st_mode)
+            or _reparse(current)
+            or not stat.S_ISREG(current.st_mode)
+            or int(getattr(current, "st_nlink", 1)) != 1
+            or temp_identity is None
+            or not _same_file_identity(temp_identity, current)
+        ):
+            raise Version2UpgradeError(
+                "atomic write temporary file changed before publication"
+            )
         os.replace(temp, path)
+        temp = None
+        _require_published_temp_identity(
+            path,
+            temp_identity,
+            label="atomic write publication",
+        )
         _fsync_dir(path.parent)
+        _require_published_temp_identity(
+            path,
+            temp_identity,
+            label="atomic write publication",
+        )
     finally:
-        if temp.exists():
-            temp.unlink()
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        # Never unlink an object merely because it occupies our old temporary
+        # pathname. Remove only the exact private inode created by this writer.
+        if temp is not None and temp_identity is not None:
+            try:
+                current = os.lstat(temp)
+            except OSError:
+                current = None
+            if (
+                current is not None
+                and stat.S_ISREG(current.st_mode)
+                and not stat.S_ISLNK(current.st_mode)
+                and not _reparse(current)
+                and int(getattr(current, "st_nlink", 1)) == 1
+                and _same_file_identity(temp_identity, current)
+            ):
+                try:
+                    temp.unlink()
+                except OSError:
+                    pass
 
 
-def _publication_guard(path: Path) -> Path:
+@dataclass(frozen=True, slots=True)
+class _PublicationGuard:
+    path: Path
+    identity: tuple[int, int]
+
+
+def _stat_identity(info: os.stat_result) -> tuple[int, int]:
+    return int(info.st_dev), int(info.st_ino)
+
+
+def _require_publication_guard(guard: _PublicationGuard) -> os.stat_result:
+    try:
+        info = _safe_stat(guard.path, "tracked publication guard")
+    except OSError as exc:
+        raise Version2UpgradeError(
+            "tracked publication guard changed unexpectedly"
+        ) from exc
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or _stat_identity(info) != guard.identity
+    ):
+        raise Version2UpgradeError(
+            "tracked publication guard changed unexpectedly"
+        )
+    return info
+
+
+def _publication_guard_hash(guard: _PublicationGuard) -> str:
+    """Hash one exact guarded inode through a stable descriptor.
+
+    Pathname identity is authenticated before and after the descriptor read.
+    Content stability is proved from descriptor observations only: pathname
+    stat and descriptor fstat timestamps are not cross-compared because
+    Windows exposes different/deprecated st_ctime semantics for those
+    interfaces. A second descriptor-bound hash makes same-size writes visible
+    even when filesystem timestamp granularity is too coarse to move mtime.
+    """
+    _require_publication_guard(guard)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(guard.path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _stat_identity(opened) != guard.identity
+        ):
+            raise Version2UpgradeError(
+                "tracked publication guard changed unexpectedly"
+            )
+        opened_state = (
+            int(opened.st_size),
+            int(getattr(opened, "st_mtime_ns", 0)),
+        )
+
+        first = hashlib.sha256()
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            first.update(block)
+        after_first = os.fstat(descriptor)
+        if (
+            _stat_identity(after_first) != guard.identity
+            or (
+                int(after_first.st_size),
+                int(getattr(after_first, "st_mtime_ns", 0)),
+            )
+            != opened_state
+        ):
+            raise Version2UpgradeError(
+                "tracked publication guard changed unexpectedly"
+            )
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        second = hashlib.sha256()
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            second.update(block)
+        after_second = os.fstat(descriptor)
+        if (
+            _stat_identity(after_second) != guard.identity
+            or (
+                int(after_second.st_size),
+                int(getattr(after_second, "st_mtime_ns", 0)),
+            )
+            != opened_state
+            or second.digest() != first.digest()
+        ):
+            raise Version2UpgradeError(
+                "tracked publication guard changed unexpectedly"
+            )
+    except Version2UpgradeError:
+        raise
+    except OSError as exc:
+        raise Version2UpgradeError(
+            "tracked publication guard could not be authenticated"
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    _require_publication_guard(guard)
+    return first.hexdigest()
+
+
+def _remove_publication_guard(guard: _PublicationGuard) -> None:
+    """Remove only the exact guard inode that this upgrader created."""
+    # Once a guard has been created, disappearance is itself a coordination
+    # failure.  Treat it exactly like substitution instead of silently
+    # accepting a window in which the guarded old inode may have been lost.
+    _require_publication_guard(guard)
+    try:
+        guard.path.unlink()
+    except OSError as exc:
+        raise Version2UpgradeError(
+            "tracked publication guard could not be removed safely"
+        ) from exc
+
+
+def _publication_guard(path: Path) -> _PublicationGuard:
     """Keep the authenticated pre-publication inode reachable across replace.
 
     A legitimate writer can race after the last semantic re-authentication but
@@ -485,12 +745,13 @@ def _publication_guard(path: Path) -> Path:
     info = _safe_stat(path, "tracked publication target")
     if not stat.S_ISREG(info.st_mode):
         raise Version2UpgradeError("tracked publication target must be a file")
+    target_identity = _stat_identity(info)
     for _ in range(8):
-        guard = path.parent / (
+        guard_path = path.parent / (
             f".{path.name}.publish-guard-{secrets.token_hex(6)}"
         )
         try:
-            os.link(path, guard)
+            os.link(path, guard_path)
         except FileExistsError:
             continue
         except OSError as exc:
@@ -498,17 +759,32 @@ def _publication_guard(path: Path) -> Path:
                 "tracked publication cannot be protected safely"
             ) from exc
         try:
-            guard_info = _safe_stat(guard, "tracked publication guard")
-            if not stat.S_ISREG(guard_info.st_mode):
-                raise Version2UpgradeError(
-                    "tracked publication guard must be a file"
+            guard_info = _safe_stat(guard_path, "tracked publication guard")
+            current_info = _safe_stat(path, "tracked publication target")
+            if (
+                not stat.S_ISREG(guard_info.st_mode)
+                or not stat.S_ISREG(current_info.st_mode)
+                or _stat_identity(guard_info) != target_identity
+                or _stat_identity(current_info) != target_identity
+            ):
+                raise Version2UpgradeBusy(
+                    "tracked publication changed while guard was created"
                 )
-            return guard
+            return _PublicationGuard(guard_path, target_identity)
         except Exception:
-            if guard.exists() or guard.is_symlink():
+            # Never clean up a pathname that another actor replaced after the
+            # hard link was created. Only the exact inode we linked is ours.
+            if guard_path.exists() or guard_path.is_symlink():
                 try:
-                    guard.unlink()
-                except OSError:
+                    cleanup_info = _safe_stat(
+                        guard_path, "tracked publication guard"
+                    )
+                    if (
+                        stat.S_ISREG(cleanup_info.st_mode)
+                        and _stat_identity(cleanup_info) == target_identity
+                    ):
+                        guard_path.unlink()
+                except (OSError, Version2UpgradeError):
                     pass
             raise
     raise Version2UpgradeBusy("tracked publication guard could not be allocated")
@@ -546,10 +822,21 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
     fd, raw = tempfile.mkstemp(
         prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
     )
-    temp = Path(raw)
+    temp: Path | None = Path(raw)
+    temp_identity: os.stat_result | None = None
     digest = hashlib.sha256()
     source_fd = -1
     try:
+        created = os.fstat(fd)
+        temp_identity = created
+        if (
+            not stat.S_ISREG(created.st_mode)
+            or int(getattr(created, "st_nlink", 1)) != 1
+        ):
+            raise Version2UpgradeError(
+                "backup copy temporary file must be private"
+            )
+
         # Low-level os.open/os.read is subject to CRT text translation on
         # Windows unless O_BINARY is explicit. Upgrade backups and restores must
         # preserve arbitrary user bytes (including CRLF and 0x1A) exactly.
@@ -568,8 +855,9 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
         )
         if opened_id != before_id:
             raise Version2UpgradeError("user-data source changed before backup copy")
-        with os.fdopen(fd, "wb") as target:
-            fd = -1
+        stream = os.fdopen(fd, "wb")
+        fd = -1
+        with stream as target:
             while True:
                 block = os.read(source_fd, 1024 * 1024)
                 if not block:
@@ -578,6 +866,16 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
                 digest.update(block)
             target.flush()
             os.fsync(target.fileno())
+            prepared = os.fstat(target.fileno())
+            if (
+                not stat.S_ISREG(prepared.st_mode)
+                or int(getattr(prepared, "st_nlink", 1)) != 1
+                or not _same_file_identity(created, prepared)
+            ):
+                raise Version2UpgradeError(
+                    "backup copy temporary file changed while being prepared"
+                )
+            temp_identity = prepared
         after = _safe_stat(source, "user-data source")
         after_id = (
             after.st_dev,
@@ -587,16 +885,61 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
         )
         if after_id != before_id:
             raise Version2UpgradeError("user-data source changed during backup copy")
+
+        assert temp is not None
+        try:
+            current = os.lstat(temp)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "backup copy temporary file changed before publication"
+            ) from exc
+        if (
+            stat.S_ISLNK(current.st_mode)
+            or _reparse(current)
+            or not stat.S_ISREG(current.st_mode)
+            or int(getattr(current, "st_nlink", 1)) != 1
+            or temp_identity is None
+            or not _same_file_identity(temp_identity, current)
+        ):
+            raise Version2UpgradeError(
+                "backup copy temporary file changed before publication"
+            )
         os.replace(temp, destination)
+        temp = None
+        _require_published_temp_identity(
+            destination,
+            temp_identity,
+            label="backup copy publication",
+        )
         _fsync_dir(destination.parent)
+        _require_published_temp_identity(
+            destination,
+            temp_identity,
+            label="backup copy publication",
+        )
         return int(after.st_size), digest.hexdigest()
     finally:
         if source_fd >= 0:
             os.close(source_fd)
         if fd >= 0:
             os.close(fd)
-        if temp.exists():
-            temp.unlink()
+        if temp is not None and temp_identity is not None:
+            try:
+                current = os.lstat(temp)
+            except OSError:
+                current = None
+            if (
+                current is not None
+                and stat.S_ISREG(current.st_mode)
+                and not stat.S_ISLNK(current.st_mode)
+                and not _reparse(current)
+                and int(getattr(current, "st_nlink", 1)) == 1
+                and _same_file_identity(temp_identity, current)
+            ):
+                try:
+                    temp.unlink()
+                except OSError:
+                    pass
 
 
 def _canonical_library_schema(connection: sqlite3.Connection) -> int:
@@ -676,12 +1019,22 @@ def _sqlite_backup(
     if not stat.S_ISREG(info.st_mode):
         raise Version2UpgradeError("library source must be a regular file")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, raw = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
-    )
-    os.close(fd)
-    temp = Path(raw)
+
+    def require_source_identity() -> None:
+        current = _safe_stat(source, "library source")
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or not _same_file_identity(info, current)
+        ):
+            raise Version2UpgradeError("library source changed during backup")
+
+    # Do not hand SQLite a pre-created temporary pathname. sqlite3.connect()
+    # would reopen that name independently of mkstemp's authenticated inode,
+    # allowing a substituted file to become the backup target. Build the
+    # consistent SQLite snapshot in memory, serialize the validated database,
+    # then publish those bytes through the already identity-bound atomic writer.
     lock = reader = target = None
+    serialized: bytes | None = None
     try:
         try:
             # Separate connections avoid sqlite3.Connection.backup stalling on
@@ -689,21 +1042,35 @@ def _sqlite_backup(
             lock = sqlite3.connect(str(source), timeout=0.0)
             lock.execute("PRAGMA busy_timeout=0")
             lock.execute("BEGIN IMMEDIATE")
+            require_source_identity()
             reader = sqlite3.connect(
                 source.resolve(strict=True).as_uri() + "?mode=ro",
                 uri=True,
                 timeout=0.0,
             )
             reader.execute("PRAGMA busy_timeout=0")
+            require_source_identity()
             version = schema_validator(reader)
             state_digest = _sqlite_state_sha256(reader)
-            target = sqlite3.connect(str(temp))
+            require_source_identity()
+            target = sqlite3.connect(":memory:")
             reader.backup(target)
             target.commit()
             if schema_validator(target) != version:
                 raise Version2UpgradeError("library backup schema mismatch")
             if _sqlite_state_sha256(target) != state_digest:
                 raise Version2UpgradeError("library backup logical-state mismatch")
+            require_source_identity()
+            serialize = getattr(target, "serialize", None)
+            if not callable(serialize):
+                raise Version2UpgradeError(
+                    "library backup serialization is unavailable"
+                )
+            serialized = serialize()
+            if type(serialized) is not bytes or not serialized:
+                raise Version2UpgradeError(
+                    "library backup serialization produced invalid bytes"
+                )
         except sqlite3.DatabaseError as exc:
             raise Version2UpgradeError("library backup could not be validated") from exc
         finally:
@@ -715,22 +1082,27 @@ def _sqlite_backup(
                 if lock.in_transaction:
                     lock.rollback()
                 lock.close()
-        # Windows CRT rejects fsync() on a read-only descriptor. Open the
-        # completed SQLite snapshot read/write so the durability flush works on
-        # Windows as well as POSIX before the atomic replace.
-        with temp.open("r+b") as handle:
-            os.fsync(handle.fileno())
-        os.replace(temp, destination)
-        _fsync_dir(destination.parent)
+
+        if serialized is None:
+            raise Version2UpgradeError("library backup serialization is unavailable")
+        require_source_identity()
+        _atomic_bytes(destination, serialized)
+        if (
+            _library_state_sha256(
+                destination,
+                schema_validator=schema_validator,
+            )
+            != state_digest
+        ):
+            raise Version2UpgradeError("library backup publication validation failed")
         return (
-            destination.stat().st_size,
-            _hash(destination),
+            len(serialized),
+            hashlib.sha256(serialized).hexdigest(),
             version,
             state_digest,
         )
-    finally:
-        if temp.exists():
-            temp.unlink()
+    except OSError as exc:
+        raise Version2UpgradeError("library backup could not be published") from exc
 
 
 class _UpgradeLock:
@@ -738,27 +1110,124 @@ class _UpgradeLock:
         self.path = path
         self.handle = None
 
+    @staticmethod
+    def _identity(info: os.stat_result) -> tuple[int, int]:
+        return int(info.st_dev), int(info.st_ino)
+
+    @staticmethod
+    def _require_private_regular(info: os.stat_result) -> None:
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or _reparse(info)
+            or not stat.S_ISREG(info.st_mode)
+            or int(getattr(info, "st_nlink", 1)) != 1
+        ):
+            raise Version2UpgradeError(
+                "upgrade lock must be one private regular file"
+            )
+
+    def _require_current_handle(self) -> os.stat_result:
+        assert self.handle is not None
+        opened = os.fstat(self.handle.fileno())
+        self._require_private_regular(opened)
+        try:
+            current = os.lstat(self.path)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock changed while opening"
+            ) from exc
+        try:
+            self._require_private_regular(current)
+        except Version2UpgradeError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock changed while opening"
+            ) from exc
+        if self._identity(opened) != self._identity(current):
+            raise Version2UpgradeError(
+                "upgrade lock changed while opening"
+            )
+        return opened
+
+    def _open_handle(self):
+        try:
+            before = os.lstat(self.path)
+        except FileNotFoundError:
+            before = None
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock could not be inspected"
+            ) from exc
+        if before is not None:
+            self._require_private_regular(before)
+
+        flags = os.O_RDWR
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
+        if before is None:
+            # A missing lock pathname must be exclusively created by this
+            # upgrader. Otherwise a non-cooperating process can create an
+            # arbitrary file in the lstat -> open window and have it adopted
+            # (and potentially initialized) as our coordination inode.
+            flags |= os.O_CREAT | os.O_EXCL
+        try:
+            descriptor = os.open(self.path, flags, 0o600)
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "upgrade lock could not be opened safely"
+            ) from exc
+
+        try:
+            handle = os.fdopen(descriptor, "r+b")
+            self.handle = handle
+            opened = self._require_current_handle()
+            if before is not None and self._identity(before) != self._identity(opened):
+                raise Version2UpgradeError(
+                    "upgrade lock changed while opening"
+                )
+            return handle
+        except BaseException:
+            if self.handle is not None:
+                self.handle.close()
+                self.handle = None
+            else:
+                os.close(descriptor)
+            raise
+
     def __enter__(self) -> "_UpgradeLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if self.path.exists() or self.path.is_symlink():
-            _safe_stat(self.path, "upgrade lock")
-        self.handle = self.path.open("a+b")
-        if self.handle.seek(0, os.SEEK_END) == 0:
-            self.handle.write(b"\0")
-            self.handle.flush()
-        self.handle.seek(0)
+        self._open_handle()
+        assert self.handle is not None
         try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (OSError, BlockingIOError) as exc:
+            opened = self._require_current_handle()
+            if opened.st_size == 0:
+                self.handle.seek(0)
+                self.handle.write(b"\0")
+                self.handle.flush()
+                self._require_current_handle()
+            self.handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(
+                        self.handle.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+            except (OSError, BlockingIOError) as exc:
+                raise Version2UpgradeBusy(
+                    "another Version 2 upgrade is active"
+                ) from exc
+            self._require_current_handle()
+            return self
+        except BaseException:
             self.handle.close()
             self.handle = None
-            raise Version2UpgradeBusy("another Version 2 upgrade is active") from exc
-        return self
+            raise
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self.handle is None:
@@ -837,7 +1306,40 @@ class Version2UpgradeCoordinator:
         ):
             relative = _relative(self.layout.root, path)
             relative_path = PurePosixPath(relative)
-            control_name = relative.casefold() in _CONTROL_NAME_KEYS
+            if (
+                len(relative_path.parts) == 1
+                and relative_path.parts[0].casefold()
+                == _EDUCATION_WORKSPACE_LOCK_DIRECTORY
+            ):
+                # EducationWorkspaceStore owns this exact root directory as its
+                # live publication lock (mkdir/rmdir). Do not migrate while a
+                # peer save is active. A regular file with the same spelling is
+                # not writer control state and remains preservation-backed.
+                lock_info = _safe_stat(path, "education workspace lock")
+                if stat.S_ISDIR(lock_info.st_mode):
+                    raise Version2UpgradeBusy(
+                        "education workspace store is busy during upgrade"
+                    )
+            if relative.casefold() in _CONTROL_NAME_KEYS:
+                # A canonical control *file* is writer-owned and excluded only
+                # after authenticating it as one private regular inode. A
+                # directory that merely has the same name cannot be a lock or
+                # journal file; preserve its descendants as user data. Symlinks,
+                # reparse points, and special objects still fail closed through
+                # _safe_stat/the regular-file boundary.
+                control_info = _safe_stat(path, "user-data control entry")
+                if not stat.S_ISDIR(control_info.st_mode):
+                    if not stat.S_ISREG(control_info.st_mode):
+                        raise Version2UpgradeError(
+                            "user-data control entry must be a regular file"
+                        )
+                    if int(getattr(control_info, "st_nlink", 1)) == 1:
+                        continue
+                    # A hard-linked regular file cannot be authenticated as
+                    # private writer control state. Preserve that exact inode
+                    # as ordinary user data instead of either excluding it or
+                    # failing the entire backup merely because its pathname
+                    # resembles a control file.
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
             # The root object itself is still validated below, so a regular file
@@ -848,63 +1350,91 @@ class Version2UpgradeCoordinator:
                 and relative_path.parts[0].casefold()
                 in _DERIVED_ROOT_DIRECTORY_KEYS
             ):
+                # Even disposable runtime descendants remain inside the trusted
+                # user-data filesystem boundary.  Authenticate the actual
+                # directory entry before excluding it so a canonical cache/guard
+                # pathname cannot hide a symlink or reparse alias.
+                info = _safe_stat(path, "derived runtime entry")
+                if not (
+                    stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)
+                ):
+                    raise Version2UpgradeError(
+                        "derived runtime entry must be a regular file or directory"
+                    )
                 continue
-            # Validate the filesystem object before trusting filename grammar.
-            # A symlink/reparse point that merely looks like writer residue is
-            # not authenticated writer output and must fail closed rather than
-            # disappearing from the preservation set.
-            info = _safe_stat(path, "user-data entry")
-            if (
-                len(relative_path.parts) == 1
-                and relative_path.parts[0].casefold()
-                == _EDUCATION_WORKSPACE_LOCK_DIRECTORY
-                and stat.S_ISDIR(info.st_mode)
-            ):
-                # EducationWorkspaceStore owns this exact root directory as its
-                # live publication lock. It does not participate in the upgrade
-                # lock, so migration must not race an active workspace save.
-                raise Version2UpgradeBusy(
-                    "education workspace store is busy during upgrade"
-                )
-            # Fixed coordination/control names are trustworthy only when the
-            # filesystem object has the regular-file shape produced by the
-            # canonical writer. An exact-looking directory remains traversable
-            # user data, while symlink/reparse points fail closed in _safe_stat.
-            if (
-                control_name
-                and stat.S_ISREG(info.st_mode)
-                and int(getattr(info, "st_nlink", 1)) == 1
-            ):
-                continue
-            generated_runtime_file = (
+            # Atomic GameTree/Book-progress writers may leave these exact-root
+            # temporary files behind only after abrupt process death. They are
+            # internal publication residue, not preservation-backed user data.
+            # Nested lookalikes and non-matching near names remain ordinary data.
+            private_generated_runtime = (
                 _is_generated_root_runtime_file(relative_path)
                 or _is_generated_training_progress_file(relative_path)
                 or _is_generated_education_workspace_file(relative_path)
-                or _is_upgrade_generated_root_runtime_file(
-                    relative_path,
-                    settings_name=self.layout.settings_name,
-                    library_name=self.layout.library_name,
-                )
             )
-            # Atomic writers leave regular files. An exact-looking directory is
-            # traversed normally so its children remain preservation-backed.
-            if generated_runtime_file and stat.S_ISREG(info.st_mode):
-                link_count = int(getattr(info, "st_nlink", 1))
-                if link_count == 1 or _generated_runtime_file_is_authenticated_hardlink(
-                    path,
-                    info,
-                    relative_path,
-                    root=self.layout.root,
-                    settings_name=self.layout.settings_name,
-                    library_name=self.layout.library_name,
-                ):
-                    continue
+            upgrade_generated_runtime = _is_upgrade_generated_root_runtime_file(
+                relative_path,
+                settings_name=self.layout.settings_name,
+                library_name=self.layout.library_name,
+            )
+            publication_guard_target = _upgrade_publication_guard_target(
+                relative_path,
+                settings_name=self.layout.settings_name,
+                library_name=self.layout.library_name,
+            )
+            publication_guard = publication_guard_target is not None
+            if private_generated_runtime or upgrade_generated_runtime:
+                # Filename grammar identifies ownership, but it does not prove
+                # filesystem identity. Canonical writer temps/locks are created
+                # as private inodes and may be excluded only while st_nlink=1.
+                # Publication guards are different: exclude one only while it is
+                # still the same hard-linked inode as the tracked Settings or
+                # Library pathname named by the guard. A private lookalike, an
+                # unrelated hard link, or a stale guard whose target was already
+                # replaced can contain preservation-worthy user bytes.
+                generated_info = _safe_stat(path, "generated runtime entry")
+                if stat.S_ISREG(generated_info.st_mode):
+                    link_count = int(getattr(generated_info, "st_nlink", 1))
+                    if publication_guard:
+                        target_path = self.layout.root / publication_guard_target
+                        try:
+                            target_info = target_path.lstat()
+                        except OSError:
+                            target_info = None
+                        if (
+                            target_info is not None
+                            and stat.S_ISREG(target_info.st_mode)
+                            and not stat.S_ISLNK(target_info.st_mode)
+                            and not _reparse(target_info)
+                            and link_count >= 2
+                            and os.path.samestat(generated_info, target_info)
+                        ):
+                            continue
+                    elif (
+                        link_count == 1
+                        or _generated_runtime_file_is_authenticated_hardlink(
+                            path,
+                            generated_info,
+                            relative_path,
+                            root=self.layout.root,
+                            settings_name=self.layout.settings_name,
+                            library_name=self.layout.library_name,
+                        )
+                    ):
+                        continue
+                    # A hard-linked temp/lock-shaped regular file cannot be an
+                    # authentic private writer residue. Preserve it as ordinary
+                    # user data instead of silently dropping an aliased inode.
+                # A directory merely happens to have a generated filename; it
+                # is not writer residue. Let the ordinary path logic below
+                # preserve its descendants. Other special objects also fall
+                # through and are rejected by the normal non-regular boundary.
             folded = relative.casefold()
             if folded in seen:
                 raise Version2UpgradeError(
                     "user-data paths collide on Windows case-folding"
                 )
             seen.add(folded)
+            info = _safe_stat(path, "user-data entry")
             if stat.S_ISDIR(info.st_mode):
                 continue
             if not stat.S_ISREG(info.st_mode):
@@ -919,7 +1449,7 @@ class Version2UpgradeCoordinator:
             total += int(info.st_size)
             if len(files) > self.limits.max_files:
                 raise Version2UpgradeError(
-                    "user-data backup exceeds file-count limit"
+                    "user-data backup exceeds file count limit"
                 )
             if total > self.limits.max_bytes:
                 raise Version2UpgradeError("user-data backup exceeds byte limit")
@@ -1638,22 +2168,26 @@ class Version2UpgradeCoordinator:
                 manifest, self.layout.settings_name
             )
 
-        guard: Path | None = None
+        guard: _PublicationGuard | None = None
         try:
             if original_state is not None:
                 guard = _publication_guard(path)
                 if (
-                    _hash(guard) != original_state
+                    _publication_guard_hash(guard) != original_state
                     or _hash(path) != original_state
                 ):
                     raise Version2UpgradeError(
                         "tracked user data changed during settings publication"
                     )
             _atomic_bytes(path, payload)
-            if guard is not None and _hash(guard) != original_state:
+            if (
+                guard is not None
+                and _publication_guard_hash(guard) != original_state
+            ):
                 # A writer changed the old inode after our final authentication.
                 # Put those exact user bytes back before failing closed.
-                os.replace(guard, path)
+                _require_publication_guard(guard)
+                os.replace(guard.path, path)
                 guard = None
                 _fsync_dir(path.parent)
                 raise Version2UpgradeError(
@@ -1665,11 +2199,8 @@ class Version2UpgradeCoordinator:
                 )
             return True
         finally:
-            if guard is not None and (guard.exists() or guard.is_symlink()):
-                try:
-                    guard.unlink()
-                except OSError:
-                    pass
+            if guard is not None:
+                _remove_publication_guard(guard)
 
     def _migrate_library(
         self,
@@ -1761,13 +2292,19 @@ class Version2UpgradeCoordinator:
             )
             self._prepare_library_publication(str(original_state))
 
-            guard: Path | None = _publication_guard(self.layout.library_path)
+            guard: _PublicationGuard | None = _publication_guard(
+                self.layout.library_path
+            )
             try:
+                assert guard is not None
+                _require_publication_guard(guard)
+                guard_state = _library_state_sha256(
+                    guard.path,
+                    schema_validator=self._validate_library_schema,
+                )
+                _require_publication_guard(guard)
                 if (
-                    _library_state_sha256(
-                        guard, schema_validator=self._validate_library_schema
-                    )
-                    != original_state
+                    guard_state != original_state
                     or _library_state_sha256(
                         self.layout.library_path,
                         schema_validator=self._validate_library_schema,
@@ -1779,15 +2316,17 @@ class Version2UpgradeCoordinator:
                     )
                 os.replace(publish, self.layout.library_path)
                 _fsync_dir(self.layout.root)
-                if (
-                    _library_state_sha256(
-                        guard, schema_validator=self._validate_library_schema
-                    )
-                    != original_state
-                ):
+                _require_publication_guard(guard)
+                guard_state = _library_state_sha256(
+                    guard.path,
+                    schema_validator=self._validate_library_schema,
+                )
+                _require_publication_guard(guard)
+                if guard_state != original_state:
                     # Preserve a writer that committed to the authenticated old
                     # inode after the final re-authentication but before replace.
-                    os.replace(guard, self.layout.library_path)
+                    _require_publication_guard(guard)
+                    os.replace(guard.path, self.layout.library_path)
                     guard = None
                     _fsync_dir(self.layout.root)
                     raise Version2UpgradeError(
@@ -1803,11 +2342,8 @@ class Version2UpgradeCoordinator:
                     )
                 return True
             finally:
-                if guard is not None and (guard.exists() or guard.is_symlink()):
-                    try:
-                        guard.unlink()
-                    except OSError:
-                        pass
+                if guard is not None:
+                    _remove_publication_guard(guard)
         finally:
             if database is not None:
                 close = getattr(database, "close", None)

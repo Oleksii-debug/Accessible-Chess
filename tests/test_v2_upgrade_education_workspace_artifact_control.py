@@ -134,6 +134,24 @@ class V2UpgradeEducationWorkspaceArtifactControlTests(unittest.TestCase):
                 b"user-owned-regular-file",
             )
 
+    def test_exact_control_symlink_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            target = root / "user-owned.bin"
+            target.write_bytes(b"user-data")
+            alias = root / ".education-workspace.json.lock"
+            try:
+                alias.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation is unavailable on this runner")
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "symlink or reparse point",
+            ):
+                Version2UpgradeCoordinator(UserDataLayout(root))._files()
+
     def test_legacy_backup_temp_is_not_replayed_over_new_live_bytes(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"

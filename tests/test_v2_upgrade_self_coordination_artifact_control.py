@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from acs.version2_upgrade_base import (
     UpgradeLimits,
     UserDataLayout,
     Version2UpgradeCoordinator,
+    _UpgradeLock,
     Version2UpgradeError,
 )
 
@@ -28,6 +30,69 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             for path in coordinator._files()
         }
 
+    def test_upgrade_lock_rejects_hardlink_without_mutating_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            target = root / "user-owned.bin"
+            target.write_bytes(b"")
+            lock = root / ".v2-upgrade.lock"
+            try:
+                os.link(target, lock)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "private regular file",
+            ):
+                with _UpgradeLock(lock):
+                    pass
+
+            self.assertEqual(target.read_bytes(), b"")
+            self.assertEqual(os.lstat(target).st_nlink, 2)
+
+    def test_upgrade_lock_path_swap_to_symlink_fails_before_target_write(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink support is unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            lock = root / ".v2-upgrade.lock"
+            lock.write_bytes(b"")
+            target = root / "user-owned.bin"
+            target.write_bytes(b"do-not-touch")
+            original_open = upgrade_base.os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777):
+                nonlocal swapped
+                if Path(path) == lock and not swapped:
+                    swapped = True
+                    lock.unlink()
+                    try:
+                        os.symlink(target, lock)
+                    except (OSError, NotImplementedError):
+                        self.skipTest(
+                            "symlink creation is unavailable on this runner"
+                        )
+                return original_open(path, flags, mode)
+
+            with patch.object(
+                upgrade_base.os,
+                "open",
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "opened safely|changed while opening",
+                ):
+                    with _UpgradeLock(lock):
+                        pass
+
+            self.assertTrue(swapped)
+            self.assertEqual(target.read_bytes(), b"do-not-touch")
+
     def test_exact_root_settings_and_upgrade_residue_is_derived(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
@@ -41,11 +106,18 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 root / "settings.json.tmp",
                 root / ".settings.json.abcd_123.tmp",
                 root / "..v2-upgrade-state.json.xy_987ab.tmp",
-                root / ".settings.json.publish-guard-a1b2c3d4e5f6",
-                root / ".library.acsdb.publish-guard-012345abcdef",
             )
             for path in derived:
                 path.write_bytes(b"derived-runtime-state")
+            settings_guard = root / ".settings.json.publish-guard-a1b2c3d4e5f6"
+            try:
+                os.link(root / "settings.json", settings_guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
+            # Filename grammar alone is not ownership proof. Without a current
+            # Library target, this exact-looking guard is preservation-backed.
+            library_guard = root / ".library.acsdb.publish-guard-012345abcdef"
+            library_guard.write_bytes(b"private-library-guard-lookalike")
 
             near_misses = (
                 root / ".settings.json.publish-guard-a1b2c3d4e5f",
@@ -82,7 +154,7 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 files,
             )
-            self.assertNotIn(
+            self.assertIn(
                 ".library.acsdb.publish-guard-012345abcdef",
                 files,
             )
@@ -104,9 +176,17 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 ".settings.json.publish-guard-a1b2c3d4e5f6",
                 paths,
             )
-            self.assertNotIn(
+            self.assertIn(
                 ".library.acsdb.publish-guard-012345abcdef",
                 paths,
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / ".library.acsdb.publish-guard-012345abcdef"
+                ).read_bytes(),
+                b"private-library-guard-lookalike",
             )
             self.assertIn("settings.json.tmp/keep.bin", paths)
             self.assertEqual(
@@ -131,12 +211,15 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
             (root / "prefs.json").write_bytes(b"{}")
             (root / "prefs.json.tmp").write_bytes(b"settings-writer-temp")
             (root / ".prefs.json.a1_b2c3d.tmp").write_bytes(b"upgrade-temp")
-            (
-                root / ".prefs.json.publish-guard-abcdef012345"
-            ).write_bytes(b"settings-guard")
-            (
-                root / ".games.sqlite.publish-guard-fedcba543210"
-            ).write_bytes(b"library-guard")
+            settings_guard = root / ".prefs.json.publish-guard-abcdef012345"
+            library = root / "games.sqlite"
+            library.write_bytes(b"current-library")
+            library_guard = root / ".games.sqlite.publish-guard-fedcba543210"
+            try:
+                os.link(root / "prefs.json", settings_guard)
+                os.link(library, library_guard)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
             canonical_name_lookalike = root / "settings.json.tmp"
             canonical_name_lookalike.write_bytes(b"custom-layout-user-data")
 
@@ -238,10 +321,15 @@ class V2UpgradeSelfCoordinationArtifactControlTests(unittest.TestCase):
                 "settings.json.tmp",
                 ".settings.json.abcd_123.tmp",
                 "..v2-upgrade-state.json.xy_987ab.tmp",
-                ".settings.json.publish-guard-a1b2c3d4e5f6",
-                ".library.acsdb.publish-guard-012345abcdef",
             ):
                 (root / name).write_bytes(b"z" * 4096)
+            try:
+                os.link(
+                    durable,
+                    root / ".settings.json.publish-guard-a1b2c3d4e5f6",
+                )
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link creation is unavailable on this runner")
 
             coordinator = Version2UpgradeCoordinator(
                 UserDataLayout(root),
