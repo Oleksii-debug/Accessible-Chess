@@ -489,6 +489,32 @@ async function run() {
         can_uninstall: true
       },
       {
+        pack_id: "rights.conflict",
+        title: "Rights Conflict",
+        version: "2.0.0",
+        author: "Installed rights author",
+        license_id: "CC0-1.0",
+        provenance: "installed rights provenance",
+        rights_auditable: true,
+        rights_source_uri: "https://example.invalid/source/rights.conflict/installed",
+        license_uri: "https://example.invalid/license/rights.conflict/installed",
+        catalog_version: "2.0.0",
+        catalog_title: "Rights Conflict",
+        catalog_author: "Provider author",
+        catalog_license_id: "CC0-1.0",
+        catalog_provenance: "catalog same-version provenance",
+        catalog_rights_auditable: true,
+        catalog_rights_source_uri: "https://example.invalid/source/rights.conflict/catalog",
+        catalog_license_uri: "https://example.invalid/license/rights.conflict/catalog",
+        compatible: true,
+        installed_compatible: true,
+        installed_version: "2.0.0",
+        state: "rights_conflict",
+        active: false,
+        can_install: false,
+        can_uninstall: true
+      },
+      {
         pack_id: "conflicted.installed",
         title: "Conflicted Installed",
         version: "2.0.0",
@@ -578,6 +604,31 @@ async function run() {
     ),
     "stale catalog version must remain visible as a distinct candidate identity"
   );
+  assert.ok(elements.get("sound-pack-rights.conflict-select"),
+    "verified installed pack must remain selectable despite catalog rights conflict");
+  assert.strictEqual(elements.get("sound-pack-rights.conflict-install"), undefined,
+    "same-version rights conflict must never expose a reinstall action");
+  const rightsConflictText =
+    elements.get("sound-pack-rights.conflict-metadata").textContent;
+  assert.ok(
+    rightsConflictText.includes(
+      "catalog rights evidence conflicts with the verified installed-version rights"
+    ),
+    "same-version rights conflict must remain visible/selectable text"
+  );
+  assert.ok(
+    rightsConflictText.includes(
+      "Rights source: https://example.invalid/source/rights.conflict/installed"
+    ),
+    "rights conflict must retain durable installed rights as the primary authority"
+  );
+  assert.ok(
+    rightsConflictText.includes(
+      "Catalog rights source: https://example.invalid/source/rights.conflict/catalog"
+    ),
+    "rights conflict must render the catalog candidate rights separately"
+  );
+
   assert.ok(elements.get("sound-pack-conflicted.installed-select"),
     "verified installed pack must remain selectable despite catalog metadata conflict");
   assert.strictEqual(elements.get("sound-pack-conflicted.installed-install"), undefined,
