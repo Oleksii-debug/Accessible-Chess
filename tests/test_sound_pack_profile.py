@@ -40,6 +40,7 @@ class PackStorage:
         self.items = dict(installed)
         self.operations = operations if operations is not None else []
         self.fail_install = False
+        self.commit_then_fail_install = False
         self.fail_uninstall = False
 
     def installed(self):
@@ -50,6 +51,8 @@ class PackStorage:
         if self.fail_install:
             raise OSError("pack install failed")
         self.items[downloaded.manifest.pack_id] = downloaded.manifest
+        if self.commit_then_fail_install:
+            raise OSError("pack install failed after active publication")
 
     def uninstall(self, pack_id):
         self.operations.append(("pack.uninstall", pack_id))
@@ -219,6 +222,18 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
             active_pack="soft.wood",
             operations=operations,
         )
+        old_base = pack_storage.items["soft.wood"]
+        old_files = dict(old_base.files)
+        old_files["quiet.move"] = "audio/quiet-move.wav"
+        pack_storage.items["soft.wood"] = SoundPackManifest(
+            pack_id=old_base.pack_id,
+            version=old_base.version,
+            title=old_base.title,
+            license_id=old_base.license_id,
+            files=old_files,
+            author=old_base.author,
+            provenance=old_base.provenance,
+        )
         current = SoundProfile(
             pack_id="soft.wood",
             master_enabled=False,
@@ -246,6 +261,47 @@ class SoundPackProfileCoordinatorTests(unittest.TestCase):
                 ("profile.write", "soft.wood"),
             ],
         )
+
+    def test_active_update_uncertain_commit_keeps_profile_valid_for_published_version(self):
+        operations = []
+        coordinator, pack_manager, pack_storage, profile_storage = make_stack(
+            active_pack="soft.wood",
+            operations=operations,
+        )
+        old_base = pack_storage.items["soft.wood"]
+        old_files = dict(old_base.files)
+        old_files["quiet.move"] = "audio/quiet-move.wav"
+        pack_storage.items["soft.wood"] = SoundPackManifest(
+            pack_id=old_base.pack_id,
+            version=old_base.version,
+            title=old_base.title,
+            license_id=old_base.license_id,
+            files=old_files,
+            author=old_base.author,
+            provenance=old_base.provenance,
+        )
+        current = SoundProfile(
+            pack_id="soft.wood",
+            events={"move": SoundEventPreference(False, 44, "quiet.move")},
+        )
+        coordinator._profiles._current = current
+        profile_storage.raw = current.to_mapping()
+
+        new_manifest = manifest("soft.wood", version="2.0.0")
+        new_entry, downloaded = entry_for(new_manifest)
+        pack_manager._downloader = Downloader(downloaded)
+        pack_storage.commit_then_fail_install = True
+
+        with self.assertRaisesRegex(OSError, "after active publication"):
+            coordinator.install(new_entry)
+
+        self.assertEqual("2.0.0", pack_storage.items["soft.wood"].version)
+        self.assertEqual("soft.wood", coordinator.current_profile.pack_id)
+        self.assertEqual(
+            SoundEventPreference(False, 44),
+            coordinator.current_profile.preference_for("move"),
+        )
+        self.assertEqual(coordinator.current_profile.to_mapping(), profile_storage.raw)
 
     def test_install_without_activation_does_not_rewrite_profile(self):
         operations = []
