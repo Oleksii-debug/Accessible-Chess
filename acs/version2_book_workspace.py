@@ -24,6 +24,7 @@ from .book_webview_projection import (
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader
 from .full_product_presenters import BookReaderPresenter, PgnTreePresenter
+from .gametree import Comment, MoveNode, PgnGame, VariationLine
 from .full_product_ui_shell import UILanguage
 from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
 
@@ -36,6 +37,7 @@ _MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS = 120
 _MAX_BOOK_SEMANTIC_PLAYERS_UNITS = 720
 _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS = 1_200
 _MAX_BOOK_SEMANTIC_RESULT_UNITS = 16
+_MAX_BOOK_SEMANTIC_NODE_ID_CHARS = 4_096
 _BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 
 _SEMANTIC_LABELS = {
@@ -85,18 +87,145 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        if type(game) is not PgnGame:
+            raise _BookSemanticProjectionError("semantic GameTree game is invalid")
+        if (
+            type(game.tags) is not dict
+            or len(game.tags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
+            or type(game.warnings) is not list
+            or len(game.warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
+        ):
+            raise _BookSemanticProjectionError("semantic GameTree metadata is invalid")
+
+        # PgnTreePresenter normalizes comments, joins NAGs and constructs labels.
+        # Bound every raw scalar and collection it will scan before constructing
+        # the presenter so a malformed trusted-side DTO cannot move the resource
+        # boundary behind strip/join/f-string work.
+        raw_text_entries = 0
+        raw_text_chars = 0
+
+        def claim_raw_text(
+            value: object,
+            *,
+            max_chars: int = _MAX_BOOK_BLOCK_VISIBLE_CHARS,
+        ) -> int:
+            nonlocal raw_text_entries, raw_text_chars
+            if type(max_chars) is not int or not 0 <= max_chars <= _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise _BookSemanticProjectionError("semantic raw scalar limit is invalid")
+            if type(value) is not str or len(value) > max_chars:
+                raise _BookSemanticProjectionError("semantic raw text is invalid")
+            raw_text_entries += 1
+            if raw_text_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                raise _BookSemanticProjectionError("semantic raw text-entry limit exceeded")
+            length = len(value)
+            raw_text_chars += length
+            if raw_text_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise _BookSemanticProjectionError("semantic raw text budget exceeded")
+            return length
+
+        def claim_comment_list(values: object) -> None:
+            if type(values) is not list or len(values) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                raise _BookSemanticProjectionError("semantic raw comment collection is invalid")
+            for comment in values:
+                if type(comment) is not Comment:
+                    raise _BookSemanticProjectionError("semantic raw comment is invalid")
+                claim_raw_text(comment.text)
+
+        white_raw = game.tags.get("White", "")
+        black_raw = game.tags.get("Black", "")
+        white_chars = claim_raw_text(
+            white_raw,
+            max_chars=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
+        )
+        black_chars = claim_raw_text(
+            black_raw,
+            max_chars=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
+        )
+        if white_chars + 3 + black_chars > _MAX_BOOK_SEMANTIC_PLAYERS_UNITS:
+            raise _BookSemanticProjectionError("semantic raw players text is too long")
+
+        effective_result = game.result
+        claim_raw_text(
+            effective_result,
+            max_chars=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+        )
+        if effective_result not in _BOOK_SEMANTIC_RESULTS:
+            raise _BookSemanticProjectionError("semantic game result is invalid")
+
         stack: list[tuple[object, int]] = [(game.line, 0)]
         count = 0
+        seen_lines: set[int] = set()
+        seen_moves: set[int] = set()
         while stack:
             line, move_depth = stack.pop()
-            moves = getattr(line, "moves", ())
-            if moves and move_depth > _MAX_BOOK_SEMANTIC_DEPTH:
+            if type(line) is not VariationLine:
+                raise _BookSemanticProjectionError("semantic GameTree line is invalid")
+            line_identity = id(line)
+            if line_identity in seen_lines:
+                raise _BookSemanticProjectionError("semantic GameTree line is reused")
+            seen_lines.add(line_identity)
+            if type(line.moves) is not list:
+                raise _BookSemanticProjectionError("semantic GameTree moves are invalid")
+            if line.moves and move_depth > _MAX_BOOK_SEMANTIC_DEPTH:
                 raise _BookSemanticProjectionError("semantic GameTree depth limit exceeded")
-            for move in moves:
+            claim_comment_list(line.leading_comments)
+            claim_comment_list(line.trailing_comments)
+            if line.result is not None:
+                claim_raw_text(
+                    line.result,
+                    max_chars=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+                )
+                if line.result not in _BOOK_SEMANTIC_RESULTS:
+                    raise _BookSemanticProjectionError("semantic line result is invalid")
+
+            for move in line.moves:
+                if type(move) is not MoveNode:
+                    raise _BookSemanticProjectionError("semantic GameTree move is invalid")
+                move_identity = id(move)
+                if move_identity in seen_moves:
+                    raise _BookSemanticProjectionError("semantic GameTree move is reused")
+                seen_moves.add(move_identity)
                 count += 1
                 if count > _MAX_BOOK_SEMANTIC_ITEMS:
                     raise _BookSemanticProjectionError("semantic GameTree item limit exceeded")
-                for variation in getattr(move, "variations", ()):
+
+                label_chars = claim_raw_text(
+                    move.san,
+                    max_chars=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
+                )
+                if move.move_number is not None:
+                    move_number_chars = claim_raw_text(
+                        move.move_number,
+                        max_chars=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
+                    )
+                    if move.move_number:
+                        label_chars += move_number_chars + 1
+
+                if type(move.nags) is not list or len(move.nags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                    raise _BookSemanticProjectionError("semantic move NAGs are invalid")
+                annotation_chars = 0
+                for nag in move.nags:
+                    nag_chars = claim_raw_text(
+                        nag,
+                        max_chars=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
+                    )
+                    if annotation_chars:
+                        annotation_chars += 1
+                    annotation_chars += nag_chars
+                    if annotation_chars > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
+                        raise _BookSemanticProjectionError("semantic move annotation is too long")
+                if annotation_chars:
+                    label_chars += annotation_chars + 1
+                if label_chars > _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS:
+                    raise _BookSemanticProjectionError("semantic move label is too long")
+
+                claim_comment_list(move.comments_before)
+                claim_comment_list(move.comments_after)
+                if type(move.variations) is not list:
+                    raise _BookSemanticProjectionError("semantic move variations are invalid")
+                for variation in move.variations:
+                    if type(variation) is not VariationLine:
+                        raise _BookSemanticProjectionError("semantic variation is invalid")
                     variation_depth = move_depth + 1
                     if variation_depth > _MAX_BOOK_SEMANTIC_DEPTH:
                         raise _BookSemanticProjectionError("semantic GameTree depth limit exceeded")
@@ -178,9 +307,20 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 account_visible_units(units)
             return text
 
-        def safe_many(values: object) -> tuple[str, ...]:
-            if type(values) is not tuple:
+        def preflight_view_comments(values: object) -> int:
+            if type(values) is not tuple or len(values) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
                 raise _BookSemanticProjectionError("semantic comment collection is invalid")
+            raw_chars = 0
+            for value in values:
+                if type(value) is not str or len(value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                    raise _BookSemanticProjectionError("semantic comment text is invalid")
+                raw_chars += len(value)
+                if raw_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                    raise _BookSemanticProjectionError("semantic comment text budget exceeded")
+            return raw_chars
+
+        def safe_many(values: object) -> tuple[str, ...]:
+            preflight_view_comments(values)
             rendered: list[str] = []
             for value in values:
                 text = safe(value)
@@ -199,9 +339,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         )
         white = white or labels["unknown"]
         black = black or labels["unknown"]
-        result = game.result
-        if result not in _BOOK_SEMANTIC_RESULTS:
-            raise _BookSemanticProjectionError("semantic game result is invalid")
+        result = effective_result
 
         semantic_label = safe(
             labels["moves"],
@@ -257,7 +395,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         active_ancestor_indices: list[int] = []
         previous_depth = 0
         for position, item in enumerate(view.items):
-            if item.kind not in {"move", "variation"}:
+            if (
+                type(item.kind) is not str
+                or len(item.kind) > 16
+                or item.kind not in {"move", "variation"}
+            ):
                 raise _BookSemanticProjectionError("semantic item kind is invalid")
             if type(item.depth) is not int or not 0 <= item.depth <= _MAX_BOOK_SEMANTIC_DEPTH:
                 raise _BookSemanticProjectionError("semantic item depth is invalid")
@@ -270,7 +412,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticProjectionError("semantic root depth is invalid")
             if position > 0 and item.depth > previous_depth + 1:
                 raise _BookSemanticProjectionError("semantic item depth jumps unexpectedly")
-            if type(item.node_id) is not str or not item.node_id or item.node_id in seen:
+            if (
+                type(item.node_id) is not str
+                or not item.node_id
+                or len(item.node_id) > _MAX_BOOK_SEMANTIC_NODE_ID_CHARS
+            ):
+                raise _BookSemanticProjectionError("semantic item identity is invalid")
+            if item.node_id in seen:
                 raise _BookSemanticProjectionError("semantic item identity is invalid")
 
             if item.depth == 0:
@@ -278,7 +426,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     raise _BookSemanticProjectionError("semantic root parent is invalid")
                 parent_index: int | None = None
             else:
-                if type(item.parent_id) is not str or item.parent_id not in seen:
+                if (
+                    type(item.parent_id) is not str
+                    or len(item.parent_id) > _MAX_BOOK_SEMANTIC_NODE_ID_CHARS
+                ):
+                    raise _BookSemanticProjectionError("semantic parent is unavailable")
+                if item.parent_id not in seen:
                     raise _BookSemanticProjectionError("semantic parent is unavailable")
                 parent_index = seen[item.parent_id]
                 if rendered_items[parent_index]["depth"] != item.depth - 1:
@@ -303,10 +456,32 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     or type(item.trailing_comments) is not tuple
                 ):
                     raise _BookSemanticProjectionError("semantic move comment slots are invalid")
-                if item.comments != item.comments_before + item.comments_after:
+                aggregate_chars = preflight_view_comments(item.comments)
+                before_chars = preflight_view_comments(item.comments_before)
+                after_chars = preflight_view_comments(item.comments_after)
+                preflight_view_comments(item.trailing_comments)
+                if (
+                    len(item.comments_before) + len(item.comments_after)
+                    > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
+                    or before_chars + after_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS
+                    or aggregate_chars > _MAX_BOOK_BLOCK_VISIBLE_CHARS
+                    or len(item.comments)
+                    != len(item.comments_before) + len(item.comments_after)
+                ):
                     raise _BookSemanticProjectionError(
                         "semantic move comment aggregate is inconsistent"
                     )
+                for comment_index, aggregate_comment in enumerate(item.comments):
+                    if comment_index < len(item.comments_before):
+                        expected_comment = item.comments_before[comment_index]
+                    else:
+                        expected_comment = item.comments_after[
+                            comment_index - len(item.comments_before)
+                        ]
+                    if aggregate_comment != expected_comment:
+                        raise _BookSemanticProjectionError(
+                            "semantic move comment aggregate is inconsistent"
+                        )
                 if item.trailing_comments:
                     raise _BookSemanticProjectionError(
                         "semantic move unexpectedly carries line trailing comments"
@@ -333,6 +508,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     raise _BookSemanticProjectionError(
                         "semantic variation comment slots are invalid"
                     )
+                preflight_view_comments(item.comments)
+                preflight_view_comments(item.comments_before)
+                preflight_view_comments(item.comments_after)
+                preflight_view_comments(item.trailing_comments)
                 if item.comments_before or item.comments_after:
                     raise _BookSemanticProjectionError(
                         "semantic variation unexpectedly carries move comment slots"
