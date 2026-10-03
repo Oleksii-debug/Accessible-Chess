@@ -16,10 +16,27 @@ _KEY_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class ClassroomMediaWebViewBridge:
-    def __init__(self, projection: ClassroomMediaWebViewProjection) -> None:
+    def __init__(
+        self,
+        projection: ClassroomMediaWebViewProjection,
+        *,
+        mutations: object | None = None,
+    ) -> None:
         if not isinstance(projection, ClassroomMediaWebViewProjection):
             raise TypeError("projection must be ClassroomMediaWebViewProjection")
+        mutation_owner = projection if mutations is None else mutations
+        for name in (
+            "set_local_source",
+            "set_publish_permission",
+            "set_soft_mute",
+            "set_all_students_publish_permission",
+            "set_all_students_soft_mute",
+            "remove_participant",
+        ):
+            if not callable(getattr(mutation_owner, name, None)):
+                raise TypeError("media mutation owner is incomplete")
         self._projection = projection
+        self._mutations = mutation_owner
 
     @property
     def projection(self) -> ClassroomMediaWebViewProjection:
@@ -95,7 +112,7 @@ class ClassroomMediaWebViewBridge:
             if command_id == "media.local_source":
                 self._exact(data, {"source", "enabled"})
                 source = self._source(data["source"])
-                return self._projection.set_local_source(
+                return self._mutations.set_local_source(
                     source,
                     self._boolean(data["enabled"]),
                     focus_target=f"media-own-{source}-toggle",
@@ -105,7 +122,7 @@ class ClassroomMediaWebViewBridge:
                 self._exact(data, {"participant_key", "source", "allowed"})
                 participant_key = self._key(data["participant_key"])
                 source = self._source(data["source"])
-                return self._projection.set_publish_permission(
+                return self._mutations.set_publish_permission(
                     participant_key,
                     source,
                     self._boolean(data["allowed"]),
@@ -118,7 +135,7 @@ class ClassroomMediaWebViewBridge:
             if command_id == "media.soft_mute":
                 self._exact(data, {"participant_key", "muted"})
                 participant_key = self._key(data["participant_key"])
-                return self._projection.set_soft_mute(
+                return self._mutations.set_soft_mute(
                     participant_key,
                     self._boolean(data["muted"]),
                     focus_target=f"media-participant-{participant_key}-soft-mute",
@@ -128,7 +145,7 @@ class ClassroomMediaWebViewBridge:
                 self._exact(data, {"source", "allowed"})
                 source = self._source(data["source"])
                 allowed = self._boolean(data["allowed"])
-                return self._projection.set_all_students_publish_permission(
+                return self._mutations.set_all_students_publish_permission(
                     source,
                     allowed,
                     focus_target=(
@@ -140,7 +157,7 @@ class ClassroomMediaWebViewBridge:
             if command_id == "media.all_soft_mute":
                 self._exact(data, {"muted"})
                 muted = self._boolean(data["muted"])
-                return self._projection.set_all_students_soft_mute(
+                return self._mutations.set_all_students_soft_mute(
                     muted,
                     focus_target=(
                         "media-all-soft-mute"
@@ -153,7 +170,7 @@ class ClassroomMediaWebViewBridge:
                 self._exact(data, {"participant_key", "block"})
                 participant_key = self._key(data["participant_key"])
                 block = self._boolean(data["block"])
-                return self._projection.remove_participant(
+                return self._mutations.remove_participant(
                     participant_key,
                     block,
                     # Remove/block intentionally retires the action buttons.
