@@ -159,6 +159,45 @@ class Version2ApplicationTests(unittest.TestCase):
                     "board-square-e4",
                 )
 
+    def test_malformed_library_projection_result_fails_closed_before_route_commit(self):
+        invalid_results = (
+            SimpleNamespace(kind="delegated", payload={}),
+            SimpleNamespace(kind="render", payload={}),
+            SimpleNamespace(kind="render", payload={"snapshot": {"status": "loading"}}),
+        )
+        for projected in invalid_results:
+            with self.subTest(kind=projected.kind, payload=projected.payload):
+                self.app.shell.open_route("board")
+                self.app.record_focus("move-input")
+                with patch.object(
+                    self.app.library.projection,
+                    "search",
+                    return_value=projected,
+                ):
+                    command = self.app.adapter.activate_action(
+                        "library.search",
+                        current_focus_id="move-input",
+                    )
+                self.assertEqual(command.kind, "error")
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(self.app.shell.restore_focus_target(), "move-input")
+
+    def test_successful_native_library_search_commits_library_route(self):
+        self.app.shell.open_route("board")
+        self.app.record_focus("move-input")
+
+        result = self.app.router.dispatch(
+            "library.search",
+            current_focus_id="move-input",
+        )
+
+        self.assertEqual(result.value.kind, "render")
+        self.assertIn(
+            result.value.payload["snapshot"]["status"],
+            {"ready", "empty"},
+        )
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
