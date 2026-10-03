@@ -131,6 +131,37 @@
     return snapshot;
   }
 
+  function validateDeviceRecoverySuccessSnapshot(kind, republishEnabled, value) {
+    const snapshot = normalizeSnapshot(value);
+    if (
+      !snapshot.connected ||
+      snapshot.cleanup_required ||
+      snapshot.room_id === null ||
+      snapshot.participant_id === null
+    ) {
+      throw new ClassroomMediaHostExecutorError(
+        "media device-recovery provider snapshot is not connected"
+      );
+    }
+    if (
+      kind === "microphone" &&
+      snapshot.microphone_enabled !== republishEnabled
+    ) {
+      throw new ClassroomMediaHostExecutorError(
+        "media microphone recovery snapshot does not match prepared effect"
+      );
+    }
+    if (
+      kind === "camera" &&
+      snapshot.camera_enabled !== republishEnabled
+    ) {
+      throw new ClassroomMediaHostExecutorError(
+        "media camera recovery snapshot does not match prepared effect"
+      );
+    }
+    return snapshot;
+  }
+
   function validateSessionSuccessSnapshot(operation, credentialValue, enabledSources, value) {
     const snapshot = normalizeSnapshot(value);
     if (operation === "disconnect") {
@@ -458,10 +489,14 @@
             )
           );
         } else if (payload.operation === "recover_device") {
-          snapshot = await this._adapter.recoverDevice(
+          snapshot = validateDeviceRecoverySuccessSnapshot(
             payload.kind,
-            payload.device_id,
-            payload.republish_enabled
+            payload.republish_enabled,
+            await this._adapter.recoverDevice(
+              payload.kind,
+              payload.device_id,
+              payload.republish_enabled
+            )
           );
         } else {
           await this._adapter.applyModeration(payload.commands);
