@@ -114,7 +114,7 @@ class SoundPackProfileCoordinator:
 
         try:
             manifest = self._packs.install(entry)
-        except Exception:
+        except Exception as install_error:
             if prepared_before_install:
                 # Publication can fail after an active-pointer outcome becomes
                 # externally visible. Re-read the storage authority before
@@ -133,7 +133,16 @@ class SoundPackProfileCoordinator:
                         active_manifest,
                     )
                     if recovered != self._profiles.current:
-                        self._profiles.save(recovered)
+                        try:
+                            self._profiles.save(recovered)
+                        except Exception:
+                            # Recovery persistence can fail independently. Keep
+                            # the already-prepared default-safe profile semantics,
+                            # but never replace the primary pack-install failure
+                            # with a secondary recovery exception.
+                            install_error.add_note(
+                                "sound profile recovery after pack-install failure also failed"
+                            )
                 # If the pack disappeared or inventory cannot be trusted, keep
                 # the already-persisted default-safe prepared profile. Startup
                 # reconciliation can then fall back through the normal resolver.
