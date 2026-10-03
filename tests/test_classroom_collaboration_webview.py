@@ -467,10 +467,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual(1, len(self.store.room_messages("room-1")))
 
-    def test_hidden_live_redelivery_fails_closed_without_mutating_unread_state(self) -> None:
+    def test_mutable_live_redelivery_fails_closed_without_mutating_unread_state(self) -> None:
         view = self.webview()
         message = ChatMessageMetadata(
-            "remote-live-hidden",
+            "remote-live-mutable-state",
             "room-1",
             "student-2",
             0,
@@ -483,19 +483,26 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             first.payload["collaboration"]["chat"]["unread_count"],
         )
 
-        with self.assertRaisesRegex(
-            CollaborationError,
-            "live chat message cannot carry mutable state",
-        ):
-            view.receive_chat(replace(message, hidden=True))
+        mutable_redeliveries = (
+            replace(message, hidden=True),
+            replace(message, body="", redacted=True),
+        )
+        for mutable in mutable_redeliveries:
+            with self.subTest(hidden=mutable.hidden, redacted=mutable.redacted):
+                with self.assertRaisesRegex(
+                    CollaborationError,
+                    "live chat message cannot carry mutable state",
+                ):
+                    view.receive_chat(mutable)
 
-        # Live delivery is not a moderation-state authority. A forged/stale hidden
-        # bit must not mutate local presentation state; authoritative state sync
-        # performs hide/unread reconciliation (covered immediately below).
-        self.assertEqual({"remote-live-hidden"}, view._unread_message_ids)
+        # Live delivery is not a moderation-state authority. Forged/stale mutable
+        # bits must not mutate local presentation state; authoritative state sync
+        # performs hide/redaction and unread reconciliation.
+        self.assertEqual({"remote-live-mutable-state"}, view._unread_message_ids)
         stored = self.store.room_messages("room-1")
         self.assertEqual(1, len(stored))
         self.assertFalse(stored[0].hidden)
+        self.assertFalse(stored[0].redacted)
         self.assertEqual("Visible before moderation", stored[0].body)
 
     def test_sync_removes_hidden_message_from_unread_count(self) -> None:
