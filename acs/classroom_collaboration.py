@@ -775,9 +775,11 @@ class ClassroomCollaborationController:
         # provider outage after restart must not strand object-store bytes whose
         # tombstone was committed by an earlier authoritative sync.
         self._drain_file_deletions()
+        existing = self._store.room_attachments(self.room_id)
+        existing_ids = {item.attachment_id for item in existing}
         authoritative = tuple(
             item
-            for item in self._store.room_attachments(self.room_id)
+            for item in existing
             if item.transfer_state in {"stored", "deleted"}
         )
         # Advance only through the locally complete authoritative prefix. A
@@ -879,7 +881,10 @@ class ClassroomCollaborationController:
         return tuple(
             current_by_id[item.attachment_id]
             for item in persisted
-            if current_by_id[item.attachment_id].transfer_state == "stored"
+            if (
+                item.attachment_id not in existing_ids
+                and current_by_id[item.attachment_id].transfer_state == "stored"
+            )
         )
 
     def _drain_file_deletions(self) -> None:
