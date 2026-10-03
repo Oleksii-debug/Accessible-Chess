@@ -344,6 +344,7 @@ class D07LibraryImportServiceTests(unittest.TestCase):
             {"first_game_id": 0},
             {"last_game_id": 0},
             {"first_game_id": 13, "last_game_id": 12},
+            {"game_count": 3, "first_game_id": 10, "last_game_id": 11},
             {"attempt_id": 2**63},
             {"warning_count": 2**63},
         )
