@@ -1224,6 +1224,8 @@
 
     if (Array.isArray(solution) && solution.length) {
       const solutionSection = node("section");
+      solutionSection.id = "training-solution";
+      solutionSection.tabIndex = -1;
       solutionSection.appendChild(node("h3", snapshot.solution_label || ""));
       const list = node("ul");
       solution.forEach(function (move) { list.appendChild(node("li", move)); });
