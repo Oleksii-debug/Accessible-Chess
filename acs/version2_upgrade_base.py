@@ -860,8 +860,13 @@ class Version2UpgradeCoordinator:
                 # the exact root object must still be authenticated. A
                 # symlink/reparse alias must not bypass the upgrader's
                 # fail-closed filesystem boundary merely because it uses a
-                # canonical control filename.
-                _safe_stat(path, "user-data control entry")
+                # canonical control filename. These writer-owned controls are
+                # files, never directories or other special objects.
+                control_info = _safe_stat(path, "user-data control entry")
+                if not stat.S_ISREG(control_info.st_mode):
+                    raise Version2UpgradeError(
+                        "user-data control entry must be a regular file"
+                    )
                 continue
             # Derived runtime/control subtrees are not preservation-backed user
             # state. Exclude only descendants of exact root runtime directories.
