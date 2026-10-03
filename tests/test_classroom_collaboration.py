@@ -487,6 +487,51 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         )
         self.assertEqual(controller.sync_chat(), ())
 
+    def test_live_receive_repairs_preexisting_local_sequence_gap_before_append(self):
+        controller = self.controller()
+        messages = tuple(
+            ChatMessageMetadata(
+                f"m{sequence}",
+                "room-1",
+                "teacher-1",
+                sequence,
+                f"Message {sequence}",
+                sent_at_unix_ms=1700000000000 + sequence,
+            )
+            for sequence in range(4)
+        )
+        self.chat.ordered = list(messages)
+        self.chat.messages = {message.message_id: message for message in messages}
+        self.store.append_message(messages[0])
+        with sqlite3.connect(self.root / "collaboration.sqlite3") as db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    messages[2].message_id,
+                    messages[2].room_id,
+                    messages[2].sender_id,
+                    messages[2].sequence_no,
+                    messages[2].body,
+                    messages[2].retention,
+                    int(messages[2].hidden),
+                    messages[2].sent_at_unix_ms,
+                ),
+            )
+            db.commit()
+
+        received = controller.receive_chat(messages[3])
+
+        self.assertEqual(received, messages[3])
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            messages,
+        )
+
     def test_sync_reconnect_persists_only_new_strictly_ordered_messages(self):
         controller = self.controller()
         one = self.chat.send_message(ChatDraft("m1", "room-1", "teacher-1", "One"))
