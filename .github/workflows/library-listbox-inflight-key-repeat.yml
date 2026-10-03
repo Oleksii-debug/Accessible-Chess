@@ -53,7 +53,7 @@ jobs:
             'web/full_product_library.js' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:web/full_product_library.js)" = "2e387b68e2dd2ef2dc22a0cc0e619452219627f8"
-          test "$(git rev-parse HEAD:tests/js/library_keyboard_boundary_dom_test.js)" = "90540c3d5c4e32637f180a886d47624f3c8ae51a"
+          test "$(git rev-parse HEAD:tests/js/library_keyboard_boundary_dom_test.js)" = "2ff5073219e84bc48382a76554ae355fa5f456d8"
           git diff --check "$live_parent" HEAD
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
