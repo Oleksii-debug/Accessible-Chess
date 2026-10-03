@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -124,6 +125,40 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 "creation cleanup deleted a substituted pathname",
             )
             self.assertEqual(settings.read_bytes(), b"original-settings")
+
+    def test_guard_hash_does_not_cross_compare_windows_ctime_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            payload = b"original-settings"
+            settings.write_bytes(payload)
+            guard = upgrade_base_module._publication_guard(settings)
+            real_fstat = upgrade_base_module.os.fstat
+
+            class ShiftedCtime:
+                def __init__(self, info: os.stat_result) -> None:
+                    self._info = info
+
+                def __getattr__(self, name: str):
+                    if name == "st_ctime_ns":
+                        return int(getattr(self._info, name, 0)) + 1_000_000_000
+                    return getattr(self._info, name)
+
+            try:
+                with mock.patch.object(
+                    upgrade_base_module.os,
+                    "fstat",
+                    side_effect=lambda descriptor: ShiftedCtime(
+                        real_fstat(descriptor)
+                    ),
+                ):
+                    self.assertEqual(
+                        upgrade_base_module._publication_guard_hash(guard),
+                        hashlib.sha256(payload).hexdigest(),
+                    )
+            finally:
+                upgrade_base_module._remove_publication_guard(guard)
 
     def test_guard_hash_rejects_same_bytes_path_substitution(self) -> None:
         with tempfile.TemporaryDirectory() as td:
