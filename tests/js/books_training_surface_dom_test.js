@@ -253,6 +253,14 @@ async function run() {
   check(document.activeElement === firstAnswer, "initial training focus missing");
   const trainingToolbar = findRole(trainingRoot, "toolbar");
   check(trainingToolbar !== null, "training toolbar missing");
+  check(
+    trainingToolbar.getAttribute("aria-label") === "Training",
+    "training toolbar accessible name missing"
+  );
+  check(
+    trainingToolbar.getAttribute("aria-orientation") === "horizontal",
+    "training toolbar orientation missing"
+  );
   const trainingToolbarButtons = trainingToolbar.children.filter(function (item) {
     return item.tagName === "BUTTON";
   });
@@ -420,6 +428,14 @@ async function run() {
   check(document.activeElement === bookRoot.querySelector("#book-block-2"), "book focus missing");
   const bookToolbar = findRole(bookRoot, "toolbar");
   check(bookToolbar !== null, "book toolbar missing");
+  check(
+    bookToolbar.getAttribute("aria-label") === "Chess book reader",
+    "book toolbar accessible name missing"
+  );
+  check(
+    bookToolbar.getAttribute("aria-orientation") === "horizontal",
+    "book toolbar orientation missing"
+  );
   const bookToolbarButtons = bookToolbar.children.filter(function (item) {
     return item.tagName === "BUTTON";
   });
