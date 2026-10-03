@@ -69,6 +69,39 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertEqual(lock.read_bytes(), foreign_bytes)
 
+    def test_existing_upgrade_lock_replacement_race_fails_without_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            lock = root / ".v2-upgrade.lock"
+            lock.write_bytes(b"\0")
+            replacement = root / "foreign-lock-replacement.bin"
+            replacement_bytes = b"foreign-lock-replacement"
+            replacement.write_bytes(replacement_bytes)
+            real_open = os.open
+            injected = False
+
+            def racing_open(path, flags, mode=0o777):
+                nonlocal injected
+                if Path(path) == lock and not injected:
+                    os.replace(replacement, lock)
+                    injected = True
+                return real_open(path, flags, mode)
+
+            with mock.patch(
+                "acs.version2_upgrade_base.os.open",
+                side_effect=racing_open,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "upgrade lock changed while opening",
+                ):
+                    with _UpgradeLock(lock):
+                        pass
+
+            self.assertTrue(injected)
+            self.assertEqual(lock.read_bytes(), replacement_bytes)
+
     def test_control_name_directory_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
