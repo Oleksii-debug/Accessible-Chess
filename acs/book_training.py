@@ -250,9 +250,6 @@ class BookTrainingOrigin:
     def as_dict(self) -> dict[str, object]:
         if type(self) is not BookTrainingOrigin:
             raise TypeError("origin must be an exact BookTrainingOrigin")
-        # Frozen dataclasses can still be corrupted through low-level mutation.
-        # Re-run the canonical constructor before list materialization so export
-        # has the same bounded scalar/collection contract as wire restore.
         canonical = BookTrainingOrigin(
             target_key=self.target_key,
             block_digest=self.block_digest,
@@ -303,15 +300,13 @@ class BookTrainingMaterial:
     definition: ExerciseDefinition
 
     def __post_init__(self) -> None:
-        if not isinstance(self.origin, BookTrainingOrigin):
-            raise TypeError("origin must be a BookTrainingOrigin")
-        if not isinstance(self.definition, ExerciseDefinition):
-            raise TypeError("definition must be an ExerciseDefinition")
+        if type(self.origin) is not BookTrainingOrigin:
+            raise TypeError("origin must be an exact BookTrainingOrigin")
+        if type(self.definition) is not ExerciseDefinition:
+            raise TypeError("definition must be an exact ExerciseDefinition")
 
     def as_dict(self) -> dict[str, object]:
-        # Rebuild the definition through the strict wire decoder so a caller that
-        # mutated the Mapping held by a frozen ExerciseDefinition cannot publish
-        # malformed or coercive content.
+        self.__post_init__()
         canonical = _definition_from_dict(_definition_to_dict(self.definition))
         return {
             "schema_version": BOOK_TRAINING_SCHEMA_VERSION,
@@ -745,14 +740,22 @@ def _definition_from_book_exercise(
     if exercise.difficulty is not None:
         metadata["difficulty"] = exercise.difficulty
 
-    return ExerciseDefinition(
-        exercise_id=exercise_id,
-        start_fen=start_board.fen(),
-        steps=steps,
-        title=exercise.prompt,
-        source_id=source_id,
-        metadata=metadata,
-    )
+    try:
+        return ExerciseDefinition(
+            exercise_id=exercise_id,
+            start_fen=start_board.fen(),
+            steps=steps,
+            title=exercise.prompt,
+            source_id=source_id,
+            metadata=metadata,
+        )
+    except (TypeError, ValueError) as exc:
+        # BookDocument remains mutable for authoring. Normalize post-construction
+        # scalar/resource corruption at the Book->Training boundary.
+        raise BookTrainingError(
+            "book exercise training definition is invalid",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        ) from exc
 
 
 def build_book_training_material(
