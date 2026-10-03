@@ -166,11 +166,13 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ]
         for item in actions:
             registry.definition(item.action_id)
-        self.assertIn("book.open_game", [item.action_id for item in actions])
-        self.assertEqual(
-            BindingContext.BOOK_READER,
-            registry.definition("book.open_game").context,
-        )
+        action_ids = [item.action_id for item in actions]
+        for action_id in ("book.previous_position", "book.previous_game", "book.open_game"):
+            self.assertIn(action_id, action_ids)
+            self.assertEqual(
+                BindingContext.BOOK_READER,
+                registry.definition(action_id).context,
+            )
         books_menu = next(menu for menu in menus if menu.menu_id == "books")
         open_game = next(item for item in books_menu.items if item.action_id == "book.open_game")
         self.assertEqual("Open game on board", open_game.label)
@@ -207,20 +209,34 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
 
-    def test_book_open_game_menu_uses_remappable_canonical_action(self) -> None:
+    def test_book_semantic_menu_actions_are_remappable_and_canonical(self) -> None:
         controller, calls, commands, exits = make_controller(
-            bindings={"book.open_game": "Ctrl+Shift+G"}
+            bindings={
+                "book.previous_position": "Ctrl+Shift+P",
+                "book.previous_game": "Ctrl+Shift+J",
+                "book.open_game": "Ctrl+Shift+G",
+            }
         )
         books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
-        open_game = next(
-            item for item in books_menu.items
-            if item.action_id == "book.open_game"
+        expected = (
+            ("book.previous_position", "Ctrl+Shift+P"),
+            ("book.previous_game", "Ctrl+Shift+J"),
+            ("book.open_game", "Ctrl+Shift+G"),
         )
-        self.assertTrue(open_game.label.endswith("\tCtrl+Shift+G"))
+        for action_id, binding in expected:
+            item = next(entry for entry in books_menu.items if entry.action_id == action_id)
+            self.assertTrue(item.label.endswith("\t" + binding))
+            command = controller.activate(item)
+            self.assertEqual("delegated", command.kind)
 
-        command = controller.activate(open_game)
-        self.assertEqual("delegated", command.kind)
-        self.assertEqual([("book.open_game", {})], calls)
+        self.assertEqual(
+            [
+                ("book.previous_position", {}),
+                ("book.previous_game", {}),
+                ("book.open_game", {}),
+            ],
+            calls,
+        )
         self.assertEqual([], commands)
         self.assertEqual([], exits)
 
