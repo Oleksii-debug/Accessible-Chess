@@ -42,6 +42,7 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
             "full_product_teacher.js",
             "full_product_education.js",
             "full_product_classroom_media.js",
+            "livekit_classroom_media_runtime.js",
             "version2_final_product_bootstrap.js",
             "p0_accessibility_runtime.js",
             "livekit_classroom_media.js",
@@ -297,13 +298,16 @@ class Version2FinalReleaseBindingTests(unittest.TestCase):
         adapter_label = "Classroom LiveKit media adapter"
         teacher_label = "V2 Teacher surface"
         media_label = "V2 Classroom media surface"
+        runtime_label = "Classroom LiveKit transactional runtime"
         bootstrap_label = "V2 final-product bootstrap"
         self.assertEqual(labels.count(sdk_label), 1)
         self.assertEqual(labels.count(adapter_label), 1)
+        self.assertEqual(labels.count(runtime_label), 1)
         self.assertEqual(labels.count(media_label), 1)
         self.assertLess(labels.index(sdk_label), labels.index(adapter_label))
-        self.assertLess(labels.index(adapter_label), labels.index(teacher_label))
-        self.assertLess(labels.index(adapter_label), labels.index(media_label))
+        self.assertLess(labels.index(adapter_label), labels.index(runtime_label))
+        self.assertLess(labels.index(runtime_label), labels.index(teacher_label))
+        self.assertLess(labels.index(runtime_label), labels.index(media_label))
         self.assertLess(labels.index(media_label), labels.index(bootstrap_label))
         self.assertIn("LivekitClient", dict(sources)[sdk_label])
 

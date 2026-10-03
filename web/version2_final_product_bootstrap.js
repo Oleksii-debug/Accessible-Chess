@@ -377,6 +377,81 @@
     };
   }
 
+  function mediaTransactionId(event) {
+    const payload = event && event.payload && typeof event.payload === "object"
+      ? event.payload
+      : {};
+    const value = payload.transaction_id;
+    return typeof value === "string" &&
+      /^(?:host|session)-[0-9a-f]{32}$/.test(value) ? value : "";
+  }
+
+  function mediaProviderBoundaryCrossed(event) {
+    const payload = event && event.payload && typeof event.payload === "object"
+      ? event.payload
+      : {};
+    return payload.provider_boundary_crossed === true;
+  }
+
+  function retireMediaProviderRuntimeFailure(event, invoke) {
+    const transactionId = mediaTransactionId(event);
+    if (!transactionId) {
+      return Promise.reject(new Error("media provider transaction is invalid"));
+    }
+    const command = mediaProviderBoundaryCrossed(event)
+      ? "media.provider_outcome_unknown"
+      : "media.provider_not_started";
+    return invoke(command, { transaction_id: transactionId });
+  }
+
+  function executeMediaProviderEvent(event) {
+    const invoke = areaInvoke("media");
+    const runtime = global.AccessibleChessClassroomMediaProviderRuntime;
+    if (!runtime || typeof runtime.execute !== "function") {
+      // No provider runtime was entered, so the original dispatch marker is
+      // still authoritative for whether provider execution could have started.
+      return retireMediaProviderRuntimeFailure(event, invoke);
+    }
+
+    function retireAfterRuntimeFailure() {
+      const transactionId = mediaTransactionId(event);
+      if (!transactionId) {
+        return Promise.reject(new Error("media provider transaction is invalid"));
+      }
+      // Once runtime.execute() was entered, the provider may have run even when
+      // the original event said provider_boundary_crossed=false. Prefer the
+      // conservative unknown-outcome latch. If Python proves the provider
+      // boundary never crossed, only then retire as not-started.
+      return areaInvoke("media")(
+        "media.provider_outcome_unknown",
+        { transaction_id: transactionId }
+      ).catch(function () {
+        return areaInvoke("media")(
+          "media.provider_not_started",
+          { transaction_id: transactionId }
+        );
+      });
+    }
+
+    return Promise.resolve(runtime.execute(event, invoke)).then(function (result) {
+      if (!result || typeof result !== "object") {
+        return retireAfterRuntimeFailure();
+      }
+      return result;
+    }).catch(function () {
+      return retireAfterRuntimeFailure();
+    });
+  }
+
+  function mediaInvoke(command, payload) {
+    return areaInvoke("media")(command, payload).then(function (result) {
+      if (result && result.kind === "provider-dispatch") {
+        return executeMediaProviderEvent(result);
+      }
+      return result;
+    });
+  }
+
   function renderNavigation(snapshot) {
     const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
     const fragment = documentRef.createDocumentFragment();
@@ -463,15 +538,16 @@
         const mediaStatus = snapshot.product_status && typeof snapshot.product_status === "object"
           ? snapshot.product_status
           : {};
+        const mediaRecoveryRequired = mediaStatus.media_recovery_required === true;
         global.AccessibleChessClassroomMediaSurface.mount(
           workspace,
-          snapshot.media || null,
-          areaInvoke("media"),
+          mediaRecoveryRequired ? null : (snapshot.media || null),
+          mediaInvoke,
           announce,
           currentLanguage,
           {
             binding_active: mediaStatus.media_binding_active === true,
-            recovery_required: mediaStatus.media_recovery_required === true
+            recovery_required: mediaRecoveryRequired
           }
         );
       }
@@ -570,7 +646,34 @@
     return event.kind !== "error" && event.kind !== "status";
   }
 
-  function drainEvents() {
+  function reconcileMediaProviderTransport() {
+    const runtime = global.AccessibleChessClassroomMediaProviderRuntime;
+    if (!runtime || typeof runtime.reconcileTransport !== "function") {
+      return Promise.resolve();
+    }
+    let reconciliation;
+    try {
+      reconciliation = runtime.reconcileTransport(areaInvoke("media"));
+    } catch (_) {
+      return Promise.resolve();
+    }
+    return Promise.resolve(reconciliation).then(function (result) {
+      if (!result || typeof result !== "object") return;
+      const payload = result.payload && typeof result.payload === "object"
+        ? result.payload
+        : {};
+      if (payload.announcement) announce(String(payload.announcement));
+      if (result.kind === "error" && payload.message) {
+        announce(String(payload.message));
+      }
+      // Transport-loss reconciliation changes canonical connection/recovery
+      // state outside a direct button action. Always repaint from the trusted
+      // snapshot instead of trying to patch the media DOM from provider data.
+      return refresh(true);
+    }, function () {});
+  }
+
+  function drainQueuedEvents() {
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
     bridge.v2_drain_events().then(function (events) {
@@ -579,6 +682,33 @@
       let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
+        if (event && event.kind === "provider-dispatch") {
+          executeMediaProviderEvent(event).then(function (completed) {
+            const ordered = [];
+            const refreshRequired = applyQueuedEvent(completed, ordered);
+            const payload = completed && completed.payload &&
+              typeof completed.payload === "object" ? completed.payload : {};
+            const candidate = typeof payload.focus_target === "string"
+              ? payload.focus_target
+              : "";
+            const repaintBarrier = ordered.length
+              ? Promise.all(ordered)
+              : Promise.resolve();
+            if (refreshRequired) {
+              repaintBarrier.then(function () {
+                return refresh(true);
+              }).then(function () {
+                if (candidate) focusById(candidate);
+              }, function () {});
+            }
+          }, function () {
+            announce(uiText(
+              "Не вдалося виконати медіадію.",
+              "Could not complete the media action."
+            ));
+          });
+          return;
+        }
         const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
         if (!refreshRequired) return;
         needsRefresh = true;
@@ -597,6 +727,16 @@
         }, function () {});
       }
     }, function () {});
+  }
+
+  function drainEvents() {
+    // Keep WebView bridge mutations ordered: transport reconciliation can
+    // update canonical media state and must finish before queued application
+    // events are drained from the same host.
+    reconcileMediaProviderTransport().then(
+      drainQueuedEvents,
+      drainQueuedEvents
+    );
   }
 
   documentRef.addEventListener("focusin", function (event) {

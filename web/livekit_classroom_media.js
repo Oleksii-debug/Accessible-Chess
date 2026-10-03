@@ -197,10 +197,15 @@
       this._roomOptions = options.roomOptions && typeof options.roomOptions === "object"
         ? Object.freeze(Object.assign({}, options.roomOptions))
         : Object.freeze({});
+      if (options.onTransportLost != null && typeof options.onTransportLost !== "function") {
+        throw new LiveKitClassroomMediaError("transport-loss callback is invalid");
+      }
+      this._onTransportLost = options.onTransportLost || null;
       this._room = null;
       this._cleanupRoom = null;
       this._roomId = null;
       this._participantId = null;
+      this._intentionalDisconnectRoom = null;
     }
 
     get connected() {
@@ -235,12 +240,14 @@
         this._room = room;
         this._roomId = credential.room_id;
         this._participantId = credential.participant_id;
+        this._bindUnexpectedDisconnect(room);
         for (const source of enabledSources) {
           await this._setLocalSourceOnRoom(room, source, true);
         }
         return this.snapshot();
       } catch (error) {
         try {
+          this._intentionalDisconnectRoom = room;
           await room.disconnect(true);
         } catch (_disconnectError) {
           // If validation already published this Room as the active session,
@@ -253,6 +260,10 @@
           throw new LiveKitClassroomMediaError(
             "LiveKit room connection failed; media cleanup is still required"
           );
+        } finally {
+          if (this._intentionalDisconnectRoom === room) {
+            this._intentionalDisconnectRoom = null;
+          }
         }
         if (this._room === room) {
           this._room = null;
@@ -275,11 +286,16 @@
       const room = this._room !== null ? this._room : this._cleanupRoom;
       if (room === null) return this.snapshot();
       try {
+        this._intentionalDisconnectRoom = room;
         await room.disconnect(true);
       } catch (_error) {
         // Do not report a false disconnected state or lose the only cleanup
         // handle when the provider cannot confirm teardown.
         throw new LiveKitClassroomMediaError("LiveKit room disconnect failed");
+      } finally {
+        if (this._intentionalDisconnectRoom === room) {
+          this._intentionalDisconnectRoom = null;
+        }
       }
       if (this._room === room) {
         this._room = null;
@@ -393,6 +409,55 @@
         throw new LiveKitClassroomMediaError("media session is not connected");
       }
       return this._room;
+    }
+
+    _notifyTransportLost() {
+      const callback = this._onTransportLost;
+      if (callback !== null) {
+        const snapshot = this.snapshot();
+        Promise.resolve().then(() => callback(snapshot)).catch(() => {});
+      }
+    }
+
+    _bindUnexpectedDisconnect(room) {
+      const events = this._livekit.RoomEvent;
+      if (!events || typeof events.Disconnected !== "string" ||
+          typeof events.Moved !== "string" ||
+          !room || typeof room.on !== "function") {
+        throw new LiveKitClassroomMediaError("LiveKit room identity events are unavailable");
+      }
+      room.on(events.Disconnected, () => {
+        if (this._intentionalDisconnectRoom === room) return;
+        if (this._room === room) {
+          // LiveKit's final Disconnected event means automatic recovery has
+          // stopped. Retire only the provider-side session identity here; the
+          // canonical Python controller is reconciled by the serialized runtime.
+          this._room = null;
+          this._roomId = null;
+          this._participantId = null;
+          this._notifyTransportLost();
+          return;
+        }
+        if (this._cleanupRoom === room) {
+          // A prior provider move may have been awaiting explicit cleanup. A
+          // subsequent final disconnect proves that cleanup completed.
+          this._cleanupRoom = null;
+          this._notifyTransportLost();
+        }
+      });
+      room.on(events.Moved, () => {
+        if (this._intentionalDisconnectRoom === room || this._room !== room) {
+          return;
+        }
+        // A provider-side room move is not canonical classroom authority.
+        // Stop exposing the moved room as connected and retain the only Room
+        // handle for explicit cleanup before Python may mark transport lost.
+        this._room = null;
+        this._roomId = null;
+        this._participantId = null;
+        this._cleanupRoom = room;
+        this._notifyTransportLost();
+      });
     }
 
     async _setLocalSourceOnRoom(room, source, enabled) {

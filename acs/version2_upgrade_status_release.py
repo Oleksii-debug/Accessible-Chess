@@ -13,7 +13,7 @@ implementation detail is exposed to the WebView/NVDA surface.
 """
 
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from . import version2_education_mutation_release as _education_release
 from . import version2_release_app as _release_app
@@ -172,15 +172,25 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
     return api, build_status_application, runtime, native_runtime_factory
 
 
-def main() -> None:
-    """Run the real final product with its final-product bindings held for UI life."""
+def main(
+    *,
+    application_configure: Callable[[Any], None] | None = None,
+) -> None:
+    """Run the real final product with optional trusted pre-publication composition."""
 
     # The Education/final-product composition owns process-global menu/resource
     # bindings for the complete synchronous UI lifetime. Keep that proven lifetime
     # contract while replacing only its create step with the status-aware wrapper.
+    # A trusted host may inject media/runtime bindings through the same canonical
+    # application_configure seam used by the factory; the default product launcher
+    # passes nothing and therefore does not invent credentials, roster or provider
+    # authority.
     with _education_release._final_product_mutation_bindings():
         api, application, runtime, native_runtime_factory = (
-            create_version2_release_application(defer_ui=True)
+            create_version2_release_application(
+                defer_ui=True,
+                application_configure=application_configure,
+            )
         )
         _release_ui.run_version2_release_window(
             api,

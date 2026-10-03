@@ -81,6 +81,7 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                 "full_product_teacher.js",
                 "full_product_education.js",
                 "livekit_classroom_media.js",
+                "livekit_classroom_media_runtime.js",
                 "full_product_classroom_media.js",
                 "version2_final_product_bootstrap.js",
                 "p0_accessibility_runtime.js",
@@ -131,9 +132,11 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
             packaged_labels = [label for label, _source in packaged_sources]
             sdk_index = packaged_labels.index("LiveKit browser SDK")
             adapter_index = packaged_labels.index("Classroom LiveKit media adapter")
+            runtime_index = packaged_labels.index("Classroom LiveKit transactional runtime")
             media_index = packaged_labels.index("V2 Classroom media surface")
             self.assertEqual(adapter_index, sdk_index + 1)
-            self.assertLess(adapter_index, media_index)
+            self.assertEqual(runtime_index, adapter_index + 1)
+            self.assertLess(runtime_index, media_index)
             self.assertLess(media_index, packaged_labels.index("V2 final-product bootstrap"))
             self.assertNotIn("V2 Classroom LiveKit adapter", packaged_labels)
             self.assertEqual(
@@ -173,6 +176,7 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                 "full_product_teacher.js",
                 "full_product_education.js",
                 "livekit_classroom_media.js",
+                "livekit_classroom_media_runtime.js",
                 "full_product_classroom_media.js",
                 "version2_final_product_bootstrap.js",
                 "p0_accessibility_runtime.js",
@@ -214,6 +218,7 @@ class P0GFinalProductRuntimeReachabilityTests(unittest.TestCase):
                 "full_product_teacher.js",
                 "full_product_education.js",
                 "livekit_classroom_media.js",
+                "livekit_classroom_media_runtime.js",
                 "full_product_classroom_media.js",
                 "version2_final_product_bootstrap.js",
                 "p0_accessibility_runtime.js",

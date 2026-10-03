@@ -227,6 +227,16 @@ class ClassroomMediaWebViewProjection:
             raise ValueError("operation id factory returned invalid identity")
         return value
 
+    def resolve_participant_key(self, participant_key: str) -> str:
+        """Resolve one browser-opaque participant key for a trusted Python owner."""
+
+        return self._resolve_participant_key(participant_key)
+
+    def new_operation_id(self) -> str:
+        """Return one canonical browser-originated moderation operation identity."""
+
+        return self._operation_id()
+
     def _can_moderate(
         self,
         local: ParticipantMediaPolicy,
@@ -532,6 +542,16 @@ class ClassroomMediaWebViewProjection:
             "participants": tuple(participants),
             "all_student_actions": self._all_student_actions(local),
         }
+
+    def updated_event(self, *, focus_target: str = "") -> ClassroomMediaWebViewEvent:
+        """Render the canonical successful media-update presentation."""
+
+        return self._success(focus_target=focus_target)
+
+    def error_event(self, *, focus_target: str = "") -> ClassroomMediaWebViewEvent:
+        """Render the canonical sanitized media failure presentation."""
+
+        return self._error(focus_target=focus_target)
 
     def _success(self, *, focus_target: str = "") -> ClassroomMediaWebViewEvent:
         try:
