@@ -322,6 +322,75 @@ async function run() {
   assert.equal(documentRef.activeElement, recoveryHeading);
   assert.deepEqual(recoveryAnnouncements, ["Media state updated."]);
 
+  // Provider-backed actions must remain disabled until the complete async
+  // provider transaction settles, not merely until Python prepares it.
+  let releaseProvider;
+  const providerGate = new Promise((resolve) => { releaseProvider = resolve; });
+  global.window.AccessibleChessClassroomMediaProviderRuntime = {
+    ClassroomMediaProviderRuntime: class {
+      constructor(options) {
+        this.invoke = options.invoke;
+      }
+      settle(result) {
+        assert.equal(result.kind, "provider-dispatch");
+        return providerGate;
+      }
+    }
+  };
+  const providerButtonId = rowId + "-provider";
+  const providerInitial = mediaSnapshot([
+    {
+      id: providerButtonId,
+      command: "media.soft_mute",
+      label: "Provider-backed soft mute",
+      payload: { participant_key: key, muted: true }
+    }
+  ]);
+  const providerUpdated = mediaSnapshot([]);
+  providerUpdated.participants[0].summary = "Student. provider mutation committed.";
+  const providerAnnouncements = [];
+  surface.mount(
+    root,
+    providerInitial,
+    () => Promise.resolve({
+      kind: "provider-dispatch",
+      payload: {
+        transaction_id: "host-" + "3".repeat(32),
+        provider: {
+          transaction_id: "host-" + "3".repeat(32),
+          operation: "apply_moderation",
+          chunk_index: 0,
+          chunk_count: 1,
+          commands: []
+        },
+        focus_target: rowId
+      }
+    }),
+    (message) => providerAnnouncements.push(String(message)),
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+
+  const providerButton = root.querySelector("#" + providerButtonId);
+  assert.ok(providerButton);
+  providerButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(providerButton.disabled, true);
+  assert.ok(root.querySelector("#" + providerButtonId));
+
+  releaseProvider({
+    kind: "media-updated",
+    payload: {
+      snapshot: providerUpdated,
+      announcement: "Media state updated.",
+      focus_target: rowId
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(root.querySelector("#" + providerButtonId), null);
+  assert.match(root.textContent, /provider mutation committed/);
+  assert.deepEqual(providerAnnouncements, ["Media state updated."]);
+
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
 }
 
