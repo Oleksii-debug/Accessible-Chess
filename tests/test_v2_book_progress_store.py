@@ -631,6 +631,88 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
         self.assertFalse(self.path.exists())
 
+    def test_post_read_descriptor_close_failure_does_not_replace_success(self) -> None:
+        reader = BookReader(self.original_document())
+        self.store.save("book:read-close", reader)
+
+        real_open = os.open
+        real_close = os.close
+        data_descriptor = None
+
+        def capture_open(path: object, flags: int, mode: int = 0o777) -> int:
+            nonlocal data_descriptor
+            descriptor = real_open(path, flags, mode)
+            if os.fspath(path) == os.fspath(self.path):
+                data_descriptor = descriptor
+            return descriptor
+
+        def close_then_report_failure(descriptor: int) -> None:
+            real_close(descriptor)
+            if descriptor == data_descriptor:
+                raise OSError("late read descriptor close failure")
+
+        with (
+            mock.patch(
+                "acs.book_progress_store.os.open",
+                side_effect=capture_open,
+            ),
+            mock.patch(
+                "acs.book_progress_store.os.close",
+                side_effect=close_then_report_failure,
+            ),
+        ):
+            self.assertTrue(self.store.has("book:read-close"))
+
+    def test_lock_validation_error_survives_cleanup_close_failure(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"\0")
+        replacement = self.store._lock_path.with_name(
+            "replacement-close-failure.lock"
+        )
+        replacement.write_bytes(b"\0")
+
+        real_open = os.open
+        real_close = os.close
+        opened_lock_descriptor = None
+        swapped = False
+
+        def replacing_open(path: object, flags: int, mode: int = 0o777) -> int:
+            nonlocal opened_lock_descriptor, swapped
+            if (
+                not swapped
+                and os.fspath(path) == os.fspath(self.store._lock_path)
+            ):
+                swapped = True
+                os.replace(replacement, self.store._lock_path)
+            descriptor = real_open(path, flags, mode)
+            if os.fspath(path) == os.fspath(self.store._lock_path):
+                opened_lock_descriptor = descriptor
+            return descriptor
+
+        def close_then_report_failure(descriptor: int) -> None:
+            real_close(descriptor)
+            if descriptor == opened_lock_descriptor:
+                raise OSError("late failed-lock cleanup close failure")
+
+        with (
+            mock.patch(
+                "acs.book_progress_store.os.open",
+                side_effect=replacing_open,
+            ),
+            mock.patch(
+                "acs.book_progress_store.os.close",
+                side_effect=close_then_report_failure,
+            ),
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_lock_path_identity_is_rechecked_after_os_lock_acquisition(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"\0")
