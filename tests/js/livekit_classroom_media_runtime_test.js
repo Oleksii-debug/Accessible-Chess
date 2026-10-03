@@ -580,6 +580,52 @@ async function testMalformedSessionInstructionRetiresBeforeCredentialHandoff() {
   }
 }
 
+async function testCoercedProviderFieldsRetireBeforeProviderBoundary() {
+  const transaction = "host-" + "c".repeat(32);
+  const cases = [
+    {
+      label: "transaction object coercion",
+      provider: {
+        transaction_id: { toString: () => transaction },
+        operation: "set_local_source",
+        source: "camera",
+        enabled: true
+      }
+    },
+    {
+      label: "operation object coercion",
+      provider: {
+        transaction_id: transaction,
+        operation: { toString: () => "set_local_source" },
+        source: "camera",
+        enabled: true
+      }
+    }
+  ];
+
+  for (const item of cases) {
+    RecordingAdapter.instances.length = 0;
+    const runtime = loadRuntime(RecordingAdapter);
+    const bridgeCalls = [];
+    const event = dispatch(transaction, item.provider, false);
+    const result = await runtime.execute(event, async (command, payload) => {
+      bridgeCalls.push([command, payload.transaction_id]);
+      if (command === "media.provider_not_started") {
+        return { kind: "error", payload: { message: "sanitized" } };
+      }
+      throw new Error("coerced provider field crossed unexpected bridge command");
+    });
+
+    assert.equal(result.kind, "error", item.label);
+    assert.deepEqual(
+      bridgeCalls,
+      [["media.provider_not_started", transaction]],
+      item.label
+    );
+    assert.equal(RecordingAdapter.instances.length, 0, item.label);
+  }
+}
+
 async function testMalformedCrossedInstructionEscalatesToUnknownRecovery() {
   RecordingAdapter.instances.length = 0;
   const runtime = loadRuntime(RecordingAdapter);
@@ -716,6 +762,59 @@ async function testMalformedDeviceRecoveryRetiresBeforeProviderBoundary() {
     );
     assert.equal(RecordingAdapter.instances.length, 0, cases[index].label);
   }
+}
+
+async function testDuplicateInflightDispatchDoesNotRetireOwner() {
+  let releaseFirst;
+  class BlockingAdapter extends RecordingAdapter {
+    async setLocalSource(source, enabled) {
+      this.calls.push(["setLocalSource", source, enabled]);
+      await new Promise((resolve) => { releaseFirst = resolve; });
+    }
+  }
+  const runtime = loadRuntime(BlockingAdapter);
+  const transaction = "host-" + "5".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: true
+  }, false);
+  const retired = [];
+
+  async function invoke(command, payload) {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_dispatched") {
+      return {
+        kind: "provider-ready",
+        payload: { transaction_id: payload.transaction_id }
+      };
+    }
+    if (command === "media.provider_not_started") {
+      retired.push(payload.transaction_id);
+      return { kind: "error", payload: { message: "retired" } };
+    }
+    if (command === "media.provider_effect_success") {
+      return { kind: "media-updated", payload: { snapshot: {} } };
+    }
+    throw new Error("unexpected command " + command);
+  }
+
+  const firstPromise = runtime.execute(event, invoke);
+  while (typeof releaseFirst !== "function") {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const duplicate = await runtime.execute(event, invoke);
+  assert.deepEqual(duplicate, { kind: "status", payload: {} });
+  assert.deepEqual(retired, []);
+
+  releaseFirst();
+  const firstResult = await firstPromise;
+  assert.equal(firstResult.kind, "media-updated");
+  assert.deepEqual(retired, []);
+  assert.equal(RecordingAdapter.instances[0].calls.length, 1);
+  assert.equal(runtime._activeTransaction, null);
+  assert.equal(runtime._busy, false);
 }
 
 async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
@@ -1026,29 +1125,36 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
   assert.equal(RecordingAdapter.instances.length, 1);
 }
 
-async function testFailedConnectCleanupRetriesUntilPythonRecoveryCanClear() {
+async function testFailedReconnectCleanupRetriesWhileTrustedRecoveryRemainsLatched() {
   RecordingAdapter.instances.length = 0;
 
-  class PartialConnectAdapter extends RecordingAdapter {
-    async connect(credential, enabledSources) {
-      await super.connect(credential, enabledSources);
-      this._snapshot.microphone_enabled = true;
+  class PartialReconnectAdapter extends RecordingAdapter {
+    async reconnect(credential, enabledSources) {
+      this.calls.push(["reconnect", credential, enabledSources]);
+      this._snapshot = {
+        connected: true,
+        cleanup_required: false,
+        room_id: credential.room_id,
+        participant_id: credential.participant_id,
+        microphone_enabled: true,
+        camera_enabled: false,
+        screen_share_enabled: false
+      };
       this.failDisconnectOnce = true;
-      throw new Error("provider camera enable failed");
+      throw new Error("provider camera republish failed");
     }
   }
 
-  const runtime = loadRuntime(PartialConnectAdapter);
+  const runtime = loadRuntime(PartialReconnectAdapter);
   const transaction = "session-" + "c".repeat(32);
   const event = dispatch(transaction, {
     transaction_id: transaction,
-    operation: "connect",
+    operation: "reconnect",
     credential_required: true,
-    enabled_sources: []
+    enabled_sources: ["microphone", "camera"]
   }, false);
-  const calls = [];
+  let transportCalls = 0;
   const invoke = async (command, payload) => {
-    calls.push(command);
     if (command === "media.provider_config") return configResult();
     if (command === "media.provider_take_credential") {
       return {
@@ -1072,9 +1178,17 @@ async function testFailedConnectCleanupRetriesUntilPythonRecoveryCanClear() {
         payload: { message: "sanitized", recovery_required: true }
       };
     }
-    if (command === "media.provider_session_recovery_clean") {
-      assert.equal(payload.transaction_id, transaction);
+    if (command === "media.provider_transport_lost") {
+      transportCalls += 1;
       assert.equal(isCleanSnapshot(payload.snapshot), true);
+      if (transportCalls === 1) {
+        // Current #1201 requires trusted host reconciliation before browser
+        // transport loss may clear an ambiguous provider recovery.
+        return {
+          kind: "error",
+          payload: { message: "sanitized", recovery_required: true }
+        };
+      }
       return { kind: "media-updated", payload: {} };
     }
     throw new Error("unexpected command " + command);
@@ -1091,21 +1205,30 @@ async function testFailedConnectCleanupRetriesUntilPythonRecoveryCanClear() {
     1
   );
 
-  const recovered = await runtime.reconcileTransport(invoke);
-  assert.equal(recovered.kind, "media-updated");
+  const stillRecovering = await runtime.reconcileTransport(invoke);
+  assert.equal(stillRecovering.kind, "error");
+  assert.equal(stillRecovering.payload.recovery_required, true);
   assert.equal(isCleanSnapshot(adapter.snapshot()), true);
   assert.equal(
     adapter.calls.filter((item) => item[0] === "disconnect").length,
     2
   );
+  assert.equal(transportCalls, 1);
+
+  // Model the trusted Python recovery completion that happens outside browser
+  // authority, then prove the retained clean snapshot can finally converge.
+  runtime._transportRetryAt = 0;
+  const converged = await runtime.reconcileTransport(invoke);
+  assert.equal(converged.kind, "media-updated");
+  assert.equal(transportCalls, 2);
   assert.equal(
-    calls.filter((command) => command === "media.provider_session_recovery_clean").length,
-    1
+    adapter.calls.filter((item) => item[0] === "disconnect").length,
+    2
   );
-  const noDuplicate = await runtime.reconcileTransport(async () => {
-    throw new Error("clean recovery was retried");
+  const duplicate = await runtime.reconcileTransport(async () => {
+    throw new Error("clean transport convergence was duplicated");
   });
-  assert.equal(noDuplicate, null);
+  assert.equal(duplicate, null);
 }
 
 async function testFailedDisconnectImmediateRetryCommitsOriginalLeave() {
@@ -1430,7 +1553,7 @@ async function testTransportLossGenericErrorIsNotTerminal() {
   assert.equal(transportCalls, 1);
 
   runtime._transportRetryAt = 0;
-  const terminal = await runtime.reconcileTransport(async (command) => {
+  const recovery = await runtime.reconcileTransport(async (command) => {
     assert.equal(command, "media.provider_transport_lost");
     transportCalls += 1;
     return {
@@ -1441,16 +1564,36 @@ async function testTransportLossGenericErrorIsNotTerminal() {
       }
     };
   });
-  assert.equal(terminal.kind, "error");
-  assert.equal(terminal.payload.recovery_required, true);
+  assert.equal(recovery.kind, "error");
+  assert.equal(recovery.payload.recovery_required, true);
   assert.equal(transportCalls, 2);
 
-  const afterTerminal = await runtime.reconcileTransport(async () => {
+  const recoveryCooldown = await runtime.reconcileTransport(async () => {
     transportCalls += 1;
-    throw new Error("terminal recovery acknowledgement did not clear loss");
+    throw new Error("recovery retry cooldown was bypassed");
   });
-  assert.equal(afterTerminal, null);
+  assert.equal(recoveryCooldown, null);
   assert.equal(transportCalls, 2);
+
+  // Recovery is only the provider/canonical uncertainty latch.  The provider is
+  // still cleanly disconnected, so preserve that fact until Python later
+  // accepts and commits the canonical transport loss.
+  runtime._transportRetryAt = 0;
+  const accepted = await runtime.reconcileTransport(async (command, payload) => {
+    assert.equal(command, "media.provider_transport_lost");
+    assert.equal(payload.snapshot.connected, false);
+    transportCalls += 1;
+    return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+  });
+  assert.equal(accepted.kind, "media-updated");
+  assert.equal(transportCalls, 3);
+
+  const afterAccepted = await runtime.reconcileTransport(async () => {
+    transportCalls += 1;
+    throw new Error("accepted transport loss was not cleared");
+  });
+  assert.equal(afterAccepted, null);
+  assert.equal(transportCalls, 3);
 }
 
 async function testMovedRoomCleanupRetriesBeforePythonTransportLoss() {
@@ -1541,15 +1684,17 @@ async function run() {
   await testProviderSuccessAckLossRequiresRecovery();
   await testCrossedTransactionConfigurationLossRequiresRecovery();
   await testMalformedSessionInstructionRetiresBeforeCredentialHandoff();
+  await testCoercedProviderFieldsRetireBeforeProviderBoundary();
   await testMalformedCrossedInstructionEscalatesToUnknownRecovery();
   await testMalformedModerationRetiresBeforeProviderBoundary();
   await testMalformedDeviceRecoveryRetiresBeforeProviderBoundary();
+  await testDuplicateInflightDispatchDoesNotRetireOwner();
   await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
   await testMalformedConcurrentDispatchRetiresExactTransaction();
   await testCleanProviderRebindRefreshesConfiguration();
   await testProviderRebindRejectsResidualDisconnectedState();
   await testProviderRebindCannotRetargetConnectedAdapter();
-  await testFailedConnectCleanupRetriesUntilPythonRecoveryCanClear();
+  await testFailedReconnectCleanupRetriesWhileTrustedRecoveryRemainsLatched();
   await testFailedDisconnectImmediateRetryCommitsOriginalLeave();
   await testTransportLossReconcilesExactlyOnce();
   await testPendingTransportLossRetiresNewMutationBeforeProviderCall();
