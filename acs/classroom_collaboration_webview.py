@@ -116,6 +116,7 @@ _LABELS = {
         "file_cancel_failed": "Не вдалося скасувати передавання файла: {name}.",
         "file_sync_failed": "Не вдалося оновити файли.",
         "file_progress": "Передано {done} з {total}: {name}.",
+        "file_progress_finalizing": "Усі байти передано; завершується передавання: {name}.",
         "file_progress_label": "Прогрес передавання файла",
         "new_file": "Новий файл: {name}.",
         "new_many_files": "Нових файлів: {count}.",
@@ -197,6 +198,7 @@ _LABELS = {
         "file_cancel_failed": "Could not cancel file transfer: {name}.",
         "file_sync_failed": "File refresh failed.",
         "file_progress": "Transferred {done} of {total}: {name}.",
+        "file_progress_finalizing": "All bytes transferred; finalizing transfer: {name}.",
         "file_progress_label": "File transfer progress",
         "new_file": "New file: {name}.",
         "new_many_files": "New files: {count}.",
@@ -919,10 +921,14 @@ class ClassroomCollaborationWebView:
             "total_bytes": total_bytes,
             "complete": complete,
             "label": labels["file_progress_label"],
-            "text": labels["file_progress"].format(
-                done=self._size_label(transferred_bytes),
-                total=self._size_label(total_bytes),
-                name=name,
+            "text": (
+                labels["file_progress_finalizing"].format(name=name)
+                if transferred_bytes == total_bytes and not complete
+                else labels["file_progress"].format(
+                    done=self._size_label(transferred_bytes),
+                    total=self._size_label(total_bytes),
+                    name=name,
+                )
             ),
         }
 
