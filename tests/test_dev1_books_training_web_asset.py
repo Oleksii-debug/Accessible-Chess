@@ -65,11 +65,13 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
 
     def test_transport_throw_and_rejection_are_caught_with_one_flight_actions(self) -> None:
         text = self.text
-        self.assertIn("const inFlightRoots = new WeakSet()", text)
+        self.assertIn("const inFlightRoots = new WeakMap()", text)
         self.assertIn("const renderEpochs = new WeakMap()", text)
-        self.assertIn("if (inFlightRoots.has(root)) return", text)
-        self.assertIn("const startedAtEpoch = renderEpoch(root)", text)
-        self.assertIn("inFlightRoots.add(root)", text)
+        self.assertIn("const activeFlight = inFlightRoots.get(root)", text)
+        self.assertIn("if (activeFlight && activeFlight.epoch === startedAtEpoch) return", text)
+        self.assertIn("const flight = { epoch: startedAtEpoch }", text)
+        self.assertIn("inFlightRoots.set(root, flight)", text)
+        self.assertIn("if (inFlightRoots.get(root) !== flight) return", text)
         self.assertIn('root.setAttribute("aria-busy", "true")', text)
         self.assertIn('root.removeAttribute("aria-busy")', text)
         self.assertIn("renderEpoch(root) !== startedAtEpoch", text)
@@ -81,7 +83,8 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn("Promise.resolve(result)", text)
         self.assertIn(".catch(function ()", text)
         self.assertIn("announce(String(fallbackMessage))", text)
-        self.assertEqual(text.count("inFlightRoots.delete(root)"), 1)
+        self.assertEqual(text.count("inFlightRoots.delete(root)"), 2)
+        self.assertNotIn("new WeakSet()", text)
         self.assertNotIn("Promise.resolve(invoke(", text)
         self.assertNotIn("error.message", text)
         self.assertNotIn("String(error)", text)
