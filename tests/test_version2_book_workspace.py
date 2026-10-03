@@ -99,12 +99,26 @@ class Version2BookWorkspaceTests(unittest.TestCase):
             BookBoardUiEventKind.BOARD_OPENED,
             "book.return",
             focus_target="board",
+            revision=active_workflow.revision,
         )
 
         wrong_action = active_bridge.dispatch("book.open_position")
 
         self.assertEqual(wrong_action.kind, "error")
         self.assertNotIn("announcement", wrong_action.payload)
+        self.assertTrue(active_workflow.active)
+
+        active_bridge.projection._dispatch = lambda *_: BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=active_workflow.revision - 1,
+        )
+
+        stale_revision = active_bridge.dispatch("book.open_position")
+
+        self.assertEqual(stale_revision.kind, "error")
+        self.assertNotIn("announcement", stale_revision.payload)
         self.assertTrue(active_workflow.active)
 
         _, inactive_workflow, inactive_bridge, _ = self.compose(
