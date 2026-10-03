@@ -299,6 +299,51 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "message": self._sound_message("Звук відтворено.", "Sound played."),
         }
 
+    def clock_sound_pulse(self) -> dict[str, Any]:
+        """Play one complete clock ambience segment when current policy allows it."""
+
+        base = {"ok": True, "played": False, "disabled": False}
+        session = self._engine_session
+        if (
+            self._game_sounds is None
+            or self._settings is None
+            or session is None
+            or self._engine_game_phase != "active"
+        ):
+            return base
+        try:
+            policy = str(self._settings.get("tick_policy", "my_turn"))
+            last_seconds = int(self._settings.get("tick_last_seconds", 0))
+            if policy == "off":
+                return {**base, "disabled": True}
+            snapshot = session.snapshot()
+            if snapshot.config.time_control.untimed:
+                return base
+            human = "b" if snapshot.config.engine_side == "w" else "w"
+            if snapshot.turn_state is EngineTurnState.HUMAN:
+                active_side = human
+            elif snapshot.turn_state is EngineTurnState.ENGINE:
+                active_side = snapshot.config.engine_side
+            else:
+                return base
+            if policy == "my_turn" and active_side != human:
+                return base
+            remaining_ms = (
+                snapshot.clock.white_ms if active_side == "w" else snapshot.clock.black_ms
+            )
+            if remaining_ms <= 0:
+                return base
+            if last_seconds > 0 and remaining_ms > last_seconds * 1000:
+                return base
+            report = self._game_sounds.tick()
+            return {
+                "ok": not bool(getattr(report, "failures", ())),
+                "played": bool(getattr(report, "delivered", ())),
+                "disabled": bool(getattr(report, "disabled", False)),
+            }
+        except Exception:
+            return {"ok": False, "played": False, "disabled": False}
+
     def _play_latest_move(self) -> None:
         if self._game_sounds is None or not self.sans:
             return
