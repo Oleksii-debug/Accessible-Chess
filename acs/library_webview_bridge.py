@@ -8,7 +8,10 @@ from .library_webview_projection import LibraryWebViewEvent, LibraryWebViewProje
 from .search_service import GameSearchQuery
 
 
-_BROWSER_MAX_SAFE_INTEGER = (1 << 53) - 1\n\n\nclass LibraryWebViewBridge:
+_BROWSER_MAX_SAFE_INTEGER = (1 << 53) - 1
+
+
+class LibraryWebViewBridge:
     _SEARCH_FIELDS = frozenset(
         {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit"}
     )
@@ -72,6 +75,13 @@ _BROWSER_MAX_SAFE_INTEGER = (1 << 53) - 1\n\n\nclass LibraryWebViewBridge:
         return integer
 
     @staticmethod
+    def _browser_game_id(value: object) -> int:
+        integer = LibraryWebViewBridge._positive_int(value, "game_id")
+        if integer is None or integer > _BROWSER_MAX_SAFE_INTEGER:
+            raise ValueError("invalid browser-safe game_id")
+        return integer
+
+    @staticmethod
     def _limit(value: object) -> int:
         if value is None or value == "":
             return 50
@@ -126,9 +136,7 @@ _BROWSER_MAX_SAFE_INTEGER = (1 << 53) - 1\n\n\nclass LibraryWebViewBridge:
                 return self._projection.reset_filters()
             if command_id == "library.select":
                 self._exact(data, {"game_id"})
-                game_id = self._positive_int(data["game_id"], "game_id")
-                if game_id is None:
-                    raise ValueError("game id required")
+                game_id = self._browser_game_id(data["game_id"])
                 return self._projection.select(game_id)
             if command_id == "library.move":
                 self._exact(data, {"delta"})
@@ -138,9 +146,7 @@ _BROWSER_MAX_SAFE_INTEGER = (1 << 53) - 1\n\n\nclass LibraryWebViewBridge:
                 return self._projection.move_selection(delta)
             if command_id == "library.toggle_export_selection":
                 self._exact(data, {"game_id"})
-                game_id = self._positive_int(data["game_id"], "game_id")
-                if game_id is None:
-                    raise ValueError("game id required")
+                game_id = self._browser_game_id(data["game_id"])
                 return self._export_method("toggle_export_selection")(game_id)
             if command_id == "library.clear_export_selection":
                 self._exact(data, set())
