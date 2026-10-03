@@ -213,7 +213,10 @@ class LocalProfileStore:
         """
         process_lock = _process_mutation_lock(self.lock_path)
         with process_lock:
-            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                raise LocalProfileError("local profile mutation lock is unavailable") from None
             if self.lock_path.is_symlink():
                 raise UnsafeLocalProfilePath("profile mutation lock must not be a symbolic link")
             flags = os.O_RDWR | os.O_CREAT
@@ -222,8 +225,8 @@ class LocalProfileStore:
                 flags |= no_follow
             try:
                 fd = os.open(self.lock_path, flags, 0o600)
-            except OSError as exc:
-                raise LocalProfileError("local profile mutation lock is unavailable") from exc
+            except OSError:
+                raise LocalProfileError("local profile mutation lock is unavailable") from None
 
             locked = False
             try:
@@ -232,8 +235,8 @@ class LocalProfileStore:
                 # symlink race.
                 if self.lock_path.is_symlink():
                     raise UnsafeLocalProfilePath("profile mutation lock must not be a symbolic link")
-                os.lseek(fd, 0, os.SEEK_SET)
                 try:
+                    os.lseek(fd, 0, os.SEEK_SET)
                     if os.name == "nt":
                         import msvcrt
 
@@ -242,8 +245,8 @@ class LocalProfileStore:
                         import fcntl
 
                         fcntl.flock(fd, fcntl.LOCK_EX)
-                except OSError as exc:
-                    raise LocalProfileError("local profile mutation lock is unavailable") from exc
+                except OSError:
+                    raise LocalProfileError("local profile mutation lock is unavailable") from None
                 locked = True
                 yield
             finally:
@@ -259,10 +262,16 @@ class LocalProfileStore:
 
                             fcntl.flock(fd, fcntl.LOCK_UN)
                     except OSError:
-                        # Durable profile state is already decided. Process/handle
-                        # close still releases the OS advisory lock.
+                        # The durable mutation result is already decided. Advisory
+                        # lock cleanup must not turn a committed identity update
+                        # into a caller-visible failure.
                         pass
-                os.close(fd)
+                try:
+                    os.close(fd)
+                except OSError:
+                    # Descriptor close is cleanup only; process teardown also
+                    # releases the advisory lock. Never falsify commit state.
+                    pass
 
     @staticmethod
     def _read_bounded(path: Path) -> bytes:
@@ -271,8 +280,8 @@ class LocalProfileStore:
         try:
             with path.open("rb") as handle:
                 data = handle.read(MAX_PROFILE_BYTES + 1)
-        except OSError as exc:
-            raise LocalProfileError("profile state cannot be read") from exc
+        except OSError:
+            raise LocalProfileError("profile state cannot be read") from None
         if len(data) > MAX_PROFILE_BYTES:
             raise LocalProfileError("profile payload is too large")
         return data
@@ -367,9 +376,9 @@ class LocalProfileStore:
 
     def _atomic_replace_bytes(self, target: Path, payload: bytes) -> None:
         self._assert_safe_target(target)
-        target.parent.mkdir(parents=True, exist_ok=True)
         temp_name: str | None = None
         try:
+            target.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
                 mode="wb", prefix=target.name + ".", suffix=".tmp", dir=target.parent, delete=False
             ) as handle:
@@ -389,8 +398,8 @@ class LocalProfileStore:
                         os.close(directory_fd)
                 except OSError:
                     pass
-        except OSError as exc:
-            raise LocalProfileError("local profile could not be saved") from exc
+        except OSError:
+            raise LocalProfileError("local profile could not be saved") from None
         finally:
             if temp_name is not None:
                 try:
