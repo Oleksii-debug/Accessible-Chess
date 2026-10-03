@@ -130,7 +130,12 @@
     }
   }
 
-  function receiptForTransaction(receipt, expectedTransactionId) {
+  function receiptForTransaction(
+    receipt,
+    expectedTransactionId,
+    expectedOperation,
+    expectedChunkIndex
+  ) {
     if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
       throw new ClassroomMediaProviderRuntimeError(
         "media provider executor receipt is invalid"
@@ -150,6 +155,16 @@
     if (transactionId(receipt.transaction_id) !== expectedTransactionId) {
       throw new ClassroomMediaProviderRuntimeError(
         "provider executor receipt transaction does not match"
+      );
+    }
+    if (receipt.operation !== expectedOperation) {
+      throw new ClassroomMediaProviderRuntimeError(
+        "provider executor receipt operation does not match dispatch"
+      );
+    }
+    if (receipt.chunk_index !== expectedChunkIndex) {
+      throw new ClassroomMediaProviderRuntimeError(
+        "provider executor receipt chunk does not match dispatch"
       );
     }
     if (receipt.status !== "success" && receipt.status !== "failed") {
@@ -272,7 +287,11 @@
 
         const receipt = receiptForTransaction(
           await executor.execute(dispatch.provider),
-          id
+          id,
+          operation,
+          operation === "apply_moderation"
+            ? dispatch.provider.chunk_index
+            : null
         );
 
         if (receipt.status === "success") {
