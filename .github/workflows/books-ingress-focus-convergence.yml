@@ -79,8 +79,8 @@ jobs:
             'tests/test_version2_release_accessibility_contract.py' | sort)"
           test "$changed" = "$expected"
 
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = '557165c7f45a553a9cddad4ee402560e038cf384'
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = '03257330c7b5519683533f33fd57145f395354d7'
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = '50ac6ffeec7306d950efdd7afc005d0057461282'
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = 'b4239938ee07911133befd00c1347ae34bf34b7f'
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '7bb116ea0587de51a191560cd39070aac9ead014'
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = '34df9e717adf52dcb41cd2caf1ee79e7a8dff37f'
           test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = '1e9b0e03c5c81ef187234a748bbd23c2759ad4cb'
