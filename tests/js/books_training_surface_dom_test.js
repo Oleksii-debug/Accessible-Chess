@@ -543,6 +543,32 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed after-move comments must not steal reading focus");
 
+  const excessiveItems = semanticGameSnapshot();
+  excessiveItems.block.semantic_tree.items = new Array(10001).fill({
+    kind: "move",
+    depth: 0,
+    label: "e4",
+    comments: []
+  });
+  let excessiveItemsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      excessiveItems,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    excessiveItemsRejected = true;
+  }
+  check(excessiveItemsRejected, "excessive semantic item count must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive semantic items must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive semantic items must not steal reading focus");
+
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {
     check(command === "book.open_starter_material", "unexpected starter material command");

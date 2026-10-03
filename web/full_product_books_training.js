@@ -1,6 +1,8 @@
 (function (global) {
   "use strict";
 
+  const MAX_BOOK_SEMANTIC_ITEMS = 10000;
+
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
     "training.reveal": "training-action-reveal",
@@ -97,6 +99,9 @@
       throw new TypeError("book semantic items must be an array");
     }
     const items = semantic.items;
+    if (items.length > MAX_BOOK_SEMANTIC_ITEMS) {
+      throw new TypeError("book semantic item limit exceeded");
+    }
     const rootList = node("ol");
     rootList.setAttribute("aria-labelledby", heading.id);
     container.appendChild(rootList);

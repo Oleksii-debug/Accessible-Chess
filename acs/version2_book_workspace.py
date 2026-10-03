@@ -27,6 +27,8 @@ from .full_product_ui_shell import UILanguage
 from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
 
 
+_MAX_BOOK_SEMANTIC_ITEMS = 10_000
+
 _SEMANTIC_TREE_LABELS = {
     UILanguage.UA: {
         "moves": "Ходи та варіанти",
@@ -108,6 +110,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             for comment in (safe(raw.text) for raw in game.line.leading_comments)
             if comment
         )
+
+        if len(view.items) > _MAX_BOOK_SEMANTIC_ITEMS:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree exceeds the browser item limit"
+            )
 
         rendered_items: list[dict[str, object]] = []
         previous_depth = 0
