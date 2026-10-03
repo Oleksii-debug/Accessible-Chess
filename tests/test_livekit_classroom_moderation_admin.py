@@ -288,6 +288,34 @@ class LiveKitClassroomModerationAdminTests(unittest.TestCase):
         self.assertEqual(room.updates, [])
         self.assertEqual(room.removals, [])
 
+    def test_state_verifier_treats_absent_microphone_track_as_satisfied_noop(self):
+        room = FakeRoomService(
+            participant(
+                tracks=(
+                    SimpleNamespace(
+                        sid="camera-only",
+                        source=FakeTrackSource.CAMERA,
+                        muted=False,
+                    ),
+                )
+            )
+        )
+        admin, room = self.admin(room)
+
+        self.assertTrue(
+            self.matches(
+                admin,
+                command(
+                    ModerationAction.SOFT_MUTE,
+                    source=MediaSource.MICROPHONE,
+                    value=True,
+                ),
+            )
+        )
+        self.assertEqual(room.mutes, [])
+        self.assertEqual(room.updates, [])
+        self.assertEqual(room.removals, [])
+
     def test_state_verifier_requires_exact_boolean_microphone_state(self):
         tracks = (
             SimpleNamespace(
