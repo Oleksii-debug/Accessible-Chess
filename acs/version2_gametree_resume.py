@@ -9,6 +9,7 @@ surface and keeps the resume file outside browser-owned state.
 
 import os
 from pathlib import Path
+import stat
 
 from .gametree_resume import (
     GameTreeResumeCode,
@@ -16,12 +17,17 @@ from .gametree_resume import (
     GameTreeResumeStore,
     _exclusive_store_lock,
     _fsync_directory,
+    _is_reparse_point,
     _read_store_bytes,
     _token_for_bytes,
     _validate_regular_path,
 )
 from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
+
+
+_DISCARD_GUARD_DIRECTORY = ".gametree-resume-discard"
+_DISCARD_GUARD_SUFFIX = ".guard"
 
 
 class Version2GameTreeResumeCoordinator:
