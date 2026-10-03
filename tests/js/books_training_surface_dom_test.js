@@ -1070,6 +1070,34 @@ async function run() {
     "noncanonical Book focus target did not fail closed accessibly"
   );
 
+  const oversizedKindRoot = new FakeElement("div");
+  const oversizedKindSnapshot = bookSnapshot(22, "Oversized kind");
+  oversizedKindSnapshot.block.kind = "x".repeat(81);
+  let oversizedKindError = null;
+  try {
+    window.AccessibleChessBookSurface.render(
+      oversizedKindRoot,
+      oversizedKindSnapshot,
+      () => null,
+      () => {},
+      "",
+      "Book kind failed"
+    );
+  } catch (error) {
+    oversizedKindError = error;
+  }
+  check(
+    oversizedKindError &&
+      String(oversizedKindError.message || oversizedKindError).indexOf(
+        "Book snapshot block kind exceeds its canonical text contract"
+      ) >= 0,
+    "oversized Book kind reached role lookup before its scalar bound"
+  );
+  check(
+    oversizedKindRoot.replaceChildrenCalls === 0,
+    "oversized Book kind replaced DOM before failing closed"
+  );
+
   const malformedIdentityRoot = new FakeElement("div");
   const malformedIdentityAnnouncements = [];
   const malformedIdentitySnapshot = bookSnapshot(22, "Malformed identity");
