@@ -510,7 +510,9 @@ check(
 );
 check(
   throwingInput.readOnly &&
+  throwingSend.disabled &&
   throwingSend.getAttribute("aria-disabled") === "true" &&
+  throwingRoot.querySelector("#collaboration-chat-older").disabled &&
   throwingForm.getAttribute("aria-busy") === "true" &&
   throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "true",
   "pending chat send must be single-flight and expose bounded busy state without blurring controls"
@@ -953,6 +955,7 @@ Promise.resolve().then(() => {
     pushedWrapper.getAttribute("aria-busy") === "true" &&
     pushedInput.readOnly &&
     pushedForm.getAttribute("aria-busy") === "true" &&
+    pushedSend.disabled &&
     pushedSend.getAttribute("aria-disabled") === "true" &&
     pushedInput.value === "Single flight across push" &&
     pushedInput.selectionStart === 3 &&
@@ -993,7 +996,9 @@ setImmediate(() => {
     );
     check(
       !throwingInput.readOnly &&
+      !throwingSend.disabled &&
       throwingSend.getAttribute("aria-disabled") === null &&
+      throwingRoot.querySelector("#collaboration-chat-older").disabled &&
       throwingForm.getAttribute("aria-busy") === "false" &&
       throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "false" &&
       throwingInput.value === "Keep this draft",
