@@ -52,7 +52,7 @@ jobs:
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          SOURCE_HEAD_SHA: 1a029e05219c488cb58c369ef89d26c6735c592b
+          SOURCE_HEAD_SHA: f3e051ae436655cc12d916e27a64d77097d747b1
         run: |
           set -euo pipefail
           event_base="${EVENT_BASE_SHA:-}"
