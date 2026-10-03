@@ -837,9 +837,12 @@ class ClassroomCollaborationController:
                 "attachment state response is invalid or too large"
             )
         history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
+        # Mutable state is never attachment-discovery authority. Only
+        # immutable server history already proven authoritative locally, or the
+        # authoritative history page being reconciled now, may be targeted.
         known_attachment_ids = {
             item.attachment_id
-            for item in self._store.room_attachments(self.room_id)
+            for item in authoritative
         }
         known_attachment_ids.update(item.attachment_id for item in incoming)
         state_previous = state_after
