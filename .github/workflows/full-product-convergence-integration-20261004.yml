@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration/full-product-convergence-20261004
+      - integration/full-product-successor-qualification-20261004
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
