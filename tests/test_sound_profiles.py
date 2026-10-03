@@ -196,6 +196,21 @@ class SoundPackManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._pack(files=files)
 
+    def test_audio_path_resources_are_bounded_before_filesystem_use(self) -> None:
+        cases = (
+            "audio/" + ("x" * 250) + ".wav",
+            "/".join(["a"] * 65) + "/move.wav",
+            "audio/" + ("x" * 4090) + ".wav",
+        )
+        for unsafe in cases:
+            files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
+            files["move"] = unsafe
+            with self.subTest(length=len(unsafe)), self.assertRaisesRegex(
+                ValueError,
+                "resource limit",
+            ):
+                self._pack(files=files)
+
     def test_executable_payload_is_rejected(self) -> None:
         files = {event: f"{event}.wav" for event in CORE_SOUND_EVENTS}
         files["move"] = "move.exe"
