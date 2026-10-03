@@ -203,6 +203,44 @@ class PgnCommandsTests(unittest.TestCase):
         )
         self.assertNotIn("expected_content_digest", repr(snapshot))
 
+    def test_webview_export_keeps_strict_legacy_export_target_shape(self):
+        session = PgnDocumentSession.from_text('1. e4 e5 *')
+        captured = []
+
+        def dispatch(action_id, payload):
+            captured.append((action_id, dict(payload)))
+            return None
+
+        router = FullProductActionRouter(
+            AccessibleShellState(language=UILanguage.EN),
+            dispatch,
+        )
+        projection = PgnWorkspaceWebViewProjection(
+            session.workspace,
+            router,
+            language=UILanguage.EN,
+        )
+        first = projection.snapshot()["tree"][0]
+
+        projection._trusted_dispatch(
+            "pgn.export_selection",
+            {"node_id": first["node_id"]},
+        )
+
+        action_id, payload = captured[-1]
+        self.assertEqual("pgn.export_selection", action_id)
+        self.assertEqual(
+            {
+                "game_index",
+                "line_path",
+                "move_index",
+                "expected_record_digest",
+                "content_revision",
+            },
+            set(payload),
+        )
+        self.assertNotIn("expected_content_digest", payload)
+
     def test_game_navigation_cas_rejects_concurrent_cursor_change(self):
         session = PgnDocumentSession.from_text(
             '[Event "One"]\n[Result "*"]\n\n1. e4 e5 *\n\n'

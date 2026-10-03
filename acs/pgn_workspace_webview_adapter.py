@@ -349,6 +349,11 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             require_current=True,
             extra={key: value for key, value in payload.items() if key not in {"game_index", "node_id"}},
         )
+        # The Windows export port has its own strict PgnSelectionExportRequest
+        # contract. Keep that exact payload unchanged until that owner gains a
+        # document-level CAS field in its own lineage.
+        if action_id == "pgn.export_selection":
+            trusted.pop("expected_content_digest", None)
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             if not cursor.line_path:
                 raise ValueError("main line is not a variation target")
