@@ -81,12 +81,19 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._write_stockfish_archive(self.stockfish)
 
     @staticmethod
-    def _write_wav(path: Path, *, sample: int) -> None:
+    def _write_wav(path: Path, *, sample: int, sample_width: int = 2) -> None:
         with wave.open(str(path), "wb") as writer:
             writer.setnchannels(1)
-            writer.setsampwidth(2)
+            writer.setsampwidth(sample_width)
             writer.setframerate(8000)
-            writer.writeframes(struct.pack("<h", sample) * 8)
+            if sample_width == 1:
+                if not 0 <= sample <= 255:
+                    raise ValueError("8-bit WAV sample must be in 0..255")
+                writer.writeframes(bytes([sample]) * 8)
+            elif sample_width == 2:
+                writer.writeframes(struct.pack("<h", sample) * 8)
+            else:
+                raise ValueError("test WAV sample width must be 1 or 2")
 
     @staticmethod
     def _write_wav_8bit(path: Path) -> None:
@@ -154,7 +161,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             )
 
         alt = library / "move-alt.wav"
-        self._write_wav(alt, sample=777)
+        self._write_wav(alt, sample=177, sample_width=1)
         variants = {
             "schema_version": 1,
             "events": {
@@ -732,6 +739,11 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             "library/move-alt.wav",
             {entry["file"] for entry in notice["files"]},
         )
+        alt_entry = next(
+            entry for entry in notice["files"]
+            if entry["file"] == "library/move-alt.wav"
+        )
+        self.assertEqual(alt_entry["sample_width_bytes"], 1)
 
     def test_non_default_variant_valid_pcm_substitution_fails_inventory_binding(self) -> None:
         count, inventory_sha, alt = self._enable_inventory_sound_pack()
