@@ -913,8 +913,15 @@ def _validate_sound_inventory(
             relative = path.resolve().relative_to(sound_root_resolved).as_posix()
         except (OSError, ValueError):
             _fail("runtime sound asset escapes canonical inventory")
-        if _sound_inventory_file_token(relative).casefold() not in by_path:
+        token = _sound_inventory_file_token(relative).casefold()
+        entry = by_path.get(token)
+        if entry is None:
             _fail("runtime sound asset is absent from canonical inventory")
+        if (
+            entry["compression"] != "NONE"
+            or entry["sample_width_bytes"] not in {1, 2}
+        ):
+            _fail("runtime sound asset must be uncompressed 8-bit or 16-bit PCM")
 
     if layers_relative in package_inventory and not has_variants:
         # Layer-only legacy packs are allowed only when they do not opt into
