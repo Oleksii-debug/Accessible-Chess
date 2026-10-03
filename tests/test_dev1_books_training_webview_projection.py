@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 from acs.bookdocument import BookDocument, Diagram, Heading, ListBlock, Paragraph
 from acs.bookreader import BookReader
@@ -319,6 +320,74 @@ class TrainingProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.projection.submit("  ")
         self.assertEqual(before, self.presenter.snapshot())
+
+    def test_render_protocol_rejects_malformed_solution_clear_flag_and_focus(self) -> None:
+        view = self.presenter.view()
+        before = self.presenter.snapshot()
+
+        malformed_solutions = (
+            ["e4"],
+            tuple("e4" for _ in range(65)),
+            ("",),
+            ("e4\x00hidden",),
+            ("x" * 129,),
+            (object(),),
+        )
+        for solution in malformed_solutions:
+            with self.subTest(solution_type=type(solution).__name__, count=len(solution)):
+                with self.assertRaises((TypeError, ValueError)):
+                    self.projection._render(view, solution=solution)
+
+        with self.assertRaisesRegex(TypeError, "clear-answer flag"):
+            self.projection._render(view, clear_answer=1)
+        with self.assertRaisesRegex(TypeError, "focus target must be text"):
+            self.projection._render(view, focus_target={"id": "training-answer"})
+        with self.assertRaisesRegex(ValueError, "focus target is inconsistent"):
+            self.projection._render(view, focus_target="training-solution")
+
+        self.assertEqual(before, self.presenter.snapshot())
+
+    def test_projection_rejects_nul_presentation_text_instead_of_sanitizing_it(self) -> None:
+        view = replace(self.presenter.view(), message="Unsafe\x00training message")
+        with self.assertRaisesRegex(ValueError, "contains NUL"):
+            self.projection._snapshot_from_view(view)
+        self.assertEqual(0, self.presenter.snapshot()["step_index"])
+
+    def test_non_boolean_continuation_probe_fails_closed(self) -> None:
+        presenter = TrainingPresenter(
+            ExerciseSession(self.definition),
+            language=UILanguage.EN,
+        )
+        projection = TrainingWebViewProjection(
+            presenter,
+            language=UILanguage.EN,
+            can_continue=lambda: object(),
+        )
+        projection.submit("e4")
+        completed = projection.submit("Kh2")
+        continue_action = next(
+            action
+            for action in completed.payload["snapshot"]["actions"]
+            if action["command"] == "training.continue"
+        )
+        self.assertFalse(continue_action["enabled"])
+        self.assertEqual("training-action-reset", completed.payload["focus_target"])
+
+    def test_failed_language_render_restores_projection_and_presenter_locale(self) -> None:
+        self.assertEqual(UILanguage.EN, self.projection.language)
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=RuntimeError("simulated Training render failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "simulated Training render failure"):
+                self.projection.set_language(UILanguage.UA)
+
+        self.assertEqual(UILanguage.EN, self.projection.language)
+        snapshot = self.projection.snapshot()
+        self.assertEqual("en", snapshot["document"]["lang"])
+        self.assertEqual("Training", snapshot["heading"])
+        self.assertEqual(0, self.presenter.snapshot()["step_index"])
 
     def test_reset_requires_exact_true_and_resets_canonical_session(self) -> None:
         self.projection.submit("e3")
