@@ -16,6 +16,7 @@ _MAX_MOVE_TEXT = 64
 _MAX_IDENTITY_TEXT = 4096
 _MAX_DEFINITION_TAGS = 64
 _MAX_METADATA_ENTRIES = 64
+_MAX_BROWSER_SAFE_INTEGER = (1 << 53) - 1
 _TRAINING_SNAPSHOT_V4_FIELDS = frozenset(
     {
         "schema_version",
@@ -713,7 +714,7 @@ def _snapshot_digest(value: object) -> str:
 def _snapshot_counter(value: object, *, name: str) -> int:
     if type(value) is not int:
         raise TypeError(f"exercise snapshot {name} must be an integer")
-    if value < 0:
+    if value < 0 or value > _MAX_BROWSER_SAFE_INTEGER:
         raise ValueError("invalid exercise counters")
     return value
 
