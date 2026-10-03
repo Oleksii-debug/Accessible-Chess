@@ -303,7 +303,7 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             "issue",
             autospec=True,
             side_effect=issue,
-        ):
+        ) as issue_mock:
             application.prepare_classroom_media_join_http("room-1")
             self.assertTrue(started.wait(1.0))
             controller.state = SimpleNamespace(
@@ -326,14 +326,11 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             self.assertIsNotNone(inflight)
             inflight.exception(timeout=2.0)
 
-            with mock.patch.object(
-                ClassroomJoinHttpClient,
-                "issue",
-                autospec=True,
-                return_value=credential(room_id="room-2"),
-            ):
-                request_id = application.prepare_classroom_media_join_http("room-2")
-                rendered = self.finish(application, request_id)
+            issue_mock.reset_mock()
+            issue_mock.side_effect = None
+            issue_mock.return_value = credential(room_id="room-2")
+            request_id = application.prepare_classroom_media_join_http("room-2")
+            rendered = self.finish(application, request_id)
 
         self.assertEqual(rendered["kind"], "provider-dispatch")
 
