@@ -60,6 +60,23 @@ class ExerciseSessionTests(unittest.TestCase):
         definition.metadata["difficulty"] = "forged"
         self.assertEqual("starter", session.definition.metadata["difficulty"])
 
+    def test_session_definition_metadata_is_defensive_and_cannot_rebind_runtime(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        before = session.snapshot()
+
+        exposed = session.definition
+        exposed.metadata["difficulty"] = "forged"
+        exposed.metadata["extra"] = "value"
+
+        self.assertEqual("starter", session.definition.metadata["difficulty"])
+        self.assertNotIn("extra", session.definition.metadata)
+        self.assertEqual(before, session.snapshot())
+
+        result = session.submit("e4")
+        self.assertTrue(result.accepted)
+        self.assertEqual("Good central move.", result.explanation)
+
     def test_session_definition_reference_cannot_be_reassigned(self):
         definition = self.make_definition()
         session = ExerciseSession(definition)
