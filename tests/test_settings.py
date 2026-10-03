@@ -114,6 +114,8 @@ class SettingsTests(unittest.TestCase):
             settings = Settings(path)
             self.assertEqual(settings.get("sound_move_variant"), "1")
             self.assertEqual(settings.get("sound_capture_variant"), "1")
+            self.assertEqual(settings.get("sound_mate_variant"), "1")
+            self.assertEqual(settings.get("sound_draw_variant"), "1")
 
             settings.set("sound_move_variant", "4")
             settings.set("sound_capture_variant", "5")
