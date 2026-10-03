@@ -1,0 +1,618 @@
+from __future__ import annotations
+
+import json
+import unittest
+from unittest.mock import patch
+
+from acs.classroom_chat_http_endpoint import (
+    CHAT_RPC_PATH,
+    ClassroomChatHttpEndpoint,
+)
+from acs.classroom_chat_rpc import ClassroomChatRpcService
+from acs.classroom_collaboration import (
+    ChatDraft,
+    ChatModerationAction,
+    ChatModerationCommand,
+)
+from acs.classroom_collaboration_storage import (
+    ChatMessageMetadata,
+    ChatMessageStateUpdate,
+)
+
+
+ROOM = "room-1"
+STUDENT = "student-1"
+TEACHER = "teacher-1"
+
+
+class Authenticator:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.identity: object = (ROOM, STUDENT)
+        self.fail = False
+
+    async def authenticate_bearer(self, bearer_token: str):
+        self.calls.append(bearer_token)
+        if self.fail:
+            raise RuntimeError("supersecret bearer verifier detail")
+        return self.identity
+
+
+class Backend:
+    def __init__(self) -> None:
+        self.messages: list[ChatMessageMetadata] = []
+        self.state: list[ChatMessageStateUpdate] = []
+        self.send_calls: list[tuple[str, ChatDraft]] = []
+        self.history_calls: list[tuple[str, str, int | None, int]] = []
+        self.state_calls: list[tuple[str, str, int | None, int]] = []
+        self.moderation_calls: list[
+            tuple[str, tuple[ChatModerationCommand, ...]]
+        ] = []
+        self.fail = False
+        self.invalid_send = False
+
+    def send_message(self, *, trusted_caller_identity, draft):
+        self.send_calls.append((trusted_caller_identity, draft))
+        if self.fail:
+            raise RuntimeError("supersecret backend detail")
+        if self.invalid_send:
+            return object()
+        for message in self.messages:
+            if message.message_id == draft.message_id:
+                return message
+        message = ChatMessageMetadata(
+            draft.message_id,
+            draft.room_id,
+            draft.sender_id,
+            len(self.messages),
+            draft.body,
+            draft.retention,
+            sent_at_unix_ms=1700000000000 + len(self.messages),
+        )
+        self.messages.append(message)
+        return message
+
+    def history_after(
+        self,
+        *,
+        trusted_caller_identity,
+        room_id,
+        after_sequence,
+        limit,
+    ):
+        self.history_calls.append(
+            (trusted_caller_identity, room_id, after_sequence, limit)
+        )
+        if self.fail:
+            raise RuntimeError("supersecret backend detail")
+        return tuple(
+            message
+            for message in self.messages
+            if message.room_id == room_id
+            and (
+                after_sequence is None
+                or message.sequence_no > after_sequence
+            )
+        )[:limit]
+
+    def state_updates_after(
+        self,
+        *,
+        trusted_caller_identity,
+        room_id,
+        after_revision,
+        limit,
+    ):
+        self.state_calls.append(
+            (trusted_caller_identity, room_id, after_revision, limit)
+        )
+        if self.fail:
+            raise RuntimeError("supersecret backend detail")
+        return tuple(
+            update
+            for update in self.state
+            if update.room_id == room_id
+            and (
+                after_revision is None
+                or update.revision > after_revision
+            )
+        )[:limit]
+
+    def apply_moderation(
+        self,
+        *,
+        trusted_caller_identity,
+        commands,
+    ):
+        self.moderation_calls.append(
+            (trusted_caller_identity, commands)
+        )
+        if self.fail:
+            raise RuntimeError("supersecret backend detail")
+        for command in commands:
+            if command.action is not ChatModerationAction.HIDE_MESSAGE:
+                continue
+            for index, message in enumerate(self.messages):
+                if message.message_id == command.message_id:
+                    hidden = ChatMessageMetadata(
+                        message.message_id,
+                        message.room_id,
+                        message.sender_id,
+                        message.sequence_no,
+                        message.body,
+                        message.retention,
+                        hidden=True,
+                        sent_at_unix_ms=message.sent_at_unix_ms,
+                    )
+                    self.messages[index] = hidden
+                    self.state.append(
+                        ChatMessageStateUpdate(
+                            room_id=message.room_id,
+                            message_id=message.message_id,
+                            revision=len(self.state),
+                        )
+                    )
+                    break
+
+
+class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.backend = Backend()
+        self.service = ClassroomChatRpcService(backend=self.backend)
+        self.auth = Authenticator()
+        self.endpoint = ClassroomChatHttpEndpoint(
+            service=self.service,
+            authenticator=self.auth,
+        )
+
+    @staticmethod
+    def send_payload(
+        *,
+        participant: str = STUDENT,
+        room: str = ROOM,
+        message_id: str = "msg-1",
+        body: str = "Hello",
+    ) -> dict[str, object]:
+        return {
+            "v": 1,
+            "op": "send",
+            "room_id": room,
+            "participant_id": participant,
+            "message": {
+                "message_id": message_id,
+                "body": body,
+                "retention": "session",
+            },
+        }
+
+    async def invoke(
+        self,
+        *,
+        payload: object | None = None,
+        raw_body: bytes | None = None,
+        headers: list[tuple[bytes, bytes]] | None = None,
+        scope_overrides: dict[str, object] | None = None,
+        receive_events: list[dict[str, object]] | None = None,
+        endpoint: ClassroomChatHttpEndpoint | None = None,
+        send_failure: Exception | None = None,
+    ) -> list[dict[str, object]]:
+        if raw_body is None:
+            raw_body = json.dumps(
+                self.send_payload() if payload is None else payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        if headers is None:
+            headers = [
+                (b"authorization", b"Bearer test-token"),
+                (b"content-type", b"application/json; charset=utf-8"),
+                (b"content-length", str(len(raw_body)).encode("ascii")),
+            ]
+        scope: dict[str, object] = {
+            "type": "http",
+            "scheme": "https",
+            "http_version": "1.1",
+            "method": "POST",
+            "path": CHAT_RPC_PATH,
+            "raw_path": CHAT_RPC_PATH.encode("ascii"),
+            "query_string": b"",
+            "headers": headers,
+            "server": ("203.0.113.5", 443),
+            "client": ("198.51.100.7", 43120),
+        }
+        if scope_overrides:
+            scope.update(scope_overrides)
+        events = list(
+            receive_events
+            if receive_events is not None
+            else [
+                {
+                    "type": "http.request",
+                    "body": raw_body,
+                    "more_body": False,
+                }
+            ]
+        )
+        sent: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            if not events:
+                return {"type": "http.disconnect"}
+            return events.pop(0)
+
+        async def send(event: dict[str, object]) -> None:
+            if send_failure is not None:
+                raise send_failure
+            sent.append(event)
+
+        await (endpoint or self.endpoint)(scope, receive, send)
+        return sent
+
+    @staticmethod
+    def response(sent: list[dict[str, object]]) -> tuple[int, dict[str, str], object]:
+        start, body_event = sent
+        headers = {
+            name.decode("ascii"): value.decode("ascii")
+            for name, value in start["headers"]
+        }
+        return (
+            start["status"],
+            headers,
+            json.loads(body_event["body"].decode("utf-8")),
+        )
+
+    async def test_https_send_binds_bearer_identity_and_sets_private_headers(self) -> None:
+        sent = await self.invoke()
+        status, headers, payload = self.response(sent)
+
+        self.assertEqual(200, status)
+        self.assertEqual("no-store", headers["cache-control"])
+        self.assertEqual("no-cache", headers["pragma"])
+        self.assertEqual("nosniff", headers["x-content-type-options"])
+        self.assertEqual("application/json; charset=utf-8", headers["content-type"])
+        self.assertEqual(["test-token"], self.auth.calls)
+        self.assertEqual(1, len(self.backend.send_calls))
+        caller, draft = self.backend.send_calls[0]
+        self.assertEqual(STUDENT, caller)
+        self.assertEqual(ROOM, draft.room_id)
+        self.assertEqual(STUDENT, draft.sender_id)
+        self.assertEqual("msg-1", payload["message"]["message_id"])
+        self.assertEqual(0, payload["message"]["sequence_no"])
+        self.assertEqual(1700000000000, payload["message"]["sent_at_unix_ms"])
+
+    async def test_authenticated_identity_mismatch_is_forbidden_before_backend(self) -> None:
+        sent = await self.invoke(
+            payload=self.send_payload(participant="student-2"),
+        )
+        status, _, payload = self.response(sent)
+        self.assertEqual(403, status)
+        self.assertEqual({"error": "chat_request_rejected"}, payload)
+        self.assertEqual([], self.backend.send_calls)
+
+    async def test_authentication_failure_and_malformed_identity_are_unauthorized(self) -> None:
+        self.auth.fail = True
+        sent = await self.invoke()
+        status, headers, payload = self.response(sent)
+        self.assertEqual(401, status)
+        self.assertEqual({"error": "unauthorized"}, payload)
+        self.assertIn("Bearer", headers["www-authenticate"])
+        self.assertNotIn("supersecret", json.dumps(payload))
+        self.assertEqual([], self.backend.send_calls)
+
+        self.auth.fail = False
+        self.auth.identity = (ROOM,)
+        sent = await self.invoke()
+        self.assertEqual(401, self.response(sent)[0])
+        self.assertEqual([], self.backend.send_calls)
+
+    async def test_backend_failure_and_contract_failure_are_sanitized_unavailable(self) -> None:
+        self.backend.fail = True
+        sent = await self.invoke()
+        status, _, payload = self.response(sent)
+        self.assertEqual(503, status)
+        self.assertEqual({"error": "chat_request_rejected"}, payload)
+        self.assertNotIn("supersecret", json.dumps(payload))
+
+        self.backend.fail = False
+        self.backend.invalid_send = True
+        sent = await self.invoke(
+            payload=self.send_payload(message_id="invalid-backend-message"),
+        )
+        self.assertEqual(503, self.response(sent)[0])
+
+    async def test_http_requires_tls_except_explicit_literal_loopback(self) -> None:
+        sent = await self.invoke(
+            scope_overrides={
+                "scheme": "http",
+                "server": ("127.0.0.1", 8080),
+                "client": ("127.0.0.1", 55100),
+            },
+        )
+        self.assertEqual(400, self.response(sent)[0])
+        self.assertEqual([], self.auth.calls)
+
+        loopback = ClassroomChatHttpEndpoint(
+            service=self.service,
+            authenticator=self.auth,
+            allow_insecure_loopback=True,
+        )
+        sent = await self.invoke(
+            endpoint=loopback,
+            scope_overrides={
+                "scheme": "http",
+                "server": ("::1", 8080),
+                "client": ("127.0.0.1", 55100),
+            },
+        )
+        self.assertEqual(200, self.response(sent)[0])
+
+        sent = await self.invoke(
+            endpoint=loopback,
+            scope_overrides={
+                "scheme": "http",
+                "server": ("localhost", 8080),
+                "client": ("127.0.0.1", 55100),
+            },
+        )
+        self.assertEqual(400, self.response(sent)[0])
+
+    async def test_route_method_query_raw_path_and_http_version_fail_closed(self) -> None:
+        cases = (
+            ({"method": "GET"}, 405),
+            ({"path": "/v1/classroom/other"}, 404),
+            ({"raw_path": b"/v1/classroom/chat%2f"}, 404),
+            ({"query_string": b"x=1"}, 400),
+            ({"http_version": "1.0"}, 400),
+        )
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                before = len(self.auth.calls)
+                sent = await self.invoke(scope_overrides=overrides)
+                self.assertEqual(expected, self.response(sent)[0])
+                self.assertEqual(before, len(self.auth.calls))
+
+    async def test_headers_are_strict_bounded_and_never_accept_encoded_body(self) -> None:
+        body = json.dumps(self.send_payload()).encode("utf-8")
+        cases = (
+            (
+                [
+                    (b"authorization", b"Bearer one"),
+                    (b"authorization", b"Bearer two"),
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+                400,
+            ),
+            (
+                [
+                    (b"authorization", b"Bearer one"),
+                    (b"content-type", b"text/plain"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+                415,
+            ),
+            (
+                [
+                    (b"authorization", b"Bearer one"),
+                    (b"content-type", b"application/json"),
+                    (b"content-encoding", b"gzip"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+                415,
+            ),
+            (
+                [
+                    (b"authorization", b"Bearer one"),
+                    (b"content-type", b"application/json"),
+                    (b"transfer-encoding", b"chunked"),
+                ],
+                400,
+            ),
+        )
+        for headers, expected in cases:
+            with self.subTest(headers=headers):
+                sent = await self.invoke(raw_body=body, headers=headers)
+                self.assertEqual(expected, self.response(sent)[0])
+
+    async def test_bearer_is_single_ascii_bounded_and_not_leaked(self) -> None:
+        body = json.dumps(self.send_payload()).encode("utf-8")
+        for auth_value in (
+            b"",
+            b"Basic abc",
+            b"Bearer ",
+            b"Bearer has space",
+            b"Bearer nonascii-\xff",
+        ):
+            with self.subTest(auth_value=auth_value):
+                sent = await self.invoke(
+                    raw_body=body,
+                    headers=[
+                        (b"authorization", auth_value),
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                    ],
+                )
+                status, _, payload = self.response(sent)
+                self.assertEqual(401, status)
+                self.assertNotIn(auth_value.decode("latin1"), json.dumps(payload))
+
+        self.assertNotIn("test-token", repr(self.endpoint))
+
+    async def test_declared_and_streamed_body_bounds_fail_before_rpc_effect(self) -> None:
+        with patch(
+            "acs.classroom_chat_http_endpoint.MAX_CHAT_HTTP_REQUEST_BYTES",
+            32,
+        ):
+            body = b"{}"
+            sent = await self.invoke(
+                raw_body=body,
+                headers=[
+                    (b"authorization", b"Bearer test-token"),
+                    (b"content-type", b"application/json"),
+                    (b"content-length", b"33"),
+                ],
+            )
+            self.assertEqual(413, self.response(sent)[0])
+
+            sent = await self.invoke(
+                headers=[
+                    (b"authorization", b"Bearer test-token"),
+                    (b"content-type", b"application/json"),
+                ],
+                raw_body=b"x" * 33,
+            )
+            self.assertEqual(413, self.response(sent)[0])
+
+        self.assertEqual([], self.backend.send_calls)
+
+    async def test_content_length_mismatch_and_invalid_body_events_fail_closed(self) -> None:
+        body = json.dumps(self.send_payload()).encode("utf-8")
+        sent = await self.invoke(
+            raw_body=body,
+            headers=[
+                (b"authorization", b"Bearer test-token"),
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body) + 1).encode("ascii")),
+            ],
+        )
+        self.assertEqual(400, self.response(sent)[0])
+
+        sent = await self.invoke(
+            raw_body=body,
+            receive_events=[
+                {
+                    "type": "http.request",
+                    "body": "not-bytes",
+                    "more_body": False,
+                }
+            ],
+        )
+        self.assertEqual(400, self.response(sent)[0])
+
+    async def test_duplicate_members_nonfinite_numbers_and_nonobject_json_are_rejected(self) -> None:
+        bodies = (
+            b'{"v":1,"v":1}',
+            b'{"v":NaN}',
+            b'[]',
+            b'{"v":1',
+            b'\xff',
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                sent = await self.invoke(
+                    raw_body=body,
+                    headers=[
+                        (b"authorization", b"Bearer test-token"),
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                    ],
+                )
+                self.assertEqual(400, self.response(sent)[0])
+        self.assertEqual([], self.backend.send_calls)
+
+    async def test_history_state_and_moderation_delegate_only_authenticated_identity(self) -> None:
+        await self.invoke()
+        history = {
+            "v": 1,
+            "op": "history",
+            "room_id": ROOM,
+            "participant_id": STUDENT,
+            "after_sequence": None,
+            "limit": 10,
+        }
+        sent = await self.invoke(payload=history)
+        status, _, payload = self.response(sent)
+        self.assertEqual(200, status)
+        self.assertEqual("msg-1", payload["messages"][0]["message_id"])
+        self.assertEqual((STUDENT, ROOM, None, 10), self.backend.history_calls[-1])
+
+        self.auth.identity = (ROOM, TEACHER)
+        moderation = {
+            "v": 1,
+            "op": "moderate",
+            "room_id": ROOM,
+            "participant_id": TEACHER,
+            "commands": [
+                {
+                    "operation_id": "hide-1",
+                    "action": "hide_message",
+                    "message_id": "msg-1",
+                }
+            ],
+        }
+        sent = await self.invoke(payload=moderation)
+        self.assertEqual(200, self.response(sent)[0])
+        caller, commands = self.backend.moderation_calls[-1]
+        self.assertEqual(TEACHER, caller)
+        self.assertEqual(TEACHER, commands[0].actor_id)
+
+        self.auth.identity = (ROOM, STUDENT)
+        state = {
+            "v": 1,
+            "op": "state",
+            "room_id": ROOM,
+            "participant_id": STUDENT,
+            "after_revision": None,
+            "limit": 10,
+        }
+        sent = await self.invoke(payload=state)
+        status, _, payload = self.response(sent)
+        self.assertEqual(200, status)
+        self.assertTrue(payload["updates"][0]["hidden"])
+        self.assertEqual((STUDENT, ROOM, None, 10), self.backend.state_calls[-1])
+
+    async def test_client_disconnect_before_complete_body_emits_no_response_or_rpc_effect(self) -> None:
+        body = json.dumps(self.send_payload()).encode("utf-8")
+        sent = await self.invoke(
+            raw_body=body,
+            receive_events=[
+                {
+                    "type": "http.request",
+                    "body": body[:10],
+                    "more_body": True,
+                },
+                {"type": "http.disconnect"},
+            ],
+        )
+        self.assertEqual([], sent)
+        self.assertEqual([], self.backend.send_calls)
+
+    async def test_response_size_cap_fails_closed_without_leaking_rpc_payload(self) -> None:
+        with patch(
+            "acs.classroom_chat_http_endpoint.MAX_CHAT_HTTP_RESPONSE_BYTES",
+            1,
+        ):
+            sent = await self.invoke()
+        status, _, payload = self.response(sent)
+        self.assertEqual(503, status)
+        self.assertEqual({"error": "chat_service_unavailable"}, payload)
+
+    async def test_response_delivery_failure_is_not_masked_as_second_response(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "response delivery failed"):
+            await self.invoke(send_failure=RuntimeError("socket secret"))
+
+    async def test_lifespan_startup_and_shutdown_are_supported(self) -> None:
+        events = [
+            {"type": "lifespan.startup"},
+            {"type": "lifespan.shutdown"},
+        ]
+        sent: list[dict[str, object]] = []
+
+        async def receive():
+            return events.pop(0)
+
+        async def send(event):
+            sent.append(event)
+
+        await self.endpoint({"type": "lifespan"}, receive, send)
+        self.assertEqual(
+            [
+                {"type": "lifespan.startup.complete"},
+                {"type": "lifespan.shutdown.complete"},
+            ],
+            sent,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
