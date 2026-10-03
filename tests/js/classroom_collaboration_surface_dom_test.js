@@ -354,6 +354,16 @@ check(
 [
   {
     session_key: "session-a",
+    transfer_key: "not-an-opaque-transfer-key",
+    name: "lesson.pgn",
+    transferred_bytes: 700,
+    total_bytes: 1024,
+    complete: false,
+    label: "File transfer progress",
+    text: "invalid transfer identity must be rejected"
+  },
+  {
+    session_key: "session-a",
     transfer_key: transferKeyA,
     name: "lesson.pgn",
     transferred_bytes: "700",
