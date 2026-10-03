@@ -358,7 +358,7 @@ class ClassroomCollaborationWebView:
             # Progress revision orders the complete browser projection, not just
             # byte counters. A language change therefore supersedes any delayed
             # event carrying the old localized label/text for the same transfer.
-            self._file_progress_revision += 1
+            self._advance_file_progress_revision()
         self._language = language
 
     def set_file_progress_event_sink(
