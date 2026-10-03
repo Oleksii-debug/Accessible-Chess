@@ -1177,6 +1177,34 @@ async function run() {
     "noncanonical Book focus target did not fail closed accessibly"
   );
 
+  const oversizedKindRoot = new FakeElement("div");
+  const oversizedKindSnapshot = bookSnapshot(22, "Oversized kind");
+  oversizedKindSnapshot.block.kind = "x".repeat(81);
+  let oversizedKindError = null;
+  try {
+    window.AccessibleChessBookSurface.render(
+      oversizedKindRoot,
+      oversizedKindSnapshot,
+      () => null,
+      () => {},
+      "",
+      "Book kind failed"
+    );
+  } catch (error) {
+    oversizedKindError = error;
+  }
+  check(
+    oversizedKindError &&
+      String(oversizedKindError.message || oversizedKindError).indexOf(
+        "Book snapshot block kind exceeds its canonical text contract"
+      ) >= 0,
+    "oversized Book kind reached role lookup before its scalar bound"
+  );
+  check(
+    oversizedKindRoot.replaceChildrenCalls === 0,
+    "oversized Book kind replaced DOM before failing closed"
+  );
+
   const malformedIdentityRoot = new FakeElement("div");
   const malformedIdentityAnnouncements = [];
   const malformedIdentitySnapshot = bookSnapshot(22, "Malformed identity");
@@ -1314,6 +1342,45 @@ async function run() {
     inconsistentTrainingAnnouncements.length === 1 &&
       inconsistentTrainingAnnouncements[0] === "Training progress failed",
     "inconsistent Training progress did not fail closed accessibly"
+  );
+
+  const oversizedProgressLabelRoot = new FakeElement("div");
+  const oversizedProgressLabelAnnouncements = [];
+  const oversizedProgressLabelSnapshot = trainingSnapshot();
+  oversizedProgressLabelSnapshot.progress.step_label = "x".repeat(121);
+  window.AccessibleChessTrainingSurface.render(
+    oversizedProgressLabelRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: oversizedProgressLabelSnapshot,
+        focus_target: "training-answer",
+        clear_answer: false,
+        solution: []
+      }
+    }),
+    (message) => oversizedProgressLabelAnnouncements.push(String(message)),
+    "training-answer",
+    "Training progress label failed",
+    []
+  );
+  const oversizedProgressLabelBefore =
+    oversizedProgressLabelRoot.querySelector("#training-answer");
+  oversizedProgressLabelBefore.value = "Nf3";
+  find(oversizedProgressLabelRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedProgressLabelRoot.querySelector("#training-answer") ===
+        oversizedProgressLabelBefore &&
+      oversizedProgressLabelBefore.value === "Nf3",
+    "oversized Training progress label replaced stable DOM or pending answer"
+  );
+  check(
+    oversizedProgressLabelAnnouncements.length === 1 &&
+      oversizedProgressLabelAnnouncements[0] === "Training progress label failed",
+    "oversized Training progress label did not fail closed accessibly"
   );
 
   const listSnapshot = bookSnapshot(4, "List");
