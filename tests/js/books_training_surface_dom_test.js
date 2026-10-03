@@ -642,10 +642,67 @@ async function run() {
   );
   check(document.activeElement === resetFailureConfirm,
     "malformed reset response must preserve confirmation focus");
+  check(!resetFailureConfirm.disabled,
+    "malformed reset response must re-enable confirmation");
   check(!announcements.includes("Must not announce reset"),
     "malformed reset response must not publish its announcement");
   check(announcements[announcements.length - 1] === "Action failed",
     "malformed reset response must use the safe fallback announcement");
+
+  const deferredResetRoot = new FakeElement("div");
+  let deferredResetResolve = null;
+  let deferredResetCalls = 0;
+  const deferredResetInvoke = (command) => {
+    check(command === "training.reset", "unexpected deferred reset command");
+    deferredResetCalls += 1;
+    return new Promise(function (resolve) {
+      deferredResetResolve = resolve;
+    });
+  };
+  window.AccessibleChessTrainingSurface.render(
+    deferredResetRoot,
+    trainingSnapshot(),
+    deferredResetInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const deferredResetReplaceCount = deferredResetRoot.replaceChildrenCalls;
+  const deferredResetButton = find(deferredResetRoot, "BUTTON", "Reset");
+  deferredResetButton.focus();
+  deferredResetButton.listeners.click();
+  const deferredResetDialog = deferredResetRoot.querySelector("#training-reset-dialog");
+  const deferredResetConfirm = find(deferredResetDialog, "BUTTON", "Confirm");
+  deferredResetConfirm.listeners.click();
+  deferredResetConfirm.listeners.click();
+  check(deferredResetCalls === 1,
+    "pending reset confirmation must be serialized");
+  check(deferredResetConfirm.disabled,
+    "pending reset confirmation must disable duplicate submission");
+  check(deferredResetDialog.open,
+    "pending reset confirmation must keep the dialog open");
+  check(deferredResetRoot.replaceChildrenCalls === deferredResetReplaceCount,
+    "pending reset confirmation must not mutate readable DOM");
+  deferredResetResolve({
+    kind: "render",
+    payload: {
+      snapshot: trainingSnapshot(),
+      focus_target: "training-answer",
+      announcement: "Deferred reset committed",
+      clear_answer: true,
+      solution: []
+    }
+  });
+  await flushPromises();
+  check(deferredResetCalls === 1,
+    "resolved reset confirmation must still have one host write");
+  check(!deferredResetDialog.open,
+    "resolved reset confirmation must close its old dialog");
+  check(deferredResetRoot.replaceChildrenCalls === deferredResetReplaceCount + 1,
+    "resolved reset confirmation must publish exactly one new DOM");
+  check(document.activeElement === deferredResetRoot.querySelector("#training-answer"),
+    "resolved reset confirmation must focus the new answer field");
 
   const validResetRoot = new FakeElement("div");
   const validResetInvoke = (command) => {
