@@ -1546,7 +1546,12 @@ def complete_user_flow_diagnostic(
         checks["final_board_64"] = len(final.get("board") or []) == 64
         checks["no_raw_exception_text"] = not any(token in str(final.get("announcement") or "") for token in ("Traceback", "ValueError", "RuntimeError", "Exception"))
         sound = api.get_sound_settings()
-        checks["sound_settings_contract"] = bool(sound.get("ok")) and isinstance(sound.get("enabled"), bool) and 0 <= int(sound.get("volume", -1)) <= 100
+        checks["sound_settings_contract"] = (
+            bool(sound.get("ok"))
+            and isinstance(sound.get("enabled"), bool)
+            and isinstance(sound.get("newGameAnimation"), bool)
+            and 0 <= int(sound.get("volume", -1)) <= 100
+        )
 
         return {
             "ok": all(checks.values()),
