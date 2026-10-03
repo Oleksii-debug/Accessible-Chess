@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from .sound_pack_catalog import (
     SoundPackCatalogEntry,
     SoundPackCatalogStatus,
+    SoundPackInstallError,
     SoundPackManager,
 )
 from .sound_profile_store import SoundProfileManager
@@ -169,7 +170,23 @@ class SoundPackProfileCoordinator:
                 # reconciliation can then fall back through the normal resolver.
             raise
 
+        # The storage mutation lock is released before control returns here.
+        # Another process may therefore have advanced or removed the same pack
+        # after this install committed. Re-read the verified active authority
+        # before normalizing/publishing profile state so success never returns a
+        # manifest that is already stale.
+        active_manifest = self._packs.installed_manifest(manifest.pack_id)
+        if active_manifest is None:
+            raise SoundPackInstallError(
+                "sound pack changed after installation before profile activation"
+            )
+        manifest = active_manifest
+
         profile = self._profiles.current
+        if profile.pack_id == manifest.pack_id:
+            normalized = _profile_for_manifest(profile, manifest)
+            if normalized != profile:
+                profile = self._profiles.save(normalized)
         if activate and profile.pack_id != manifest.pack_id:
             profile = self._profiles.save(_profile_for_manifest(profile, manifest))
         return SoundPackProfileInstallResult(manifest, profile, activate)
