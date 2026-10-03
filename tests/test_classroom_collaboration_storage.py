@@ -322,6 +322,48 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertIn("collaboration_chat_state_cursors", tables)
         self.assertIn("collaboration_attachment_state_cursors", tables)
 
+    def test_v7_upgrade_rejects_incompatible_preexisting_watermark_schema(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DROP INDEX idx_collaboration_attachment_snapshot_watermarks_room"
+            )
+            db.execute(
+                "DROP TABLE collaboration_attachment_snapshot_watermarks"
+            )
+            db.execute(
+                """
+                CREATE TABLE collaboration_attachment_snapshot_watermarks(
+                    attachment_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    revision TEXT NOT NULL
+                )
+                """
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=6 "
+                "WHERE key='schema_version'"
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "attachment snapshot watermark schema is incompatible",
+        ):
+            ClassroomCollaborationSQLiteStore(str(self.db_path))
+
+        with closing(sqlite3.connect(self.db_path)) as db:
+            version = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()[0]
+            revision_type = {
+                row[1]: row[2]
+                for row in db.execute(
+                    "PRAGMA table_info(collaboration_attachment_snapshot_watermarks)"
+                )
+            }["revision"]
+        self.assertEqual(version, 6)
+        self.assertEqual(revision_type.upper(), "TEXT")
+
     def test_attachment_snapshot_watermark_survives_reopen_and_skips_old_state_pages(self) -> None:
         current = AttachmentMetadata(
             "snapshot-a", "room", "teacher", 0, "snapshot.bin", None, 1,
