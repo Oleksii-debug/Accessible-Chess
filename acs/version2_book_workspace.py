@@ -77,31 +77,44 @@ class _BookSemanticTreeError(ValueError):
     """Known fail-closed presentation error for otherwise canonical GameTree data."""
 
 
-def _semantic_item_count_within_limit(line: object, limit: int) -> bool:
+def _semantic_tree_within_limits(
+    line: object,
+    *,
+    item_limit: int,
+    depth_limit: int,
+) -> bool:
     """Bound Book semantic materialization before shared presenter allocation.
 
     BookBoardWorkflow.semantic_game_snapshot has already returned a detached,
     serialized/legality-validated canonical GameTree. Count only the presentation
     nodes Books will create: every move plus one wrapper for each non-root RAV.
-    The traversal is iterative so this preflight adds no recursion pressure.
+    Track the presenter's exact move/variation depth iteratively as well, so an
+    adversarially deep RAV cannot reach the recursive PgnTreePresenter first.
     """
-    if type(limit) is not int or limit < 0:
+    if type(item_limit) is not int or item_limit < 0:
         raise ValueError("book semantic item limit is invalid")
+    if type(depth_limit) is not int or depth_limit < 0:
+        raise ValueError("book semantic depth limit is invalid")
+
     count = 0
-    stack: list[tuple[object, bool]] = [(line, False)]
+    stack: list[tuple[object, int]] = [(line, 0)]
     while stack:
-        current, include_variation = stack.pop()
-        if include_variation:
-            count += 1
-            if count > limit:
-                return False
+        current, move_depth = stack.pop()
         moves = getattr(current, "moves", ())
+        if moves and move_depth > depth_limit:
+            return False
         for move in moves:
             count += 1
-            if count > limit:
+            if count > item_limit:
                 return False
             for variation in getattr(move, "variations", ()):
-                stack.append((variation, True))
+                variation_depth = move_depth + 1
+                if variation_depth > depth_limit:
+                    return False
+                count += 1
+                if count > item_limit:
+                    return False
+                stack.append((variation, move_depth + 2))
     return True
 
 
@@ -126,12 +139,20 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, workflow_warnings = self._workflow.semantic_game_snapshot(index)
-        if not _semantic_item_count_within_limit(
+        if not _semantic_tree_within_limits(
             game.line,
-            _MAX_BOOK_SEMANTIC_ITEMS,
+            item_limit=_MAX_BOOK_SEMANTIC_ITEMS,
+            depth_limit=_MAX_BOOK_SEMANTIC_DEPTH,
         ):
-            raise _BookSemanticTreeError("book semantic GameTree item limit exceeded")
-        view = PgnTreePresenter((game,), language=self.language).view()
+            raise _BookSemanticTreeError(
+                "book semantic GameTree item/depth limit exceeded"
+            )
+        try:
+            view = PgnTreePresenter((game,), language=self.language).view()
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree presenter data is invalid"
+            ) from exc
         if view.game_index != 0:
             raise _BookSemanticTreeError("book semantic GameTree projection is unavailable")
 
@@ -145,20 +166,36 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticTreeError(
                     "book semantic GameTree text-entry limit exceeded"
                 )
-            text = _safe_text(
-                value,
-                language=self.language,
-                limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
-            )
+            try:
+                text = _safe_text(
+                    value,
+                    language=self.language,
+                    limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
+                )
+            except (TypeError, ValueError) as exc:
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree text is invalid"
+                ) from exc
             visible_total += len(text)
             if visible_total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
-                raise _BookSemanticTreeError("book semantic GameTree exceeds the visible-text budget")
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree exceeds the visible-text budget"
+                )
             return text
+
+        def safe_comment_text(value: object) -> str:
+            try:
+                raw_text = value.text
+            except AttributeError as exc:
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree comment is invalid"
+                ) from exc
+            return safe(raw_text)
 
         labels = _SEMANTIC_TREE_LABELS[self.language]
         intro_comments = tuple(
             comment
-            for comment in (safe(raw.text) for raw in game.line.leading_comments)
+            for comment in (safe_comment_text(raw) for raw in game.line.leading_comments)
             if comment
         )
 
@@ -270,7 +307,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
         outro_comments = tuple(
             comment
-            for comment in (safe(raw.text) for raw in game.line.trailing_comments)
+            for comment in (safe_comment_text(raw) for raw in game.line.trailing_comments)
             if comment
         )
         warnings = tuple(
@@ -295,7 +332,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             value = safe(raw_value)
             if not value or value == "?":
                 continue
-            details.append({"label": labels[label_key], "value": value})
+            details.append(
+                {
+                    "kind": label_key,
+                    "label": labels[label_key],
+                    "value": value,
+                }
+            )
+
+        result = safe(view.result)
+        if result not in {"1-0", "0-1", "1/2-1/2", "*"}:
+            raise _BookSemanticTreeError("book semantic GameTree result is invalid")
 
         return {
             "kind": mode.value,
@@ -303,7 +350,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "players_label": labels["players"],
             "players": players,
             "result_label": labels["result"],
-            "result": safe(view.result),
+            "result": result,
             "details_label": labels["details"],
             "details": tuple(details),
             "comments_label": labels["comments"],
