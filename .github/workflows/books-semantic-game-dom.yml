@@ -8,6 +8,7 @@ on:
       - 'acs/version2_book_workspace.py'
       - 'web/full_product_books_training.js'
       - 'tests/test_version2_book_workspace.py'
+      - 'tests/test_books_semantic_host_bounds.py'
       - 'tests/js/books_training_surface_dom_test.js'
       - '.github/workflows/books-semantic-game-dom.yml'
   workflow_dispatch:
@@ -59,6 +60,7 @@ jobs:
               '.github/workflows/books-semantic-game-dom.yml' \
               'acs/version2_book_workspace.py' \
               'tests/js/books_training_surface_dom_test.js' \
+              'tests/test_books_semantic_host_bounds.py' \
               'tests/test_version2_book_workspace.py' \
               'web/full_product_books_training.js' | sort)"
             test "$changed" = "$expected"
@@ -67,9 +69,10 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
-          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "e9a1ae5b896bc5f44549d8e5245abf57ccf1bf9c"
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "fd03c34af5efbaea02a0616a8aedfd26426be8d0"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "3a8cfc63d1c37c4ada781e3910e0d7d436a12c8b"
           test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "1266288420f5daabb6d73b939fa850fa43b7cce7"
+          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "748fd2fca49ac58702a5ada4828a330e1235c548"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "121c86a72dee4b1e64f510e7aa28521144161f95"
 
       - name: Validate browser semantic contract
@@ -87,10 +90,12 @@ jobs:
           python -m compileall -q
           acs/version2_book_workspace.py
           tests/test_version2_book_workspace.py
+          tests/test_books_semantic_host_bounds.py
 
       - name: Prove semantic reading and retained canonical Book flow
         run: >-
           python -m unittest -v
+          tests.test_books_semantic_host_bounds
           tests.test_version2_book_workspace
           tests.test_v2_book_board_workflow
           tests.test_dev1_full_product_ui_packages
