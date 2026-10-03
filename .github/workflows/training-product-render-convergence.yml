@@ -1,0 +1,86 @@
+name: Training Whole Product Render Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'web/version2_release_bootstrap.js'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - '.github/workflows/training-product-render-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-product-render-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      EXACT_PARENT: ccedb391826e1f69b84c4ffe6e2dc92d2f0087cb
+      PRODUCT_RENDER_SOURCE: a36015a01635bfd17450a237ff5417e1ea224c27
+      RELEASE_BOOTSTRAP_BLOB: 22301097ce7978af332eaf660041eb4d739a1644
+      RELEASE_DOM_TEST_BLOB: cc1be6c42f673c4537b2df7b4cbe9c4e9ac34e95
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prove exact successor scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:web/version2_release_bootstrap.js")" = "$RELEASE_BOOTSTRAP_BLOB"
+          test "$(git rev-parse "HEAD:tests/js/version2_release_bootstrap_dom_test.js")" = "$RELEASE_DOM_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/training-product-render-convergence.yml' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
+            'web/version2_release_bootstrap.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+          echo "PRODUCT_RENDER_SOURCE=$PRODUCT_RENDER_SOURCE"
+
+      - name: Validate browser transaction and focus behavior
+        run: |
+          node --check web/version2_release_bootstrap.js
+          node --check web/full_product_books_training.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Validate adjacent whole-product contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_accessibility_contract
+          tests.test_version2_book_board_refresh_focus_order_evidence
+          tests.test_dev1_books_training_web_asset
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_books_training_ui_integration
+          tests.test_training_authority_convergence
+          tests.test_version2_training_current_runtime
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest
