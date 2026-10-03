@@ -90,7 +90,9 @@ class Version2PgnCommands:
         workspace = self._session().workspace
         if action_id in {"pgn.previous_game", "pgn.next_game"}:
             if payload:
-                raise ValueError("game navigation accepts no payload")
+                if set(payload) != _TARGET_FIELDS:
+                    raise ValueError("invalid PGN game navigation payload")
+                self._target(payload, require_current=True)
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
