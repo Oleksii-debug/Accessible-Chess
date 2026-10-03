@@ -164,7 +164,8 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 / "rights.json"
             )
             rights_path.write_text(
-                '{"license_id":"MIT","license_uri":"https://example.invalid/license",'
+                '{"schema_version":1,"license_id":"MIT",'
+                '"license_uri":"https://example.invalid/license",'
                 '"source_uri":"https://example.invalid/source"}\n',
                 encoding="utf-8",
             )
