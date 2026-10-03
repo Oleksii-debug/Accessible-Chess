@@ -52,6 +52,7 @@ The full 330-file source library is retained in the built sound pack so future v
 - Missing/broken assets never fall back to a Windows system beep.
 - Multi-second NEWGAME and clock WAVs use non-blocking Windows playback so the keyboard and UI remain responsive.
 - Variant selection is persisted per event, including separate checkmate, draw, clock-tick and low-time-warning choices.
+- Stage 1 and Version 2 use the same fail-safe persisted variant selector. Version 2 exposes the complete packaged variant catalog to its inherited sound UI and passes that selector into the production Windows playback adapter, so choices such as `move=2` and `start=3d` affect real playback and survive restart instead of silently reverting to variant 1.
 - MOVE/MOVE2/MOVE3 and their Board3d counterparts play the matching MOVEHIT1/2/3 WAV immediately afterward as an ordered landing layer.
 - CAPTURE/CAPTURE2/CAPTURE3 and their Board3d counterparts play the matching CAPHIT1/2/3 WAV immediately afterward as an ordered landing layer.
 - Clock tick and low-time warning are independent semantic events. Tick remains clock ambience; low-time warning is a one-shot threshold event with its own side policy, threshold and sound choice.
