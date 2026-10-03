@@ -615,7 +615,7 @@ const soundLabels = {
         tickLastSeconds: 'Останні секунд (0 — увесь час)',
         tickModes: {off:'Вимкнено', my_turn:'Лише мій хід', both:'Обидві сторони'},
         unavailable: 'Налаштування звуку недоступні.',
-        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
+        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Інше завершення партії', mate:'Мат', draw:'Нічия', tick:'Тік годинника'}
     },
     en: {
         legend: 'Sounds', enabled: 'Enable sounds', newGameAnimation: 'New-game animation', volume: 'Volume',
@@ -624,7 +624,7 @@ const soundLabels = {
         tickLastSeconds: 'Last seconds (0 — whole game)',
         tickModes: {off:'Off', my_turn:'My turn only', both:'Both sides'},
         unavailable: 'Sound settings are unavailable.',
-        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Game end', tick:'Clock tick'}
+        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Other game end', mate:'Checkmate', draw:'Draw', tick:'Clock tick'}
     }
 };
 
@@ -816,7 +816,7 @@ function installSoundSettings() {
     eventLabel.htmlFor = 'sound-preview-event';
     const eventSelect = document.createElement('select');
     eventSelect.id = 'sound-preview-event';
-    ['move','capture','check','castle','promotion','illegal','start','end','tick'].forEach(value => {
+    ['move','capture','check','castle','promotion','illegal','start','end','mate','draw','tick'].forEach(value => {
         const option = document.createElement('option');
         option.value = value;
         eventSelect.appendChild(option);
