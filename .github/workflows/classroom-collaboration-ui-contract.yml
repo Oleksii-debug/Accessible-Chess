@@ -47,7 +47,7 @@ jobs:
           test "$BASE_REF" = "feature/classroom-collaboration-contract-20260926"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           git cat-file -e "$EVENT_BASE_SHA^{commit}"
-          git fetch --no-tags origin "$BASE_REF"
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
           BASE_TIP="$(git rev-parse "origin/$BASE_REF")"
           STACK_BASE="$(git merge-base "$BASE_TIP" HEAD)"
           git cat-file -e "$STACK_BASE^{commit}"
