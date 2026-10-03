@@ -465,6 +465,37 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
             )
             self.assertEqual(pack_dir / "versions", versions)
 
+    def test_installed_audit_returns_manifest_and_rights_from_one_verified_version(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest(version="2.0.0")
+            downloaded, _ = _staged_download(root, manifest)
+            audited = _with_rights(downloaded)
+            store = FilesystemSoundPackStore(root / "packs")
+
+            store.install_atomically(audited)
+            record = store.installed_audit()[manifest.pack_id]
+
+            self.assertEqual(manifest, record.manifest)
+            self.assertEqual(audited.rights_evidence, record.rights_evidence)
+            self.assertEqual(
+                audited.rights_evidence,
+                store.rights_evidence(manifest.pack_id),
+            )
+
+    def test_legacy_installed_audit_never_fabricates_rights(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest()
+            downloaded, _ = _staged_download(root, manifest)
+            store = FilesystemSoundPackStore(root / "packs")
+
+            store.install_atomically(downloaded)
+            record = store.installed_audit()[manifest.pack_id]
+
+            self.assertEqual(manifest, record.manifest)
+            self.assertIsNone(record.rights_evidence)
+
     def test_uninstall_flushes_sound_pack_root_after_top_level_removal(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
