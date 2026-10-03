@@ -354,21 +354,58 @@ class LibraryPresenter:
         self._message = state.message
 
     @staticmethod
-    def _validate_page(page: GameSearchPage) -> GameSearchPage:
+    def _validate_page(
+        page: GameSearchPage,
+        *,
+        query: GameSearchQuery,
+    ) -> GameSearchPage:
         """Validate one backend page before publishing it into presenter state."""
         if not isinstance(page, GameSearchPage):
             raise TypeError("library search returned an invalid page")
+        if not isinstance(query, GameSearchQuery):
+            raise TypeError("library page query is invalid")
+        if not isinstance(page.items, tuple):
+            raise TypeError("library page items must be an immutable tuple")
+        if len(page.items) > query.limit:
+            raise ValueError("library page exceeds the requested limit")
         if type(page.has_more) is not bool:
             raise ValueError("library page has invalid continuation state")
+
         ids: list[int] = []
+        previous_id = query.after_game_id or 0
+        optional_text = (
+            "white",
+            "black",
+            "event",
+            "site",
+            "game_date",
+            "round",
+            "result",
+            "eco",
+            "opening",
+            "start_fen",
+        )
         for item in page.items:
             if not isinstance(item, GameSearchItem):
                 raise TypeError("library page contains an invalid game")
             if type(item.game_id) is not int or item.game_id <= 0:
                 raise ValueError("library page contains an invalid game identity")
+            if item.game_id <= previous_id:
+                raise ValueError("library page violates keyset game ordering")
+            if type(item.source_id) is not int or item.source_id <= 0:
+                raise ValueError("library page contains an invalid source identity")
+            if type(item.source_index) is not int or item.source_index < 0:
+                raise ValueError("library page contains an invalid source index")
+            for field_name in ("source_name", "source_format", "import_status"):
+                if type(getattr(item, field_name)) is not str:
+                    raise TypeError("library page contains invalid source metadata")
+            for field_name in optional_text:
+                value = getattr(item, field_name)
+                if value is not None and type(value) is not str:
+                    raise TypeError("library page contains invalid game metadata")
             ids.append(item.game_id)
-        if len(ids) != len(set(ids)):
-            raise ValueError("library page contains duplicate game identities")
+            previous_id = item.game_id
+
         cursor = page.next_after_game_id
         if page.has_more:
             if (
@@ -385,7 +422,7 @@ class LibraryPresenter:
     def search(self, query: GameSearchQuery | None = None) -> LibraryView:
         q = (query or GameSearchQuery()).normalized()
         try:
-            page = self._validate_page(self._service.search(q))
+            page = self._validate_page(self._service.search(q), query=q)
         except Exception as exc:
             # Treat a failed replacement search as a rejected transaction.
             # Preserve the last committed page, selection, status and cache so
@@ -432,7 +469,7 @@ class LibraryPresenter:
             after_game_id=current.next_after_game_id,
         )
         try:
-            page = self._validate_page(self._service.search(query))
+            page = self._validate_page(self._service.search(query), query=query)
         except Exception as exc:
             # A failed page fetch is only an error for this attempted action.
             # Keep the last committed page/selection/status available for retry,
