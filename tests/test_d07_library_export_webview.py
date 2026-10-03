@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_presenters import LibraryPresenter
 from acs.full_product_ui_shell import UILanguage
@@ -117,6 +118,43 @@ class LibraryExportWebViewTests(unittest.TestCase):
         self.assertEqual(projection.export_game_ids, (1,))
         bridge.dispatch("library.search", {"event": "Different", "limit": 2})
         self.assertEqual(projection.export_game_ids, ())
+
+    def test_failed_search_and_reset_preserve_committed_library_state(self) -> None:
+        service, presenter, projection, bridge, _calls = self.build()
+        bridge.dispatch("library.select", {"game_id": 2})
+        bridge.dispatch("library.toggle_export_selection", {"game_id": 2})
+        before_snapshot = projection.snapshot()
+        before_query = projection.query
+        before_view = presenter.view()
+
+        for command, payload in (
+            ("library.search", {"event": "Different", "limit": 2}),
+            ("library.reset_filters", {}),
+        ):
+            with self.subTest(command=command):
+                with patch.object(
+                    service,
+                    "search",
+                    side_effect=PermissionError(
+                        r"C:\Users\BlindTeacher\private-library.sqlite"
+                    ),
+                ):
+                    event = bridge.dispatch(command, payload)
+
+                self.assertEqual(event.kind, "render")
+                failed = event.payload["snapshot"]
+                self.assertEqual(failed["status"], "error")
+                self.assertNotIn("BlindTeacher", failed["message"])
+                self.assertNotIn("private-library", failed["message"])
+                self.assertEqual(failed["rows"], before_snapshot["rows"])
+                self.assertEqual(failed["filters"], before_snapshot["filters"])
+                self.assertEqual(failed["selected_game_id"], 2)
+                self.assertEqual(failed["export_selection_count"], 1)
+                self.assertTrue(failed["rows"][1]["export_selected"])
+                self.assertEqual(projection.query, before_query)
+                self.assertEqual(projection.export_game_ids, (2,))
+                self.assertEqual(presenter.view(), before_view)
+                self.assertEqual(projection.snapshot(), before_snapshot)
 
     def test_empty_multi_selection_cannot_dispatch_export(self) -> None:
         _service, _presenter, _projection, bridge, calls = self.build()
