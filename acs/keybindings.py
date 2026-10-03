@@ -21,6 +21,9 @@ class BindingContext(str, Enum):
     ENGINE_GAME = "engine_game"
     DATABASE = "database"
     BOOK_READER = "book_reader"
+    PGN_TREE = "pgn_tree"
+    LIBRARY_RESULTS = "library_results"
+    EDUCATION_LIST = "education_list"
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,7 @@ def normalize_binding(value: str | None) -> str | None:
         "win": "Win",
         "windows": "Win",
         "meta": "Win",
+        "nvda": "NVDA",
         "escape": "Escape",
         "esc": "Escape",
         "spacebar": "Space",
@@ -117,15 +121,19 @@ def normalize_binding(value: str | None) -> str | None:
         "pageup": "PageUp",
         "pagedown": "PageDown",
         "left": "Left",
+        "arrowleft": "Left",
         "right": "Right",
+        "arrowright": "Right",
         "up": "Up",
+        "arrowup": "Up",
         "down": "Down",
+        "arrowdown": "Down",
     }
     modifiers: list[str] = []
     key = None
     for token in tokens:
         canonical = aliases.get(token.casefold())
-        if canonical in {"Ctrl", "Shift", "Alt", "Win"}:
+        if canonical in {"Ctrl", "Shift", "Alt", "Win", "NVDA"}:
             if canonical not in modifiers:
                 modifiers.append(canonical)
             continue
@@ -143,7 +151,7 @@ def normalize_binding(value: str | None) -> str | None:
     if key is None:
         raise ValueError(f"binding must contain a non-modifier key: {value!r}")
 
-    order = ["Ctrl", "Alt", "Shift", "Win"]
+    order = ["Ctrl", "Alt", "Shift", "Win", "NVDA"]
     modifiers.sort(key=order.index)
     return "+".join([*modifiers, key])
 
@@ -152,6 +160,7 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("history.previous", BindingContext.HISTORY, "Previous historical position", "Shift+A"),
     ActionDefinition("history.next", BindingContext.HISTORY, "Next historical position", "Shift+D"),
     ActionDefinition("history.go_to_move", BindingContext.HISTORY, "Go to move", "Ctrl+G"),
+    ActionDefinition("history.commit_go_to_move", BindingContext.HISTORY, "Commit typed history move", "Enter"),
     ActionDefinition("edit.undo", BindingContext.GLOBAL, "Undo", "Ctrl+Z"),
     ActionDefinition("edit.redo", BindingContext.GLOBAL, "Redo", "Ctrl+Shift+Z"),
     ActionDefinition("analysis.pv1", BindingContext.ANALYSIS, "Read principal variation 1", "Alt+1"),
@@ -167,6 +176,13 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("analysis.insert_move", BindingContext.ANALYSIS, "Insert selected engine move", "Ctrl+Alt+M"),
     ActionDefinition("analysis.insert_line", BindingContext.ANALYSIS, "Insert selected engine line", "Ctrl+Alt+V"),
     ActionDefinition("analysis.restart", BindingContext.ANALYSIS, "Restart engine analysis", "Alt+R"),
+    ActionDefinition("board.cursor_left", BindingContext.BOARD, "Move board cursor left", "Left"),
+    ActionDefinition("board.cursor_right", BindingContext.BOARD, "Move board cursor right", "Right"),
+    ActionDefinition("board.cursor_up", BindingContext.BOARD, "Move board cursor up", "Up"),
+    ActionDefinition("board.cursor_down", BindingContext.BOARD, "Move board cursor down", "Down"),
+    ActionDefinition("board.activate", BindingContext.BOARD, "Activate board square", "Enter"),
+    ActionDefinition("board.activate_alternative", BindingContext.BOARD, "Activate board square alternative", "Space"),
+    ActionDefinition("board.exit", BindingContext.BOARD, "Exit board interaction", "Escape"),
     ActionDefinition("board.current", BindingContext.BOARD, "Current square", "O"),
     ActionDefinition("board.last_captured", BindingContext.BOARD, "Last captured piece", "C"),
     ActionDefinition("board.last_move", BindingContext.BOARD, "Last move", "L"),
@@ -210,6 +226,7 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("board.file_6", BindingContext.BOARD, "Go to file f", "Shift+6"),
     ActionDefinition("board.file_7", BindingContext.BOARD, "Go to file g", "Shift+7"),
     ActionDefinition("board.file_8", BindingContext.BOARD, "Go to file h", "Shift+8"),
+    ActionDefinition("move.submit", BindingContext.MOVE_ENTRY, "Submit move entry", "Enter"),
     ActionDefinition("move.undo", BindingContext.MOVE_ENTRY, "Undo move command", default_alias="u"),
     ActionDefinition("move.redo", BindingContext.MOVE_ENTRY, "Redo move command", default_alias="y"),
     ActionDefinition("move.last", BindingContext.MOVE_ENTRY, "Last move command", default_alias="l"),
@@ -421,7 +438,12 @@ class ActionRegistry:
         if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
             raise ValueError("invalid keymap profile")
         registry = cls(definitions, bindings=bindings, aliases=aliases)
-        registry.validate()
+        conflicts = registry.validate()
+        errors = tuple(item for item in conflicts if item.severity == "error")
+        if errors:
+            raise ValueError(
+                "invalid keymap profile: " + "; ".join(item.message for item in errors)
+            )
         return registry
 
     @classmethod

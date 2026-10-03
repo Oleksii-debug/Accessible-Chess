@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from .keybindings import ActionRegistry, BindingContext, normalize_binding
+from .keybindings import ActionRegistry, BindingContext, SCHEMA_VERSION, normalize_binding
 from .ui_keymap_adapter import build_web_keymap
 from .ui_keymap_editor import KeymapEditorModel
 
@@ -76,13 +76,20 @@ class KeymapService:
     def __init__(self, path: str | Path, *, lang: str = "uk") -> None:
         self.path = Path(path)
         recovery = None
+        self._profile_write_blocked = False
         if self.path.exists():
             try:
                 profile = _decode_user_keymap_profile(self.path.read_text(encoding="utf-8"))
+                version = profile.get("schema_version", 0)
+                self._profile_write_blocked = type(version) is int and version > SCHEMA_VERSION
                 registry = ActionRegistry.from_profile(profile)
             except Exception:
                 registry = ActionRegistry()
-                recovery = "invalid keymap profile"
+                recovery = (
+                    "newer keymap profile"
+                    if self._profile_write_blocked
+                    else "invalid keymap profile"
+                )
         else:
             registry = ActionRegistry()
         self.editor = KeymapEditorModel(registry, lang=lang)
@@ -91,6 +98,7 @@ class KeymapService:
     def snapshot(self) -> dict[str, Any]:
         data = build_web_keymap(self.editor.registry)
         data["recoveryMessage"] = self.recovery_message
+        data["writeBlocked"] = self._profile_write_blocked
         return data
 
     def search(self, query: str = "", context: str | None = None) -> list[dict[str, Any]]:
@@ -230,24 +238,33 @@ class KeymapService:
         return self._resolution(resolution)
 
     def save(self, action_id: str, value: str, *, allow_warnings: bool = False) -> dict[str, Any]:
+        blocked = self._blocked_incremental_mutation()
+        if blocked is not None:
+            return blocked
         result = self.editor.save(action_id, value, allow_warnings=allow_warnings)
         if result.ok:
             self._persist()
         return self._result(result)
 
     def reset_action(self, action_id: str) -> dict[str, Any]:
+        blocked = self._blocked_incremental_mutation()
+        if blocked is not None:
+            return blocked
         result = self.editor.reset_action(action_id)
         self._persist()
         return self._result(result)
 
     def reset_context(self, context: str) -> dict[str, Any]:
+        blocked = self._blocked_incremental_mutation()
+        if blocked is not None:
+            return blocked
         result = self.editor.reset_context(BindingContext(context))
         self._persist()
         return self._result(result)
 
     def reset_all(self) -> dict[str, Any]:
         result = self.editor.reset_all()
-        self._persist()
+        self._persist(replace_incompatible=True)
         return self._result(result)
 
     def export_profile(self) -> str:
@@ -294,7 +311,7 @@ class KeymapService:
 
         result = self.editor.import_profile(text)
         if result.ok:
-            self._persist()
+            self._persist(replace_incompatible=True)
         response = self._result(result)
         response["requiresConfirmation"] = False
         return response
@@ -303,8 +320,28 @@ class KeymapService:
         self.editor.set_language(lang)
         return self.snapshot()
 
-    def _persist(self) -> None:
+    def _blocked_incremental_mutation(self) -> dict[str, Any] | None:
+        if not self._profile_write_blocked:
+            return None
+        message = (
+            "Keyboard settings were created by a newer Accessible Chess version and were preserved unchanged. "
+            "Use Reset all defaults or import a compatible profile to replace them."
+            if self.editor.lang == "en"
+            else "Налаштування клавіш створено новішою версією Accessible Chess і збережено без змін. "
+            "Щоб замінити їх, скиньте всі налаштування або імпортуйте сумісний профіль."
+        )
+        return {
+            "ok": False,
+            "message": message,
+            "conflicts": [],
+            "requiresConfirmation": False,
+        }
+
+    def _persist(self, *, replace_incompatible: bool = False) -> None:
+        if self._profile_write_blocked and not replace_incompatible:
+            raise RuntimeError("newer keymap profile must not be overwritten incrementally")
         self.editor.registry.save(self.path)
+        self._profile_write_blocked = False
         self.recovery_message = None
 
     def _capture_control(self, reason: str, key: str) -> dict[str, Any]:

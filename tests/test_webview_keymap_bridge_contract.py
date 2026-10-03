@@ -5,6 +5,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.full_product_actions import build_full_product_action_registry
+from acs.ui_keymap_adapter import build_web_keymap
+from acs.ui_keymap_editor import KeymapEditorModel
+from acs.version2_profile import build_version2_action_registry
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
 
@@ -22,6 +26,143 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
         self.assertNotIn("localStorage.getItem", html)
         self.assertNotIn("function conflictsFor", html)
         self.assertNotIn("const alias=keymap.find", html)
+
+    def test_help_uses_canonical_global_binding_and_accessible_dynamic_surface(self):
+        registry = build_version2_action_registry()
+        self.assertEqual(registry.get_binding("screen.help"), "F1")
+
+        snapshot = build_web_keymap(registry)
+        help_item = next(item for item in snapshot["actions"] if item["id"] == "screen.help")
+        self.assertEqual(help_item["registryContext"], "global")
+        self.assertEqual(help_item["context"], "document")
+        self.assertEqual(help_item["labelUk"], "Довідка")
+        self.assertEqual(help_item["labelEn"], "Help")
+        self.assertEqual(help_item["binding"], "F1")
+
+        root = Path(__file__).resolve().parents[1]
+        fallback = json.loads((root / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        fallback_help = next(item for item in fallback["actions"] if item["id"] == "screen.help")
+        self.assertEqual(fallback_help["binding"], "F1")
+        self.assertEqual(fallback_help["registryContext"], "global")
+
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(
+            'id="help" class="block" role="document" aria-labelledby="help-title" '
+            'aria-live="off" tabindex="-1"',
+            html,
+        )
+        self.assertIn("function openHelp()", html)
+        self.assertIn("helpReturnFocus=document.activeElement", html)
+        self.assertIn("el('help').focus()", html)
+        self.assertIn("addEventListener('close',restoreHelpFocus)", html)
+        self.assertIn("keymap.filter(x=>x.binding||x.alias).map", html)
+        self.assertIn("resolveBinding(chord,'global','document')", html)
+        self.assertIn("if(id==='screen.help'){openHelp();return}", html)
+        self.assertNotIn("line('history.previous')", html)
+
+    def test_terminal_widget_contexts_project_to_matching_web_fallback_scopes(self):
+        snapshot = build_web_keymap(build_full_product_action_registry())
+        by_id = {item["id"]: item for item in snapshot["actions"]}
+
+        expected = {
+            "pgn.next_item": ("pgn_tree", "pgn_tree"),
+            "library.next_result": ("library_results", "library_results"),
+            "education.next_item": ("education_list", "education_list"),
+        }
+        for action_id, (registry_context, ui_context) in expected.items():
+            with self.subTest(action_id=action_id):
+                item = by_id[action_id]
+                self.assertEqual(item["registryContext"], registry_context)
+                self.assertEqual(item["context"], ui_context)
+
+    def test_terminal_widget_keymap_editor_uses_localized_user_facing_labels(self):
+        registry = build_full_product_action_registry()
+        model = KeymapEditorModel(registry, lang="uk")
+        rows = {row.action_id: row for row in model.rows()}
+        expected_uk = {
+            "pgn.next_item": ("Наступний елемент дерева PGN", "Дерево PGN"),
+            "library.next_result": ("Наступний результат бібліотеки", "Результати бібліотеки"),
+            "education.next_item": ("Наступний навчальний елемент", "Навчальний список"),
+        }
+        for action_id, (label, context_label) in expected_uk.items():
+            with self.subTest(action_id=action_id, language="uk"):
+                self.assertEqual(rows[action_id].label, label)
+                self.assertEqual(rows[action_id].context_label, context_label)
+                self.assertNotIn("_", rows[action_id].context_label)
+
+        model.set_language("en")
+        rows = {row.action_id: row for row in model.rows()}
+        expected_en = {
+            "pgn.next_item": ("Next GameTree item", "PGN tree"),
+            "library.next_result": ("Next library result", "Library results"),
+            "education.next_item": ("Next education item", "Education list"),
+        }
+        for action_id, (label, context_label) in expected_en.items():
+            with self.subTest(action_id=action_id, language="en"):
+                self.assertEqual(rows[action_id].label, label)
+                self.assertEqual(rows[action_id].context_label, context_label)
+                self.assertNotIn("_", rows[action_id].context_label)
+
+    def test_newer_keymap_schema_is_preserved_until_explicit_full_reset(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keymap.json"
+            original = json.dumps(
+                {
+                    "schema_version": 999,
+                    "bindings": {"history.go_to_move": "Ctrl+J"},
+                    "aliases": {},
+                },
+                sort_keys=True,
+            )
+            path.write_text(original, encoding="utf-8")
+            api = KeymapAwareAccessibleChessAPI(lang="en", keymap_path=path)
+
+            snapshot = api.keymap_snapshot()
+            self.assertTrue(snapshot["writeBlocked"])
+            self.assertTrue(snapshot["recoveryMessage"])
+            self.assertEqual(
+                api.keymap_resolve_binding("history", "Ctrl+G")["actionId"],
+                "history.go_to_move",
+            )
+
+            blocked = api.keymap_save("history.go_to_move", "Alt+J")
+            self.assertFalse(blocked["ok"])
+            self.assertIn("newer Accessible Chess version", blocked["message"])
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+            blocked_reset = api.keymap_reset_action("history.go_to_move")
+            self.assertFalse(blocked_reset["ok"])
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+            reset_all = api.keymap_reset_all()
+            self.assertTrue(reset_all["ok"])
+            rewritten = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(rewritten["schema_version"], 1)
+            self.assertFalse(api.keymap_snapshot()["writeBlocked"])
+
+    def test_board_grid_remap_uses_same_persisted_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            self.assertEqual(api.keymap_resolve_binding("board", "ArrowLeft")["actionId"], "board.cursor_left")
+            changed = api.keymap_save("board.cursor_left", "Ctrl+Alt+Left")
+            self.assertTrue(changed["ok"])
+            self.assertIsNone(api.keymap_resolve_binding("board", "ArrowLeft"))
+            self.assertEqual(
+                api.keymap_resolve_binding("board", "Ctrl+Alt+Left")["actionId"],
+                "board.cursor_left",
+            )
+
+    def test_input_submission_keys_use_persisted_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            self.assertEqual(api.keymap_resolve_binding("move_entry", "Enter")["actionId"], "move.submit")
+            self.assertEqual(api.keymap_resolve_binding("history", "Enter")["actionId"], "history.commit_go_to_move")
+            self.assertTrue(api.keymap_save("move.submit", "Ctrl+Enter")["ok"])
+            self.assertTrue(api.keymap_save("history.commit_go_to_move", "Alt+Enter")["ok"])
+            self.assertIsNone(api.keymap_resolve_binding("move_entry", "Enter"))
+            self.assertIsNone(api.keymap_resolve_binding("history", "Enter"))
+            self.assertEqual(api.keymap_resolve_binding("move_entry", "Ctrl+Enter")["actionId"], "move.submit")
+            self.assertEqual(api.keymap_resolve_binding("history", "Alt+Enter")["actionId"], "history.commit_go_to_move")
 
     def test_runtime_resolution_follows_persisted_remap_without_js_cache(self):
         with tempfile.TemporaryDirectory() as td:
