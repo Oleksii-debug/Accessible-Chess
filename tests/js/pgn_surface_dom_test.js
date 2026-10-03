@@ -59,6 +59,14 @@ function pressKey(target, container, key) {
   });
   return prevented;
 }
+function pressTreeKey(target, key) {
+  let prevented = false;
+  target.listeners.keydown({
+    key: key,
+    preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
 function snapshot(selectedId) {
   return {
     status: "ready",
@@ -76,6 +84,16 @@ function snapshot(selectedId) {
     comment_editor: { enabled: true, value: "", title: "PGN comment", label: "Comment text", save_label: "Save", cancel_label: "Cancel", message: "" },
     focus_target: selectedId
   };
+}
+function treeKeyboardSnapshot(selectedId) {
+  const value = snapshot(selectedId);
+  value.tree = [
+    { dom_id: "pgn-root", node_id: "g0:main/m0", kind: "move", aria_level: 1, selected: selectedId === "pgn-root", label: "1 e4", comments: [], has_parent: false },
+    { dom_id: "pgn-child", node_id: "g0:main/m0/v0/m0", kind: "move", aria_level: 2, selected: selectedId === "pgn-child", label: "1... c5", comments: [], has_parent: true },
+    { dom_id: "pgn-last", node_id: "g0:main/m1", kind: "move", aria_level: 1, selected: selectedId === "pgn-last", label: "1... e5", comments: [], has_parent: false }
+  ];
+  value.focus_target = selectedId;
+  return value;
 }
 async function flush() { await Promise.resolve(); await Promise.resolve(); }
 
@@ -122,6 +140,72 @@ async function run() {
 
   firstToolbarButtons[0].focus();
   check(firstToolbarButtons[0].tabIndex === 0 && firstToolbarButtons[2].tabIndex === -1, "PGN toolbar focus did not update roving tab stop");
+
+  const treeCalls = [];
+  const treeRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    treeRoot,
+    treeKeyboardSnapshot("pgn-root"),
+    (command, payload) => {
+      treeCalls.push([command, payload || {}]);
+      return { kind: "delegated", payload: {} };
+    },
+    function () {},
+    "pgn-root"
+  );
+  const keyboardItems = treeRoot.querySelectorAll('[role="treeitem"]');
+  check(keyboardItems.length === 3, "PGN tree keyboard fixture missing nodes");
+
+  let before = treeCalls.length;
+  check(pressTreeKey(keyboardItems[0], "ArrowUp"), "PGN tree top ArrowUp must stay inside the tree");
+  await flush();
+  check(treeCalls.length === before, "PGN tree top ArrowUp dispatched an impossible backend move");
+
+  check(pressTreeKey(keyboardItems[0], "ArrowLeft"), "PGN tree root ArrowLeft must stay inside the tree");
+  await flush();
+  check(treeCalls.length === before, "PGN tree root ArrowLeft dispatched an impossible parent move");
+
+  check(pressTreeKey(keyboardItems[0], "Home"), "PGN tree first-node Home must stay inside the tree");
+  await flush();
+  check(treeCalls.length === before, "PGN tree first-node Home dispatched a redundant selection");
+
+  check(pressTreeKey(keyboardItems[0], "ArrowRight"), "PGN tree ArrowRight must be handled");
+  await flush();
+  check(treeCalls.length === before + 1, "PGN tree ArrowRight did not dispatch exactly once");
+  check(treeCalls[before][0] === "pgn.select", "PGN tree ArrowRight bypassed canonical selection");
+  check(treeCalls[before][1].node_id === "g0:main/m0/v0/m0", "PGN tree ArrowRight did not select the immediate child");
+  before = treeCalls.length;
+
+  check(pressTreeKey(keyboardItems[1], "ArrowRight"), "PGN tree leaf ArrowRight must stay inside the tree");
+  await flush();
+  check(treeCalls.length === before, "PGN tree leaf ArrowRight dispatched a non-child selection");
+
+  check(pressTreeKey(keyboardItems[1], "ArrowLeft"), "PGN tree child ArrowLeft must be handled");
+  await flush();
+  check(treeCalls.length === before + 1 && treeCalls[before][0] === "pgn.parent", "PGN tree child ArrowLeft did not use canonical parent selection");
+  before = treeCalls.length;
+
+  check(pressTreeKey(keyboardItems[1], "Home"), "PGN tree Home must be handled");
+  await flush();
+  check(treeCalls.length === before + 1 && treeCalls[before][0] === "pgn.select", "PGN tree Home did not use canonical selection");
+  check(treeCalls[before][1].node_id === "g0:main/m0", "PGN tree Home did not target the first visible node");
+  before = treeCalls.length;
+
+  check(pressTreeKey(keyboardItems[0], "End"), "PGN tree End must be handled");
+  await flush();
+  check(treeCalls.length === before + 1 && treeCalls[before][0] === "pgn.select", "PGN tree End did not use canonical selection");
+  check(treeCalls[before][1].node_id === "g0:main/m1", "PGN tree End did not target the last visible node");
+  before = treeCalls.length;
+
+  check(pressTreeKey(keyboardItems[2], "End"), "PGN tree last-node End must stay inside the tree");
+  check(pressTreeKey(keyboardItems[2], "ArrowDown"), "PGN tree bottom ArrowDown must stay inside the tree");
+  await flush();
+  check(treeCalls.length === before, "PGN tree bottom boundary dispatched an impossible backend move");
+
+  check(pressTreeKey(keyboardItems[2], "ArrowUp"), "PGN tree in-range ArrowUp must be handled");
+  await flush();
+  check(treeCalls.length === before + 1, "PGN tree in-range ArrowUp did not dispatch exactly once");
+  check(treeCalls[before][0] === "pgn.move" && treeCalls[before][1].delta === -1, "PGN tree in-range ArrowUp changed canonical move semantics");
 
   let prevented = false;
   items[0].listeners.keydown({ key: "ArrowDown", preventDefault: () => { prevented = true; } });
