@@ -1240,16 +1240,36 @@ def _library_state_sha256(
     *,
     schema_validator: Callable[[sqlite3.Connection], int] = _canonical_library_schema,
 ) -> str:
+    before = _safe_stat(path, "library state source")
+    if not stat.S_ISREG(before.st_mode):
+        raise Version2UpgradeError("library state source must be a regular file")
+
+    def require_path_identity() -> None:
+        current = _safe_stat(path, "library state source")
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or not _same_file_identity(before, current)
+        ):
+            raise Version2UpgradeError(
+                "library state source changed during validation"
+            )
+
     connection = None
     try:
+        resolved = path.resolve(strict=True)
+        require_path_identity()
         connection = sqlite3.connect(
-            path.resolve(strict=True).as_uri() + "?mode=ro",
+            resolved.as_uri() + "?mode=ro",
             uri=True,
             timeout=0.0,
         )
+        require_path_identity()
         connection.execute("PRAGMA busy_timeout=0")
         schema_validator(connection)
-        return _sqlite_state_sha256(connection)
+        require_path_identity()
+        digest = _sqlite_state_sha256(connection)
+        require_path_identity()
+        return digest
     except Version2UpgradeError:
         raise
     except (OSError, sqlite3.DatabaseError) as exc:
