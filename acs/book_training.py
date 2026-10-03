@@ -32,6 +32,7 @@ _MAX_EXERCISE_STEPS = 2048
 _MAX_ACCEPTED_MOVES_PER_STEP = 64
 _MAX_WIRE_TAGS = 64
 _MAX_WIRE_METADATA_ENTRIES = 64
+_MAX_WIRE_TEXT_CHARS = 4096
 _MATERIAL_FIELDS = frozenset({"schema_version", "origin", "definition"})
 _ORIGIN_FIELDS = frozenset(
     {
@@ -84,6 +85,26 @@ def _bounded_text(value: object, name: str, *, allow_none: bool = False) -> str 
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     return text
+
+
+def _require_wire_text_limit(
+    value: object,
+    name: str,
+    *,
+    allow_none: bool = False,
+) -> None:
+    if value is None and allow_none:
+        return
+    if type(value) is not str:
+        raise BookTrainingError(
+            f"{name} must be text" if not allow_none else f"{name} must be text or null",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if len(value) > _MAX_WIRE_TEXT_CHARS:
+        raise BookTrainingError(
+            f"{name} exceeds the wire text limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
 
 
 def _sha256_json(value: object) -> str:
@@ -342,23 +363,20 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
                 "book training accepted_moves has an invalid item count",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
-        if any(type(move) is not str for move in accepted):
-            raise BookTrainingError(
-                "book training accepted_moves must be a list of text",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
+        for move in accepted:
+            _require_wire_text_limit(move, "book training accepted move")
         hint = raw_step["hint"]
         explanation = raw_step["explanation"]
-        if hint is not None and type(hint) is not str:
-            raise BookTrainingError(
-                "book training hint must be text or null",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
-        if explanation is not None and type(explanation) is not str:
-            raise BookTrainingError(
-                "book training explanation must be text or null",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
+        _require_wire_text_limit(
+            hint,
+            "book training hint",
+            allow_none=True,
+        )
+        _require_wire_text_limit(
+            explanation,
+            "book training explanation",
+            allow_none=True,
+        )
         try:
             steps.append(ExerciseStep(frozenset(accepted), hint=hint, explanation=explanation))
         except (TypeError, ValueError) as exc:
@@ -379,11 +397,8 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             "book training tags exceed the wire item limit",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    if any(type(tag) is not str for tag in tags):
-        raise BookTrainingError(
-            "book training tags must be a list of text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
+    for tag in tags:
+        _require_wire_text_limit(tag, "book training tag")
     if not isinstance(metadata, Mapping):
         raise BookTrainingError(
             "book training metadata must map text keys to text values",
@@ -394,29 +409,27 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             "book training metadata exceeds the wire item limit",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    if any(
-        type(key) is not str or type(value) is not str for key, value in metadata.items()
-    ):
-        raise BookTrainingError(
-            "book training metadata must map text keys to text values",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
+    for key, value in metadata.items():
+        _require_wire_text_limit(key, "book training metadata key")
+        _require_wire_text_limit(value, "book training metadata value")
     source_id = payload["source_id"]
-    if source_id is not None and type(source_id) is not str:
-        raise BookTrainingError(
-            "book training source_id must be text or null",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if type(payload["exercise_id"]) is not str or type(payload["start_fen"]) is not str:
-        raise BookTrainingError(
-            "book training exercise_id and start_fen must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if type(payload["title"]) is not str:
-        raise BookTrainingError(
-            "book training title must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
+    _require_wire_text_limit(
+        source_id,
+        "book training source_id",
+        allow_none=True,
+    )
+    _require_wire_text_limit(
+        payload["exercise_id"],
+        "book training exercise_id",
+    )
+    _require_wire_text_limit(
+        payload["start_fen"],
+        "book training start_fen",
+    )
+    _require_wire_text_limit(
+        payload["title"],
+        "book training title",
+    )
     try:
         return ExerciseDefinition(
             exercise_id=payload["exercise_id"],
