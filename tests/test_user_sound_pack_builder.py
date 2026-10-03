@@ -23,6 +23,39 @@ from scripts.build_user_sound_pack import (
 
 
 class UserSoundPackBuilderTests(unittest.TestCase):
+    def test_new_game_timeline_contract_is_exactly_32_and_wav_tail_bound(self):
+        sound_builder._validate_new_game_timeline_contract()
+
+        self.assertEqual(set(NEW_GAME_IMPACTS_BY_VARIANT), {"1", "3d"})
+        for variant_id, impacts in NEW_GAME_IMPACTS_BY_VARIANT.items():
+            with self.subTest(variant_id=variant_id):
+                self.assertEqual(len(impacts), 32)
+                self.assertEqual(tuple(sorted(set(impacts))), impacts)
+                duration_ms = NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id] * 1000
+                self.assertLessEqual(impacts[-1], duration_ms)
+                self.assertGreaterEqual(duration_ms - impacts[-1], 100)
+                self.assertLessEqual(duration_ms - impacts[-1], 350)
+
+    def test_new_game_timeline_contract_rejects_missing_piece_impact(self):
+        malformed = dict(NEW_GAME_IMPACTS_BY_VARIANT)
+        malformed["1"] = malformed["1"][:-1]
+        with patch.object(sound_builder, "NEW_GAME_IMPACTS_BY_VARIANT", malformed):
+            with self.assertRaisesRegex(
+                sound_builder.SoundPackBuildError,
+                "32 strictly increasing",
+            ):
+                sound_builder._validate_new_game_timeline_contract()
+
+    def test_new_game_timeline_contract_rejects_desynchronized_audio_tail(self):
+        malformed = dict(NEW_GAME_DURATION_SECONDS_BY_VARIANT)
+        malformed["3d"] = 9.0
+        with patch.object(sound_builder, "NEW_GAME_DURATION_SECONDS_BY_VARIANT", malformed):
+            with self.assertRaisesRegex(
+                sound_builder.SoundPackBuildError,
+                "not synchronized",
+            ):
+                sound_builder._validate_new_game_timeline_contract()
+
     def test_zip_source_is_accepted_and_sha256_bound(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
