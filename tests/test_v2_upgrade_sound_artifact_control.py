@@ -147,6 +147,100 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             for name in near_misses:
                 self.assertIn(name, paths)
 
+
+    def test_training_progress_runtime_artifacts_are_derived_but_durable_progress_is_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            progress = root / "training-progress"
+            progress.mkdir()
+            digest = "a" * 64
+            second_digest = "b" * 64
+
+            durable = progress / f"{digest}.json"
+            durable.write_bytes(b'{"durable":"training-progress"}\n')
+            runtime_lock = progress / f".{digest.upper()}.JSON.LOCK"
+            runtime_lock.write_bytes(b"training-lock")
+            runtime_temp = progress / f".{digest}.json.abcd_123.tmp"
+            runtime_temp.write_bytes(b"training-temp")
+
+            near_misses = (
+                progress / f".{digest[:-1]}.json.lock",
+                progress / f".{digest}.json.custom.note.tmp",
+                progress / f".{digest}.json.abcd.tmp.keep",
+            )
+            for candidate in near_misses:
+                candidate.write_bytes(b"preserve-near-miss")
+
+            nested = progress / "user-content"
+            nested.mkdir()
+            nested_lock = nested / f".{digest}.json.lock"
+            nested_lock.write_bytes(b"nested-user-data")
+
+            lock_named_directory = progress / f".{second_digest}.json.lock"
+            lock_named_directory.mkdir()
+            (lock_named_directory / "keep.bin").write_bytes(b"directory-user-data")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            self.assertIn(f"training-progress/{digest}.json", files)
+            self.assertNotIn(
+                f"training-progress/.{digest.upper()}.JSON.LOCK",
+                files,
+            )
+            self.assertNotIn(
+                f"training-progress/.{digest}.json.abcd_123.tmp",
+                files,
+            )
+            for candidate in near_misses:
+                self.assertIn(candidate.relative_to(root).as_posix(), files)
+            self.assertIn(
+                f"training-progress/user-content/.{digest}.json.lock",
+                files,
+            )
+            self.assertIn(
+                f"training-progress/.{second_digest}.json.lock/keep.bin",
+                files,
+            )
+
+            backup, manifest = coordinator._create_backup("training-progress-derived")
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            self.assertIn(f"training-progress/{digest}.json", paths)
+            self.assertNotIn(
+                f"training-progress/.{digest.upper()}.JSON.LOCK",
+                paths,
+            )
+            self.assertNotIn(
+                f"training-progress/.{digest}.json.abcd_123.tmp",
+                paths,
+            )
+            self.assertEqual(
+                (backup / "data" / "training-progress" / f"{digest}.json").read_bytes(),
+                b'{"durable":"training-progress"}\n',
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / "training-progress"
+                    / "user-content"
+                    / f".{digest}.json.lock"
+                ).read_bytes(),
+                b"nested-user-data",
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / "training-progress"
+                    / f".{second_digest}.json.lock"
+                    / "keep.bin"
+                ).read_bytes(),
+                b"directory-user-data",
+            )
+
     def test_exact_root_sound_cache_subtree_is_derived_and_nested_names_are_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
@@ -422,6 +516,11 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             (root / "gametree-resume.json.deadbeef.tmp").write_bytes(b"t" * 4096)
             (root / "gametree-resume.json.cas-deadbeef.bak").write_bytes(b"c" * 4096)
             (root / ".book-progress.json.deadbeef.tmp").write_bytes(b"p" * 4096)
+            training = root / "training-progress"
+            training.mkdir()
+            training_digest = "a" * 64
+            (training / f".{training_digest}.json.lock").write_bytes(b"l" * 4096)
+            (training / f".{training_digest}.json.abcd_123.tmp").write_bytes(b"m" * 4096)
             durable_profile = root / "sound-profile.json"
             durable_profile.write_bytes(b"x")
 

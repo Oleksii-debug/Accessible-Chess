@@ -57,6 +57,33 @@ def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
     )
 
 
+def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
+    """Classify only canonical TrainingProgressStore lock/temp filenames."""
+    if (
+        len(relative_path.parts) != 2
+        or relative_path.parts[0].casefold() != "training-progress"
+    ):
+        return False
+    name = relative_path.parts[1].casefold()
+    if not name.startswith("."):
+        return False
+    remainder = name[1:]
+    if len(remainder) < 64:
+        return False
+    digest, tail = remainder[:64], remainder[64:]
+    if any(character not in "0123456789abcdef" for character in digest):
+        return False
+    if tail == ".json.lock":
+        return True
+    if not tail.startswith(".json.") or not tail.endswith(".tmp"):
+        return False
+    unique = tail[len(".json.") : -len(".tmp")]
+    return bool(unique) and all(
+        character in "abcdefghijklmnopqrstuvwxyz0123456789_"
+        for character in unique
+    )
+
+
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -681,7 +708,10 @@ class Version2UpgradeCoordinator:
             # temporary files behind only after abrupt process death. They are
             # internal publication residue, not preservation-backed user data.
             # Nested lookalikes and non-matching near names remain ordinary data.
-            if _is_generated_root_runtime_file(relative_path):
+            if (
+                _is_generated_root_runtime_file(relative_path)
+                or _is_generated_training_progress_file(relative_path)
+            ):
                 continue
             folded = relative.casefold()
             if folded in seen:
