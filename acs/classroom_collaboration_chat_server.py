@@ -120,6 +120,20 @@ def _stored_bool(value: object, label: str) -> bool:
     return bool(value)
 
 
+def _stored_nonnegative_integer(
+    value: object,
+    label: str,
+    *,
+    maximum: int,
+) -> int:
+    if (
+        type(value) is not int
+        or not 0 <= value <= maximum
+    ):
+        raise ClassroomChatServerError(f"stored {label} is invalid")
+    return value
+
+
 def _moderation_fingerprint(command: ChatModerationCommand) -> str:
     payload = {
         "operation_id": command.operation_id,
@@ -207,12 +221,11 @@ class ClassroomChatServerSQLiteStore:
                     (_SERVER_SCHEMA_VERSION,),
                 )
             else:
-                try:
-                    version = int(row["value"])
-                except (TypeError, ValueError, OverflowError):
+                version = row["value"]
+                if type(version) is not int:
                     raise ClassroomChatServerError(
                         "invalid classroom chat server schema version"
-                    ) from None
+                    )
                 if version < 1:
                     raise ClassroomChatServerError(
                         "invalid classroom chat server schema version"
@@ -234,11 +247,19 @@ class ClassroomChatServerSQLiteStore:
                 message_id=row["message_id"],
                 room_id=row["room_id"],
                 sender_id=row["sender_id"],
-                sequence_no=int(row["sequence_no"]),
+                sequence_no=_stored_nonnegative_integer(
+                    row["sequence_no"],
+                    "message sequence",
+                    maximum=MAX_WIRE_INTEGER,
+                ),
                 body=row["body"],
                 retention=row["retention"],
                 hidden=_stored_bool(row["hidden"], "message hidden flag"),
-                sent_at_unix_ms=int(row["sent_at_unix_ms"]),
+                sent_at_unix_ms=_stored_nonnegative_integer(
+                    row["sent_at_unix_ms"],
+                    "message timestamp",
+                    maximum=MAX_CHAT_TIMESTAMP_UNIX_MS,
+                ),
             )
         except ClassroomChatServerError:
             raise
@@ -448,7 +469,11 @@ class ClassroomChatServerSQLiteStore:
                     ChatMessageStateUpdate(
                         room_id=row["room_id"],
                         message_id=row["message_id"],
-                        revision=int(row["revision"]),
+                        revision=_stored_nonnegative_integer(
+                            row["revision"],
+                            "moderation revision",
+                            maximum=MAX_WIRE_INTEGER,
+                        ),
                         hidden=_stored_bool(
                             row["hidden"],
                             "moderation hidden flag",

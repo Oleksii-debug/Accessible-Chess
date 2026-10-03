@@ -287,6 +287,83 @@ class ClassroomChatServerTests(unittest.TestCase):
             )
         self.assertIsNone(raised.exception.__cause__)
 
+    def test_fractional_persisted_numeric_metadata_fails_closed(self) -> None:
+        cases = (
+            ("sequence_no", 0.5, "stored message sequence is invalid"),
+            (
+                "sent_at_unix_ms",
+                1700000000000.5,
+                "stored message timestamp is invalid",
+            ),
+        )
+        for column, corrupt_value, expected_error in cases:
+            with self.subTest(column=column):
+                values = {
+                    "sequence_no": 0,
+                    "sent_at_unix_ms": 1700000000000,
+                }
+                values[column] = corrupt_value
+                with closing(sqlite3.connect(self.path)) as db, db:
+                    db.execute("PRAGMA ignore_check_constraints=ON")
+                    db.execute(
+                        """
+                        INSERT INTO classroom_chat_server_messages(
+                            message_id, room_id, sender_id, sequence_no, body,
+                            retention, hidden, sent_at_unix_ms
+                        ) VALUES(?,?,?,?,?,?,0,?)
+                        """,
+                        (
+                            f"fractional-{column}",
+                            ROOM,
+                            STUDENT,
+                            values["sequence_no"],
+                            "Fractional durable metadata",
+                            "session",
+                            values["sent_at_unix_ms"],
+                        ),
+                    )
+
+                with self.assertRaisesRegex(
+                    ClassroomChatServerError,
+                    expected_error,
+                ) as raised:
+                    self.store.history_after(
+                        room_id=ROOM,
+                        after_sequence=None,
+                        limit=10,
+                    )
+                self.assertIsNone(raised.exception.__cause__)
+
+                with closing(sqlite3.connect(self.path)) as db, db:
+                    db.execute(
+                        "DELETE FROM classroom_chat_server_messages WHERE room_id=?",
+                        (ROOM,),
+                    )
+
+    def test_fractional_state_revision_is_not_truncated(self) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("PRAGMA ignore_check_constraints=ON")
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0.5, "fractional-state",),
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "stored moderation revision is invalid",
+        ) as raised:
+            self.service.state_updates_after(
+                trusted_caller_identity=STUDENT,
+                room_id=ROOM,
+                after_revision=None,
+                limit=10,
+            )
+        self.assertIsNone(raised.exception.__cause__)
+
     def test_corrupt_state_update_and_hide_target_fail_without_partial_moderation(self) -> None:
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("PRAGMA ignore_check_constraints=ON")
@@ -479,7 +556,7 @@ class ClassroomChatServerTests(unittest.TestCase):
             )
 
     def test_corrupt_schema_version_is_sanitized_and_never_auto_repaired(self) -> None:
-        for value in ("not-an-integer", 0, 3):
+        for value in ("not-an-integer", 0, 1.5, 3):
             with self.subTest(value=value):
                 path = Path(self.tmp.name) / f"schema-{str(value).replace(' ', '-')}.sqlite3"
                 ClassroomChatServerSQLiteStore(path)
