@@ -118,6 +118,7 @@
       uiText(language, "Аудіо- й відеопристрої", "Audio and video devices")
     );
     heading.id = "classroom-media-devices-heading";
+    heading.tabIndex = -1;
     section.setAttribute("aria-labelledby", heading.id);
     section.appendChild(heading);
 
@@ -133,6 +134,62 @@
     controls.id = "classroom-media-device-controls";
     section.appendChild(controls);
 
+    const selectors = Object.create(null);
+    DEVICE_CONTROLS.forEach(function (definition) {
+      const labelText = deviceKindLabel(definition.kind, language);
+      const label = node("label", labelText);
+      const select = node("select");
+      select.id = "classroom-media-device-" + definition.kind;
+      select.disabled = true;
+      label.setAttribute("for", select.id);
+
+      const placeholder = node(
+        "option",
+        uiText(language, "Оберіть: ", "Choose: ") + labelText
+      );
+      placeholder.value = "";
+      select.appendChild(placeholder);
+      select.value = "";
+
+      select.addEventListener("change", function () {
+        const deviceId = safeDeviceId(select.value);
+        if (!deviceId || select.disabled) return;
+        select.disabled = true;
+        Promise.resolve().then(function () {
+          return invoke("media.recover_device", {
+            kind: definition.kind,
+            device_id: deviceId
+          });
+        }).then(function (result) {
+          if (!result || typeof result !== "object") {
+            throw new TypeError("classroom media result must be an object");
+          }
+          if (select.isConnected) select.disabled = false;
+          applyEvent(root, result, invoke, announce, language);
+        }).catch(function () {
+          if (select.isConnected) {
+            select.disabled = false;
+            if (typeof select.focus === "function") {
+              select.focus({ preventScroll: true });
+            }
+          }
+          announce(uiText(
+            language,
+            "Не вдалося змінити медіапристрій.",
+            "Could not change media device."
+          ));
+        }).finally(function () {
+          if (select.isConnected && select.children.length > 1) {
+            select.disabled = false;
+          }
+        });
+      });
+
+      selectors[definition.kind] = select;
+      controls.appendChild(label);
+      controls.appendChild(select);
+    });
+
     const mediaDevices = global.navigator && global.navigator.mediaDevices;
     if (!mediaDevices || typeof mediaDevices.enumerateDevices !== "function") {
       status.textContent = uiText(
@@ -144,13 +201,12 @@
     }
 
     function renderChoices(devices) {
-      controls.textContent = "";
       DEVICE_CONTROLS.forEach(function (definition) {
+        const select = selectors[definition.kind];
+        const previous = safeDeviceId(select.value);
         const labelText = deviceKindLabel(definition.kind, language);
-        const label = node("label", labelText);
-        const select = node("select");
-        select.id = "classroom-media-device-" + definition.kind;
-        label.setAttribute("for", select.id);
+        select.textContent = "";
+        select.value = "";
 
         const placeholder = node(
           "option",
@@ -158,9 +214,9 @@
         );
         placeholder.value = "";
         select.appendChild(placeholder);
-        select.value = "";
 
         let count = 0;
+        let previousAvailable = false;
         devices.forEach(function (device) {
           if (!device || device.kind !== definition.mediaKind) return;
           const deviceId = safeDeviceId(device.deviceId);
@@ -175,6 +231,7 @@
           );
           option.value = deviceId;
           select.appendChild(option);
+          if (previous && previous === deviceId) previousAvailable = true;
         });
 
         if (count === 0) {
@@ -185,42 +242,10 @@
           );
           missing.value = "";
           select.appendChild(missing);
+        } else {
+          select.disabled = false;
+          select.value = previousAvailable ? previous : "";
         }
-
-        select.addEventListener("change", function () {
-          const deviceId = safeDeviceId(select.value);
-          if (!deviceId || select.disabled) return;
-          select.disabled = true;
-          Promise.resolve().then(function () {
-            return invoke("media.recover_device", {
-              kind: definition.kind,
-              device_id: deviceId
-            });
-          }).then(function (result) {
-            if (!result || typeof result !== "object") {
-              throw new TypeError("classroom media result must be an object");
-            }
-            if (select.isConnected) select.disabled = false;
-            applyEvent(root, result, invoke, announce, language);
-          }).catch(function () {
-            if (select.isConnected) {
-              select.disabled = false;
-              if (typeof select.focus === "function") {
-                select.focus({ preventScroll: true });
-              }
-            }
-            announce(uiText(
-              language,
-              "Не вдалося змінити медіапристрій.",
-              "Could not change media device."
-            ));
-          }).finally(function () {
-            if (select.isConnected && count > 0) select.disabled = false;
-          });
-        });
-
-        controls.appendChild(label);
-        controls.appendChild(select);
       });
       status.textContent = uiText(
         language,
@@ -239,7 +264,9 @@
         }
         renderChoices(devices);
       }).catch(function () {
-        controls.textContent = "";
+        DEVICE_CONTROLS.forEach(function (definition) {
+          selectors[definition.kind].disabled = true;
+        });
         status.textContent = uiText(
           language,
           "Не вдалося отримати список медіапристроїв.",
