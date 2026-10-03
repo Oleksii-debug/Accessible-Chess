@@ -753,6 +753,57 @@ async function testMalformedDeviceRecoveryRetiresBeforeProviderBoundary() {
   }
 }
 
+async function testDuplicateInflightDispatchDoesNotRetireOwner() {
+  let releaseFirst;
+  class BlockingAdapter extends RecordingAdapter {
+    async setLocalSource(source, enabled) {
+      this.calls.push(["setLocalSource", source, enabled]);
+      await new Promise((resolve) => { releaseFirst = resolve; });
+    }
+  }
+  const runtime = loadRuntime(BlockingAdapter);
+  const transaction = "host-" + "5".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: true
+  }, false);
+  const retired = [];
+
+  async function invoke(command, payload) {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_dispatched") {
+      return {
+        kind: "provider-ready",
+        payload: { transaction_id: payload.transaction_id }
+      };
+    }
+    if (command === "media.provider_not_started") {
+      retired.push(payload.transaction_id);
+      return { kind: "error", payload: { message: "retired" } };
+    }
+    if (command === "media.provider_effect_success") {
+      return { kind: "media-updated", payload: { snapshot: {} } };
+    }
+    throw new Error("unexpected command " + command);
+  }
+
+  const firstPromise = runtime.execute(event, invoke);
+  while (typeof releaseFirst !== "function") {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const duplicate = await runtime.execute(event, invoke);
+  assert.deepEqual(duplicate, { kind: "status", payload: {} });
+  assert.deepEqual(retired, []);
+
+  releaseFirst();
+  const firstResult = await firstPromise;
+  assert.equal(firstResult.kind, "media-updated");
+  assert.deepEqual(retired, []);
+  assert.equal(RecordingAdapter.instances[0].calls.length, 1);
+}
+
 async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
   let releaseFirst;
   class BlockingAdapter extends RecordingAdapter {
@@ -1451,6 +1502,7 @@ async function run() {
   await testMalformedCrossedInstructionEscalatesToUnknownRecovery();
   await testMalformedModerationRetiresBeforeProviderBoundary();
   await testMalformedDeviceRecoveryRetiresBeforeProviderBoundary();
+  await testDuplicateInflightDispatchDoesNotRetireOwner();
   await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
   await testMalformedConcurrentDispatchRetiresExactTransaction();
   await testCleanProviderRebindRefreshesConfiguration();
