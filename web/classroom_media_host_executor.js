@@ -110,6 +110,40 @@
     }
   }
 
+  function validateSessionSuccessSnapshot(operation, credentialValue, enabledSources, value) {
+    const snapshot = normalizeSnapshot(value);
+    if (operation === "disconnect") {
+      const clean = !snapshot.connected &&
+        !snapshot.cleanup_required &&
+        snapshot.room_id === null &&
+        snapshot.participant_id === null &&
+        !snapshot.microphone_enabled &&
+        !snapshot.camera_enabled &&
+        !snapshot.screen_share_enabled;
+      if (!clean) {
+        throw new ClassroomMediaHostExecutorError(
+          "media session disconnect snapshot is not clean"
+        );
+      }
+      return snapshot;
+    }
+
+    const expectedSources = new Set(enabledSources);
+    const matches = snapshot.connected &&
+      !snapshot.cleanup_required &&
+      snapshot.room_id === credentialValue.room_id &&
+      snapshot.participant_id === credentialValue.participant_id &&
+      snapshot.microphone_enabled === expectedSources.has("microphone") &&
+      snapshot.camera_enabled === expectedSources.has("camera") &&
+      snapshot.screen_share_enabled === expectedSources.has("screen_share");
+    if (!matches) {
+      throw new ClassroomMediaHostExecutorError(
+        "media session provider snapshot does not match prepared effect"
+      );
+    }
+    return snapshot;
+  }
+
   function credential(value) {
     exactKeys(
       value,
@@ -351,7 +385,12 @@
     async _executeSession(payload, enabledSources) {
       if (payload.operation === "disconnect") {
         try {
-          const snapshot = normalizeSnapshot(await this._adapter.disconnect());
+          const snapshot = validateSessionSuccessSnapshot(
+            "disconnect",
+            null,
+            [],
+            await this._adapter.disconnect()
+          );
           return receipt(payload, "success", snapshot);
         } catch (_error) {
           return receipt(payload, "failed", safeSnapshot(this._adapter));
@@ -371,7 +410,10 @@
 
       try {
         const method = payload.operation === "connect" ? "connect" : "reconnect";
-        const snapshot = normalizeSnapshot(
+        const snapshot = validateSessionSuccessSnapshot(
+          payload.operation,
+          secret,
+          enabledSources,
           await this._adapter[method](secret, enabledSources)
         );
         return receipt(payload, "success", snapshot);
