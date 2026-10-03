@@ -31,6 +31,20 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         for token in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
             self.assertNotIn(token, text)
 
+    def test_book_list_rendering_requires_canonical_role_metadata(self) -> None:
+        text = self.text
+        self.assertIn(
+            'const roles = ["heading", "paragraph", "img", "group", "tree", "note", "list"]',
+            text,
+        )
+        self.assertIn('if (block.role === "list")', text)
+        self.assertIn('throw new TypeError("Book list block requires list metadata")', text)
+        self.assertIn('throw new TypeError("Book list items are invalid")', text)
+        self.assertIn('throw new TypeError("Book list ordered flag is invalid")', text)
+        self.assertIn('throw new TypeError("Book list start is invalid")', text)
+        self.assertIn('throw new TypeError("Unordered Book list cannot define a start")', text)
+        self.assertIn('throw new TypeError("Non-list Book block contains list metadata")', text)
+
     def test_book_lists_render_as_native_selectable_list_dom(self) -> None:
         text = self.text
         self.assertIn('content = node(block.list.ordered ? "ol" : "ul")', text)
