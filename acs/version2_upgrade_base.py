@@ -51,13 +51,22 @@ def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
     if len(relative_path.parts) != 1:
         return False
     name = relative_path.parts[0].casefold()
-    return (
-        name.startswith("gametree-resume.json.") and name.endswith(".tmp")
+
+    if (
+        name.startswith("gametree-resume.json.")
+        and name.endswith(".tmp")
     ) or (
-        name.startswith("gametree-resume.json.cas-") and name.endswith(".bak")
-    ) or (
-        name.startswith(".book-progress.json.") and name.endswith(".tmp")
-    )
+        name.startswith("gametree-resume.json.cas-")
+        and name.endswith(".bak")
+    ):
+        return True
+
+    for target_name in ("book-progress.json", "book-progress.json.bak"):
+        prefix = f".{target_name}."
+        if name.startswith(prefix) and name.endswith(".tmp"):
+            token = name[len(prefix) : -len(".tmp")]
+            return _is_tempfile_token(token)
+    return False
 
 
 def _is_generated_training_progress_file(relative_path: PurePosixPath) -> bool:
