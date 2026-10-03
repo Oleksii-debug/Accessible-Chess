@@ -1164,6 +1164,8 @@ def _chat_body(value: object) -> str:
         raise CollaborationError("chat body exceeds length limit")
     if "\x00" in value:
         raise CollaborationError("chat body contains NUL")
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise CollaborationError("chat body contains invalid Unicode surrogate")
     return value
 
 
