@@ -19,9 +19,10 @@ _PUBLIC_WEB_URL = re.compile(r"(?i)\bhttps?://[^\s\r\n\t]+")
 
 # ``file:`` is considered local only when it actually starts a path/URI. A prose
 # label such as ``file: appendix`` or ``file:appendix`` is intentionally not a
-# path start.
+# path start. Once a real file-URI start is proven, redact the remainder of
+# that physical line because valid local filesystem components may contain spaces.
 _FILE_LOCAL_URI = re.compile(
-    r"(?i)(?<![\w])file:(?=[/\\]|[a-z]:)[^\r\n\t ]+"
+    r"(?i)(?<![\w])file:(?=[/\\]|[a-z]:)[^\r\n\t]+"
 )
 
 # Windows forms covered here:
@@ -39,7 +40,7 @@ _WINDOWS_LOCAL_PATH = re.compile(
     r"[a-z]:[\\/][^\r\n\t]*"
     r"|[a-z]:(?=[^:\r\n\t]{1,260}\\)[^\r\n\t]*"
     r"|[a-z]:[^\s:\\/]+/[^\r\n\t]*"
-    r"|\\\\(?:[?.]\\)?[^\\\r\n\t ]+\\[^\r\n\t]*"
+    r"|\\\\(?:[?.][\\/])?[^\\/\r\n\t ]+[\\/][^\r\n\t]*"
     r")"
 )
 
