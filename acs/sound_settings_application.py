@@ -10,7 +10,11 @@ sound-profile, pack-coordinator and profiled-runtime authorities.
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from .sound_pack_catalog import SoundPackCatalogEntry, SoundPackState
+from .sound_pack_catalog import (
+    SoundPackCatalogEntry,
+    SoundPackRightsEvidence,
+    SoundPackState,
+)
 from .sound_pack_profile import SoundPackProfileCoordinator
 from .sound_profile_store import SoundProfileManager
 from .sound_profiles import (
@@ -60,6 +64,7 @@ class SoundSettingsApplication:
         pack_coordinator: SoundPackProfileCoordinator | None = None,
         catalog: Mapping[str, SoundPackCatalogEntry] | None = None,
         installed_pack_provider: Callable[[], Mapping[str, SoundPackManifest]] | None = None,
+        installed_rights_provider: Callable[[str], SoundPackRightsEvidence | None] | None = None,
         pack_compatibility_provider: Callable[[SoundPackManifest], bool] | None = None,
     ) -> None:
         if not isinstance(profile_manager, SoundProfileManager):
@@ -85,6 +90,10 @@ class SoundSettingsApplication:
             raise ValueError("catalog actions require a pack coordinator")
         if installed_pack_provider is not None and not callable(installed_pack_provider):
             raise TypeError("installed_pack_provider must be callable or None")
+        if installed_rights_provider is not None and not callable(
+            installed_rights_provider
+        ):
+            raise TypeError("installed_rights_provider must be callable or None")
         if pack_compatibility_provider is not None and not callable(
             pack_compatibility_provider
         ):
@@ -94,6 +103,7 @@ class SoundSettingsApplication:
         self._packs = pack_coordinator
         self._catalog = normalized
         self._installed_pack_provider = installed_pack_provider
+        self._installed_rights_provider = installed_rights_provider
         self._pack_compatibility_provider = pack_compatibility_provider
 
     @staticmethod
@@ -115,6 +125,20 @@ class SoundSettingsApplication:
                 raise ValueError("installed pack key must equal manifest pack_id")
             result[pack_id] = manifest
         return result
+
+    def _local_pack_rights(
+        self,
+        pack_id: str,
+    ) -> SoundPackRightsEvidence | None:
+        provider = self._installed_rights_provider
+        if provider is None:
+            return None
+        rights = provider(pack_id)
+        if rights is not None and not isinstance(rights, SoundPackRightsEvidence):
+            raise TypeError(
+                "installed rights provider must return SoundPackRightsEvidence or null"
+            )
+        return rights
 
     def _local_pack_compatible(self, manifest: SoundPackManifest) -> bool:
         entry = self._catalog.get(manifest.pack_id)
@@ -280,7 +304,23 @@ class SoundSettingsApplication:
                     if installed_manifest is not None
                     else manifest
                 )
-                rights = entry.rights_evidence
+                stored_rights = (
+                    None
+                    if installed_manifest is None
+                    else self._local_pack_rights(pack_id)
+                )
+                rights = (
+                    entry.rights_evidence
+                    if installed_manifest is None
+                    else stored_rights
+                )
+                if (
+                    rights is None
+                    and installed_manifest is not None
+                    and installed_manifest == manifest
+                ):
+                    rights = entry.rights_evidence
+                catalog_rights = entry.rights_evidence
                 represented.add(manifest.pack_id)
                 packs.append(
                     {
@@ -298,6 +338,13 @@ class SoundSettingsApplication:
                         "rights_auditable": rights is not None,
                         "rights_source_uri": "" if rights is None else rights.source_uri,
                         "license_uri": "" if rights is None else rights.license_uri,
+                        "catalog_rights_auditable": catalog_rights is not None,
+                        "catalog_rights_source_uri": (
+                            "" if catalog_rights is None else catalog_rights.source_uri
+                        ),
+                        "catalog_license_uri": (
+                            "" if catalog_rights is None else catalog_rights.license_uri
+                        ),
                         "compatible": entry.compatible,
                         "installed_compatible": installed_compatible,
                         "installed_version": status.installed_version,
@@ -315,6 +362,7 @@ class SoundSettingsApplication:
             if pack_id == "classic" or pack_id in represented:
                 continue
             compatible = self._local_pack_compatible(manifest)
+            rights = self._local_pack_rights(pack_id)
             packs.append(
                 {
                     "pack_id": manifest.pack_id,
@@ -323,9 +371,12 @@ class SoundSettingsApplication:
                     "author": manifest.author,
                     "license_id": manifest.license_id,
                     "provenance": manifest.provenance,
-                    "rights_auditable": False,
-                    "rights_source_uri": "",
-                    "license_uri": "",
+                    "rights_auditable": rights is not None,
+                    "rights_source_uri": "" if rights is None else rights.source_uri,
+                    "license_uri": "" if rights is None else rights.license_uri,
+                    "catalog_rights_auditable": False,
+                    "catalog_rights_source_uri": "",
+                    "catalog_license_uri": "",
                     "compatible": compatible,
                     "installed_compatible": compatible,
                     "installed_version": manifest.version,
