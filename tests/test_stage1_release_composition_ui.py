@@ -143,6 +143,30 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 runtime.close()
             self.assertTrue(runtime.closed)
 
+    def test_terminal_board_positions_use_specific_mate_and_draw_sounds(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                for san in ("f3", "e5", "g4", "Qh4#"):
+                    result = api.make_move(san)
+                    self.assertTrue(result["ok"], result)
+                events = [event for event, _volume in playback.calls]
+                self.assertIn(SoundEvent.MATE, events)
+                self.assertNotIn(SoundEvent.END, events)
+
+                playback.calls.clear()
+                api.board.set_fen("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
+                api.sans = ["Qf7"]
+                api._resume_game_sound_after_takeback()
+                api._play_latest_move()
+                events = [event for event, _volume in playback.calls]
+                self.assertEqual(events[-1], SoundEvent.DRAW)
+                self.assertNotIn(SoundEvent.END, events)
+            finally:
+                api.close_analysis()
+                runtime.close()
+
     def test_sound_settings_persist_drive_runtime_and_preview_is_real(self) -> None:
         playback = _Playback()
         with tempfile.TemporaryDirectory() as td:
