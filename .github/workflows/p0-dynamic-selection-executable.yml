@@ -12,6 +12,7 @@ on:
       - 'tests/test_p0_dynamic_selection_action_delivery.py'
       - 'tests/test_p0_dynamic_selection_partial_replacement.py'
       - 'tests/test_p0_semantic_document_copy.py'
+      - 'tests/test_p0_final_product_resource_order.py'
       - '.github/workflows/p0-dynamic-selection-executable.yml'
   workflow_dispatch:
 
@@ -111,7 +112,7 @@ jobs:
           printf 'P0 retained authority PASS: pr-base=%s owner=%s head=%s\n' "$base" "$p0_owner" "$(git rev-parse HEAD)"
 
       - name: Compile focused regression
-        run: python -m compileall -q tests/test_p0_dynamic_selection_action_delivery.py tests/test_p0_dynamic_selection_partial_replacement.py tests/test_p0_semantic_document_copy.py
+        run: python -m compileall -q tests/test_p0_dynamic_selection_action_delivery.py tests/test_p0_dynamic_selection_partial_replacement.py tests/test_p0_semantic_document_copy.py tests/test_p0_final_product_resource_order.py
 
       - name: Execute browser selection regressions
         run: |
@@ -131,6 +132,7 @@ jobs:
           tests/test_p0_dynamic_selection_action_delivery.py
           tests/test_p0_dynamic_selection_partial_replacement.py
           tests/test_p0_semantic_document_copy.py
+          tests/test_p0_final_product_resource_order.py
 
       - name: Final-product diagnostic
         run: python run_accessible_chess_v2.py --diagnostic
