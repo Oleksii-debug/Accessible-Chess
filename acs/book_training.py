@@ -37,6 +37,7 @@ _MAX_HEADING_PATH_ITEMS = 256
 _MAX_DEFINITION_TAGS = 256
 _MAX_DEFINITION_METADATA_ITEMS = 256
 _MAX_DEFINITION_AUX_TEXT = 4096
+_MAX_WIRE_FIELD_NAME = 128
 _MATERIAL_FIELDS = frozenset({"schema_version", "origin", "definition"})
 _ORIGIN_FIELDS = frozenset(
     {
@@ -148,12 +149,25 @@ def _require_exact_fields(
             f"{name} must be an exact dictionary",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
+    # An exact JSON object cannot contain duplicate keys. More keys than the
+    # schema therefore proves an unknown field without iterating attacker-sized
+    # mappings or hashing attacker-controlled names.
+    if len(payload) > len(expected):
+        raise BookTrainingError(
+            f"invalid {name} fields (too many fields)",
+            code=BookTrainingErrorCode.UNKNOWN_FIELD,
+        )
     field_names: list[str] = []
     for field in payload:
         if type(field) is not str:
             raise BookTrainingError(
                 f"{name} field names must be exact text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        if len(field) > _MAX_WIRE_FIELD_NAME:
+            raise BookTrainingError(
+                f"invalid {name} fields (field name exceeds safety limit)",
+                code=BookTrainingErrorCode.UNKNOWN_FIELD,
             )
         field_names.append(field)
     fields = set(field_names)
@@ -877,7 +891,7 @@ def restore_book_training_material(
         )
     if version != BOOK_TRAINING_SCHEMA_VERSION:
         raise BookTrainingError(
-            f"unsupported book training schema_version: {version}",
+            "unsupported book training schema_version",
             code=BookTrainingErrorCode.UNSUPPORTED_SCHEMA,
         )
     origin_value = payload["origin"]
