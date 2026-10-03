@@ -101,6 +101,9 @@ jobs:
             'acs/book_progress_store.py' \
             'acs/version2_application.py' \
             'tests/test_v2_book_progress_store.py' \
+            'tests/test_v2_book_progress_store_production.py' \
+            'tests/test_v2_book_training_route_rollback.py' \
+            'tests/test_v2_book_transaction_current_runtime.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
           echo "BOOK_PROGRESS_ORPHAN_BACKUP_TOPOLOGY=$topology"
@@ -118,6 +121,8 @@ jobs:
           python -m unittest -v
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
+          tests.test_v2_book_training_route_rollback
+          tests.test_v2_book_transaction_current_runtime
           tests.test_books_progress_backup_recovery_workflow
           tests.test_book_board_progress_failure_exact
           tests.test_version2_application
