@@ -94,9 +94,10 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             self.assertEqual(storage.read_profile(), profile.to_mapping())
             self.assertFalse(path.with_suffix(path.suffix + ".tmp").exists())
 
-    def test_atomic_publish_flushes_parent_directory(self) -> None:
+    def test_atomic_publish_durably_links_new_parent_then_flushes_profile_directory(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            path = Path(raw) / "settings" / "sound-profile.json"
+            root = Path(raw)
+            path = root / "settings" / "sound-profile.json"
             storage = JsonSoundProfileStorage(path)
 
             with mock.patch(
@@ -104,8 +105,34 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             ) as sync_directory:
                 storage.write_profile_atomically(SoundProfile().to_mapping())
 
-            sync_directory.assert_called_once_with(path.parent)
+            self.assertEqual(
+                [mock.call(root), mock.call(path.parent)],
+                sync_directory.call_args_list,
+            )
             self.assertEqual(storage.read_profile(), SoundProfile().to_mapping())
+
+    def test_first_profile_write_durably_links_each_new_directory_parent_first(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first = root / "data"
+            second = first / "settings"
+            path = second / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+
+            with mock.patch(
+                "acs.sound_profile_file_store._fsync_directory"
+            ) as sync_directory:
+                storage.write_profile_atomically(SoundProfile().to_mapping())
+
+            self.assertEqual(
+                [
+                    mock.call(root),
+                    mock.call(first),
+                    mock.call(second),
+                ],
+                sync_directory.call_args_list,
+            )
+            self.assertTrue(path.is_file())
 
     def test_post_replace_directory_sync_failure_is_refreshable_uncertain_commit(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
