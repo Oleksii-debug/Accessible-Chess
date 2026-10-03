@@ -79,6 +79,8 @@ class ChatMessageMetadata:
             raise ValueError("message body must be non-empty text")
         if len(self.body) > MAX_CHAT_BODY_CHARS or "\x00" in self.body:
             raise ValueError("message body exceeds safety boundary")
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in self.body):
+            raise ValueError("message body contains invalid Unicode surrogate")
         if self.retention not in {"transient", "session", "persistent"}:
             raise ValueError("unsupported retention policy")
         if type(self.hidden) is not bool:
@@ -290,6 +292,28 @@ def content_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _next_authoritative_attachment_sequence(
+    db: sqlite3.Connection,
+    room_id: str,
+) -> int:
+    rows = db.execute(
+        """
+        SELECT sequence_no
+        FROM collaboration_attachments
+        WHERE room_id=? AND transfer_state IN ('stored', 'deleted')
+        ORDER BY sequence_no
+        """,
+        (room_id,),
+    ).fetchall()
+    expected = 0
+    for row in rows:
+        sequence = int(row["sequence_no"])
+        if sequence != expected:
+            break
+        expected += 1
+    return expected
+
+
 class ClassroomCollaborationSQLiteStore:
     """Durable provider-neutral chat/file metadata store.
 
@@ -308,13 +332,17 @@ class ClassroomCollaborationSQLiteStore:
 
     def _migrate(self) -> None:
         with closing(self._connect()) as db, db:
+            # SQLite DDL is transactional only when we explicitly start the
+            # transaction. Keep schema changes and the version marker atomic so
+            # a crash cannot leave a half-applied migration that bricks reopen.
+            db.execute("BEGIN IMMEDIATE")
             db.execute("CREATE TABLE IF NOT EXISTS collaboration_schema_meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
             row = db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()
             version = int(row[0]) if row else 0
             if version > SCHEMA_VERSION:
                 raise CollaborationStorageError(f"unsupported collaboration schema {version}")
             if version < 1:
-                db.executescript(
+                db.execute(
                     """
                     CREATE TABLE collaboration_messages(
                         message_id TEXT PRIMARY KEY,
@@ -325,9 +353,17 @@ class ClassroomCollaborationSQLiteStore:
                         retention TEXT NOT NULL,
                         hidden INTEGER NOT NULL DEFAULT 0,
                         UNIQUE(room_id, sequence_no)
-                    );
+                    )
+                    """
+                )
+                db.execute(
+                    """
                     CREATE INDEX idx_collaboration_messages_room
-                        ON collaboration_messages(room_id, sequence_no);
+                    ON collaboration_messages(room_id, sequence_no)
+                    """
+                )
+                db.execute(
+                    """
                     CREATE TABLE collaboration_attachments(
                         attachment_id TEXT PRIMARY KEY,
                         room_id TEXT NOT NULL,
@@ -342,9 +378,13 @@ class ClassroomCollaborationSQLiteStore:
                         retention TEXT NOT NULL,
                         scan_state TEXT NOT NULL,
                         UNIQUE(room_id, sequence_no)
-                    );
+                    )
+                    """
+                )
+                db.execute(
+                    """
                     CREATE INDEX idx_collaboration_attachments_room
-                        ON collaboration_attachments(room_id, sequence_no);
+                    ON collaboration_attachments(room_id, sequence_no)
                     """
                 )
                 db.execute(
@@ -957,7 +997,18 @@ class ClassroomCollaborationSQLiteStore:
         persisted: list[AttachmentMetadata] = []
         with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            expected_by_room: dict[str, int] = {}
             for attachment in attachments:
+                expected_sequence = expected_by_room.get(attachment.room_id)
+                if expected_sequence is None:
+                    expected_sequence = _next_authoritative_attachment_sequence(
+                        db,
+                        attachment.room_id,
+                    )
+                if attachment.sequence_no > expected_sequence:
+                    raise CollaborationSequenceGapError(
+                        "attachment sequence has an unresolved gap"
+                    )
                 existing = db.execute(
                     "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
                     (attachment.attachment_id,),
@@ -969,6 +1020,9 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment identity reused with different payload"
                         )
                     persisted.append(loaded)
+                    if attachment.sequence_no == expected_sequence:
+                        expected_sequence += 1
+                    expected_by_room[attachment.room_id] = expected_sequence
                     continue
                 try:
                     db.execute(
@@ -993,6 +1047,9 @@ class ClassroomCollaborationSQLiteStore:
                         "attachment batch conflicts with ordering or storage identity"
                     ) from exc
                 persisted.append(attachment)
+                if attachment.sequence_no == expected_sequence:
+                    expected_sequence += 1
+                expected_by_room[attachment.room_id] = expected_sequence
         return tuple(persisted)
 
     def reconcile_attachment_sync_atomic(
@@ -1026,7 +1083,15 @@ class ClassroomCollaborationSQLiteStore:
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
+                expected_sequence = _next_authoritative_attachment_sequence(
+                    db,
+                    room_id,
+                )
                 for attachment in attachments:
+                    if attachment.sequence_no > expected_sequence:
+                        raise CollaborationSequenceGapError(
+                            "attachment sequence has an unresolved gap"
+                        )
                     existing = db.execute(
                         "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
                         (attachment.attachment_id,),
@@ -1035,6 +1100,8 @@ class ClassroomCollaborationSQLiteStore:
                         loaded = self._attachment_from_row(existing)
                         if loaded == attachment:
                             persisted.append(loaded)
+                            if attachment.sequence_no == expected_sequence:
+                                expected_sequence += 1
                             continue
                         immutable = (
                             "attachment_id",
@@ -1099,6 +1166,8 @@ class ClassroomCollaborationSQLiteStore:
                                 "authoritative attachment conflicts with room ordering"
                             ) from exc
                         persisted.append(attachment)
+                        if attachment.sequence_no == expected_sequence:
+                            expected_sequence += 1
                         continue
                     try:
                         db.execute(
@@ -1123,6 +1192,8 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment batch conflicts with ordering or storage identity"
                         ) from exc
                     persisted.append(attachment)
+                    if attachment.sequence_no == expected_sequence:
+                        expected_sequence += 1
 
                 cursor = db.execute(
                     "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
@@ -1148,6 +1219,10 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment state update references unknown room attachment"
                         )
                     current = self._attachment_from_row(row)
+                    if current.transfer_state not in {"stored", "deleted"}:
+                        raise CollaborationStorageError(
+                            "attachment state update requires authoritative history"
+                        )
                     _validate_transfer_transition(
                         current.transfer_state,
                         update.transfer_state,
@@ -1224,6 +1299,15 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationConflictError(
                     "file authority arrived outside active upload transition"
                 )
+            if attachment.transfer_state in {"stored", "deleted"}:
+                expected_sequence = _next_authoritative_attachment_sequence(
+                    db,
+                    current.room_id,
+                )
+                if attachment.sequence_no > expected_sequence:
+                    raise CollaborationSequenceGapError(
+                        "attachment sequence has an unresolved gap"
+                    )
             _validate_transfer_transition(
                 current.transfer_state,
                 attachment.transfer_state,
@@ -1338,6 +1422,10 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment state update references unknown room attachment"
                         )
                     current = self._attachment_from_row(row)
+                    if current.transfer_state not in {"stored", "deleted"}:
+                        raise CollaborationStorageError(
+                            "attachment state update requires authoritative history"
+                        )
                     _validate_transfer_transition(
                         current.transfer_state,
                         update.transfer_state,
