@@ -2509,8 +2509,53 @@ async function run() {
     "Training solution target is not programmatically focusable"
   );
   check(
+    solutionTarget.getAttribute("aria-labelledby") === "training-solution-heading",
+    "Training solution focus target has no accessible name"
+  );
+  check(
+    revealedTrainingRoot.querySelector("#training-solution-heading") !== null,
+    "Training solution heading id missing"
+  );
+  check(
     document.activeElement === solutionTarget,
     "Training reveal did not focus the solution target"
+  );
+
+  const sparseSolutionRoot = new FakeElement("div");
+  const sparseSolutionAnnouncements = [];
+  const sparseSolution = new Array(1);
+  window.AccessibleChessTrainingSurface.render(
+    sparseSolutionRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: "training-solution",
+        clear_answer: false,
+        solution: sparseSolution
+      }
+    }),
+    (message) => sparseSolutionAnnouncements.push(String(message)),
+    "training-answer",
+    "Sparse solution failed",
+    []
+  );
+  const sparseSolutionBefore = sparseSolutionRoot.querySelector("#training-answer");
+  sparseSolutionBefore.value = "d4";
+  find(sparseSolutionRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    sparseSolutionRoot.querySelector("#training-answer") === sparseSolutionBefore &&
+      sparseSolutionBefore.value === "d4" &&
+      sparseSolutionRoot.querySelector("#training-solution") === null,
+    "sparse Training solution mutated the stable render"
+  );
+  check(
+    sparseSolutionAnnouncements.length === 1 &&
+      sparseSolutionAnnouncements[0] === "Sparse solution failed",
+    "sparse Training solution did not fail closed accessibly"
   );
 
   const invalidTrainingFocusRoot = new FakeElement("div");
