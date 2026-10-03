@@ -274,6 +274,48 @@ check(
   "message retention must remain selectable and must not become live announcement noise"
 );
 
+const disclosureFocusRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  disclosureFocusRoot,
+  snapshot,
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+const disclosureSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-timestamp"
+);
+check(
+  disclosureSummary !== null,
+  "message timestamp disclosure must expose a stable focus anchor"
+);
+disclosureSummary.focus();
+const oldDisclosureSummary = disclosureSummary;
+window.AccessibleChessEducationSurface.apply(
+  disclosureFocusRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: snapshot.collaboration
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  document.activeElement === disclosureFocusRoot.querySelector(
+    "#collaboration-message-one-timestamp"
+  ) &&
+  document.activeElement !== oldDisclosureSummary,
+  "collaboration redraw must restore keyboard focus to the rebuilt message disclosure"
+);
+check(
+  disclosureFocusRoot.querySelector("#collaboration-message-one-retention") !== null,
+  "message retention disclosure must expose a stable focus anchor"
+);
+
 const pageStatus = root.querySelector("#collaboration-chat-page-status");
 check(
   pageStatus !== null &&
