@@ -32,10 +32,11 @@ def _production_text_files() -> list[Path]:
 
 
 class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
-    def test_pull_request_identity_is_proven_against_live_product_parent(self) -> None:
+    def test_pull_request_identity_accepts_only_live_product_rooted_exact_target_merge(self) -> None:
         workflow = (
             ROOT / ".github" / "workflows" / "p0-release-critical-triad-convergence.yml"
         ).read_text(encoding="utf-8")
+        self.assertIn("EVENT_BASE_REF:", workflow)
         self.assertIn("EVENT_BASE_SHA:", workflow)
         self.assertIn("EVENT_HEAD_SHA:", workflow)
         self.assertIn("CHECKED_SHA:", workflow)
@@ -49,21 +50,42 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
-            'live_base="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"', workflow
+            'live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"',
+            workflow,
         )
         self.assertIn(
-            'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"', workflow
+            'git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"',
+            workflow,
         )
-        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
-        self.assertIn('git merge-base --is-ancestor "$EVENT_HEAD_SHA" HEAD', workflow)
         self.assertIn(
-            'test "$(git merge-base "$live_base" "$EVENT_HEAD_SHA")" = "$live_base"',
+            'live_target="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn('test "$EVENT_BASE_SHA" = "$live_target"', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_product" "$EVENT_BASE_SHA"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$EVENT_HEAD_SHA"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$EVENT_BASE_SHA" "$EVENT_HEAD_SHA")" = "$EVENT_BASE_SHA"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"',
             workflow,
         )
         self.assertIn('git show -s --format=%P HEAD', workflow)
-        self.assertIn('test "$parents" = "$live_base $EVENT_HEAD_SHA"', workflow)
-        self.assertIn('git diff --check "$live_base..HEAD"', workflow)
-        self.assertNotIn('git diff --check "$EVENT_BASE_SHA..HEAD"', workflow)
+        self.assertIn('test "$parents" = "$EVENT_BASE_SHA $EVENT_HEAD_SHA"', workflow)
+        self.assertIn('git diff --check "$EVENT_BASE_SHA..$EVENT_HEAD_SHA"', workflow)
+        self.assertNotIn(
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"',
+            workflow,
+        )
+        self.assertNotIn('test "$parents" = "$live_base $EVENT_HEAD_SHA"', workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
