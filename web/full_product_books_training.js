@@ -597,7 +597,6 @@
     section.setAttribute("aria-label", tree.label);
     section.appendChild(node("h4", tree.label));
     section.appendChild(node("p", tree.players_label + ": " + tree.players));
-    section.appendChild(node("p", tree.result_label + ": " + tree.result));
     appendSemanticComments(section, tree.intro_comments);
 
     const children = tree.items.map(function () { return []; });
@@ -643,6 +642,9 @@
       });
       section.appendChild(list);
     }
+    // The game result terminates movetext. Preserve that reading position
+    // before comments that canonically occur after the game terminator.
+    section.appendChild(node("p", tree.result_label + ": " + tree.result));
     appendSemanticComments(section, tree.outro_comments);
     host.appendChild(section);
   }
