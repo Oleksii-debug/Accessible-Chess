@@ -224,6 +224,12 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 clock_limit = api.set_clock_sound_last_seconds(25)
                 self.assertTrue(clock_limit["ok"], clock_limit)
                 self.assertEqual(clock_limit["tickLastSeconds"], 25)
+                low_mode = api.set_low_time_policy("both")
+                self.assertTrue(low_mode["ok"], low_mode)
+                self.assertEqual(low_mode["lowTimePolicy"], "both")
+                low_limit = api.set_low_time_seconds(15)
+                self.assertTrue(low_limit["ok"], low_limit)
+                self.assertEqual(low_limit["lowTimeSeconds"], 15)
                 selected = api.set_sound_variant("move", "2")
                 self.assertTrue(selected["ok"], selected)
                 self.assertEqual(selected["selectedVariants"]["move"], "2")
@@ -264,6 +270,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 self.assertEqual(restored["volume"], 35)
                 self.assertEqual(restored["tickPolicy"], "both")
                 self.assertEqual(restored["tickLastSeconds"], 25)
+                self.assertEqual(restored["lowTimePolicy"], "both")
+                self.assertEqual(restored["lowTimeSeconds"], 15)
                 self.assertEqual(restored["selectedVariants"]["move"], "2")
                 self.assertEqual(restored["selectedVariants"]["mate"], "ru")
                 self.assertEqual(restored["selectedVariants"]["draw"], "en")
@@ -337,11 +345,57 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 api.close_analysis()
                 runtime.close()
 
+    def test_low_time_warning_is_independent_one_shot_and_rearms_above_threshold(self) -> None:
+        playback = _Playback()
+        with tempfile.TemporaryDirectory() as td:
+            api, runtime = self.make_composed(td, playback)
+            try:
+                started = api.start_engine_game("white", 5, 1, 0)
+                self.assertTrue(started["ok"], started)
+                session = api._engine_session
+                self.assertIsNotNone(session)
+                clock = session._clock
+                self.assertIsNotNone(clock)
+                api._clock_sound_not_before = 0.0
+                api._settings.set("tick_policy", "off")
+                api._settings.set("low_time_policy", "my_turn")
+                api._settings.set("low_time_seconds", 30)
+                clock.set_remaining("w", 25_000)
+
+                first = api.clock_sound_pulse()
+                self.assertTrue(first["ok"], first)
+                self.assertTrue(first["played"], first)
+                self.assertEqual(first["event"], "low_time")
+                self.assertEqual(playback.calls[-1], (SoundEvent.LOW_TIME, 80))
+
+                before = len(playback.calls)
+                repeated = api.clock_sound_pulse()
+                self.assertFalse(repeated["played"], repeated)
+                self.assertEqual(len(playback.calls), before)
+
+                clock.set_remaining("w", 35_000)
+                api.clock_sound_pulse()
+                clock.set_remaining("w", 25_000)
+                replayed = api.clock_sound_pulse()
+                self.assertTrue(replayed["played"], replayed)
+                self.assertEqual(replayed["event"], "low_time")
+                self.assertEqual(
+                    [event for event, _volume in playback.calls].count(SoundEvent.LOW_TIME),
+                    2,
+                )
+            finally:
+                api.close_analysis()
+                runtime.close()
+
     def test_clock_sound_pump_is_non_announcing_and_segment_sized(self) -> None:
         text = self.bootstrap
         self.assertIn("a.clock_sound_pulse()", text)
         self.assertIn("}, 3400);", text)
         self.assertIn("clockSoundPulseInFlight", text)
+        self.assertIn("sound-low-time-policy", text)
+        self.assertIn("sound-low-time-seconds", text)
+        self.assertIn("a.set_low_time_policy", text)
+        self.assertIn("a.set_low_time_seconds", text)
 
     def test_engine_resignation_emits_one_game_end_sound(self) -> None:
         playback = _Playback()
@@ -488,6 +542,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         for element_id in (
             "sound-settings", "sound-enabled", "sound-newgame-animation", "sound-volume",
             "sound-tick-policy", "sound-tick-last-seconds",
+            "sound-low-time-policy", "sound-low-time-seconds",
             "sound-preview-event", "sound-variant", "sound-preview",
             "sound-settings-status",
         ):
@@ -498,11 +553,14 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("a.set_sound_volume", text)
         self.assertIn("a.set_clock_sound_policy", text)
         self.assertIn("a.set_clock_sound_last_seconds", text)
+        self.assertIn("a.set_low_time_policy", text)
+        self.assertIn("a.set_low_time_seconds", text)
         self.assertIn("a.set_sound_variant", text)
         self.assertIn("a.preview_sound", text)
         self.assertIn("mate:'Мат'", text)
         self.assertIn("draw:'Нічия'", text)
-        self.assertIn("'mate','draw'", text)
+        self.assertIn("'mate','draw','tick','low_time'", text)
+        self.assertIn("low_time:'Мало часу'", text)
         self.assertIn("status.setAttribute('aria-live', 'off')", text)
         self.assertNotIn("role', 'status", text)
         self.assertNotIn("role=\"status\"", text)
