@@ -984,6 +984,14 @@ class ClassroomFileServerService:
             # policy decision. The accepted immutable identity is authoritative.
             return existing
         if not scan_approved:
+            # Reject a payload the authoritative server can never accept before
+            # invoking a potentially expensive malware scanner. Exact retries
+            # of an already scan-approved reservation intentionally bypass this
+            # policy recheck so recovery cannot drift after an ambiguous write.
+            if metadata.size_bytes > self._quota.max_file_bytes:
+                raise CollaborationQuotaError(
+                    "file exceeds authoritative server size limit"
+                )
             try:
                 scan_state = self._scanner.scan(
                     room_id=metadata.room_id,
