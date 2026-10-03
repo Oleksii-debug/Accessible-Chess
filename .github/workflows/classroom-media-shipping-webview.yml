@@ -153,7 +153,12 @@ jobs:
             done
           fi
           git diff --check "$base...HEAD"
-          git diff --quiet "$base...HEAD" --             acs/chesscore.py             acs/classroom_domain.py             acs/classroom_realtime_media.py             acs/remote_session.py             acs/teaching_classroom_adapter.py
+          git diff --quiet "$base...HEAD" -- \
+            acs/chesscore.py \
+            acs/classroom_domain.py \
+            acs/classroom_realtime_media.py \
+            acs/remote_session.py \
+            acs/teaching_classroom_adapter.py
           echo "CLASSROOM_MEDIA_SHIPPING_WEBVIEW_LIVE_BASE=$base"
           echo 'CLASSROOM_MEDIA_SHIPPING_WEBVIEW_BOUNDED_SCOPE=PASS'
 
@@ -190,7 +195,7 @@ jobs:
           tests/test_classroom_media_provider_binder.py
           tests/test_classroom_media_shipping_webview.py
 
-      - name: Run transactional media, release and package qualification
+      - name: Run media transaction qualification
         run: >-
           python -m unittest -v
           tests.test_classroom_media_shipping_webview
@@ -200,11 +205,22 @@ jobs:
           tests.test_classroom_media_host_transactions
           tests.test_classroom_media_webview
           tests.test_classroom_realtime_media
+
+      - name: Run final-product and release qualification
+        if: always()
+        run: >-
+          python -m unittest -v
           tests.test_version2_final_product_composition
           tests.test_version2_final_release_binding
+
+      - name: Run payload, package and runtime-reachability qualification
+        if: always()
+        run: >-
+          python -m unittest -v
           tests.test_version2_release_payload
           tests.test_version2_package_preflight
           tests.test_p0g_final_product_runtime_reachability
 
       - name: Core selftest
+        if: always()
         run: python -m acs.selftest
