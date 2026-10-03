@@ -103,7 +103,22 @@
     Promise.resolve(result).then(onResult).catch(fail);
   }
 
-  const PENDING_WEBVIEW_ROOTS = new WeakSet();
+  const PENDING_WEBVIEW_COMMANDS = new WeakMap();
+
+  function setRootBusy(root, busy) {
+    if (typeof root.setAttribute === "function") {
+      root.setAttribute("aria-busy", busy ? "true" : "false");
+    }
+  }
+
+  function hasPendingCommand(root) {
+    return PENDING_WEBVIEW_COMMANDS.has(root);
+  }
+
+  function invalidatePendingCommand(root) {
+    PENDING_WEBVIEW_COMMANDS.delete(root);
+    setRootBusy(root, false);
+  }
 
   function safeInvokeOnce(
     root,
@@ -115,17 +130,23 @@
     fallbackMessage,
     onFailure
   ) {
-    if (PENDING_WEBVIEW_ROOTS.has(root)) return false;
-    PENDING_WEBVIEW_ROOTS.add(root);
-    if (typeof root.setAttribute === "function") {
-      root.setAttribute("aria-busy", "true");
+    if (hasPendingCommand(root)) return false;
+    const token = {};
+    PENDING_WEBVIEW_COMMANDS.set(root, token);
+    setRootBusy(root, true);
+
+    function isCurrent() {
+      return PENDING_WEBVIEW_COMMANDS.get(root) === token;
     }
 
     function release() {
-      PENDING_WEBVIEW_ROOTS.delete(root);
-      if (typeof root.setAttribute === "function") {
-        root.setAttribute("aria-busy", "false");
-      }
+      if (!isCurrent()) return;
+      PENDING_WEBVIEW_COMMANDS.delete(root);
+      setRootBusy(root, false);
+    }
+
+    function currentAnnounce(message) {
+      if (isCurrent()) announce(message);
     }
 
     safeInvoke(
@@ -133,15 +154,14 @@
       command,
       payload,
       function (result) {
-        try {
-          onResult(result);
-        } finally {
-          release();
-        }
+        if (!isCurrent()) return;
+        onResult(result);
+        release();
       },
-      announce,
+      currentAnnounce,
       fallbackMessage,
       function () {
+        if (!isCurrent()) return;
         release();
         if (typeof onFailure === "function") onFailure();
       }
@@ -1178,6 +1198,7 @@
     main.appendChild(form);
 
     fragment.appendChild(main);
+    invalidatePendingCommand(root);
     root.replaceChildren(fragment);
     focusTarget(root, requestedFocus || "");
   }
@@ -1245,7 +1266,7 @@
     return {
       dialog: dialog,
       open: function (button) {
-        if (PENDING_WEBVIEW_ROOTS.has(root)) return;
+        if (hasPendingCommand(root)) return;
         opener = button;
         dialog.showModal();
         confirm.focus();
@@ -1456,6 +1477,7 @@
     main.appendChild(resetDialog.dialog);
 
     fragment.appendChild(main);
+    invalidatePendingCommand(root);
     root.replaceChildren(fragment);
     focusTarget(root, requestedFocus);
   }
