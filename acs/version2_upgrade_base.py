@@ -632,6 +632,12 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
                 )
             temp_identity = prepared
 
+        copied_digest = digest.hexdigest()
+        if expected_size is not None and int(after.st_size) != expected_size:
+            raise Version2UpgradeError("user-data source size does not match expected copy")
+        if expected_sha256 is not None and copied_digest != expected_sha256:
+            raise Version2UpgradeError("user-data source digest does not match expected copy")
+
         assert temp is not None
         try:
             current = os.lstat(temp)
@@ -1020,7 +1026,23 @@ def _hash(path: Path, *, label: str = "hashed file") -> str:
     return digest.hexdigest()
 
 
-def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
+def _stable_copy(
+    source: Path,
+    destination: Path,
+    *,
+    expected_size: int | None = None,
+    expected_sha256: str | None = None,
+) -> tuple[int, str]:
+    if expected_size is not None and (
+        type(expected_size) is not int or expected_size < 0
+    ):
+        raise ValueError("expected copy size is invalid")
+    if expected_sha256 is not None and (
+        type(expected_sha256) is not str
+        or len(expected_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in expected_sha256)
+    ):
+        raise ValueError("expected copy digest is invalid")
     before = _safe_stat(source, "user-data source")
     if not stat.S_ISREG(before.st_mode):
         raise Version2UpgradeError("user-data source must be a regular file")
@@ -1030,6 +1052,8 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
         before.st_size,
         getattr(before, "st_mtime_ns", 0),
     )
+    if expected_size is not None and int(before.st_size) != expected_size:
+        raise Version2UpgradeError("user-data source size does not match expected copy")
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, raw = tempfile.mkstemp(
         prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
@@ -1129,7 +1153,7 @@ def _stable_copy(source: Path, destination: Path) -> tuple[int, str]:
             temp_identity,
             label="backup copy publication",
         )
-        return int(after.st_size), digest.hexdigest()
+        return int(after.st_size), copied_digest
     finally:
         if source_fd >= 0:
             os.close(source_fd)
@@ -1741,7 +1765,12 @@ class Version2UpgradeCoordinator:
                         schema_validator=self._validate_library_schema,
                     )
                 else:
-                    size, digest = _stable_copy(source, destination)
+                    size, digest = _stable_copy(
+                source,
+                destination,
+                expected_size=int(entry["size"]),
+                expected_sha256=str(entry["sha256"]),
+            )
                     if relative == self.layout.settings_name:
                         state_digest = digest
                 require_staging()
