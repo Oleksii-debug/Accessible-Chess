@@ -54,6 +54,25 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.bind_files(self.files)
         self.addCleanup(lambda: self.files.shutdown(timeout=5))
 
+    def test_record_focus_uses_one_exact_shell_dom_id_authority(self):
+        self.app.record_focus("board-square-e4")
+        self.assertEqual("board-square-e4", self.app._focus)
+        self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
+
+        # Empty/non-text notifications are not focus transitions and must not
+        # erase the last valid token consumed by the native menu.
+        self.app.record_focus("")
+        self.app.record_focus(None)
+        self.assertEqual("board-square-e4", self.app._focus)
+        self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
+
+        for token in (" board-square-e4", "board-square-e4 ", "кнопка", "bad.focus"):
+            with self.subTest(token=token):
+                with self.assertRaises(ValueError):
+                    self.app.record_focus(token)
+                self.assertEqual("board-square-e4", self.app._focus)
+                self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
+
     def test_native_file_open_browser_edit_save_and_reopen(self):
         self.app.browser_command("shell", "pgn.open")
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
@@ -485,7 +504,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app._restore_book_progress(
             reader.snapshot(),
             language=self.app.shell.language,
-            bookmark_name="",
+            bookmark_name="default",
         )
         self.app.progress_store.save(self.app.book_key, self.app.reader)
         self.app.shell.open_route("books")
@@ -619,6 +638,10 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
         self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            "book-block-2",
+        )
 
     def _restarted_application(self, store):
         restarted = Version2Application(
@@ -949,6 +972,54 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(result["kind"], "error")
         self.assertIsNone(self.app.session)
 
+
+    def test_pgn_open_on_board_is_atomic_when_modal_blocks_route_change(self):
+        opened = self.app.browser_command("shell", "pgn.open")
+        self.assertEqual("delegated", opened["kind"])
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertFalse(self.app.pgn_board_active)
+        projected_before = tuple(self.projected_positions)
+
+        dialog = self.app.adapter.open_dialog(
+            "pgn-open-modal",
+            opener_focus_id="pgn-game-list",
+            initial_focus_id="pgn-open-modal-confirm",
+        )
+        self.assertEqual("dialog-open", dialog.kind)
+
+        result = self.app.browser_command("review", "pgn.open_on_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual(projected_before, tuple(self.projected_positions))
+        self.assertEqual("pgn-open-modal", self.app.shell.active_dialog_id)
+
+    def test_pgn_return_is_atomic_when_modal_blocks_route_change(self):
+        opened = self.app.browser_command("shell", "pgn.open")
+        self.assertEqual("delegated", opened["kind"])
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+
+        opened_board = self.app.browser_command("review", "pgn.open_on_board")
+        self.assertEqual("review", opened_board["kind"])
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertTrue(self.app.pgn_board_active)
+        projected_before = tuple(self.projected_positions)
+
+        dialog = self.app.adapter.open_dialog(
+            "pgn-return-modal",
+            opener_focus_id="board-launcher",
+            initial_focus_id="pgn-return-modal-confirm",
+        )
+        self.assertEqual("dialog-open", dialog.kind)
+
+        result = self.app.browser_command("review", "pgn.return")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual(projected_before, tuple(self.projected_positions))
+        self.assertEqual("pgn-return-modal", self.app.shell.active_dialog_id)
 
     def test_library_open_game_cannot_replace_pgn_session_behind_modal_dialog(self):
         self.app.browser_command("library", "library.import")
