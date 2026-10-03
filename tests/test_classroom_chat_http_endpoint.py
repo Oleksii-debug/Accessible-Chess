@@ -364,6 +364,8 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             "https://example.com/v1/classroom/chat?x=1",
             "https://example.com/v1/classroom/chat#frag",
             "https://example.com/v1/classroom/chat/",
+            "https://example.com:0/v1/classroom/chat",
+            "https://bad host/v1/classroom/chat",
             "ftp://example.com/v1/classroom/chat",
         )
         for endpoint_url in invalid:
@@ -392,6 +394,15 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("scheme='http'", repr(transport))
         self.assertNotIn("token", repr(transport))
+
+    def test_desktop_transport_canonicalizes_idna_host_without_credentials(self) -> None:
+        transport = ClassroomChatHttpRpcCall(
+            endpoint_url="https://tést.example/v1/classroom/chat",
+            bearer_token_provider=lambda: "secret-token",
+        )
+        rendered = repr(transport)
+        self.assertIn("xn--tst-bma.example", rendered)
+        self.assertNotIn("secret-token", rendered)
 
     def test_desktop_transport_uses_fresh_bearer_and_strict_bounded_response(self) -> None:
         tokens = iter(("token-one", "token-two"))
@@ -530,6 +541,16 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             FakeHttpResponse(headers=[
                 ("Content-Type", "application/json; charset=utf-8"),
                 ("Content-Length", "2"),
+                ("Content-Length", "2"),
+            ], raw_body=b"{}"),
+            FakeHttpResponse(headers=[
+                ("Bad Header", "x"),
+                ("Content-Type", "application/json; charset=utf-8"),
+                ("Content-Length", "2"),
+            ], raw_body=b"{}"),
+            FakeHttpResponse(headers=[
+                ("X-Test", "line\nfeed"),
+                ("Content-Type", "application/json; charset=utf-8"),
                 ("Content-Length", "2"),
             ], raw_body=b"{}"),
             FakeHttpResponse(
