@@ -616,12 +616,7 @@ class ClassroomCollaborationController:
                 transfer_state="failed",
             )
             raise
-        try:
-            return self._store.adopt_authoritative_attachment(result)
-        except CollaborationStorageError as error:
-            raise CollaborationError(
-                "file transport authority could not be reconciled"
-            ) from error
+        return self._adopt_authoritative_upload(result)
 
     def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -657,12 +652,7 @@ class ClassroomCollaborationController:
                 transfer_state="failed",
             )
             raise
-        try:
-            return self._store.adopt_authoritative_attachment(result)
-        except CollaborationStorageError as error:
-            raise CollaborationError(
-                "file transport authority could not be reconciled"
-            ) from error
+        return self._adopt_authoritative_upload(result)
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -700,6 +690,13 @@ class ClassroomCollaborationController:
             ):
                 raise CollaborationError(
                     "live file reused attachment identity with different payload"
+                )
+            if current.transfer_state == "pending":
+                # No provider operation has started for a pending row, so a
+                # live server event reusing that identity is a collision, not
+                # ambiguous-upload recovery.
+                raise CollaborationError(
+                    "live file conflicts with local pending attachment identity"
                 )
             if current.transfer_state in {"uploading", "failed"}:
                 # The provider may have committed an upload while this client
@@ -810,9 +807,14 @@ class ClassroomCollaborationController:
                 "attachment state response is invalid or too large"
             )
         history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
+        # State updates are not attachment-discovery authority. Only metadata
+        # already proven authoritative locally, or metadata present in this
+        # authoritative history page, may be targeted. In particular, a stranded
+        # local pending/uploading/failed row must never be promoted to stored by
+        # the mutable state stream without its immutable server history record.
         known_attachment_ids = {
             item.attachment_id
-            for item in self._store.room_attachments(self.room_id)
+            for item in authoritative
         }
         known_attachment_ids.update(item.attachment_id for item in incoming)
         state_previous = state_after
@@ -971,6 +973,54 @@ class ClassroomCollaborationController:
         if _sha256_path(path) != metadata.sha256:
             raise CollaborationError("prepared file content changed before upload")
 
+    def _adopt_authoritative_upload(
+        self,
+        result: AttachmentMetadata,
+    ) -> AttachmentMetadata:
+        # A successful upload can legitimately receive a later room sequence
+        # when other clients published files concurrently. Never publish that
+        # later row into a locally gapped history: first reconcile the missing
+        # authoritative prefix from the provider.
+        authoritative = tuple(
+            item
+            for item in self._store.room_attachments(self.room_id)
+            if item.transfer_state in {"stored", "deleted"}
+        )
+        after: int | None = None
+        for current in authoritative:
+            expected = 0 if after is None else after + 1
+            if current.sequence_no != expected:
+                break
+            after = current.sequence_no
+        expected_sequence = 0 if after is None else after + 1
+        if (
+            result.transfer_state == "stored"
+            and result.sequence_no > expected_sequence
+        ):
+            self.sync_files()
+            authoritative = tuple(
+                item
+                for item in self._store.room_attachments(self.room_id)
+                if item.transfer_state in {"stored", "deleted"}
+            )
+            after = None
+            for current in authoritative:
+                expected = 0 if after is None else after + 1
+                if current.sequence_no != expected:
+                    break
+                after = current.sequence_no
+            expected_sequence = 0 if after is None else after + 1
+            if result.sequence_no > expected_sequence:
+                raise CollaborationError(
+                    "file authority sequence prefix remains incomplete after recovery"
+                )
+        try:
+            return self._store.adopt_authoritative_attachment(result)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "file transport authority could not be reconciled"
+            ) from error
+
     @staticmethod
     def _validate_uploaded_result(
         expected: AttachmentMetadata,
@@ -1117,6 +1167,8 @@ def _chat_body(value: object) -> str:
         raise CollaborationError("chat body exceeds length limit")
     if "\x00" in value:
         raise CollaborationError("chat body contains NUL")
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise CollaborationError("chat body contains invalid Unicode surrogate")
     return value
 
 
