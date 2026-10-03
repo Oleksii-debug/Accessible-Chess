@@ -292,7 +292,6 @@ class _PendingSessionTransaction:
 @dataclass(frozen=True, slots=True)
 class _SessionRecovery:
     effect: MediaSessionProviderEffect
-    base_revision: int
     provider_outcome_unknown: bool
     credential_handed_off: bool
 
@@ -641,68 +640,6 @@ class ClassroomMediaSessionHostTransactions:
             self._recovery = None
             self._activity_gate.release(self)
 
-    def resolve_clean_disconnected_recovery(
-        self,
-        transaction_id: str,
-        provider_snapshot: Mapping[str, object],
-    ) -> None:
-        """Resolve only after the browser proves the failed session is torn down.
-
-        This is narrower than operator reconciliation: it is valid only for a
-        session transaction whose provider Room has reached the exact clean
-        disconnected snapshot. Canonical state must still be at the revision
-        from which the transaction was prepared. A failed explicit disconnect
-        may have left canonical state claiming a live transport; in that case
-        retire only the transport connection while preserving room identity so
-        the normal canonical leave/reconnect flow remains authoritative.
-        """
-
-        self._assert_owner_thread()
-        with self._lock:
-            recovery = self._recovery
-            if (
-                recovery is None
-                or recovery.effect.transaction_id != transaction_id
-            ):
-                raise MediaHostTransactionError(
-                    "media session recovery transaction is unknown"
-                )
-            self._validate_clean_disconnected_snapshot(provider_snapshot)
-            state = self._controller.state
-            if state.revision != recovery.base_revision:
-                raise MediaHostRecoveryRequired(
-                    "canonical media state changed during provider cleanup"
-                )
-
-            if recovery.effect.kind is MediaSessionEffectKind.CONNECT:
-                if state.room_id is not None or state.connected:
-                    raise MediaHostRecoveryRequired(
-                        "canonical join state changed during provider cleanup"
-                    )
-            elif recovery.effect.kind is MediaSessionEffectKind.RECONNECT:
-                if state.room_id is None or state.connected:
-                    raise MediaHostRecoveryRequired(
-                        "canonical reconnect state changed during provider cleanup"
-                    )
-            elif recovery.effect.kind is MediaSessionEffectKind.DISCONNECT:
-                if state.room_id is None or not state.connected:
-                    raise MediaHostRecoveryRequired(
-                        "canonical disconnect state changed during provider cleanup"
-                    )
-                try:
-                    self._controller.mark_transport_lost()
-                except Exception:
-                    raise MediaHostRecoveryRequired(
-                        "canonical disconnect cleanup requires recovery"
-                    ) from None
-            else:
-                raise MediaHostTransactionError(
-                    "media session recovery effect kind is invalid"
-                )
-
-            self._recovery = None
-            self._activity_gate.release(self)
-
     def _enter_recovery(
         self,
         pending: _PendingSessionTransaction,
@@ -712,7 +649,6 @@ class ClassroomMediaSessionHostTransactions:
         self._pending = None
         self._recovery = _SessionRecovery(
             effect=pending.captured.effect,
-            base_revision=pending.base_revision,
             provider_outcome_unknown=provider_outcome_unknown,
             credential_handed_off=pending.credential_handed_off,
         )
