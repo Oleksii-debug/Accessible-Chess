@@ -2461,6 +2461,72 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         send_chat.assert_not_called()
         self.assertEqual(view._pending_chat, {})
 
+    def test_durable_chat_outbox_reconciles_locally_confirmed_message_on_startup(self) -> None:
+        secrets_store = MemorySecretStore()
+        outbox = SecretStoreChatOutbox(
+            secrets_store,
+            CHAT_OUTBOX_SCOPE,
+            "room-1",
+            "student-1",
+        )
+        outbox.reserve(
+            message_id="message-confirmed-before-crash",
+            body="Confirmed before cleanup",
+            retention="session",
+        )
+        self.store.append_message(
+            ChatMessageMetadata(
+                "message-confirmed-before-crash",
+                "room-1",
+                "student-1",
+                0,
+                "Confirmed before cleanup",
+                retention="session",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+
+        view = self.webview(chat_outbox=outbox)
+
+        self.assertEqual(view._pending_chat, {})
+        self.assertEqual(outbox.entries(), ())
+        self.assertEqual(
+            [item.body for item in self.store.room_messages("room-1")],
+            ["Confirmed before cleanup"],
+        )
+
+    def test_durable_chat_outbox_rejects_local_identity_conflict_on_startup(self) -> None:
+        secrets_store = MemorySecretStore()
+        outbox = SecretStoreChatOutbox(
+            secrets_store,
+            CHAT_OUTBOX_SCOPE,
+            "room-1",
+            "student-1",
+        )
+        outbox.reserve(
+            message_id="message-conflict-after-crash",
+            body="Expected body",
+            retention="session",
+        )
+        self.store.append_message(
+            ChatMessageMetadata(
+                "message-conflict-after-crash",
+                "room-1",
+                "student-1",
+                0,
+                "Unexpected body",
+                retention="session",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "conflicts with local message identity"):
+            self.webview(chat_outbox=outbox)
+
+        pending = outbox.entries()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].body, "Expected body")
+
     def test_durable_chat_outbox_sync_clears_recovered_identity_after_recreation(self) -> None:
         secrets_store = MemorySecretStore()
         outbox = SecretStoreChatOutbox(
