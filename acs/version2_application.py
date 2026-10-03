@@ -286,6 +286,53 @@ class Version2Application:
         self.shell.record_focus(canonical)
         self._focus = canonical
 
+    def _repair_training_focus_after_bind(self):
+        """Bind Training route memory to one currently rendered, enabled target."""
+        if self.training_workspace is None:
+            return
+        if self.shell.current_route.route_id != "training":
+            return
+        try:
+            snapshot = self.training_workspace.snapshot()
+        except Exception:
+            return
+        if type(snapshot) is not dict:
+            return
+        canonical = snapshot.get("focus_target")
+        if type(canonical) is not str or not canonical:
+            return
+        allowed: set[str] = set()
+        answer = snapshot.get("answer")
+        if type(answer) is dict and answer.get("disabled") is False:
+            allowed.add("training-answer")
+        actions = snapshot.get("actions")
+        if type(actions) in {tuple, list}:
+            for action in actions:
+                if type(action) is not dict or action.get("enabled") is not True:
+                    continue
+                target = action.get("focus_target")
+                if type(target) is str and target:
+                    allowed.add(target)
+        remembered = self.shell.restore_focus_target()
+        if remembered in allowed:
+            self._focus = remembered
+            return
+        self.shell.record_focus(canonical)
+        self._focus = canonical
+
+    def _record_training_event_focus(self, event) -> None:
+        """Synchronize trusted Training render focus before DOM focusin arrives."""
+        if self.shell.current_route.route_id != "training":
+            return
+        payload = getattr(event, "payload", None)
+        if type(payload) is not dict:
+            return
+        target = payload.get("focus_target")
+        if type(target) is not str or not target:
+            return
+        self.shell.record_focus(target)
+        self._focus = target
+
     def _reload_book_progress_after_durability_ambiguity(self):
         """Rebind Books/Training to the canonical primary after uncertain commit."""
 
@@ -431,6 +478,7 @@ class Version2Application:
             # refresh; omit focus_target so the host chooses the real current
             # Book block DOM id instead of the shell-only ``book-reader`` token.
             self._events.append({"kind": "route", "payload": {"route_id": "books"}})
+        self._repair_training_focus_after_bind()
 
     def _start_training_from_current_book(self):
         self._assert_thread()
@@ -931,6 +979,11 @@ class Version2Application:
                 or len(command) > self._MAX_BROWSER_COMMAND_CHARS
             ):
                 raise ValueError("invalid browser command")
+            # PyWebView JSON objects arrive as exact built-in dictionaries.
+            # Reject Mapping/dict subclasses before truthiness, len(), hashing,
+            # iteration or per-surface routing can invoke attacker-controlled hooks.
+            if payload is not None and type(payload) is not dict:
+                raise ValueError("invalid browser command payload")
             if area == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
@@ -956,6 +1009,7 @@ class Version2Application:
                     # reuse the previous route's focus token.
                     self._focus = self.shell.restore_focus_target()
                     self._repair_book_block_focus_after_rebind()
+                    self._repair_training_focus_after_bind()
                 projected = asdict(value)
                 if value.kind == "route":
                     projected_payload = projected.get("payload")
@@ -969,7 +1023,9 @@ class Version2Application:
                 return projected
             if area == "training":
                 try:
-                    return asdict(self._dispatch_training_surface_command(command, payload))
+                    value = self._dispatch_training_surface_command(command, payload)
+                    self._record_training_event_focus(value)
+                    return asdict(value)
                 except Exception:
                     return {
                         "kind": "error",
@@ -1042,6 +1098,7 @@ class Version2Application:
             # the exact new route focus before another native action can arrive.
             self._focus = self.shell.restore_focus_target()
             self._repair_book_block_focus_after_rebind()
+            self._repair_training_focus_after_bind()
         event = asdict(value)
         if value.kind == "route":
             event_payload = event.get("payload")
