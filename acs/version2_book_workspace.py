@@ -27,6 +27,11 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
 _MAX_BOOK_SEMANTIC_DEPTH = 256
 _MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
+_MAX_BOOK_SEMANTIC_SECTION_LABEL_UNITS = 360
+_MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS = 120
+_MAX_BOOK_SEMANTIC_PLAYERS_UNITS = 720
+_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS = 1_200
+_MAX_BOOK_SEMANTIC_RESULT_UNITS = 16
 _BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 
 _SEMANTIC_LABELS = {
@@ -101,22 +106,45 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         visible_total = 0
         visible_entries = 0
 
-        def safe(value: object, *, allow_empty: bool = True) -> str:
-            nonlocal visible_total, visible_entries
-            visible_entries += 1
-            if visible_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
-                raise _BookSemanticProjectionError("semantic GameTree text-entry limit exceeded")
+        def clean(
+            value: object,
+            *,
+            allow_empty: bool = True,
+            max_units: int = _MAX_BOOK_BLOCK_VISIBLE_CHARS,
+        ) -> tuple[str, int]:
+            if type(max_units) is not int or not 0 <= max_units <= _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise _BookSemanticProjectionError("semantic GameTree scalar limit is invalid")
             try:
                 text = _safe_text(
                     value,
                     language=self.language,
-                    limit=_MAX_BOOK_BLOCK_VISIBLE_CHARS + 1,
+                    limit=max_units + 1,
                 )
             except (TypeError, ValueError) as exc:
                 raise _BookSemanticProjectionError("semantic GameTree text is invalid") from exc
             if not allow_empty and not text:
                 raise _BookSemanticProjectionError("semantic GameTree text is empty")
-            visible_total += _utf16_units(text)
+            units = _utf16_units(text)
+            if units > max_units:
+                raise _BookSemanticProjectionError("semantic GameTree scalar text limit exceeded")
+            return text, units
+
+        def safe(
+            value: object,
+            *,
+            allow_empty: bool = True,
+            max_units: int = _MAX_BOOK_BLOCK_VISIBLE_CHARS,
+        ) -> str:
+            nonlocal visible_total, visible_entries
+            text, units = clean(
+                value,
+                allow_empty=allow_empty,
+                max_units=max_units,
+            )
+            visible_entries += 1
+            if visible_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                raise _BookSemanticProjectionError("semantic GameTree text-entry limit exceeded")
+            visible_total += units
             if visible_total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
                 raise _BookSemanticProjectionError("semantic GameTree text budget exceeded")
             return text
@@ -132,12 +160,39 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             return tuple(rendered)
 
         labels = _SEMANTIC_LABELS[self.language]
-        white = safe(game.tags.get("White", "")) or labels["unknown"]
-        black = safe(game.tags.get("Black", "")) or labels["unknown"]
+        white, _ = clean(game.tags.get("White", ""))
+        black, _ = clean(game.tags.get("Black", ""))
+        white = white or labels["unknown"]
+        black = black or labels["unknown"]
         result = game.result
         if result not in _BOOK_SEMANTIC_RESULTS:
             raise _BookSemanticProjectionError("semantic game result is invalid")
 
+        semantic_label = safe(
+            labels["moves"],
+            allow_empty=False,
+            max_units=_MAX_BOOK_SEMANTIC_SECTION_LABEL_UNITS,
+        )
+        players_label = safe(
+            labels["players"],
+            allow_empty=False,
+            max_units=_MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS,
+        )
+        players = safe(
+            f"{white} — {black}",
+            allow_empty=False,
+            max_units=_MAX_BOOK_SEMANTIC_PLAYERS_UNITS,
+        )
+        result_label = safe(
+            labels["result"],
+            allow_empty=False,
+            max_units=_MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS,
+        )
+        result_text = safe(
+            result,
+            allow_empty=False,
+            max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+        )
         intro_comments = tuple(
             text
             for text in (safe(getattr(comment, "text", None)) for comment in game.line.leading_comments)
@@ -177,23 +232,30 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     "kind": item.kind,
                     "depth": item.depth,
                     "parent_index": parent_index,
-                    "label": safe(item.label, allow_empty=False),
+                    "label": safe(
+                        item.label,
+                        allow_empty=False,
+                        max_units=_MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS,
+                    ),
                     "leading_comments": safe_many(item.comments) if item.kind == "variation" else (),
                     "comments_before": safe_many(item.comments_before),
                     "comments_after": safe_many(item.comments_after),
                     "trailing_comments": safe_many(item.trailing_comments),
-                    "result": item_result,
+                    "result": safe(
+                        item_result,
+                        max_units=_MAX_BOOK_SEMANTIC_RESULT_UNITS,
+                    ),
                 }
             )
             seen[item.node_id] = position
 
         return {
             "kind": mode.value,
-            "label": labels["moves"],
-            "players_label": labels["players"],
-            "players": safe(f"{white} — {black}", allow_empty=False),
-            "result_label": labels["result"],
-            "result": result,
+            "label": semantic_label,
+            "players_label": players_label,
+            "players": players,
+            "result_label": result_label,
+            "result": result_text,
             "intro_comments": intro_comments,
             "outro_comments": outro_comments,
             "items": tuple(rendered_items),
