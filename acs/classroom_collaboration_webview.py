@@ -1271,6 +1271,10 @@ class ClassroomCollaborationWebView:
                 on_progress=self._publish_file_progress,
             )
         except Exception:
+            # Progress is presentation-only. The failed command result redraws
+            # the collaboration surface and must not preserve a stale partial
+            # meter into a later retry sequence.
+            self._file_progress = None
             # Keep the local source path only when canonical durable metadata
             # proves there is a failed transfer that the user can retry.
             try:
@@ -1293,6 +1297,7 @@ class ClassroomCollaborationWebView:
                 )
             )
         if uploaded.transfer_state == "failed":
+            self._file_progress = None
             if uploaded.scan_state != "blocked":
                 self._prepared[uploaded.attachment_id] = prepared
             else:
@@ -1305,6 +1310,7 @@ class ClassroomCollaborationWebView:
             )
         self._prepared.pop(uploaded.attachment_id, None)
         self._file_page_bucket = None
+        self._file_progress = None
         return self._event(
             "collaboration.file.sent",
             announcement=self._file_announcement("file_sent", uploaded.display_name),
@@ -1386,6 +1392,7 @@ class ClassroomCollaborationWebView:
                 on_progress=self._publish_file_progress,
             )
         except Exception:
+            self._file_progress = None
             return self._error(
                 message=self._file_announcement(
                     "file_retry_failed",
@@ -1393,6 +1400,7 @@ class ClassroomCollaborationWebView:
                 )
             )
         if retried.transfer_state == "failed":
+            self._file_progress = None
             if retried.scan_state == "blocked":
                 self._prepared.pop(retried.attachment_id, None)
             return self._error(
@@ -1402,6 +1410,7 @@ class ClassroomCollaborationWebView:
                 )
             )
         self._prepared.pop(retried.attachment_id, None)
+        self._file_progress = None
         return self._event(
             "collaboration.file.retried",
             announcement=self._file_announcement("file_retried", retried.display_name),
