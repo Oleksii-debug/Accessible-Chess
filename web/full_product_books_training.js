@@ -64,6 +64,19 @@
     return value;
   }
 
+  function requireSurfaceRoot(root, name) {
+    if (
+      !root ||
+      typeof root.replaceChildren !== "function" ||
+      typeof root.querySelector !== "function" ||
+      typeof root.querySelectorAll !== "function" ||
+      typeof root.setAttribute !== "function"
+    ) {
+      throw new TypeError(name + " root must be a DOM-like element");
+    }
+    return root;
+  }
+
   function node(tag, text) {
     const element = document.createElement(tag);
     if (text !== undefined && text !== null) element.textContent = String(text);
@@ -1155,9 +1168,7 @@
   }
 
   function renderBookSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage) {
-    if (!root || typeof root.replaceChildren !== "function") {
-      throw new TypeError("Book root must support replaceChildren");
-    }
+    requireSurfaceRoot(root, "Book");
     requireFunction(invoke, "Book invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Book announce");
     if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
@@ -1418,9 +1429,7 @@
   }
 
   function renderTrainingSurface(root, snapshot, invoke, announce, requestedFocus, fallbackMessage, solution) {
-    if (!root || typeof root.replaceChildren !== "function") {
-      throw new TypeError("Training root must support replaceChildren");
-    }
+    requireSurfaceRoot(root, "Training");
     requireFunction(invoke, "Training invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
     const validated = validateTrainingSnapshot(snapshot, requestedFocus, solution);
