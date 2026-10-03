@@ -381,6 +381,111 @@ async function testProviderEffectFailureRequiresRecoveryCallback() {
   ]);
 }
 
+async function testProviderSuccessAckLossRequiresRecovery() {
+  RecordingAdapter.instances.length = 0;
+  const runtime = loadRuntime(RecordingAdapter);
+  const transaction = "host-" + "8".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "set_local_source",
+    source: "microphone",
+    enabled: true
+  }, false);
+  const calls = [];
+
+  const result = await runtime.execute(event, async (command, payload) => {
+    calls.push(command);
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_dispatched") {
+      return {
+        kind: "provider-ready",
+        payload: { transaction_id: payload.transaction_id }
+      };
+    }
+    if (command === "media.provider_effect_success") {
+      throw new Error("bridge response lost after provider success");
+    }
+    if (command === "media.provider_outcome_unknown") {
+      return {
+        kind: "error",
+        payload: {
+          message: "sanitized",
+          recovery_required: true,
+          transaction_id: payload.transaction_id
+        }
+      };
+    }
+    throw new Error("unexpected command " + command);
+  });
+
+  assert.equal(result.kind, "error");
+  assert.equal(result.payload.recovery_required, true);
+  assert.deepEqual(calls, [
+    "media.provider_config",
+    "media.provider_dispatched",
+    "media.provider_effect_success",
+    "media.provider_outcome_unknown"
+  ]);
+  assert.deepEqual(
+    RecordingAdapter.instances[0].calls.map((item) => item[0]),
+    ["setLocalSource"]
+  );
+}
+
+async function testCrossedTransactionConfigurationLossRequiresRecovery() {
+  class NeverConstructedAdapter extends RecordingAdapter {
+    constructor(options) {
+      super(options);
+      throw new Error("adapter must not be reconstructed");
+    }
+  }
+  const runtime = loadRuntime(NeverConstructedAdapter);
+  const transaction = "host-" + "9".repeat(32);
+  const event = dispatch(transaction, {
+    transaction_id: transaction,
+    operation: "apply_moderation",
+    chunk_index: 1,
+    chunk_count: 2,
+    commands: [{
+      operation_id: "op-second",
+      actor_id: "teacher-1",
+      target_id: "student-2",
+      action: "soft_mute",
+      source: "microphone",
+      value: true
+    }]
+  }, true);
+  const calls = [];
+
+  const result = await runtime.execute(event, async (command, payload) => {
+    calls.push(command);
+    if (command === "media.provider_config") {
+      return { kind: "error", payload: { message: "unavailable" } };
+    }
+    if (command === "media.provider_outcome_unknown") {
+      return {
+        kind: "error",
+        payload: {
+          message: "sanitized",
+          recovery_required: true,
+          transaction_id: payload.transaction_id
+        }
+      };
+    }
+    if (command === "media.provider_not_started") {
+      throw new Error("crossed transaction must not be retired as not started");
+    }
+    throw new Error("unexpected command " + command);
+  });
+
+  assert.equal(result.kind, "error");
+  assert.equal(result.payload.recovery_required, true);
+  assert.deepEqual(calls, [
+    "media.provider_config",
+    "media.provider_outcome_unknown"
+  ]);
+}
+
 async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
   let releaseFirst;
   class BlockingAdapter extends RecordingAdapter {
@@ -569,6 +674,8 @@ async function run() {
   await testMissingRuntimeConfigurationRetiresBeforeDispatch();
   await testCleanConnectFailureUsesExactCleanFailureCallback();
   await testProviderEffectFailureRequiresRecoveryCallback();
+  await testProviderSuccessAckLossRequiresRecovery();
+  await testCrossedTransactionConfigurationLossRequiresRecovery();
   await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
   await testCleanProviderRebindRefreshesConfiguration();
   await testProviderRebindCannotRetargetConnectedAdapter();
