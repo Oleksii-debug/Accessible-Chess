@@ -281,6 +281,40 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_book_native_open_board_durability_unknown_keeps_canonical_reload_authority(self):
+        _book, _origin = self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        self.projected_positions.clear()
+
+        def fail_primary_sync(path):
+            if Path(path) == store.path:
+                raise OSError("post-replace durability probe failed")
+
+        with (
+            patch.object(
+                self.app,
+                "_restore_book_progress",
+                wraps=self.app._restore_book_progress,
+            ) as rollback,
+            patch(
+                "acs.book_progress_store._sync_published_path",
+                side_effect=fail_primary_sync,
+            ),
+        ):
+            result = self.app.browser_command("books", "book.open_position")
+
+        self.assertEqual(result["kind"], "error")
+        rollback.assert_not_called()
+        self.assertIsNotNone(self.app.reader)
+        self.assertIsNotNone(self.app.books)
+        self.assertIsNotNone(self.app.book_workflow)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.projected_positions, [])
+        persisted = store.restore(key, self.app.reader.document)
+        self.assertEqual(persisted.snapshot(), self.app.reader.snapshot())
+
     def test_book_keymap_native_ingress_queues_accessible_open_and_return_results(self):
         _book, origin = self._open_book_game()
         self.app.drain_events()
