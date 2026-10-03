@@ -2079,6 +2079,90 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed trailing comments must not steal reading focus");
 
+  const moveWithLineTail = semanticGameSnapshot();
+  moveWithLineTail.block.semantic_tree.items[0].trailing_comments = ["misplaced"];
+  let moveWithLineTailRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, moveWithLineTail, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    moveWithLineTailRejected = true;
+  }
+  check(moveWithLineTailRejected,
+    "move carrying line trailing comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "move line tail must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "move line tail must preserve reading focus");
+
+  const variationWithMoveComments = semanticGameSnapshot();
+  variationWithMoveComments.block.semantic_tree.items[1].comments_before = ["misplaced"];
+  let variationWithMoveCommentsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, variationWithMoveComments, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    variationWithMoveCommentsRejected = true;
+  }
+  check(variationWithMoveCommentsRejected,
+    "variation carrying move comments must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "variation move comments must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "variation move comments must preserve reading focus");
+
+  const malformedVariationResult = semanticGameSnapshot();
+  malformedVariationResult.block.semantic_tree.items[1].result = "invented";
+  let malformedVariationResultRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, malformedVariationResult, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    malformedVariationResultRejected = true;
+  }
+  check(malformedVariationResultRejected,
+    "non-canonical variation result must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "invalid variation result must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "invalid variation result must preserve reading focus");
+
+  const nonTextVariationResult = semanticGameSnapshot();
+  nonTextVariationResult.block.semantic_tree.items[1].result = { value: "*" };
+  let nonTextVariationResultRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, nonTextVariationResult, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    nonTextVariationResultRejected = true;
+  }
+  check(nonTextVariationResultRejected,
+    "non-text variation result must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "non-text variation result must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "non-text variation result must preserve reading focus");
+
+  const moveWithResult = semanticGameSnapshot();
+  moveWithResult.block.semantic_tree.items[0].result = "*";
+  let moveWithResultRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, moveWithResult, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    moveWithResultRejected = true;
+  }
+  check(moveWithResultRejected, "move carrying a line result must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "move result must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "move result must preserve reading focus");
+
   const malformedBefore = semanticGameSnapshot();
   malformedBefore.block.semantic_tree.items[0].comments_before = { text: "bad" };
   let malformedBeforeRejected = false;
@@ -2428,6 +2512,60 @@ async function run() {
     "duplicate semantic metadata must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "duplicate semantic metadata must not steal reading focus");
+
+  const forgedCustomDetail = semanticGameSnapshot();
+  forgedCustomDetail.block.semantic_tree.details[2].kind = "custom:Other";
+  let forgedCustomDetailRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, forgedCustomDetail, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    forgedCustomDetailRejected = true;
+  }
+  check(forgedCustomDetailRejected,
+    "custom semantic metadata kind must authenticate its exact label");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "forged custom metadata must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "forged custom metadata must preserve reading focus");
+
+  const duplicateCustomDetail = semanticGameSnapshot();
+  duplicateCustomDetail.block.semantic_tree.details[3].kind = "custom:ECO";
+  duplicateCustomDetail.block.semantic_tree.details[3].label = "ECO";
+  let duplicateCustomDetailRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, duplicateCustomDetail, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    duplicateCustomDetailRejected = true;
+  }
+  check(duplicateCustomDetailRejected,
+    "duplicate custom semantic metadata identity must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "duplicate custom metadata must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "duplicate custom metadata must preserve reading focus");
+
+  const excessiveDetails = semanticGameSnapshot();
+  excessiveDetails.block.semantic_tree.details = new Array(4097).fill(null).map(function (_, index) {
+    const label = "Tag" + String(index);
+    return { kind: "custom:" + label, label: label, value: "Value" };
+  });
+  let excessiveDetailsRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot, excessiveDetails, bookInvoke, announce, "book-block-5", "Action failed"
+    );
+  } catch (error) {
+    excessiveDetailsRejected = true;
+  }
+  check(excessiveDetailsRejected, "excessive semantic metadata must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive semantic metadata must preserve prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive semantic metadata must preserve reading focus");
 
   const invalidSemanticResult = semanticGameSnapshot();
   invalidSemanticResult.block.semantic_tree.result = "2-0";
