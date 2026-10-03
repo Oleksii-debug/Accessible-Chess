@@ -148,6 +148,7 @@ class ClassroomMediaTransactionalWebView:
             {
                 "transaction_id": transaction_id,
                 "provider": dict(provider),
+                "provider_boundary_crossed": lease.provider_boundary_crossed,
                 "focus_target": focus_target,
             },
         )
@@ -459,6 +460,9 @@ class ClassroomMediaTransactionalWebView:
                         {
                             "transaction_id": transaction_id,
                             "provider": dict(provider),
+                            "provider_boundary_crossed": (
+                                self._binder.active_lease.provider_boundary_crossed
+                            ),
                             "focus_target": self._focus(transaction_id),
                         },
                     )
