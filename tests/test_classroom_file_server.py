@@ -65,13 +65,27 @@ class FakeObjectStore:
     def __init__(self):
         self.objects = {}
         self.put_calls = []
+        self.status_calls = []
         self.delete_calls = []
         self.token_calls = []
+        self.raise_before_put_once = False
         self.raise_after_put_once = False
+        self.status_failures = 0
         self.delete_failures = 0
+
+    def stored_sha256(self, *, object_key):
+        self.status_calls.append(object_key)
+        if self.status_failures:
+            self.status_failures -= 1
+            raise RuntimeError("status unavailable")
+        content = self.objects.get(object_key)
+        return None if content is None else hashlib.sha256(content).hexdigest()
 
     def put(self, *, object_key, content, expected_sha256):
         self.put_calls.append((object_key, bytes(content), expected_sha256))
+        if self.raise_before_put_once:
+            self.raise_before_put_once = False
+            raise RuntimeError("write failed before storage")
         if hashlib.sha256(content).hexdigest() != expected_sha256:
             raise RuntimeError("hash mismatch")
         existing = self.objects.get(object_key)
@@ -377,7 +391,13 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertEqual(recovered.sequence_no, 0)
         self.assertEqual(recovered.transfer_state, "stored")
         self.assertEqual(len(self.scanner.calls), scan_calls)
-        self.assertEqual(len(self.objects.put_calls), 2)
+        # Retry observes the already durable object and finalizes metadata;
+        # it must not blindly execute a second PUT after lost acknowledgement.
+        self.assertEqual(len(self.objects.put_calls), 1)
+        self.assertGreaterEqual(
+            self.objects.status_calls.count(prepared.metadata.object_key),
+            2,
+        )
         self.assertEqual(
             self.student1.history_after(
                 room_id="room-1",
@@ -386,6 +406,76 @@ class ClassroomFileServerTests(unittest.TestCase):
             ),
             (recovered,),
         )
+
+    def test_ambiguous_put_definitely_absent_retries_exact_bytes_once(self):
+        prepared = self.prepared(
+            attachment_id="ambiguous-absent-a0",
+            content=b"retry after known absent",
+        )
+        self.objects.raise_before_put_once = True
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ):
+            self.student1.upload(prepared)
+
+        self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
+        recovered = self.student1.retry(prepared)
+
+        self.assertEqual(recovered.transfer_state, "stored")
+        self.assertEqual(len(self.objects.put_calls), 2)
+        self.assertEqual(
+            self.objects.objects[prepared.metadata.object_key],
+            b"retry after known absent",
+        )
+
+    def test_ambiguous_retry_fails_closed_when_object_status_is_unknown(self):
+        prepared = self.prepared(
+            attachment_id="ambiguous-status-a0",
+            content=b"provider may already have bytes",
+        )
+        self.objects.raise_after_put_once = True
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ):
+            self.student1.upload(prepared)
+
+        put_calls = len(self.objects.put_calls)
+        self.objects.status_failures = 1
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage status is unavailable",
+        ) as raised:
+            self.student1.retry(prepared)
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertEqual(len(self.objects.put_calls), put_calls)
+
+    def test_ambiguous_retry_rejects_conflicting_durable_object_without_put(self):
+        prepared = self.prepared(
+            attachment_id="ambiguous-conflict-a0",
+            content=b"expected bytes",
+        )
+        self.objects.raise_before_put_once = True
+
+        with self.assertRaisesRegex(
+            ClassroomFileServerError,
+            "durable object storage write failed",
+        ):
+            self.student1.upload(prepared)
+
+        self.objects.objects[prepared.metadata.object_key] = b"different bytes"
+        put_calls = len(self.objects.put_calls)
+        with self.assertRaisesRegex(
+            CollaborationConflictError,
+            "durable object identity conflicts",
+        ):
+            self.student1.retry(prepared)
+
+        self.assertEqual(len(self.objects.put_calls), put_calls)
 
     def test_exact_accepted_resend_does_not_depend_on_later_scanner_result(self):
         prepared = self.prepared(attachment_id="accepted-before-scan-shift")
