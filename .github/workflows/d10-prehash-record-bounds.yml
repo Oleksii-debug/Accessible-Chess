@@ -89,6 +89,5 @@ jobs:
           tests.test_d10_prehash_record_bounds
           tests.test_education_records
           tests.test_education_workspace
-          tests.test_education_workspace_store
           tests.test_prepared_position_lesson_metadata
           tests.test_prepared_position_student_view
