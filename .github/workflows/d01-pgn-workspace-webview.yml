@@ -14,11 +14,14 @@ on:
       - 'tests/test_pgn_workspace.py'
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_webview_projection.py'
+      - 'acs/presentation_privacy.py'
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/test_dev1_pgn_webview_atomicity.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_v2_pgn_webview_path_privacy.py'
+      - 'tests/test_v2_shared_presentation_path_privacy.py'
       - 'tests/test_v2_board_analysis_hotkey_feedback.py'
       - 'web/full_product_pgn.js'
       - 'web/index.html'
@@ -156,14 +159,19 @@ jobs:
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
 
-          # Stage1 core is frozen on Product, except the exact independently-qualified
-          # takeback-recovery successor admitted only on the canonical integration lane.
+          # Stage1 core stays fail-closed to reviewed exact identities. The
+          # independently-qualified takeback-recovery successor is now part of
+          # canonical Product, so descendants must not depend on its former
+          # staging-branch name to retain that authority.
           stage1_core_actual="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
-            test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
-          else
-            test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
-          fi
+          case "$stage1_core_actual" in
+            b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|b579ca0f59ba20f6b69b3a4b7d89589256d54852)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/stage1_release_ui_core.py actual=%s\n' "$stage1_core_actual" >&2
+              exit 1
+              ;;
+          esac
 
           # The shared semantic document may be the pre-P0-G Product blob,
           # either reviewed event-aware P0-G predecessor, the exact current
@@ -219,10 +227,12 @@ jobs:
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
+          acs/presentation_privacy.py=b5bff2c947a104d9e516380cbafe7f2beca463fe
           web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
+          tests/test_v2_pgn_webview_path_privacy.py=831dad9c41e667dc701beaf73f46ca0ae4b5586b
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
 
@@ -231,7 +241,7 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|6bc538710293a76c4f9bc6c7d3ddeec37d709f2b)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -252,7 +262,7 @@ jobs:
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_board_analysis_hotkey_feedback.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/presentation_privacy.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_pgn_webview_path_privacy.py tests/test_v2_shared_presentation_path_privacy.py tests/test_v2_board_analysis_hotkey_feedback.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_surface_dom_test.js
@@ -264,6 +274,8 @@ jobs:
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_webview_atomicity
           tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_v2_pgn_webview_path_privacy
+          tests.test_v2_shared_presentation_path_privacy
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_full_product_webview_adapter
           tests.test_gametree

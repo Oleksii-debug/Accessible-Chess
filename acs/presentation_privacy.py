@@ -19,9 +19,12 @@ _PUBLIC_WEB_URL = re.compile(r"(?i)\bhttps?://[^\s\r\n\t]+")
 
 # ``file:`` is considered local only when it actually starts a path/URI. A prose
 # label such as ``file: appendix`` or ``file:appendix`` is intentionally not a
-# path start.
+# path start. Encoded slash/backslash separators and encoded drive colons count
+# as path evidence too, because recovered source URIs may retain percent-encoding.
+# Once a real file-URI start is proven, redact the remainder of
+# that physical line because valid local filesystem components may contain spaces.
 _FILE_LOCAL_URI = re.compile(
-    r"(?i)(?<![\w])file:(?=[/\\]|[a-z]:)[^\r\n\t ]+"
+    r"(?i)(?<![\w])file:(?=[/\\]|[a-z](?::|%3a)|%(?:2f|5c))[^\r\n\t]+"
 )
 
 # Windows forms covered here:
@@ -39,14 +42,15 @@ _WINDOWS_LOCAL_PATH = re.compile(
     r"[a-z]:[\\/][^\r\n\t]*"
     r"|[a-z]:(?=[^:\r\n\t]{1,260}\\)[^\r\n\t]*"
     r"|[a-z]:[^\s:\\/]+/[^\r\n\t]*"
-    r"|\\\\(?:[?.]\\)?[^\\\r\n\t ]+\\[^\r\n\t]*"
+    r"|\\\\(?:[?.][\\/])?[^\\/\r\n\t ]+[\\/][^\r\n\t]*"
     r")"
 )
 
-# Internal POSIX roots require a following slash. Bare prose tokens such as
-# ``/home`` or ``/var`` are not sufficient evidence of a workstation path.
+# Internal POSIX/macOS roots require a following slash. Bare prose tokens such as
+# ``/home``, ``/var`` or ``/Volumes`` are not sufficient evidence of a workstation
+# path.
 _POSIX_LOCAL_PATH = re.compile(
-    r"(?i)(?<![\w:/])/(?:home|users|tmp|var|private|opt|usr|mnt|etc|srv|run|root|Applications)/"
+    r"(?i)(?<![\w:/])/(?:home|users|tmp|var|private|opt|usr|mnt|etc|srv|run|root|Applications|Volumes|Library|System)/"
     r"[^\r\n\t]*"
 )
 
