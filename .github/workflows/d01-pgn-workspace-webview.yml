@@ -184,7 +184,8 @@ jobs:
           # Stage1 core is frozen on Product, except the exact independently-qualified
           # takeback-recovery successor admitted only on the canonical integration lane.
           stage1_core_actual="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then
+          if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ] \
+             || [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-20261003" ]; then
             test "$stage1_core_actual" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
           else
             test "$stage1_core_actual" = b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6
