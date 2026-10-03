@@ -143,6 +143,7 @@
       }
       return {
         rootId: root.id,
+        rootNode: root,
         route: routeToken(),
         start: start,
         end: end,
@@ -159,7 +160,7 @@
   function restoreSemanticSelection(snapshot) {
     if (!snapshot || snapshot.route !== routeToken()) return false;
     const root = documentRef.getElementById(snapshot.rootId);
-    if (!root || root.hidden) return false;
+    if (!root || (snapshot.rootNode && root !== snapshot.rootNode) || root.hidden) return false;
     const selection = currentSelection();
     if (!selection) return false;
     try {
@@ -251,9 +252,13 @@
         retainedSelection = null;
         return;
       }
-      if (!mutationTouchesRetainedRoot(records)) return;
       const root = documentRef.getElementById(retainedSelection.rootId);
-      if (!root || root.hidden || String(root.textContent || "").indexOf(retainedSelection.text) < 0) {
+      if (!root || (retainedSelection.rootNode && root !== retainedSelection.rootNode)) {
+        retainedSelection = null;
+        return;
+      }
+      if (!mutationTouchesRetainedRoot(records)) return;
+      if (root.hidden || String(root.textContent || "").indexOf(retainedSelection.text) < 0) {
         retainedSelection = null;
         return;
       }
