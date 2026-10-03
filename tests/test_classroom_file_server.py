@@ -350,10 +350,13 @@ class ClassroomFileServerTests(unittest.TestCase):
         ):
             self.student1.upload(prepared)
 
+        scan_calls = len(self.scanner.calls)
+        self.scanner.state = "blocked"
         recovered = self.student1.retry(prepared)
 
         self.assertEqual(recovered.sequence_no, 0)
         self.assertEqual(recovered.transfer_state, "stored")
+        self.assertEqual(len(self.scanner.calls), scan_calls)
         self.assertEqual(len(self.objects.put_calls), 2)
         self.assertEqual(
             self.student1.history_after(
