@@ -2,6 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.chesscore import Board
 from acs.game_identity import identity_for_game
@@ -33,6 +34,61 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertEqual(workspace.to_text(), before)
         expected.push_text('Bc5')
         self.assertEqual(commands.current_fen(), expected.fen())
+
+    def test_root_selection_game_is_detached_from_canonical_session(self):
+        session = PgnDocumentSession.from_text("1. e4 *")
+        session.workspace.next_move()
+        view = session.workspace.view()
+        request = PgnSelectionExportRequest(
+            0,
+            (),
+            0,
+            view.current_record_digest,
+            view.content_revision,
+        )
+        commands = Version2PgnCommands(lambda: session)
+        selected = commands.selection_game(request)
+
+        selected.line.moves[0].san = "d4"
+
+        self.assertEqual(
+            session.workspace.current_game().line.moves[0].san,
+            "e4",
+        )
+        self.assertEqual(session.workspace.view(), view)
+
+    def test_export_freezes_validated_root_before_later_canonical_mutation(self):
+        session = PgnDocumentSession.from_text("1. e4 *")
+        session.workspace.next_move()
+        view = session.workspace.view()
+        request = PgnSelectionExportRequest(
+            0,
+            (),
+            0,
+            view.current_record_digest,
+            view.content_revision,
+        )
+        commands = Version2PgnCommands(lambda: session)
+
+        def mutate_after_validation(_session, _destination):
+            session.workspace.current_game().line.moves[0].san = "d4"
+            return None
+
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "frozen-selection.pgn"
+            with mock.patch.object(
+                PgnDocumentSession,
+                "expected_destination_sha256",
+                mutate_after_validation,
+            ):
+                commands.export_selected(request, destination)
+            exported = open_pgn(destination).games[0]
+
+        self.assertEqual(exported.line.moves[0].san, "e4")
+        self.assertEqual(
+            session.workspace.current_game().line.moves[0].san,
+            "d4",
+        )
 
     def test_stale_selection_cannot_publish_file(self):
         session = PgnDocumentSession.from_text('1. e4 *')
