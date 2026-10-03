@@ -504,7 +504,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app._restore_book_progress(
             reader.snapshot(),
             language=self.app.shell.language,
-            bookmark_name="",
+            bookmark_name="default",
         )
         self.app.progress_store.save(self.app.book_key, self.app.reader)
         self.app.shell.open_route("books")
