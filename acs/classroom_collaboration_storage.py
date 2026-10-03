@@ -1486,14 +1486,26 @@ class ClassroomCollaborationSQLiteStore:
         with closing(self._connect()) as db:
             row = db.execute(
                 """
-                SELECT revision
-                FROM collaboration_attachment_snapshot_watermarks
-                WHERE attachment_id=?
+                SELECT
+                    watermark.room_id,
+                    watermark.revision,
+                    attachment.room_id AS attachment_room_id
+                FROM collaboration_attachment_snapshot_watermarks AS watermark
+                LEFT JOIN collaboration_attachments AS attachment
+                    ON attachment.attachment_id=watermark.attachment_id
+                WHERE watermark.attachment_id=?
                 """,
                 (attachment_id,),
             ).fetchone()
         if row is None:
             return None
+        if (
+            row["attachment_room_id"] is None
+            or row["room_id"] != row["attachment_room_id"]
+        ):
+            raise CollaborationStorageError(
+                "stored attachment snapshot watermark crossed room boundary"
+            )
         try:
             revision = int(row["revision"])
         except (TypeError, ValueError, OverflowError):
