@@ -165,6 +165,7 @@ function bookSnapshot(index, text) {
       { command: "book.previous_game", label: "Previous game", enabled: false },
       { command: "book.next_game", label: "Next game", enabled: false },
       { command: "book.open_position", label: "Open position", enabled: false },
+      { command: "book.open_game", label: "Open game", enabled: false },
       { command: "book.return_from_board", label: "Return to book", enabled: true }
     ],
     bookmark: {
@@ -883,6 +884,52 @@ async function run() {
     delegatedAnnouncements.length === 1 &&
       delegatedAnnouncements[0] === "Position opened",
     "canonical delegated Book action announcement was lost"
+  );
+
+  const delegatedGameRoot = new FakeElement("div");
+  const delegatedGameAnnouncements = [];
+  const delegatedGameSnapshot = bookSnapshot(30, "Game handoff");
+  delegatedGameSnapshot.block.kind = "Game";
+  delegatedGameSnapshot.block.role = "group";
+  delegatedGameSnapshot.actions[9].enabled = true;
+  window.AccessibleChessBookSurface.render(
+    delegatedGameRoot,
+    delegatedGameSnapshot,
+    (command, payload) => {
+      check(command === "book.open_game", "unexpected delegated Book Game command");
+      check(payload && Object.keys(payload).length === 0, "Book Game handoff leaked payload");
+      return {
+        kind: "delegated",
+        payload: {
+          action: "book.open_game",
+          announcement: "Game opened"
+        }
+      };
+    },
+    (message) => delegatedGameAnnouncements.push(String(message)),
+    "book-block-30",
+    "Book Game delegation failed"
+  );
+  const delegatedGameBefore = delegatedGameRoot.querySelector("#book-block-30");
+  find(delegatedGameRoot, "BUTTON", "Open game").listeners.click();
+  check(
+    delegatedGameRoot.getAttribute("aria-busy") === "true",
+    "delegated Book Game action did not publish busy state"
+  );
+  await flushPromises();
+  await flushPromises();
+  check(
+    delegatedGameRoot.querySelector("#book-block-30") === delegatedGameBefore,
+    "canonical delegated Book Game action unexpectedly replaced the reading surface"
+  );
+  check(
+    delegatedGameRoot.getAttribute("aria-busy") === null,
+    "canonical delegated Book Game action left the reading surface busy"
+  );
+  check(
+    delegatedGameAnnouncements.length === 1 &&
+      delegatedGameAnnouncements[0] === "Game opened",
+    "canonical delegated Book Game announcement was lost"
   );
 
   const malformedDelegatedRoot = new FakeElement("div");
