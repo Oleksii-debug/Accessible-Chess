@@ -985,6 +985,15 @@ check(
   disclosureSummary !== null,
   "message timestamp disclosure must expose a stable focus anchor"
 );
+const disclosureRetentionSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-retention"
+);
+check(
+  disclosureRetentionSummary !== null,
+  "message retention disclosure must expose a stable focus anchor"
+);
+disclosureSummary.parentNode.open = true;
+disclosureRetentionSummary.parentNode.open = true;
 disclosureSummary.focus();
 const oldDisclosureSummary = disclosureSummary;
 window.AccessibleChessEducationSurface.apply(
@@ -1006,9 +1015,18 @@ check(
   document.activeElement !== oldDisclosureSummary,
   "collaboration redraw must restore keyboard focus to the rebuilt message disclosure"
 );
+const rebuiltTimestampSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-timestamp"
+);
+const rebuiltRetentionSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-retention"
+);
 check(
-  disclosureFocusRoot.querySelector("#collaboration-message-one-retention") !== null,
-  "message retention disclosure must expose a stable focus anchor"
+  rebuiltTimestampSummary !== null &&
+  rebuiltRetentionSummary !== null &&
+  rebuiltTimestampSummary.parentNode.open === true &&
+  rebuiltRetentionSummary.parentNode.open === true,
+  "collaboration redraw must preserve open message timestamp and retention disclosures"
 );
 
 const pageStatus = root.querySelector("#collaboration-chat-page-status");
