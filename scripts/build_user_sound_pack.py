@@ -280,23 +280,38 @@ def _build_sound_pack_unchecked(
     if source.is_file():
         if source.suffix.casefold() != ".zip":
             raise SoundPackBuildError("sound-pack source file must be ZIP")
-        archive_sha256 = _sha256(source)
-        if expected_source_archive_sha256 is not None:
-            wanted = expected_source_archive_sha256.strip().casefold()
-            if len(wanted) != 64 or any(character not in "0123456789abcdef" for character in wanted):
-                raise SoundPackBuildError("expected source archive SHA-256 is invalid")
-            if archive_sha256 != wanted:
-                raise SoundPackBuildError(
-                    f"sound-pack ZIP SHA-256 mismatch: actual={archive_sha256} expected={wanted}"
-                )
+        if source.is_symlink():
+            raise SoundPackBuildError("sound-pack ZIP source cannot be a symlink")
         with tempfile.TemporaryDirectory(prefix="accessible-chess-sounds-") as temp_dir:
-            extracted = Path(temp_dir)
-            _extract_sound_zip(source, extracted)
+            snapshot_root = Path(temp_dir)
+            archive_snapshot = snapshot_root / "source.zip"
+            try:
+                shutil.copyfile(source, archive_snapshot)
+            except OSError as exc:
+                raise SoundPackBuildError("sound-pack ZIP could not be snapshotted") from exc
+
+            archive_sha256 = _sha256(archive_snapshot)
+            if expected_source_archive_sha256 is not None:
+                wanted = expected_source_archive_sha256.strip().casefold()
+                if len(wanted) != 64 or any(
+                    character not in "0123456789abcdef"
+                    for character in wanted
+                ):
+                    raise SoundPackBuildError("expected source archive SHA-256 is invalid")
+                if archive_sha256 != wanted:
+                    raise SoundPackBuildError(
+                        "sound-pack ZIP SHA-256 mismatch: "
+                        f"actual={archive_sha256} expected={wanted}"
+                    )
+
+            extracted = snapshot_root / "extracted"
+            extracted.mkdir()
+            _extract_sound_zip(archive_snapshot, extracted)
             return _build_sound_pack_unchecked(
                 extracted,
                 destination,
                 _source_archive_sha256=archive_sha256,
-                _source_archive_bytes=source.stat().st_size,
+                _source_archive_bytes=archive_snapshot.stat().st_size,
             )
 
     sounds = _locate_sounds(source)
