@@ -200,6 +200,28 @@ class ClassroomMediaProviderExecutionArbiter:
                 )
             self._active = None
 
+    def release_after_verified_clean_failure(
+        self,
+        lease_id: str,
+    ) -> None:
+        """Release after the owning coordinator proves a dispatched effect left no provider state.
+
+        This is not a provider-success path and performs no canonical commit. The
+        shipping binder may use it only after the owning transaction coordinator
+        has accepted its own stronger clean-failure proof (for example #1160's
+        connect/reconnect adapter snapshot with connected=false and
+        cleanup_required=false).
+        """
+
+        self._assert_owner_thread()
+        with self._lock:
+            active = self._require_active(lease_id)
+            if active.transaction_id is None or not active.provider_boundary_crossed:
+                raise MediaProviderExecutionError(
+                    "verified clean failure requires an exact dispatched transaction"
+                )
+            self._active = None
+
     def complete(
         self,
         lease_id: str,
