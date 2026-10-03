@@ -22,8 +22,11 @@ from .acsdb import ACSDB_SCHEMA_VERSION
 from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 from .sound_events import SoundEvent
 from .sound_windows import (
+    DEFAULT_SOUND_LAYERS_MANIFEST,
     DEFAULT_SOUND_MANIFEST,
     DEFAULT_SOUND_RELATIVE_DIR,
+    DEFAULT_SOUND_VARIANTS_MANIFEST,
+    PackagedSoundAssetResolver,
     SOUND_MANIFEST_SCHEMA_VERSION,
 )
 from .stockfish_runtime import PACKAGED_STOCKFISH_RELATIVE_PATH
@@ -112,7 +115,22 @@ _REQUIRED_SOUND_MANIFEST = (
     _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_MANIFEST
 ).as_posix()
 _REQUIRED_SOUND_PROVENANCE = "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+_REQUIRED_SOUND_INVENTORY = (
+    _REQUIRED_SOUND_ROOT / "inventory.json"
+).as_posix()
+_REQUIRED_SOUND_INVENTORY_NOTICE = "THIRD_PARTY_NOTICES/SOUND_INVENTORY.json"
 _SOUND_PROVENANCE_SCHEMA_VERSION = 1
+_SOUND_INVENTORY_SCHEMA_VERSION = 1
+_USER_SOUND_EXPECTED_WAV_COUNT = 330
+_USER_SOUND_EXPECTED_INVENTORY_SHA256 = (
+    "41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920"
+)
+_USER_SOUND_SOURCE = "urn:accessible-chess:user-upload:sound-archive:2026-10-03"
+_USER_SOUND_LICENSE_ID = "USER_PROVIDED"
+_USER_SOUND_CREATOR = "User-provided legacy chess sound archive"
+_MAX_SOUND_INVENTORY_BYTES = 4 * 1024 * 1024
+_MAX_SOUND_FILE_BYTES = 64 * 1024 * 1024
+_MAX_SOUND_LIBRARY_WAV_BYTES = 512 * 1024 * 1024
 _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "none", "n/a"})
 _REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
@@ -619,6 +637,291 @@ def _validate_sound_provenance(
             _fail(f"sound provenance creator identity is unresolved: {event.value}")
 
 
+def _sound_inventory_sha256(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        _fail(f"{label} SHA-256 is invalid")
+    return value
+
+
+def _sound_inventory_file_token(value: object) -> str:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
+        _fail("sound inventory file path is invalid")
+    token = _relative_token(value, label="sound inventory file path")
+    path = PurePosixPath(token)
+    if len(path.parts) < 2 or path.parts[0] != "library":
+        _fail("sound inventory file must be under library")
+    if path.suffix.casefold() != ".wav":
+        _fail("sound inventory entry is not WAV")
+    return token
+
+
+def _validate_sound_inventory(
+    root: Path,
+    package_inventory: tuple[str, ...],
+) -> None:
+    variants_relative = (
+        _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_VARIANTS_MANIFEST
+    ).as_posix()
+    layers_relative = (
+        _REQUIRED_SOUND_ROOT / DEFAULT_SOUND_LAYERS_MANIFEST
+    ).as_posix()
+    has_variants = variants_relative in package_inventory
+    has_source = _REQUIRED_SOUND_INVENTORY in package_inventory
+    has_notice = _REQUIRED_SOUND_INVENTORY_NOTICE in package_inventory
+
+    if not has_source and not has_notice:
+        if has_variants:
+            _fail("packaged sound variants require canonical sound inventory")
+        return
+    if not has_source or not has_notice:
+        _fail("packaged sound inventory and audit notice must both be present")
+
+    source_path = _require_package_file(
+        root,
+        package_inventory,
+        _REQUIRED_SOUND_INVENTORY,
+        label="packaged sound inventory",
+    )
+    notice_path = _require_package_file(
+        root,
+        package_inventory,
+        _REQUIRED_SOUND_INVENTORY_NOTICE,
+        label="sound inventory audit notice",
+    )
+    try:
+        if (
+            source_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
+            or notice_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
+        ):
+            _fail("sound inventory exceeds byte limit")
+        source_doc = _json_no_duplicates(
+            source_path.read_text(encoding="utf-8-sig"),
+            label="packaged sound inventory",
+        )
+        notice_doc = _json_no_duplicates(
+            notice_path.read_text(encoding="utf-8-sig"),
+            label="sound inventory audit notice",
+        )
+    except Version2PackagePreflightError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        _fail(f"sound inventory is unreadable: {type(exc).__name__}")
+    if source_doc != notice_doc:
+        _fail("packaged sound inventory does not match audit notice")
+
+    required_root = {
+        "schema_version",
+        "source",
+        "license_id",
+        "creator",
+        "file_count",
+        "source_inventory_sha256",
+        "files",
+    }
+    optional_archive = {"source_archive_sha256", "source_archive_bytes"}
+    keys = set(source_doc)
+    if not required_root.issubset(keys) or not keys.issubset(required_root | optional_archive):
+        _fail("sound inventory root contract is invalid")
+    archive_keys = keys & optional_archive
+    if archive_keys and archive_keys != optional_archive:
+        _fail("sound inventory archive identity is incomplete")
+    if (
+        type(source_doc.get("schema_version")) is not int
+        or source_doc.get("schema_version") != _SOUND_INVENTORY_SCHEMA_VERSION
+    ):
+        _fail("sound inventory schema is invalid")
+    if source_doc.get("source") != _USER_SOUND_SOURCE:
+        _fail("sound inventory source identity is invalid")
+    if source_doc.get("license_id") != _USER_SOUND_LICENSE_ID:
+        _fail("sound inventory license identity is invalid")
+    if source_doc.get("creator") != _USER_SOUND_CREATOR:
+        _fail("sound inventory creator identity is invalid")
+
+    file_count = source_doc.get("file_count")
+    files = source_doc.get("files")
+    if type(file_count) is not int or file_count != _USER_SOUND_EXPECTED_WAV_COUNT:
+        _fail("sound inventory file count is invalid")
+    if not isinstance(files, list) or len(files) != file_count:
+        _fail("sound inventory files list is invalid")
+    declared_inventory_sha = _sound_inventory_sha256(
+        source_doc.get("source_inventory_sha256"),
+        label="sound inventory source",
+    )
+    if declared_inventory_sha != _USER_SOUND_EXPECTED_INVENTORY_SHA256:
+        _fail("sound inventory does not match approved source identity")
+
+    by_path: dict[str, dict[str, object]] = {}
+    normalized_files: list[dict[str, object]] = []
+    total_bytes = 0
+    expected_fields = {
+        "file",
+        "sha256",
+        "bytes",
+        "channels",
+        "sample_width_bytes",
+        "sample_rate",
+        "frames",
+        "duration_seconds",
+        "compression",
+    }
+    for entry in files:
+        if not isinstance(entry, dict) or set(entry) != expected_fields:
+            _fail("sound inventory entry contract is invalid")
+        file_name = _sound_inventory_file_token(entry.get("file"))
+        folded = file_name.casefold()
+        if folded in by_path:
+            _fail("sound inventory contains duplicate file paths")
+        digest = _sound_inventory_sha256(entry.get("sha256"), label="sound inventory file")
+
+        byte_count = entry.get("bytes")
+        channels = entry.get("channels")
+        sample_width = entry.get("sample_width_bytes")
+        sample_rate = entry.get("sample_rate")
+        frames = entry.get("frames")
+        duration = entry.get("duration_seconds")
+        compression = entry.get("compression")
+        if (
+            type(byte_count) is not int
+            or byte_count < 45
+            or byte_count > _MAX_SOUND_FILE_BYTES
+            or type(channels) is not int
+            or not 1 <= channels <= 64
+            or type(sample_width) is not int
+            or not 1 <= sample_width <= 8
+            or type(sample_rate) is not int
+            or not 1 <= sample_rate <= 768000
+            or type(frames) is not int
+            or frames < 1
+            or isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or duration <= 0
+            or not isinstance(compression, str)
+            or not compression
+            or len(compression) > 32
+        ):
+            _fail("sound inventory audio metadata is invalid")
+        if abs(float(duration) - round(frames / sample_rate, 6)) > 0.000001:
+            _fail("sound inventory duration metadata is invalid")
+
+        package_relative = (
+            _REQUIRED_SOUND_ROOT / PurePosixPath(file_name)
+        ).as_posix()
+        asset = _require_package_file(
+            root,
+            package_inventory,
+            package_relative,
+            label="inventory-bound sound asset",
+            min_bytes=45,
+        )
+        try:
+            if asset.stat().st_size != byte_count:
+                _fail("sound inventory byte size mismatch")
+        except OSError as exc:
+            _fail(f"sound inventory asset cannot be inspected: {type(exc).__name__}")
+        if _sha256(asset) != digest:
+            _fail("sound inventory SHA-256 mismatch")
+        try:
+            with wave.open(str(asset), "rb") as reader:
+                actual_channels = reader.getnchannels()
+                actual_sample_width = reader.getsampwidth()
+                actual_sample_rate = reader.getframerate()
+                actual_frames = reader.getnframes()
+                actual_compression = reader.getcomptype()
+                frame_bytes = reader.readframes(actual_frames)
+        except Version2PackagePreflightError:
+            raise
+        except (OSError, EOFError, wave.Error) as exc:
+            _fail(f"sound inventory WAV is unreadable: {type(exc).__name__}")
+        if (
+            actual_channels != channels
+            or actual_sample_width != sample_width
+            or actual_sample_rate != sample_rate
+            or actual_frames != frames
+            or actual_compression != compression
+        ):
+            _fail("sound inventory WAV metadata mismatch")
+        if len(frame_bytes) != actual_frames * actual_channels * actual_sample_width:
+            _fail("sound inventory WAV is truncated")
+
+        total_bytes += byte_count
+        if total_bytes > _MAX_SOUND_LIBRARY_WAV_BYTES:
+            _fail("sound inventory library byte limit exceeded")
+        normalized = dict(entry)
+        normalized["file"] = file_name
+        normalized["sha256"] = digest
+        normalized_files.append(normalized)
+        by_path[folded] = normalized
+
+    library_prefix = (_REQUIRED_SOUND_ROOT / "library").as_posix() + "/"
+    actual_library_wavs = {
+        relative.casefold()
+        for relative in package_inventory
+        if relative.startswith(library_prefix)
+        and PurePosixPath(relative).suffix.casefold() == ".wav"
+    }
+    expected_library_wavs = {
+        (_REQUIRED_SOUND_ROOT / PurePosixPath(str(item["file"]))).as_posix().casefold()
+        for item in normalized_files
+    }
+    if actual_library_wavs != expected_library_wavs:
+        _fail("sound inventory does not exactly cover packaged WAV library")
+
+    fingerprint_rows = []
+    for item in sorted(normalized_files, key=lambda current: str(current["file"]).casefold()):
+        source_relative = str(item["file"]).removeprefix("library/")
+        fingerprint_rows.append(
+            f'{source_relative}\0{item["sha256"]}\n'.encode("utf-8")
+        )
+    calculated_inventory_sha = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+    if (
+        calculated_inventory_sha != declared_inventory_sha
+        or calculated_inventory_sha != _USER_SOUND_EXPECTED_INVENTORY_SHA256
+    ):
+        _fail("sound inventory fingerprint mismatch")
+
+    if archive_keys:
+        _sound_inventory_sha256(
+            source_doc.get("source_archive_sha256"),
+            label="sound inventory source archive",
+        )
+        archive_bytes = source_doc.get("source_archive_bytes")
+        if type(archive_bytes) is not int or archive_bytes < 1:
+            _fail("sound inventory source archive size is invalid")
+
+    product_dir = root / _PRODUCT_ROOT
+    try:
+        resolver = PackagedSoundAssetResolver(product_dir)
+        manifest = resolver.load_manifest()
+        variants = resolver.load_variant_catalog()
+        layers = resolver.load_layer_catalog()
+    except Exception as exc:
+        _fail(f"packaged sound catalog is invalid: {type(exc).__name__}")
+    runtime_paths = {
+        *manifest.files.values(),
+        *(option.path for options in variants.values() for option in options),
+        *(
+            path
+            for by_variant in layers.values()
+            for sequence in by_variant.values()
+            for path in sequence
+        ),
+    }
+    sound_root = product_dir / DEFAULT_SOUND_RELATIVE_DIR
+    sound_root_resolved = sound_root.resolve()
+    for path in runtime_paths:
+        try:
+            relative = path.resolve().relative_to(sound_root_resolved).as_posix()
+        except (OSError, ValueError):
+            _fail("runtime sound asset escapes canonical inventory")
+        if _sound_inventory_file_token(relative).casefold() not in by_path:
+            _fail("runtime sound asset is absent from canonical inventory")
+
+    if layers_relative in package_inventory and not has_variants:
+        # Layer-only legacy packs are allowed only when they do not opt into
+        # the full user-pack inventory contract.
+        _fail("inventory-bound sound layers require the variant catalog")
+
+
 def _validate_stockfish_source_archive(
     source_archive: Path,
     limits: PackageLimits,
@@ -896,6 +1199,7 @@ def _validate_required_runtime_resources(
             _fail(f"packaged sound asset is invalid: {event.value} ({type(exc).__name__})")
 
     _validate_sound_provenance(root, inventory, mapping)
+    _validate_sound_inventory(root, inventory)
 
     source_archive = _require_package_file(
         root,
