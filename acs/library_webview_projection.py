@@ -107,7 +107,10 @@ _IMPORT_LABELS = {
 }
 
 
-_JS_MAX_SAFE_INTEGER = (1 << 53) - 1\n\n\ndef _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> str:
+_JS_MAX_SAFE_INTEGER = (1 << 53) - 1
+
+
+def _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
@@ -259,8 +262,8 @@ class LibraryImportWebViewProjection:
     def begin(self, total_games: int) -> LibraryWebViewEvent:
         if type(total_games) is not int:
             raise TypeError("total_games must be an integer")
-        if total_games < 1:
-            raise ValueError("total_games must be positive")
+        if total_games < 1 or total_games > _JS_MAX_SAFE_INTEGER:
+            raise ValueError("total_games must be a browser-safe positive integer")
         if self._phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING} and self._total_games == 0:
             # The host may start parsing before the canonical game count exists.
             # A later exact denominator must not undo an already requested cancel.
@@ -316,6 +319,8 @@ class LibraryImportWebViewProjection:
             raise ValueError("library import total changed")
         if progress.processed_games < self._processed_games:
             raise ValueError("library import progress moved backwards")
+        if progress.processed_games > _JS_MAX_SAFE_INTEGER:
+            raise ValueError("library import progress exceeds browser-safe integer range")
         if self._attempt_id is not None and progress.attempt_id != self._attempt_id:
             raise ValueError("library import attempt changed")
         self._attempt_id = progress.attempt_id
@@ -452,8 +457,12 @@ class LibraryWebViewProjection:
 
     def _row(self, row: object, *, position: int) -> dict[str, object]:
         game_id = getattr(row, "game_id", None)
-        if type(game_id) is not int or game_id <= 0:
-            raise ValueError("library row has invalid game identity")
+        if (
+            type(game_id) is not int
+            or game_id <= 0
+            or game_id > _JS_MAX_SAFE_INTEGER
+        ):
+            raise ValueError("library row has invalid browser-safe game identity")
         selected = getattr(row, "selected", None)
         if type(selected) is not bool:
             raise ValueError("library row has invalid selection state")
@@ -500,8 +509,12 @@ class LibraryWebViewProjection:
                 raise ValueError("library view selection identity is inconsistent")
             focus_target = "library-search-player"
         else:
-            if type(selected_game_id) is not int or selected_game_id <= 0:
-                raise ValueError("library selected game identity is invalid")
+            if (
+                type(selected_game_id) is not int
+                or selected_game_id <= 0
+                or selected_game_id > _JS_MAX_SAFE_INTEGER
+            ):
+                raise ValueError("library selected game identity is not browser-safe")
             if len(selected) != 1 or selected[0]["game_id"] != selected_game_id:
                 raise ValueError("library selected game is not present in rendered rows")
             focus_target = str(selected[0]["dom_id"])
@@ -577,8 +590,12 @@ class LibraryWebViewProjection:
         return self.search(GameSearchQuery())
 
     def select(self, game_id: int) -> LibraryWebViewEvent:
-        if type(game_id) is not int or game_id <= 0:
-            raise ValueError("game_id must be a positive integer")
+        if (
+            type(game_id) is not int
+            or game_id <= 0
+            or game_id > _JS_MAX_SAFE_INTEGER
+        ):
+            raise ValueError("game_id must be a browser-safe positive integer")
         view = self._presenter.select(game_id)
         return self._render_event(view, announce=False)
 
