@@ -264,6 +264,16 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual(37, draw["volume_percent"])
         self.assertEqual("draw", draw["sound_id"])
         self.assertIn("draw", draw["sound_choices"])
+        self.assertTrue(draw["uses_classic_fallback"])
+        mate_item = next(
+            item
+            for item in draw_result.snapshot["events"]
+            if item["event_id"] == "mate"
+        )
+        self.assertFalse(
+            mate_item["uses_classic_fallback"],
+            "manifest-declared owner sound must remain custom-pack playback",
+        )
 
     def test_master_and_per_event_edits_persist_through_single_profile_manager(self) -> None:
         storage, manager, _playback, runtime = self._profile_runtime()
