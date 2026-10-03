@@ -1128,6 +1128,20 @@ class ClassroomCollaborationWebView:
                 message=_LABELS[self._language]["file_sync_failed"],
                 focus_target="collaboration-file-sync",
             )
+        active_attachment_ids = {
+            item.attachment_id
+            for item in after_items
+            if item.transfer_state != "deleted"
+        }
+        if (
+            self._file_progress is not None
+            and self._file_progress[0] not in active_attachment_ids
+        ):
+            # Durable sync is authoritative over presentation-only terminal
+            # progress. Do not keep announcing a completed transfer for an
+            # attachment that has since been tombstoned or removed.
+            self._file_progress = None
+            self._file_progress_attempt_token = None
         retriable_local_ids = {
             item.attachment_id
             for item in after_items
