@@ -1209,6 +1209,45 @@ async function run() {
     "inconsistent Training progress did not fail closed accessibly"
   );
 
+  const oversizedProgressLabelRoot = new FakeElement("div");
+  const oversizedProgressLabelAnnouncements = [];
+  const oversizedProgressLabelSnapshot = trainingSnapshot();
+  oversizedProgressLabelSnapshot.progress.step_label = "x".repeat(121);
+  window.AccessibleChessTrainingSurface.render(
+    oversizedProgressLabelRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: oversizedProgressLabelSnapshot,
+        focus_target: "training-answer",
+        clear_answer: false,
+        solution: []
+      }
+    }),
+    (message) => oversizedProgressLabelAnnouncements.push(String(message)),
+    "training-answer",
+    "Training progress label failed",
+    []
+  );
+  const oversizedProgressLabelBefore =
+    oversizedProgressLabelRoot.querySelector("#training-answer");
+  oversizedProgressLabelBefore.value = "Nf3";
+  find(oversizedProgressLabelRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedProgressLabelRoot.querySelector("#training-answer") ===
+        oversizedProgressLabelBefore &&
+      oversizedProgressLabelBefore.value === "Nf3",
+    "oversized Training progress label replaced stable DOM or pending answer"
+  );
+  check(
+    oversizedProgressLabelAnnouncements.length === 1 &&
+      oversizedProgressLabelAnnouncements[0] === "Training progress label failed",
+    "oversized Training progress label did not fail closed accessibly"
+  );
+
   const listSnapshot = bookSnapshot(4, "List");
   listSnapshot.block.role = "list";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
