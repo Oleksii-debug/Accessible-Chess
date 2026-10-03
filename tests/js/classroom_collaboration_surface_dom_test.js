@@ -1870,5 +1870,17 @@ setImmediate(() => {
       settledInput.value === "",
       "settled send must release a busy state carried across an intervening push redraw"
     );
+    const sameCommandSettledWrapper = sameCommandRaceRoot.querySelector(
+      "#classroom-collaboration"
+    );
+    check(
+      sameCommandRaceRoot.querySelector("#collaboration-message-newer-same-session") !== null &&
+      sameCommandRaceRoot.querySelector("#collaboration-message-stale-same-session") === null &&
+      sameCommandSettledWrapper.getAttribute("data-pending-command") === null &&
+      sameCommandSettledWrapper.getAttribute("data-pending-invocation") === null &&
+      sameCommandRaceAnnouncements.includes("NEWER SAME SESSION") &&
+      !sameCommandRaceAnnouncements.includes("STALE SAME SESSION"),
+      "same-session newer identical command must own the final settled UI"
+    );
     console.log("CLASSROOM_COLLABORATION_SURFACE_DOM=PASS");
 });
