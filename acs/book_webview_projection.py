@@ -80,7 +80,9 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
         return ""
     if not isinstance(value, str):
         raise TypeError("book presentation text must be text")
-    text = value.replace("\x00", "").strip()
+    if "\x00" in value:
+        raise ValueError("book presentation text contains NUL")
+    text = value.strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
     return text[:limit]
 
@@ -197,13 +199,25 @@ class BookWebViewProjection:
             raise TypeError("BookReaderPresenter must return BookBlockView")
         if type(block.index) is not int or block.index < 0:
             raise ValueError("book block index is invalid")
-        if block.heading_level is not None and (
-            type(block.heading_level) is not int or not 1 <= block.heading_level <= 6
-        ):
-            raise ValueError("book heading level is invalid")
         role = str(block.role)
         if role not in {"heading", "paragraph", "img", "group", "tree", "note", "list"}:
             raise ValueError("book block role is invalid")
+        if (
+            (role == "heading" and block.heading_level is None)
+            or (role != "heading" and block.heading_level is not None)
+            or (
+                block.heading_level is not None
+                and (
+                    type(block.heading_level) is not int
+                    or not 1 <= block.heading_level <= 6
+                )
+            )
+        ):
+            raise ValueError("book heading level is inconsistent with its role")
+        if type(block.heading_path) is not tuple or any(
+            type(part) is not str or not part.strip() for part in block.heading_path
+        ):
+            raise ValueError("book heading path is invalid")
         if type(block.list_items) is not tuple or any(
             type(item) is not str or not item.strip() for item in block.list_items
         ):
@@ -222,6 +236,16 @@ class BookWebViewProjection:
         elif block.list_items or block.list_ordered or block.list_start is not None:
             raise ValueError("non-list book block contains list metadata")
         labels = _LABELS[self._language]
+        safe_kind = _safe_text(block.kind, language=self._language, limit=80)
+        safe_title = _safe_text(block.title, language=self._language, limit=360)
+        safe_block_text = _safe_visible_block_text(
+            block.text,
+            language=self._language,
+        )
+        if not safe_kind:
+            raise ValueError("book block kind must contain visible text")
+        if role != "list" and not (safe_title or safe_block_text):
+            raise ValueError("book block role must expose readable content")
         navigation = self._presenter.navigation_availability()
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
@@ -230,13 +254,10 @@ class BookWebViewProjection:
             "block": {
                 "dom_id": f"book-block-{block.index}",
                 "index": block.index,
-                "kind": _safe_text(block.kind, language=self._language, limit=80),
+                "kind": safe_kind,
                 "role": role,
-                "title": _safe_text(block.title, language=self._language, limit=360),
-                "text": _safe_visible_block_text(
-                    block.text,
-                    language=self._language,
-                ),
+                "title": safe_title,
+                "text": safe_block_text,
                 "list": (
                     {
                         "items": _safe_visible_list_items(
