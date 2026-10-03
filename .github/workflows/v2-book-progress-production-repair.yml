@@ -50,8 +50,8 @@ jobs:
       FOCUS_RECOVERY_APPLICATION_TEST_BLOB: 240bb41b0e99c45c0c1ad64ae8b91dbd057f6f69
       SEMANTIC_DURABLE_APPLICATION_BLOB: 9f4722a1898f9f1bc17daa62737606d8cb847a2d
       SEMANTIC_DURABLE_APPLICATION_TEST_BLOB: 043d8efd1be94b425d9ed153ce7f25e8b9057fed
-      DURABILITY_NAVIGATION_APPLICATION_BLOB: f916c50d3c08a93570a1f70c158c26fab618fbdd
-      DURABILITY_NAVIGATION_APPLICATION_TEST_BLOB: 03257330c7b5519683533f33fd57145f395354d7
+      DURABILITY_NAVIGATION_APPLICATION_BLOB: 9f6fedc62dab8b3154f6e1bec6ad26338e310729
+      DURABILITY_NAVIGATION_APPLICATION_TEST_BLOB: 78c0f464c463cad57c11726db07d8357b0537037
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -194,11 +194,15 @@ jobs:
               '.github/workflows/d01-pgn-workspace-webview.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/full_product_ui_shell.py' \
+              'acs/training_webview_projection.py' \
               'acs/version2_application.py' \
+              'tests/js/books_training_surface_dom_test.js' \
               'tests/js/version2_release_bootstrap_dom_test.js' \
               'tests/test_v2_book_training_route_rollback.py' \
               'tests/test_version2_application.py' \
-              'tests/test_version2_release_accessibility_contract.py' | sort)"
+              'tests/test_version2_release_accessibility_contract.py' \
+              'web/full_product_books_training.js' \
+              'web/version2_release_bootstrap.js' | sort)"
             test "$convergence_changed" = "$convergence_expected"
             test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$FOCUS_RECOVERY_STORE_BLOB"
             test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$FOCUS_RECOVERY_BASE_TEST_BLOB"
