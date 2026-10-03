@@ -272,6 +272,12 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 low_preview = api.preview_sound("low_time")
                 self.assertTrue(low_preview["ok"], low_preview)
                 self.assertEqual(playback.calls[-1], (SoundEvent.LOW_TIME, 35))
+                self.assertGreater(api._clock_sound_not_before, 0.0)
+                api._clock_sound_not_before = 0.0
+                start_preview = api.preview_sound("start")
+                self.assertTrue(start_preview["ok"], start_preview)
+                self.assertEqual(playback.calls[-1], (SoundEvent.START, 35))
+                self.assertGreater(api._clock_sound_not_before, 0.0)
                 preview = api.preview_sound("capture")
                 self.assertTrue(preview["ok"], preview)
                 self.assertEqual(playback.calls[-1], (SoundEvent.CAPTURE, 35))
