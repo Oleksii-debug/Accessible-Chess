@@ -30,6 +30,7 @@ from .classroom_collaboration_storage import (
     ClassroomCollaborationSQLiteStore,
 )
 from .classroom_realtime_media import ClassroomMediaController
+from .classroom_domain import MAX_WIRE_INTEGER
 from .full_product_ui_shell import UILanguage
 
 
@@ -370,11 +371,16 @@ class ClassroomCollaborationWebView:
             raise TypeError("file progress event sink must be callable")
         self._file_progress_event_sink = sink
 
+    def _advance_file_progress_revision(self) -> None:
+        if self._file_progress_revision >= MAX_WIRE_INTEGER:
+            raise RuntimeError("file progress presentation revision exhausted")
+        self._file_progress_revision += 1
+
     def _clear_file_progress(self) -> None:
         """Clear presentation progress and advance its session-local ordering."""
 
         if self._file_progress is not None:
-            self._file_progress_revision += 1
+            self._advance_file_progress_revision()
         self._file_progress = None
         self._file_progress_attempt_token = None
 
@@ -935,7 +941,7 @@ class ClassroomCollaborationWebView:
         )
         if attachment is None or attachment.size_bytes != sample.total_bytes:
             raise RuntimeError("file transfer progress no longer matches local metadata")
-        self._file_progress_revision += 1
+        self._advance_file_progress_revision()
         self._file_progress = (
             attachment.attachment_id,
             attachment.display_name,
