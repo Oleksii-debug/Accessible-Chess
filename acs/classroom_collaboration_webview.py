@@ -384,6 +384,13 @@ class ClassroomCollaborationWebView:
             return False
         return state.room_id in {None, self._controller.room_id}
 
+    def _dom_id(self, kind: str, identity: str) -> str:
+        material = (
+            f"{self._controller.room_id}\0dom\0{kind}\0{identity}"
+        ).encode("utf-8")
+        digest = hmac.new(self._action_secret, material, sha256).hexdigest()[:24]
+        return f"collaboration-{kind}-{digest}"
+
     def _message_key(self, message_id: str) -> str:
         material = f"{self._controller.room_id}\\0message\\0{message_id}".encode("utf-8")
         return hmac.new(self._action_secret, material, sha256).hexdigest()
@@ -454,7 +461,7 @@ class ClassroomCollaborationWebView:
             f"{sender_label}: {item.body}"
         )
         view: dict[str, object] = {
-            "dom_id": "collaboration-message-" + sha256(item.message_id.encode("utf-8")).hexdigest()[:16],
+            "dom_id": self._dom_id("message", item.message_id),
             "sender": sender_label,
             "action_sender": action_sender,
             "action_message": action_message,
@@ -502,7 +509,7 @@ class ClassroomCollaborationWebView:
             and item.transfer_state in {"pending", "uploading", "failed"}
         )
         view: dict[str, object] = {
-            "dom_id": "collaboration-file-" + sha256(item.attachment_id.encode("utf-8")).hexdigest()[:16],
+            "dom_id": self._dom_id("file", item.attachment_id),
             "sender": self._label(item.sender_id),
             "name": item.display_name,
             "type_label": f"{labels['type']}: {item.mime_type or '—'}",
