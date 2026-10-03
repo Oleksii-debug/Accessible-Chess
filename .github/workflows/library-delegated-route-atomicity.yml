@@ -52,8 +52,8 @@ jobs:
             'acs/version2_application.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = "8ec920b335a334550c69e8c2e23f27923615497c"
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b6bfd12d0addea1c477bce6fcc331888db1b501"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "0aebf54578be33fcb78ae01abf588212b0713513"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "40e5c0ab61b25f31d94bff30f86e753bb1dae2f9"
           git diff --check "$live_product" HEAD
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
