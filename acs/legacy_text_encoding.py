@@ -2,9 +2,10 @@ from __future__ import annotations
 
 """Bounded deterministic decoding for legacy Cyrillic book text.
 
-UTF-8 remains authoritative. Windows-1251 is admitted only after a conservative
-text-likeness gate so arbitrary malformed/binary bytes are not silently
-reinterpreted. This module performs no filesystem, network, OCR or AI work.
+UTF-8 remains authoritative. BOM-declared UTF-16 is accepted deterministically.
+Windows-1251 is admitted only after a conservative text-likeness gate so
+arbitrary malformed/binary bytes are not silently reinterpreted. This module
+performs no filesystem, network, OCR or AI work.
 """
 
 from dataclasses import dataclass
@@ -45,6 +46,8 @@ _CP1251_CYRILLIC_BYTES = frozenset(
         0xBF,
     )
 )
+_UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
+_UTF32_BOMS = (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")
 _HTML_ANCHORS = (
     b"<!doctype",
     b"<html",
@@ -139,6 +142,18 @@ def _looks_like_windows_1251(payload: bytes, *, html: bool) -> bool:
 def decode_book_text_bytes(payload: bytes, *, html: bool = False) -> DecodedLegacyText:
     if type(payload) is not bytes:
         raise TypeError("payload must be bytes")
+    if payload.startswith(_UTF32_BOMS):
+        raise LegacyTextEncodingError("UTF-32 book text is not supported")
+    if payload.startswith(_UTF16_BOMS):
+        try:
+            return DecodedLegacyText(
+                payload.decode("utf-16", errors="strict"),
+                "utf-16",
+            )
+        except UnicodeDecodeError as utf16_error:
+            raise LegacyTextEncodingError(
+                "BOM-declared UTF-16 source is malformed"
+            ) from utf16_error
     try:
         return DecodedLegacyText(
             payload.decode("utf-8-sig", errors="strict"),
@@ -147,7 +162,7 @@ def decode_book_text_bytes(payload: bytes, *, html: bool = False) -> DecodedLega
     except UnicodeDecodeError as utf8_error:
         if not _looks_like_windows_1251(payload, html=html):
             raise LegacyTextEncodingError(
-                "source is neither valid UTF-8 nor qualified Windows-1251 text"
+                "source is neither valid UTF-8, BOM UTF-16 nor qualified Windows-1251 text"
             ) from utf8_error
         try:
             decoded = payload.decode("cp1251", errors="strict")
