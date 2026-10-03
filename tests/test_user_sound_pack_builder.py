@@ -211,6 +211,26 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 ["1", "2", "3"],
             )
             self.assertEqual(
+                [item["id"] for item in variants["events"]["mate"]],
+                ["1", "ru"],
+            )
+            self.assertEqual(
+                [item["id"] for item in variants["events"]["draw"]],
+                ["1", "en", "ru"],
+            )
+            self.assertEqual(
+                variants["events"]["mate"][1]["file"],
+                "library/Russian/Notation/Mate.wav",
+            )
+            self.assertEqual(
+                variants["events"]["draw"][1]["file"],
+                "library/English/Draw.wav",
+            )
+            self.assertEqual(
+                variants["events"]["draw"][2]["file"],
+                "library/Russian/Draw.wav",
+            )
+            self.assertEqual(
                 layers["events"]["move"]["1"],
                 ["library/Board/MOVE.WAV", "library/Board/MOVEHIT1.WAV"],
             )
