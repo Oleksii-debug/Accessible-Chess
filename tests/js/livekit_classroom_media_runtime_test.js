@@ -874,7 +874,9 @@ async function testDuplicateInflightDispatchDoesNotRetireOwner() {
     await new Promise((resolve) => setImmediate(resolve));
   }
   const duplicate = await runtime.execute(event, invoke);
-  assert.deepEqual(duplicate, { kind: "status", payload: {} });
+  assert.equal(duplicate.kind, "status");
+  assert.equal(duplicate.payload !== null && typeof duplicate.payload === "object", true);
+  assert.equal(Object.keys(duplicate.payload).length, 0);
   assert.deepEqual(retired, []);
 
   releaseFirst();

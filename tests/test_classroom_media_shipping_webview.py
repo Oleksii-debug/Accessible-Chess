@@ -306,7 +306,10 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIsNone(second.payload["snapshot"])
         self.assertIsNone(binder.active_lease)
         self.assertIsNotNone(binder.recovery_status)
-        self.assertFalse(binder.recovery_status.provider_outcome_unknown)
+        # Credential handoff is itself a provider-capability boundary. A stale
+        # browser callback can still use the token even when normal execution
+        # later reports not-started, so the canonical binder must latch unknown.
+        self.assertTrue(binder.recovery_status.provider_outcome_unknown)
         self.assertNotIn(transaction_id, transactions._focus_by_transaction)
         self.assertNotIn(TOKEN, repr(second))
 
@@ -795,7 +798,7 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         )
         self.assertEqual(resolved["kind"], "media-updated")
         self.assertIsNone(binder.recovery_status)
-        self.assertEqual(application.drain_events(), [resolved])
+        self.assertEqual(application.drain_events(), (resolved,))
 
     def test_application_transactional_binding_queues_trusted_join(self):
         controller, roster, _host, _sessions, binder, _projection, _transactions, _bridge = composition()
