@@ -321,6 +321,37 @@ class ExerciseSessionTests(unittest.TestCase):
             ExerciseSession.restore(definition, snapshot).snapshot(),
         )
 
+    def test_restore_freezes_accepted_path_before_semantic_replay(self):
+        definition = self.make_definition()
+        source = ExerciseSession(definition)
+        source.submit("e4")
+        source.submit("e5")
+        snapshot = source.snapshot()
+        expected = dict(snapshot)
+        expected["accepted_path"] = list(snapshot["accepted_path"])
+
+        original = training_module._snapshot_move
+        calls = 0
+
+        def mutate_source_after_first_read(value):
+            nonlocal calls
+            calls += 1
+            normalized = original(value)
+            if calls == 1:
+                snapshot["accepted_path"][1] = "d5"
+            return normalized
+
+        with patch.object(
+            training_module,
+            "_snapshot_move",
+            side_effect=mutate_source_after_first_read,
+        ):
+            restored = ExerciseSession.restore(definition, snapshot)
+
+        self.assertEqual(2, calls)
+        self.assertEqual(expected, restored.snapshot())
+        self.assertEqual(["e4", "d5"], snapshot["accepted_path"])
+
     def test_restore_reads_custom_snapshot_mapping_only_once(self):
         definition = self.make_definition()
         session = ExerciseSession(definition)
