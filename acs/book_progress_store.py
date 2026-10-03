@@ -879,6 +879,25 @@ class BookProgressStore:
                 ) from None
             raise
 
+    def _require_storage_directory_unlocked(self) -> None:
+        """Require the configured storage parent to be a real local directory."""
+        try:
+            metadata = os.lstat(self._path.parent)
+        except OSError:
+            raise BookProgressStoreError(
+                "book progress storage directory is unavailable",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISDIR(metadata.st_mode)
+        ):
+            raise BookProgressStoreError(
+                "book progress storage directory is not a regular directory",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+
     def _cleanup_stale_temps_unlocked(self) -> None:
         """Leave crash-left temp pathnames untouched.
 
@@ -901,6 +920,7 @@ class BookProgressStore:
                     "book progress storage is unavailable",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
+            self._require_storage_directory_unlocked()
             descriptor = self._open_lock_descriptor()
             acquired = False
             try:
