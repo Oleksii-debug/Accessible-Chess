@@ -1,0 +1,93 @@
+name: Books List Item Raw Bound
+
+on:
+  pull_request:
+    branches:
+      - 'fix/books-durability-focus-rebind-20261003'
+    paths:
+      - '.github/workflows/books-list-item-raw-bound.yml'
+      - 'acs/book_webview_projection.py'
+      - 'tests/test_dev1_books_training_webview_projection.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-list-item-raw-bound-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact successor topology and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent_branch='fix/books-durability-focus-rebind-20261003'
+          successor_branch='fix/books-list-item-raw-bound-20261003'
+          test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+          test '${{ github.event.pull_request.head.ref }}' = "$successor_branch"
+
+          parent_ref="refs/remotes/origin/$parent_branch"
+          git fetch --no-tags origin "+refs/heads/$parent_branch:$parent_ref"
+          parent="$(git rev-parse "$parent_ref")"
+          event_base='${{ github.event.pull_request.base.sha }}'
+          test -n "$event_base"
+          git cat-file -e "$event_base^{commit}"
+          git merge-base --is-ancestor "$event_base" "$parent"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/books-list-item-raw-bound.yml' \
+            'acs/book_webview_projection.py' \
+            'tests/test_dev1_books_training_webview_projection.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check "$parent" HEAD
+
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '30d2e050f43b050601d2c86fc192f0534e8eee8d'
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = 'a46214657459df0733fbf4b2e02c674e92003e60'
+
+          # Preserve the exact persistence, application, semantic-workspace and
+          # browser authorities inherited from the qualified focus successor.
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = 'b7ad9899f614c42589b9f53fddbebe59dee2b9c7'
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = '78a878e4b0ae08e58e7fc182c2f243c4348eb90b'
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = '85e4ef957d587d607c47f3b6c143970fdb5fa9d2'
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = 'df53e5b1cff5b530dd9be8f2a520842dd6a8cd75'
+          echo 'BOOKS_LIST_ITEM_RAW_BOUND_TOPOLOGY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile affected runtime and regression authorities
+        run: >-
+          python -m compileall -q
+          acs/book_webview_projection.py
+          acs/version2_book_workspace.py
+          tests/test_dev1_books_training_webview_projection.py
+          tests/test_books_semantic_host_bounds.py
+          tests/test_version2_application.py
+
+      - name: Prove malformed-content, semantic, recovery and route regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_webview_projection
+          tests.test_books_semantic_host_bounds
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_version2_application
+          tests.test_v2_book_training_route_rollback
