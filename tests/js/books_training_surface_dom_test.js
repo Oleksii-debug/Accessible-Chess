@@ -1199,6 +1199,218 @@ async function run() {
     "discarded stale starter action announced into the newer NVDA context"
   );
 
+  const emptyBookmarkRoot = new FakeElement("div");
+  const emptyBookmarkAnnouncements = [];
+  const emptyBookmarkSnapshot = bookSnapshot(30, "Malformed empty bookmark");
+  emptyBookmarkSnapshot.bookmark.value = "";
+  window.AccessibleChessBookSurface.render(
+    emptyBookmarkRoot,
+    bookSnapshot(30, "Stable bookmark"),
+    () => ({
+      kind: "render",
+      payload: { snapshot: emptyBookmarkSnapshot, focus_target: "book-block-30" }
+    }),
+    (message) => emptyBookmarkAnnouncements.push(String(message)),
+    "book-block-30",
+    "Bookmark contract failed"
+  );
+  const emptyBookmarkBefore = emptyBookmarkRoot.querySelector("#book-block-30");
+  find(emptyBookmarkRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    emptyBookmarkRoot.querySelector("#book-block-30") === emptyBookmarkBefore,
+    "empty bookmark snapshot replaced the stable Book render"
+  );
+  check(
+    emptyBookmarkAnnouncements.length === 1 &&
+      emptyBookmarkAnnouncements[0] === "Bookmark contract failed",
+    "empty bookmark snapshot did not fail closed accessibly"
+  );
+
+  const oversizedHeadingPathRoot = new FakeElement("div");
+  const oversizedHeadingPathAnnouncements = [];
+  const oversizedHeadingPathSnapshot = bookSnapshot(31, "Oversized heading path");
+  oversizedHeadingPathSnapshot.block.heading_path =
+    ["One", "Two", "Three", "Four", "Five", "Six", "Seven"];
+  window.AccessibleChessBookSurface.render(
+    oversizedHeadingPathRoot,
+    bookSnapshot(31, "Stable heading path"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: oversizedHeadingPathSnapshot,
+        focus_target: "book-block-31"
+      }
+    }),
+    (message) => oversizedHeadingPathAnnouncements.push(String(message)),
+    "book-block-31",
+    "Heading path failed"
+  );
+  const oversizedHeadingPathBefore =
+    oversizedHeadingPathRoot.querySelector("#book-block-31");
+  find(oversizedHeadingPathRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedHeadingPathRoot.querySelector("#book-block-31") ===
+      oversizedHeadingPathBefore,
+    "oversized heading path replaced the stable Book render"
+  );
+  check(
+    oversizedHeadingPathAnnouncements.length === 1 &&
+      oversizedHeadingPathAnnouncements[0] === "Heading path failed",
+    "oversized heading path did not fail closed accessibly"
+  );
+
+  const oversizedListRoot = new FakeElement("div");
+  const oversizedListAnnouncements = [];
+  const oversizedListSnapshot = bookSnapshot(32, "Oversized list");
+  oversizedListSnapshot.block.role = "list";
+  oversizedListSnapshot.block.list = {
+    ordered: false,
+    start: null,
+    items: ["x".repeat(12 * 1024 * 1024 + 1)]
+  };
+  window.AccessibleChessBookSurface.render(
+    oversizedListRoot,
+    bookSnapshot(32, "Stable list boundary"),
+    () => ({
+      kind: "render",
+      payload: { snapshot: oversizedListSnapshot, focus_target: "book-block-32" }
+    }),
+    (message) => oversizedListAnnouncements.push(String(message)),
+    "book-block-32",
+    "List budget failed"
+  );
+  const oversizedListBefore = oversizedListRoot.querySelector("#book-block-32");
+  find(oversizedListRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedListRoot.querySelector("#book-block-32") === oversizedListBefore,
+    "oversized list replaced the stable Book render"
+  );
+  check(
+    oversizedListAnnouncements.length === 1 &&
+      oversizedListAnnouncements[0] === "List budget failed",
+    "oversized list did not fail closed accessibly"
+  );
+
+  const oversizedStarterRoot = new FakeElement("div");
+  const oversizedStarterAnnouncements = [];
+  const oversizedStarterSnapshot = bookSnapshot(33, "Oversized starter catalogue");
+  oversizedStarterSnapshot.starter_materials = {
+    heading: "Offline starter materials",
+    label: "Material",
+    open_label: "Open material",
+    description: "Bounded catalogue",
+    current_id: "starter-course",
+    booklet_count: 25,
+    items: Array.from({ length: 26 }, function (_, index) {
+      return {
+        material_id: index === 0 ? "starter-course" : "starter-booklet-" + String(index),
+        title: "Material " + String(index)
+      };
+    })
+  };
+  window.AccessibleChessBookSurface.render(
+    oversizedStarterRoot,
+    bookSnapshot(33, "Stable starter bound"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: oversizedStarterSnapshot,
+        focus_target: "book-block-33"
+      }
+    }),
+    (message) => oversizedStarterAnnouncements.push(String(message)),
+    "book-block-33",
+    "Starter bound failed"
+  );
+  const oversizedStarterBefore = oversizedStarterRoot.querySelector("#book-block-33");
+  find(oversizedStarterRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedStarterRoot.querySelector("#book-block-33") === oversizedStarterBefore,
+    "oversized starter catalogue replaced the stable Book render"
+  );
+  check(
+    oversizedStarterAnnouncements.length === 1 &&
+      oversizedStarterAnnouncements[0] === "Starter bound failed",
+    "oversized starter catalogue did not fail closed accessibly"
+  );
+
+  const oversizedSolutionRoot = new FakeElement("div");
+  const oversizedSolutionAnnouncements = [];
+  window.AccessibleChessTrainingSurface.render(
+    oversizedSolutionRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: "training-answer",
+        clear_answer: false,
+        solution: Array.from({ length: 65 }, () => "e4")
+      }
+    }),
+    (message) => oversizedSolutionAnnouncements.push(String(message)),
+    "training-answer",
+    "Solution bound failed",
+    []
+  );
+  const oversizedSolutionBefore = oversizedSolutionRoot.querySelector("#training-answer");
+  oversizedSolutionBefore.value = "d4";
+  find(oversizedSolutionRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedSolutionRoot.querySelector("#training-answer") === oversizedSolutionBefore &&
+      oversizedSolutionBefore.value === "d4",
+    "oversized Training solution mutated pending answer state"
+  );
+  check(
+    oversizedSolutionAnnouncements.length === 1 &&
+      oversizedSolutionAnnouncements[0] === "Solution bound failed",
+    "oversized Training solution did not fail closed accessibly"
+  );
+
+  const oversizedAnnouncementRoot = new FakeElement("div");
+  const oversizedAnnouncementAnnouncements = [];
+  window.AccessibleChessBookSurface.render(
+    oversizedAnnouncementRoot,
+    bookSnapshot(34, "Stable announcement"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: bookSnapshot(35, "Should not render"),
+        focus_target: "book-block-35",
+        announcement: "x".repeat(1001)
+      }
+    }),
+    (message) => oversizedAnnouncementAnnouncements.push(String(message)),
+    "book-block-34",
+    "Announcement bound failed"
+  );
+  const oversizedAnnouncementBefore =
+    oversizedAnnouncementRoot.querySelector("#book-block-34");
+  find(oversizedAnnouncementRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    oversizedAnnouncementRoot.querySelector("#book-block-34") ===
+      oversizedAnnouncementBefore &&
+      oversizedAnnouncementRoot.querySelector("#book-block-35") === null,
+    "oversized Book announcement mutated the stable render"
+  );
+  check(
+    oversizedAnnouncementAnnouncements.length === 1 &&
+      oversizedAnnouncementAnnouncements[0] === "Announcement bound failed",
+    "oversized Book announcement did not fail closed accessibly"
+  );
+
   console.log("Books/Training DOM focus, editing, and starter discovery contract PASS");
 }
 
