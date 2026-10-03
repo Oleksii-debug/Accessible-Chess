@@ -386,6 +386,48 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(alt.san, "e5")
         self.assertIn("$5", alt.nags)
 
+    def test_variation_pgn_position_tags_must_be_a_coherent_pair(self) -> None:
+        cases = (
+            (
+                f'''[FEN "{AFTER_E4_FEN}"]\n[Result "*"]\n\n1... c5 *\n''',
+                "FEN requires SetUp 1",
+            ),
+            (
+                '''[SetUp "1"]\n[Result "*"]\n\n1... c5 *\n''',
+                "SetUp without its required FEN tag",
+            ),
+            (
+                f'''[SetUp "0"]\n[FEN "{AFTER_E4_FEN}"]\n[Result "*"]\n\n1... c5 *\n''',
+                "FEN requires SetUp 1",
+            ),
+            (
+                f'''[SetUp "yes"]\n[FEN "{AFTER_E4_FEN}"]\n[Result "*"]\n\n1... c5 *\n''',
+                "FEN requires SetUp 1",
+            ),
+        )
+        for pgn, message in cases:
+            with self.subTest(pgn=pgn):
+                with self.assertRaisesRegex(BookGameContentError, message) as caught:
+                    resolve_book_variation(
+                        VariationTree(root_fen=AFTER_E4_FEN, pgn=pgn)
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+                )
+
+    def test_variation_without_position_tags_uses_book_root_authority(self) -> None:
+        resolved = resolve_book_variation(
+            VariationTree(
+                root_fen=AFTER_E4_FEN,
+                pgn='''[Result "*"]\n\n1... c5 *\n''',
+            )
+        )
+        self.assertNotIn("SetUp", resolved.game.tags)
+        self.assertNotIn("FEN", resolved.game.tags)
+        self.assertEqual(resolved.root_fen, AFTER_E4_FEN)
+        self.assertEqual(resolved.game.line.moves[0].san, "c5")
+
     def test_variation_pgn_fen_tag_must_not_conflict_with_book_root(self) -> None:
         pgn = f'''[SetUp "1"]
 [FEN "{START_FEN}"]
