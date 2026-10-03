@@ -329,6 +329,23 @@ class SoundPackCatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "signature exceeds"):
             make_entry(signature="s" * (16 * 1024 + 1))
 
+    def test_preflight_rejects_ineligible_candidate_without_downloader_or_storage_side_effect(self):
+        installed = make_manifest("soft.wood", "2.0.0")
+        candidate = make_entry(make_manifest("soft.wood", "3.0.0"), rights=False)
+        downloader = FakeDownloader(make_download(candidate))
+        storage = FakeStorage({"classic": make_manifest("classic"), installed.pack_id: installed})
+        manager = SoundPackManager(downloader, storage)
+
+        with self.assertRaisesRegex(
+            SoundPackInstallError,
+            "auditable license/provenance evidence",
+        ):
+            manager.preflight_install(candidate)
+
+        self.assertEqual([], downloader.calls)
+        self.assertEqual([], storage.install_calls)
+        self.assertEqual(installed, storage.items[installed.pack_id])
+
     def test_valid_pack_is_verified_before_atomic_install(self):
         entry = make_entry()
         downloaded = make_download(entry)
