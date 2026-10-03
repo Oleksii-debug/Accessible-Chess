@@ -168,35 +168,66 @@ def _is_upgrade_generated_root_runtime_file(
     return False
 
 
-def _generated_runtime_file_allows_multiple_links(
+def _generated_runtime_file_is_authenticated_hardlink(
+    path: Path,
+    metadata: os.stat_result,
     relative_path: PurePosixPath,
     *,
+    root: Path,
     settings_name: str,
     library_name: str,
 ) -> bool:
-    """Return whether the canonical writer intentionally creates a hard link."""
+    """Authenticate an intentional writer hardlink against its canonical inode."""
     if len(relative_path.parts) != 1:
         return False
     name = relative_path.parts[0].casefold()
+    target_name: str | None = None
 
     gametree_prefix = "gametree-resume.json.cas-"
     if name.startswith(gametree_prefix) and name.endswith(".bak"):
         token = name[len(gametree_prefix) : -len(".bak")]
         if _is_tempfile_token(token):
-            return True
+            target_name = "gametree-resume.json"
 
     settings = settings_name.casefold()
     library = library_name.casefold()
-    for target in (settings, library):
-        prefix = f".{target}.publish-guard-"
-        if not name.startswith(prefix):
-            continue
-        token = name[len(prefix) :]
-        if len(token) == 12 and all(
-            character in _HEX_CHARACTERS for character in token
+    if target_name is None:
+        for target, canonical_name in (
+            (settings, settings_name),
+            (library, library_name),
         ):
-            return True
-    return False
+            prefix = f".{target}.publish-guard-"
+            if not name.startswith(prefix):
+                continue
+            token = name[len(prefix) :]
+            if len(token) == 12 and all(
+                character in _HEX_CHARACTERS for character in token
+            ):
+                target_name = canonical_name
+                break
+
+    if target_name is None:
+        return False
+    target_path = root / target_name
+    try:
+        target_metadata = _safe_stat(
+            target_path,
+            "generated hardlink canonical target",
+        )
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(target_metadata.st_mode):
+        return False
+    try:
+        return os.path.samestat(metadata, target_metadata)
+    except (AttributeError, OSError):
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+        ) == (
+            target_metadata.st_dev,
+            target_metadata.st_ino,
+        )
 
 
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
@@ -859,8 +890,11 @@ class Version2UpgradeCoordinator:
             # traversed normally so its children remain preservation-backed.
             if generated_runtime_file and stat.S_ISREG(info.st_mode):
                 link_count = int(getattr(info, "st_nlink", 1))
-                if link_count == 1 or _generated_runtime_file_allows_multiple_links(
+                if link_count == 1 or _generated_runtime_file_is_authenticated_hardlink(
+                    path,
+                    info,
                     relative_path,
+                    root=self.layout.root,
                     settings_name=self.layout.settings_name,
                     library_name=self.layout.library_name,
                 ):
