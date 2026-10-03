@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import stat
 import struct
@@ -219,6 +220,79 @@ class Version2ReleasePayloadTests(unittest.TestCase):
 
     def _assert_no_publication(self, output: Path) -> None:
         self.assertFalse(output.exists(), f"unexpected published payload at {output}")
+
+    def test_release_sha256_rejects_pathname_replacement(self) -> None:
+        target = self.root / "release-file.bin"
+        replacement = self.root / "release-file-replacement.bin"
+        target.write_bytes(b"qualified bytes")
+        replacement.write_bytes(b"replacement bytes")
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "release payload file changed while being opened",
+            ):
+                payload._sha256(target)
+        self.assertTrue(swapped)
+
+    def test_livekit_notice_publication_rejects_pathname_replacement(self) -> None:
+        notices = self.root / "notices"
+        notices.mkdir()
+        target = self.standalone / "web" / "vendor" / "livekit" / "LICENSE"
+        replacement = self.root / "replacement-license"
+        replacement.write_bytes(target.read_bytes())
+        original_open = Path.open
+        swapped = False
+
+        def replacing_open(path_self, *args, **kwargs):
+            nonlocal swapped
+            if path_self == target and not swapped:
+                swapped = True
+                os.replace(replacement, target)
+            return original_open(path_self, *args, **kwargs)
+
+        with patch.object(Path, "open", new=replacing_open):
+            with self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "LiveKit client license changed while being opened",
+            ):
+                payload._publish_livekit_client_notices(self.standalone, notices)
+        self.assertTrue(swapped)
+        self.assertEqual(list(notices.iterdir()), [])
+
+    def test_livekit_notices_are_published_from_validated_bytes(self) -> None:
+        notices = self.root / "notices"
+        notices.mkdir()
+        livekit = self.standalone / "web" / "vendor" / "livekit"
+        expected_license = (livekit / "LICENSE").read_bytes()
+        expected_notice = (livekit / "NOTICE").read_bytes()
+        expected_provenance = (livekit / "provenance.json").read_bytes()
+
+        with patch.object(payload.shutil, "copyfile") as copyfile:
+            payload._publish_livekit_client_notices(self.standalone, notices)
+
+        copyfile.assert_not_called()
+        self.assertEqual(
+            (notices / payload._LIVEKIT_LICENSE_NOTICE).read_bytes(),
+            expected_license,
+        )
+        self.assertEqual(
+            (notices / payload._LIVEKIT_TEXT_NOTICE).read_bytes(),
+            expected_notice,
+        )
+        self.assertEqual(
+            (notices / payload._LIVEKIT_PROVENANCE_NOTICE).read_bytes(),
+            expected_provenance,
+        )
 
     def test_tree_copy_never_dereferences_links_and_revalidates_destination(self) -> None:
         output = self.root / "payload-copy-boundary"
