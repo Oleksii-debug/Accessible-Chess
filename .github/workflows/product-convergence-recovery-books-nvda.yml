@@ -1,0 +1,141 @@
+name: Product Convergence Recovery Books NVDA
+
+on:
+  push:
+    branches:
+      - converge/product-recovery-settings-20261004
+  pull_request:
+    branches:
+      - converge/library-import-publication-product-20261004
+    paths:
+      - 'acs/settings.py'
+      - 'acs/version2_upgrade_base.py'
+      - 'acs/book_progress_store.py'
+      - 'acs/version2_application.py'
+      - 'web/full_product_books_training.js'
+      - 'web/version2_release_bootstrap.js'
+      - 'tests/test_settings.py'
+      - 'tests/test_v2_upgrade_*.py'
+      - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - 'tests/test_version2_book_board_refresh_focus_order_evidence.py'
+      - 'tests/test_dev1_full_product_webview_adapter.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_version2_package_assembler.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - '.github/workflows/product-convergence-recovery-books-nvda.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-convergence-recovery-books-nvda-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove integrated ancestry and pinned conflict resolutions
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          product='e09a44361750f3f37025fc783201e95814e5be1b'
+          recovery='06eb89be10cfa504bfa166771022f8a0d14c7266'
+          books_source='22f6d79ccb054ff004a97186b247309843436bb0'
+          git cat-file -e "$product^{commit}"
+          git cat-file -e "$recovery^{commit}"
+          git cat-file -e "$books_source^{commit}"
+          git merge-base --is-ancestor "$product" HEAD
+          git merge-base --is-ancestor "$recovery" HEAD
+          git diff --check "$product" HEAD
+
+          test "$(git rev-parse HEAD:acs/settings.py)" = "6a2499739ec2df0483ee58694002392cb6ab8784"
+          test "$(git rev-parse HEAD:acs/version2_upgrade_base.py)" = "96af79b1e5e140ee43f9eb679afc0d379efb53be"
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "ce56aacd3f83346f72a64a03b2be9323b4aa617b"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "73947f86c8bd23f494b7f2d5c5ab514ccfc9f699"
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "460d2287d24dc004535af93bb7f8b9a2066cbe7d"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "53574e235524581dc343db0b123df845c15a13f4"
+          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "05bbe93e8c8d3b855868fb879745ab707f05ce30"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "e50e855bbc93bacd55cb83cb972831c02e09e3ae"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "aebc8630ac6807c753de8ad9fc97baf7fcae7149"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "1ac6c9adfe44af442d3b8e5b15ddf49310d8ac1d"
+
+          echo 'PRODUCT_CONVERGENCE_ANCESTRY_BLOBS=PASS'
+
+      - name: Compile integrated Python surfaces
+        run: >-
+          python -m compileall -q
+          acs/settings.py
+          acs/version2_upgrade_base.py
+          acs/book_progress_store.py
+          acs/version2_application.py
+          tests/test_settings.py
+          tests/test_v2_upgrade_generated_artifact_authentication.py
+          tests/test_v2_upgrade_publish_race_audit.py
+          tests/test_v2_upgrade_tracked_writer_conflict.py
+          tests/test_v2_book_progress_store.py
+          tests/test_version2_application.py
+
+      - name: Recovery and Settings integration
+        run: >-
+          python -m unittest -v
+          tests.test_settings
+          tests.test_v2_upgrade_generated_artifact_authentication
+          tests.test_v2_upgrade_publish_race_audit
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_v2_upgrade_root_writer_artifact_grammar
+          tests.test_v2_upgrade_book_progress_temp_artifact_control
+          tests.test_v2_upgrade_education_workspace_artifact_control
+          tests.test_v2_upgrade_self_coordination_artifact_control
+          tests.test_v2_upgrade_training_progress_artifact_control
+
+      - name: Books application and NVDA focus integration
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_progress_store
+          tests.test_version2_application
+          tests.test_version2_release_accessibility_contract
+          tests.test_version2_book_board_refresh_focus_order_evidence
+          tests.test_dev1_full_product_webview_adapter
+
+      - name: Browser DOM acceptance
+        run: |
+          node --check web/full_product_books_training.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Package and release preflight regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_assembler
+
+      - name: Core selftest
+        run: python -m acs.selftest
