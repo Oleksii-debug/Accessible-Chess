@@ -200,6 +200,53 @@ class ClassroomChatServerSQLiteStore:
             )
 
     @staticmethod
+    def _validate_room_hidden_state(
+        db: sqlite3.Connection,
+        room_id: str,
+    ) -> None:
+        message_mismatch = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_messages AS m
+            LEFT JOIN classroom_chat_server_state_updates AS s
+              ON s.room_id=m.room_id AND s.message_id=m.message_id
+            WHERE m.room_id=?
+            GROUP BY m.message_id, m.hidden
+            HAVING typeof(m.hidden) != 'integer'
+                OR m.hidden NOT IN (0,1)
+                OR (m.hidden=1 AND COUNT(s.message_id) != 1)
+                OR (m.hidden=0 AND COUNT(s.message_id) != 0)
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if message_mismatch is not None:
+            raise ClassroomChatServerError(
+                "stored hidden message state is inconsistent"
+            )
+
+        state_mismatch = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_state_updates AS s
+            LEFT JOIN classroom_chat_server_messages AS m
+              ON m.room_id=s.room_id AND m.message_id=s.message_id
+            WHERE s.room_id=?
+              AND (
+                m.message_id IS NULL
+                OR typeof(s.hidden) != 'integer'
+                OR s.hidden != 1
+              )
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if state_mismatch is not None:
+            raise ClassroomChatServerError(
+                "stored moderation state is inconsistent"
+            )
+
+    @staticmethod
     def _validate_schema_shape(
         db: sqlite3.Connection,
         *,
@@ -592,10 +639,13 @@ class ClassroomChatServerSQLiteStore:
             raise ClassroomChatServerError("chat draft type is invalid")
         try:
             with closing(self._connect()) as db:
+                self._validate_room_hidden_state(db, draft.room_id)
                 row = db.execute(
                     "SELECT * FROM classroom_chat_server_messages WHERE message_id=?",
                     (draft.message_id,),
                 ).fetchone()
+        except ClassroomChatServerError:
+            raise
         except sqlite3.Error:
             raise ClassroomChatServerError(
                 "classroom chat server message read failed"
@@ -622,6 +672,7 @@ class ClassroomChatServerSQLiteStore:
             try:
                 db.execute("BEGIN IMMEDIATE")
                 self._validate_no_authority_triggers(db)
+                self._validate_room_hidden_state(db, draft.room_id)
                 existing = db.execute(
                     "SELECT * FROM classroom_chat_server_messages WHERE message_id=?",
                     (draft.message_id,),
@@ -774,6 +825,7 @@ class ClassroomChatServerSQLiteStore:
                         raise ClassroomChatServerError(
                             "stored message sequence is not contiguous"
                         )
+                self._validate_room_hidden_state(db, room)
                 rows = db.execute(sql, tuple(params)).fetchall()
         except ClassroomChatServerError:
             raise
@@ -847,6 +899,7 @@ class ClassroomChatServerSQLiteStore:
                         raise ClassroomChatServerError(
                             "stored moderation revision is not contiguous"
                         )
+                self._validate_room_hidden_state(db, room)
                 rows = db.execute(sql, tuple(params)).fetchall()
         except ClassroomChatServerError:
             raise
@@ -906,6 +959,7 @@ class ClassroomChatServerSQLiteStore:
             try:
                 db.execute("BEGIN IMMEDIATE")
                 self._validate_no_authority_triggers(db)
+                self._validate_room_hidden_state(db, room)
                 for command in commands:
                     fingerprint = _moderation_fingerprint(command)
                     previous = db.execute(
