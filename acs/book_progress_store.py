@@ -51,6 +51,7 @@ _TEMPFILE_TOKEN_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyz0123456789_"
 )
 _TEMPFILE_TOKEN_LENGTH = 8
+_EXPECTED_TARGET_UNSET = object()
 
 
 class BookProgressStoreErrorCode(str, Enum):
@@ -798,9 +799,16 @@ class BookProgressStore:
         encoded: bytes,
         *,
         require_no_orphan_backup_before_replace: bool = False,
+        expected_target_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
     ) -> None:
         if type(require_no_orphan_backup_before_replace) is not bool:
             raise TypeError("require_no_orphan_backup_before_replace must be a boolean")
+        if (
+            expected_target_raw is not _EXPECTED_TARGET_UNSET
+            and expected_target_raw is not None
+            and type(expected_target_raw) is not bytes
+        ):
+            raise TypeError("expected_target_raw must be bytes, None, or omitted")
         if len(encoded) > MAX_BOOK_PROGRESS_STORE_BYTES:
             raise BookProgressStoreError(
                 "book progress store exceeds the resource limit",
@@ -864,6 +872,16 @@ class BookProgressStore:
                     "book progress temporary file changed before publication",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
+            if expected_target_raw is not _EXPECTED_TARGET_UNSET:
+                current_target_raw = self._read_raw_file_unlocked(
+                    target,
+                    missing_ok=True,
+                )
+                if current_target_raw != expected_target_raw:
+                    raise BookProgressStoreError(
+                        "book progress changed during publication preparation",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
@@ -951,6 +969,7 @@ class BookProgressStore:
             self._path,
             encoded,
             require_no_orphan_backup_before_replace=previous_raw is None,
+            expected_target_raw=previous_raw,
         )
 
     @staticmethod
@@ -1146,5 +1165,9 @@ class BookProgressStore:
                     code=BookProgressStoreErrorCode.STALE_WRITE,
                 )
 
-            self._atomic_publish_bytes_unlocked(self._path, backup_raw)
+            self._atomic_publish_bytes_unlocked(
+                self._path,
+                backup_raw,
+                expected_target_raw=primary_raw,
+            )
             return True

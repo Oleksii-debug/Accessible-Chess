@@ -395,6 +395,45 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_save_rechecks_primary_after_temp_fsync_before_replace(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        external = b'{"entries":{},"generation":41,"schema_version":2}'
+        real_mkstemp = tempfile.mkstemp
+        injected = False
+
+        def primary_appears_during_temp_write(*args, **kwargs):
+            nonlocal injected
+            descriptor, name = real_mkstemp(*args, **kwargs)
+            if kwargs.get("prefix") == f".{self.path.name}.":
+                self.path.write_bytes(external)
+                injected = True
+            return descriptor, name
+
+        with mock.patch(
+            "acs.book_progress_store.tempfile.mkstemp",
+            side_effect=primary_appears_during_temp_write,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:primary-temp-race",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertEqual(self.path.read_bytes(), external)
+        self.assertFalse(self.store.backup_path.exists())
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
     def test_publish_rejects_substituted_temp_inode_without_deleting_substitute(self) -> None:
         self.path.parent.mkdir(parents=True)
         real_require = self.store._require_no_orphan_backup_unlocked
