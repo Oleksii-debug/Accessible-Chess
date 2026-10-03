@@ -85,6 +85,25 @@ def _asset_snapshot(
     )
 
 
+def _asset_lookup(
+    source: Path,
+    *,
+    pack_id: str = "soft.pack",
+    sound_id: str = "soft.move",
+    version: str = "1.0.0",
+) -> SoundPackAssetLookup:
+    return SoundPackAssetLookup(
+        True,
+        True,
+        _asset_snapshot(
+            source,
+            pack_id=pack_id,
+            sound_id=sound_id,
+            version=version,
+        ),
+    )
+
+
 def _packaged_root(root: Path) -> PackagedSoundAssetResolver:
     sound_root = root / "assets" / "sounds"
     files = {}
@@ -376,7 +395,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 volume=100,
                 preview=False,
             )
-            with mock.patch.object(store, "read_asset_snapshot", return_value=_asset_snapshot(custom)) as resolve:
+            with mock.patch.object(store, "read_asset_lookup", return_value=_asset_lookup(custom)) as resolve:
                 fake = self._play(adapter, request)
             resolve.assert_called_once_with("soft.pack", "soft.move")
             played = Path(fake.calls[0][0])
@@ -397,7 +416,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 preview=False,
             )
 
-            with mock.patch.object(store, "read_asset_snapshot", return_value=_asset_snapshot(custom)):
+            with mock.patch.object(store, "read_asset_lookup", return_value=_asset_lookup(custom)):
                 fake = self._play(adapter, request)
 
             played = Path(fake.calls[0][0])
@@ -424,7 +443,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 preview=False,
             )
             fake = _WinSound()
-            with mock.patch.object(store, "read_asset_snapshot", return_value=_asset_snapshot(custom)), mock.patch.object(
+            with mock.patch.object(store, "read_asset_lookup", return_value=_asset_lookup(custom)), mock.patch.object(
                 sys, "platform", "win32"
             ), mock.patch.dict(sys.modules, {"winsound": fake}), self.assertRaises(
                 (EOFError, wave.Error)
@@ -443,7 +462,11 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 volume=100,
                 preview=False,
             )
-            with mock.patch.object(store, "read_asset_snapshot", return_value=None), mock.patch.object(
+            with mock.patch.object(
+                store,
+                "read_asset_lookup",
+                return_value=SoundPackAssetLookup(False, False, None),
+            ), mock.patch.object(
                 sys, "platform", "win32"
             ), self.assertRaises(FileNotFoundError):
                 adapter.play_sound(request)
@@ -470,7 +493,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
 
             with mock.patch.object(
                 store,
-                "read_asset_snapshot",
+                "read_asset_lookup",
                 side_effect=FileNotFoundError(
                     "C:/Users/private/AppData/AccessibleChess/soft.move.wav"
                 ),
@@ -523,7 +546,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 with self.subTest(sample_width=sample_width):
                     source = root / f"custom-{sample_width}.wav"
                     _write_pcm_wav(source, sample_width, samples)
-                    with mock.patch.object(store, "read_asset_snapshot", return_value=_asset_snapshot(source)):
+                    with mock.patch.object(store, "read_asset_lookup", return_value=_asset_lookup(source)):
                         fake = self._play(adapter, request)
                     played = Path(fake.calls[0][0])
                     actual_width, actual_samples = _read_pcm_samples(played)
@@ -547,8 +570,8 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
 
             with mock.patch.object(
                 store,
-                "read_asset_snapshot",
-                side_effect=lambda _pack, _sound: _asset_snapshot(source),
+                "read_asset_lookup",
+                side_effect=lambda _pack, _sound: _asset_lookup(source),
             ):
                 first = self._play(adapter, request)
                 first_cache = Path(first.calls[0][0])
@@ -576,7 +599,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 preview=True,
             )
 
-            with mock.patch.object(store, "read_asset_snapshot", return_value=_asset_snapshot(source)):
+            with mock.patch.object(store, "read_asset_lookup", return_value=_asset_lookup(source)):
                 first = self._play(adapter, request)
                 cache_path = Path(first.calls[0][0])
                 expected = cache_path.read_bytes()
@@ -600,7 +623,7 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                 preview=True,
             )
 
-            with mock.patch.object(store, "read_asset_snapshot", return_value=_asset_snapshot(source)), mock.patch(
+            with mock.patch.object(store, "read_asset_lookup", return_value=_asset_lookup(source)), mock.patch(
                 "acs.sound_profile_windows.os.replace",
                 side_effect=OSError("publish failed"),
             ), mock.patch.object(sys, "platform", "win32"), self.assertRaisesRegex(
