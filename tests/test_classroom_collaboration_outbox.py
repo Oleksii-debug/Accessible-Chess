@@ -23,9 +23,12 @@ from acs.classroom_collaboration_storage import (
 class MemorySecretStore:
     def __init__(self) -> None:
         self.values: dict[str, bytes] = {}
+        self.fail_write = False
         self.fail_delete = False
 
     def write(self, name: str, value: bytes) -> None:
+        if self.fail_write:
+            raise RuntimeError("simulated secret persistence failure")
         self.values[name] = bytes(value)
 
     def read(self, name: str) -> bytes | None:
@@ -239,6 +242,24 @@ class DurableChatOutboxTests(unittest.TestCase):
                 body="Different new body",
             )
         self.assertEqual(network.message_ids, [])
+
+    def test_secret_write_failure_prevents_any_network_send(self) -> None:
+        self.secrets.fail_write = True
+        network = ExplodingChat()
+        controller = self.controller(network, self.outbox())
+
+        with self.assertRaisesRegex(
+            DurableChatOutboxError,
+            "cannot be written",
+        ):
+            controller.send_chat(
+                message_id="message-must-not-send",
+                body="Persist before network",
+            )
+
+        self.assertEqual(network.message_ids, [])
+        self.assertEqual(self.secrets.values, {})
+        self.assertEqual(self.store.room_messages("room-1"), ())
 
     def test_corrupt_or_cross_identity_secret_fails_before_network(self) -> None:
         outbox = self.outbox()
