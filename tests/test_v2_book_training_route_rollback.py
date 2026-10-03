@@ -66,7 +66,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         with patch("acs.version2_application.import_text_book", return_value=imported):
             self.app.open_book(source)
 
-    def test_failed_book_publication_cannot_leave_dead_training_route(self):
+    def test_hidden_book_mutation_cannot_disrupt_training_route(self):
         self._open_exercise_book()
         reader_before = self.app.reader
         reader_snapshot_before = reader_before.snapshot()
@@ -76,9 +76,10 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual(route["payload"]["route_id"], "training")
         self.assertEqual(route["payload"]["focus_target"], "training-prompt")
         self.assertEqual(self.app.shell.current_route.route_id, "training")
-        self.assertIsNotNone(self.app.training_workspace)
+        training_before = self.app.training_workspace
+        self.assertIsNotNone(training_before)
         self.assertIsNotNone(self.app.training)
-        self.assertIs(self.app.training_workspace.reader, reader_before)
+        self.assertIs(training_before.reader, reader_before)
 
         completed = self.app.browser_command(
             "training",
@@ -94,34 +95,32 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         with patch.object(
             self.progress_store,
             "save",
-            side_effect=OSError("simulated Book durable progress failure"),
-        ):
+            side_effect=OSError("must not persist hidden Book mutation"),
+        ) as save:
             result = self.app.browser_command("books", "book.next")
 
         self.assertEqual(result["kind"], "error")
+        save.assert_not_called()
+        self.assertIs(self.app.reader, reader_before)
         self.assertEqual(self.app.reader.snapshot(), reader_snapshot_before)
-        self.assertIsNot(self.app.reader, reader_before)
-        self.assertIsNone(self.app.training_workspace)
-        self.assertIsNone(self.app.training)
+        self.assertIs(self.app.training_workspace, training_before)
+        self.assertIs(self.app.training_workspace.reader, reader_before)
+        self.assertIsNotNone(self.app.training)
         self.assertEqual(progress_files[0].read_bytes(), durable_training_before)
 
         snapshot = self.app.snapshot()
-        self.assertEqual(self.app.shell.current_route.route_id, "books")
-        self.assertEqual(self.app.shell.restore_focus_target(), "book-reader")
-        self.assertEqual(snapshot["screen"]["route_id"], "books")
-        self.assertEqual(snapshot["screen"]["focus_target"], "book-reader")
-        self.assertIsNone(snapshot["training"])
-        self.assertEqual(
-            self.app.drain_events(),
-            ({"kind": "route", "payload": {"route_id": "books"}},),
-        )
+        self.assertEqual(self.app.shell.current_route.route_id, "training")
+        self.assertEqual(snapshot["screen"]["route_id"], "training")
+        self.assertIsNotNone(snapshot["training"])
         self.assertEqual(self.app.drain_events(), ())
 
-    def test_rollback_does_not_clobber_unrelated_active_route(self):
+    def test_hidden_book_mutation_does_not_clobber_unrelated_active_route(self):
         self._open_exercise_book()
+        reader_before = self.app.reader
         training_route = self.app.browser_command("shell", "screen.training")
         self.assertEqual(training_route["kind"], "route")
-        self.assertIsNotNone(self.app.training_workspace)
+        training_before = self.app.training_workspace
+        self.assertIsNotNone(training_before)
         settings_route = self.app.browser_command("shell", "screen.settings")
         self.assertEqual(settings_route["kind"], "route")
         self.assertEqual(self.app.shell.current_route.route_id, "settings")
@@ -129,13 +128,16 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         with patch.object(
             self.progress_store,
             "save",
-            side_effect=OSError("simulated Book durable progress failure"),
-        ):
+            side_effect=OSError("must not persist hidden Book mutation"),
+        ) as save:
             result = self.app.browser_command("books", "book.next")
 
         self.assertEqual(result["kind"], "error")
-        self.assertIsNone(self.app.training_workspace)
-        self.assertIsNone(self.app.training)
+        save.assert_not_called()
+        self.assertIs(self.app.reader, reader_before)
+        self.assertIs(self.app.training_workspace, training_before)
+        self.assertIs(self.app.training_workspace.reader, reader_before)
+        self.assertIsNotNone(self.app.training)
         self.assertEqual(self.app.shell.current_route.route_id, "settings")
         self.assertEqual(self.app.shell.restore_focus_target(), "settings-list")
         self.assertEqual(self.app.drain_events(), ())
