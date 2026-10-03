@@ -616,6 +616,7 @@
             "summary",
             chat.timestamp_label || "Message time"
           );
+          timestampSummary.id = item.id + "-timestamp";
           timestampDetails.appendChild(timestampSummary);
           const timestamp = node("time", String(message.timestamp_text));
           timestamp.setAttribute("aria-live", "off");
@@ -632,6 +633,7 @@
             "summary",
             chat.retention_label || "Retention"
           );
+          retentionSummary.id = item.id + "-retention";
           retentionDetails.appendChild(retentionSummary);
           const retention = node("span", String(message.retention_label));
           retention.setAttribute("aria-live", "off");
