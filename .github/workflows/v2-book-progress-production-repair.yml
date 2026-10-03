@@ -85,6 +85,32 @@ jobs:
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
 
+          delegated_focus_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "$PR_BASE_REF" = "fix/training-continue-render-atomicity-20260929" ] \
+             && [ "${{ github.event.pull_request.head.ref }}" = "fix/delegated-focus-roundtrip-current-20261003" ]; then
+            delegated_expected="$(printf '%s\n' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/p0-release-critical-triad-convergence.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/full_product_actions.py' \
+              'acs/full_product_ui_shell.py' \
+              'acs/version2_application.py' \
+              'tests/js/version2_release_bootstrap_dom_test.js' \
+              'tests/test_dev1_full_product_webview_adapter.py' \
+              'tests/test_version2_application.py' \
+              'tests/test_version2_release_accessibility_contract.py' \
+              'web/version2_release_bootstrap.js' | sort)"
+            if [ "$changed" = "$delegated_expected" ]; then
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+              test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
+              test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
+              delegated_focus_successor=true
+            fi
+          fi
+
           bounded_feature=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             allowed="$(printf '%s\n' \
@@ -188,7 +214,10 @@ jobs:
             full_product_composition=true
           fi
 
-          if [ "$bounded_feature" = true ]; then
+          if [ "$delegated_focus_successor" = true ]; then
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=DELEGATED_FOCUS_SUCCESSOR'
+          elif [ "$bounded_feature" = true ]; then
             git diff --check "$upstream" HEAD
             git diff --quiet "$upstream" HEAD -- \
               .github/workflows/v2-book-progress-store.yml \
@@ -262,6 +291,9 @@ jobs:
           if [ "$current_books_recovery" = true ]; then
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "$CURRENT_APPLICATION_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$CURRENT_APPLICATION_TEST_BLOB"
+          elif [ "$delegated_focus_successor" = true ]; then
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "802863c77a470a39dc188cd4365883a70541cb11"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "7b410336f7900781dd3ae6b2128ca798c0b2de50"
           fi
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
