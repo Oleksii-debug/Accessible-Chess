@@ -740,12 +740,52 @@ class ClassroomChatServerSQLiteStore:
         params.append(bounded)
         try:
             with closing(self._connect()) as db:
+                stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count, MAX(sequence_no) AS maximum_sequence
+                    FROM classroom_chat_server_messages
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                item_count = stats["item_count"]
+                maximum_sequence = stats["maximum_sequence"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomChatServerError(
+                        "stored message count is invalid"
+                    )
+                if maximum_sequence is None:
+                    if item_count != 0:
+                        raise ClassroomChatServerError(
+                            "stored message sequence is not contiguous"
+                        )
+                else:
+                    _stored_nonnegative_integer(
+                        maximum_sequence,
+                        "message sequence",
+                        maximum=MAX_WIRE_INTEGER,
+                    )
+                    if maximum_sequence + 1 != item_count:
+                        raise ClassroomChatServerError(
+                            "stored message sequence is not contiguous"
+                        )
                 rows = db.execute(sql, tuple(params)).fetchall()
+        except ClassroomChatServerError:
+            raise
         except sqlite3.Error:
             raise ClassroomChatServerError(
                 "classroom chat server history read failed"
             ) from None
-        return tuple(self._row_message(row) for row in rows)
+
+        decoded = tuple(self._row_message(row) for row in rows)
+        expected = 0 if after is None else after + 1
+        for message in decoded:
+            if message.sequence_no != expected:
+                raise ClassroomChatServerError(
+                    "stored message history is not contiguous"
+                )
+            expected += 1
+        return decoded
 
     def state_updates_after(
         self,
@@ -773,7 +813,38 @@ class ClassroomChatServerSQLiteStore:
         params.append(bounded)
         try:
             with closing(self._connect()) as db:
+                stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count, MAX(revision) AS maximum_revision
+                    FROM classroom_chat_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (room,),
+                ).fetchone()
+                item_count = stats["item_count"]
+                maximum_revision = stats["maximum_revision"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomChatServerError(
+                        "stored moderation revision count is invalid"
+                    )
+                if maximum_revision is None:
+                    if item_count != 0:
+                        raise ClassroomChatServerError(
+                            "stored moderation revision is not contiguous"
+                        )
+                else:
+                    _stored_nonnegative_integer(
+                        maximum_revision,
+                        "moderation revision",
+                        maximum=MAX_WIRE_INTEGER,
+                    )
+                    if maximum_revision + 1 != item_count:
+                        raise ClassroomChatServerError(
+                            "stored moderation revision is not contiguous"
+                        )
                 rows = db.execute(sql, tuple(params)).fetchall()
+        except ClassroomChatServerError:
+            raise
         except sqlite3.Error:
             raise ClassroomChatServerError(
                 "classroom chat server state history read failed"
@@ -802,6 +873,13 @@ class ClassroomChatServerSQLiteStore:
                 raise ClassroomChatServerError(
                     "stored classroom chat state update is invalid"
                 ) from None
+        expected = 0 if after_revision is None else after_revision + 1
+        for update in decoded:
+            if update.revision != expected:
+                raise ClassroomChatServerError(
+                    "stored moderation state history is not contiguous"
+                )
+            expected += 1
         return tuple(decoded)
 
     def apply_moderation(
