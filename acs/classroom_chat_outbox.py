@@ -80,6 +80,7 @@ class SecretStoreChatOutbox:
             return ()
         if type(raw) is not bytes or not raw or len(raw) > _MAX_OUTBOX_BYTES:
             raise ChatOutboxError("chat outbox ciphertext payload is invalid")
+        malformed = False
         try:
             value = json.loads(
                 raw.decode("utf-8"),
@@ -91,7 +92,10 @@ class SecretStoreChatOutbox:
         except ChatOutboxError:
             raise
         except (UnicodeDecodeError, json.JSONDecodeError):
-            raise ChatOutboxError("chat outbox document is malformed") from None
+            malformed = True
+            value = None
+        if malformed:
+            raise ChatOutboxError("chat outbox document is malformed")
         if type(value) is not dict or set(value) != {
             "v",
             "room_id",
@@ -135,22 +139,27 @@ class SecretStoreChatOutbox:
         return tuple(result)
 
     def _read(self) -> tuple[ChatDraft, ...]:
+        read_failed = False
         try:
             raw = self.secret_store.read(self.slot_name)
-        except ChatOutboxError:
-            raise
         except Exception:
-            raise ChatOutboxError("chat outbox cannot be read safely") from None
+            read_failed = True
+            raw = None
+        if read_failed:
+            raise ChatOutboxError("chat outbox cannot be read safely")
         return self._decode(raw)
 
     def _write(self, entries: tuple[ChatDraft, ...]) -> None:
         if len(entries) > _MAX_PENDING_CHAT_DRAFTS:
             raise ChatOutboxError("chat outbox is full")
         if not entries:
+            delete_failed = False
             try:
                 self.secret_store.delete(self.slot_name)
             except Exception:
-                raise ChatOutboxError("chat outbox cannot be cleared safely") from None
+                delete_failed = True
+            if delete_failed:
+                raise ChatOutboxError("chat outbox cannot be cleared safely")
             return
         document = {
             "v": _SCHEMA_VERSION,
@@ -173,10 +182,13 @@ class SecretStoreChatOutbox:
         ).encode("utf-8")
         if not raw or len(raw) > _MAX_OUTBOX_BYTES:
             raise ChatOutboxError("chat outbox document exceeds size limit")
+        write_failed = False
         try:
             self.secret_store.write(self.slot_name, raw)
         except Exception:
-            raise ChatOutboxError("chat outbox cannot be persisted safely") from None
+            write_failed = True
+        if write_failed:
+            raise ChatOutboxError("chat outbox cannot be persisted safely")
 
     def entries(self) -> tuple[ChatDraft, ...]:
         return self._read()
