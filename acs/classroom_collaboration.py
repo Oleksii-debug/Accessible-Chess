@@ -691,6 +691,13 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "live file reused attachment identity with different payload"
                 )
+            if current.transfer_state == "pending":
+                # No provider operation has started for a pending row, so a
+                # live server event reusing that identity is a collision, not
+                # ambiguous-upload recovery.
+                raise CollaborationError(
+                    "live file conflicts with local pending attachment identity"
+                )
             if current.transfer_state in {"uploading", "failed"}:
                 # The provider may have committed an upload while this client
                 # crashed or observed an ambiguous failure. The local sequence
