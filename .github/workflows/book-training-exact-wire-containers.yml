@@ -1,0 +1,67 @@
+name: Book Training Exact Wire Containers
+
+on:
+  pull_request:
+    paths:
+      - 'acs/book_training.py'
+      - 'tests/test_d08_book_training_contract.py'
+      - '.github/workflows/book-training-exact-wire-containers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-training-exact-wire-containers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      EXACT_PARENT: b89e0cf7f8f02d508da5fd75362c80223c8b03f6
+      BOOK_TRAINING_BLOB: 96c0664341fac16122a1c622f9016a55ec0e96b1
+      CONTRACT_TEST_BLOB: c9db019936431a2e67338422710994e67606d885
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact stacked scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$EXACT_PARENT" HEAD
+          test "$(git merge-base "$EXACT_PARENT" HEAD)" = "$EXACT_PARENT"
+          test "$(git rev-parse "HEAD:acs/book_training.py")" = "$BOOK_TRAINING_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_d08_book_training_contract.py")" = "$CONTRACT_TEST_BLOB"
+          changed="$(git diff --name-only "$EXACT_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/book-training-exact-wire-containers.yml' \
+            'acs/book_training.py' \
+            'tests/test_d08_book_training_contract.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+
+      - name: Compile exact boundary
+        run: python -m compileall -q acs/book_training.py tests/test_d08_book_training_contract.py
+
+      - name: Execute Book Training wire contract
+        run: >-
+          python -m unittest -v
+          tests.test_d08_book_training_contract
+          tests.test_w2_book_training_canonical_ingress
+          tests.test_books_training_ui_integration
+
+      - name: Core selftest
+        run: python -m acs.selftest
