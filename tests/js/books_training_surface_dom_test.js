@@ -194,6 +194,54 @@ function bookSnapshot(index, text) {
   };
 }
 
+function semanticBookTree(kind) {
+  return {
+    kind: kind,
+    label: "Moves and variations",
+    players_label: "Players",
+    players: "Alpha — Beta",
+    result_label: "Result",
+    result: "*",
+    intro_comments: ["Intro"],
+    outro_comments: ["Outro"],
+    items: [
+      {
+        kind: "move",
+        depth: 0,
+        parent_index: null,
+        label: "1 e4",
+        leading_comments: [],
+        comments_before: ["Before main"],
+        comments_after: ["After main"],
+        trailing_comments: [],
+        result: ""
+      },
+      {
+        kind: "variation",
+        depth: 1,
+        parent_index: 0,
+        label: "Variation 1",
+        leading_comments: ["Side line"],
+        comments_before: [],
+        comments_after: [],
+        trailing_comments: ["Variation tail"],
+        result: "*"
+      },
+      {
+        kind: "move",
+        depth: 2,
+        parent_index: 1,
+        label: "1 d4",
+        leading_comments: [],
+        comments_before: [],
+        comments_after: [],
+        trailing_comments: [],
+        result: ""
+      }
+    ]
+  };
+}
+
 function withStarterMaterials(snapshot, currentId) {
   snapshot.starter_materials = {
     heading: "Offline starter materials",
@@ -920,12 +968,13 @@ async function run() {
   );
 
   const variationRoot = new FakeElement("div");
-  const variationSnapshot = bookSnapshot(20, "1. e4 (1. d4) *");
+  const variationSnapshot = bookSnapshot(20, "Candidate line");
   variationSnapshot.block.kind = "VariationTree";
   variationSnapshot.block.role = "group";
   variationSnapshot.block.title = "Candidate line";
   variationSnapshot.block.has_position = true;
   variationSnapshot.actions[8].enabled = true;
+  variationSnapshot.semantic_tree = semanticBookTree("variation");
   window.AccessibleChessBookSurface.render(
     variationRoot,
     variationSnapshot,
@@ -938,21 +987,72 @@ async function run() {
   check(variationBlock !== null, "VariationTree readable block missing");
   check(
     variationBlock.getAttribute("role") === "group",
-    "flat VariationTree must use a noninteractive group role"
+    "structured VariationTree must remain a noninteractive group"
   );
   check(
     findRole(variationRoot, "tree") === null,
-    "flat VariationTree exposed a false ARIA tree"
+    "structured VariationTree exposed a false ARIA tree"
+  );
+  check(find(variationRoot, "H4", "Moves and variations") !== null,
+    "semantic move-list heading missing");
+  check(find(variationRoot, "P", "Players: Alpha — Beta") !== null,
+    "semantic players missing");
+  check(find(variationRoot, "P", "Before main") !== null,
+    "semantic before-move comment missing");
+  check(find(variationRoot, "P", "After main") !== null,
+    "semantic after-move comment missing");
+  check(find(variationRoot, "P", "Variation tail") !== null,
+    "semantic variation tail missing");
+
+  const mainMove = find(variationRoot, "SPAN", "1 e4");
+  const variationLabel = find(variationRoot, "STRONG", "Variation 1");
+  const variationMove = find(variationRoot, "SPAN", "1 d4");
+  check(mainMove !== null && variationLabel !== null && variationMove !== null,
+    "semantic nested move labels missing");
+  check(
+    variationLabel.parentNode.parentNode.parentNode === mainMove.parentNode,
+    "variation list is not nested under its parent move"
   );
   check(
-    variationBlock.textContent === "",
-    "VariationTree group container must retain child semantic text, not flatten it"
+    variationMove.parentNode.parentNode.parentNode === variationLabel.parentNode,
+    "variation move is not nested under its variation wrapper"
   );
-  check(
-    variationBlock.children.some(function (item) {
-      return item.tagName === "P" && item.textContent === "1. e4 (1. d4) *";
+
+  const malformedSemanticRoot = new FakeElement("div");
+  const malformedSemanticAnnouncements = [];
+  const malformedSemantic = bookSnapshot(21, "Malformed semantic target");
+  malformedSemantic.block.kind = "Game";
+  malformedSemantic.block.role = "group";
+  malformedSemantic.block.title = "Malformed game";
+  malformedSemantic.actions[9].enabled = true;
+  malformedSemantic.semantic_tree = semanticBookTree("game");
+  malformedSemantic.semantic_tree.items[1].parent_index = 99;
+  window.AccessibleChessBookSurface.render(
+    malformedSemanticRoot,
+    bookSnapshot(21, "Stable semantic reading"),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: malformedSemantic,
+        focus_target: "book-block-21"
+      }
     }),
-    "VariationTree readable text was not preserved"
+    (message) => malformedSemanticAnnouncements.push(String(message)),
+    "book-block-21",
+    "Semantic tree failed"
+  );
+  const stableSemanticBefore = malformedSemanticRoot.querySelector("#book-block-21");
+  find(malformedSemanticRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  await flushPromises();
+  check(
+    malformedSemanticRoot.querySelector("#book-block-21") === stableSemanticBefore,
+    "malformed semantic parent replaced the stable readable DOM"
+  );
+  check(
+    malformedSemanticAnnouncements.length === 1 &&
+      malformedSemanticAnnouncements[0] === "Semantic tree failed",
+    "malformed semantic parent did not fail closed accessibly"
   );
 
   const inconsistentListRoot = new FakeElement("div");
