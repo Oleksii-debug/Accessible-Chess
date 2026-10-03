@@ -90,6 +90,11 @@ class FakeRoom {
     this.emit("disconnected", "network");
   }
 
+  emitMoved(roomName = "provider-moved-room") {
+    this.name = roomName;
+    this.emit("moved", roomName, "provider-move-token");
+  }
+
   async connect(serverUrl, token) {
     this.connectCalls.push([serverUrl, token]);
     const configured = FakeRoom.nextConnect || {};
@@ -128,7 +133,10 @@ function adapter(overrides) {
   return new LiveKitClassroomMediaAdapter(Object.assign({
     livekit: {
       Room: FakeRoom,
-      RoomEvent: { Disconnected: "disconnected" }
+      RoomEvent: {
+        Disconnected: "disconnected",
+        Moved: "moved"
+      }
     },
     serverUrl: "wss://media.example.test",
     moderationParticipantIdentity: "moderation-service"
@@ -289,6 +297,34 @@ async function run() {
   check(transportLosses[0].cleanup_required === false, "final disconnect requested cleanup");
   check(transportLosses[0].room_id === null && transportLosses[0].participant_id === null,
         "transport-loss callback leaked stale session identity");
+
+  // Provider-side room moves are never accepted as classroom authority.
+  // Preserve only a cleanup handle until the runtime proves teardown.
+  reset();
+  const movedLosses = [];
+  const movedClient = adapter({
+    onTransportLost(snapshot) {
+      movedLosses.push(snapshot);
+    }
+  });
+  await movedClient.connect(credential(), ["camera"]);
+  const movedRoom = FakeRoom.instances[0];
+  movedRoom.emitMoved("unauthorized-room");
+  await Promise.resolve();
+  const movedSnapshot = movedClient.snapshot();
+  check(movedClient.connected === false, "provider room move remained canonical-connected");
+  check(movedSnapshot.cleanup_required === true,
+        "provider room move did not retain cleanup authority");
+  check(movedSnapshot.room_id === null && movedSnapshot.participant_id === null,
+        "provider room move exposed noncanonical identity");
+  check(movedLosses.length === 1 && movedLosses[0].cleanup_required === true,
+        "provider room move did not report cleanup-required loss");
+
+  const movedClean = await movedClient.disconnect();
+  await Promise.resolve();
+  check(movedRoom.disconnectCalls.length === 1, "moved room cleanup was not attempted");
+  check(movedClean.connected === false && movedClean.cleanup_required === false,
+        "moved room cleanup did not reach exact clean state");
 
   // Explicit host-driven disconnect emits the same LiveKit RoomEvent but must
   // not be mistaken for asynchronous transport loss.
