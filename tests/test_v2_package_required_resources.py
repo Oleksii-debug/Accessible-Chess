@@ -224,6 +224,18 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 "https://example.invalid:notaport/move.wav",
                 "stable HTTPS URL or URN",
             ),
+            (
+                "creator-bidi",
+                "creator",
+                "Trusted\u202eCreator",
+                "creator is invalid",
+            ),
+            (
+                "license-zero-width",
+                "license_id",
+                "CC0-1.0\u200b",
+                "license_id is invalid",
+            ),
             ("file", "file", "other.wav", "does not match manifest"),
         )
         for label, field, value, expected in cases:
