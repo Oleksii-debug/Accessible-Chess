@@ -324,6 +324,72 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             finally:
                 restored.close()
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open SQLite source pathname is not portable on Windows",
+    )
+    def test_sqlite_backup_rejects_source_path_replacement_during_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "library.acsdb"
+            replacement = root / "replacement.acsdb"
+            destination = root / "backup" / "library.acsdb"
+
+            for path, value in ((source, "original"), (replacement, "replacement")):
+                connection = sqlite3.connect(path)
+                try:
+                    connection.execute("PRAGMA user_version=9")
+                    connection.execute("CREATE TABLE sample(value TEXT NOT NULL)")
+                    connection.execute(
+                        "INSERT INTO sample(value) VALUES (?)",
+                        (value,),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+
+            from acs import version2_upgrade_base as upgrade_base
+
+            real_state_sha256 = upgrade_base._sqlite_state_sha256
+            injected = False
+
+            def racing_state_sha256(connection):
+                nonlocal injected
+                digest = real_state_sha256(connection)
+                if not injected:
+                    os.replace(replacement, source)
+                    injected = True
+                return digest
+
+            def validate(connection):
+                row = connection.execute("PRAGMA user_version").fetchone()
+                return int(row[0])
+
+            with mock.patch(
+                "acs.version2_upgrade_base._sqlite_state_sha256",
+                side_effect=racing_state_sha256,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "library source changed during backup",
+                ):
+                    _sqlite_backup(
+                        source,
+                        destination,
+                        schema_validator=validate,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(destination.exists())
+            visible = sqlite3.connect(source)
+            try:
+                self.assertEqual(
+                    [("replacement",)],
+                    visible.execute("SELECT value FROM sample").fetchall(),
+                )
+            finally:
+                visible.close()
+
     def test_sqlite_backup_inherits_atomic_temp_identity_rejection(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
