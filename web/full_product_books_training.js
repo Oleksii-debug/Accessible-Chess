@@ -15,10 +15,10 @@
     round: true
   });
   const BOOK_SEMANTIC_HIDDEN_DETAIL_LABELS = Object.freeze({
-    White: true,
-    Black: true,
-    Result: true,
-    FEN: true
+    white: true,
+    black: true,
+    result: true,
+    fen: true
   });
   const BOOK_SEMANTIC_RESULTS = Object.freeze({
     "1-0": true,
@@ -280,7 +280,7 @@
         (
           kind.slice(customPrefix.length) !== label ||
           Object.prototype.hasOwnProperty.call(
-            BOOK_SEMANTIC_HIDDEN_DETAIL_LABELS, label
+            BOOK_SEMANTIC_HIDDEN_DETAIL_LABELS, label.toLowerCase()
           )
         )
       ) {
