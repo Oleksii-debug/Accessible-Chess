@@ -24,12 +24,14 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 sdk.LIVEKIT_CLIENT_LICENSE_ID,
                 sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
+                sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
             (
                 release_payload._LIVEKIT_CLIENT_VERSION,
                 release_payload._LIVEKIT_CLIENT_LICENSE_ID,
                 release_payload._LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 release_payload._LIVEKIT_CLIENT_NPM_INTEGRITY,
+                release_payload._LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
         )
         self.assertEqual(
@@ -38,13 +40,19 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 sdk.LIVEKIT_CLIENT_LICENSE_ID,
                 sdk.LIVEKIT_CLIENT_NPM_TARBALL_URL,
                 sdk.LIVEKIT_CLIENT_NPM_INTEGRITY,
+                sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
             (
                 package_preflight._LIVEKIT_CLIENT_VERSION,
                 package_preflight._LIVEKIT_CLIENT_LICENSE_ID,
                 package_preflight._LIVEKIT_CLIENT_SOURCE,
                 package_preflight._LIVEKIT_CLIENT_INTEGRITY,
+                package_preflight._LIVEKIT_CLIENT_BUNDLE_SHA256,
             ),
+        )
+        self.assertEqual(
+            sdk.LIVEKIT_CLIENT_BUNDLE_SHA256,
+            "7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d",
         )
 
     def setUp(self) -> None:
@@ -162,6 +170,19 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
                 staged,
                 expected_integrity=self._integrity(),
             )
+
+    def test_canonical_integrity_path_requires_pinned_bundle_sha256(self) -> None:
+        with patch.object(
+            sdk,
+            "LIVEKIT_CLIENT_NPM_INTEGRITY",
+            self._integrity(),
+        ):
+            with self.assertRaisesRegex(
+                sdk.LiveKitClientSdkStageError,
+                "bundle SHA-256 does not match the pinned release",
+            ):
+                self._stage()
+        self.assertFalse(self.output.exists())
 
     def test_integrity_mismatch_is_fail_closed(self) -> None:
         with self.assertRaisesRegex(
