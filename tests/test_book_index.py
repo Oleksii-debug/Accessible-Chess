@@ -80,6 +80,30 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.target.index for entry in index.entries], list(range(8)))
         self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
 
+    def test_public_document_is_detached_from_source_and_from_prior_callers(self):
+        source = self.make_document()
+        index = BookIndex(source)
+
+        first = index.document
+        self.assertIsNot(first, source)
+        self.assertEqual(first.as_dict(), source.as_dict())
+        self.assertEqual(first.blocks[2].text, index.entries[2].label)
+
+        # Mutating either the authoring source or a previously returned copy
+        # must not make the public document disagree with immutable entries.
+        source.blocks.reverse()
+        source.blocks[0].source_anchor = "mutated-source"
+        first.blocks.reverse()
+        first.blocks[0].source_anchor = "mutated-returned-copy"
+
+        second = index.document
+        self.assertIsNot(second, first)
+        self.assertEqual(second.blocks[0].block_id, "h1")
+        self.assertEqual(second.blocks[2].block_id, "h2")
+        self.assertEqual(second.blocks[2].text, "Calculation")
+        self.assertEqual(second.blocks[2].text, index.entries[2].label)
+        self.assertEqual(index.resolve("block:h2").target.index, 2)
+
     def test_index_construction_revalidates_mutated_document_blocks(self):
         document = self.make_document()
         heading = document.blocks[0]
