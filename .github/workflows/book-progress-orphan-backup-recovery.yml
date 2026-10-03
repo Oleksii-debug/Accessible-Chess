@@ -10,6 +10,7 @@ on:
       - work/books-bidirectional-semantic-navigation-20260927
     paths:
       - 'acs/book_progress_store.py'
+      - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
