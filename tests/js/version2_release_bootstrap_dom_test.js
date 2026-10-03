@@ -102,6 +102,11 @@ let intervalCallback = null;
 let snapshotCalls = 0;
 let libraryApplyCalls = 0;
 let stage1RefreshCalls = 0;
+let drainCalls = 0;
+let holdNextDrain = false;
+let heldDrainResolve = null;
+let holdNextStage1Refresh = false;
+let heldStage1RefreshResolve = null;
 const recordedFocus = [];
 
 function snapshot(route) {
@@ -142,6 +147,15 @@ const windowObject = {
   setInterval: (callback) => { intervalCallback = callback; return 1; },
   refreshState: () => {
     stage1RefreshCalls += 1;
+    if (holdNextStage1Refresh) {
+      holdNextStage1Refresh = false;
+      return new Promise((resolve) => {
+        heldStage1RefreshResolve = () => {
+          heldStage1RefreshResolve = null;
+          resolve();
+        };
+      });
+    }
     return Promise.resolve();
   },
   pywebview: {
@@ -158,8 +172,18 @@ const windowObject = {
         return Promise.resolve({ kind: "route", payload: {} });
       },
       v2_drain_events: () => {
+        drainCalls += 1;
         const events = eventQueue;
         eventQueue = [];
+        if (holdNextDrain) {
+          holdNextDrain = false;
+          return new Promise((resolve) => {
+            heldDrainResolve = () => {
+              heldDrainResolve = null;
+              resolve(events);
+            };
+          });
+        }
         return Promise.resolve(events);
       },
       v2_record_focus: (id) => {
@@ -289,6 +313,95 @@ async function clickRoute(routeId) {
   check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
 
+  const beforeSerializedDrainCalls = drainCalls;
+  holdNextDrain = true;
+  eventQueue = [{ kind: "status", payload: { announcement: "First serialized event." } }];
+  intervalCallback();
+  eventQueue = [{ kind: "status", payload: { announcement: "Second serialized event." } }];
+  intervalCallback();
+  check(
+    drainCalls === beforeSerializedDrainCalls + 1,
+    "overlapping timer tick started a second native event drain"
+  );
+  check(typeof heldDrainResolve === "function", "delayed native event drain was not held");
+  heldDrainResolve();
+  await flush();
+  await flush();
+  await flush();
+  await flush();
+  check(
+    drainCalls === beforeSerializedDrainCalls + 2,
+    "pending native event drain did not resume immediately after the prior batch completed"
+  );
+  check(
+    live.textContent === "Second serialized event.",
+    "queued later native event batch was lost, reordered, or left waiting for another timer tick"
+  );
+
+  const beforeBarrierDrainCalls = drainCalls;
+  holdNextStage1Refresh = true;
+  eventQueue = [{ kind: "delegated", payload: { action_id: "edit.undo" } }];
+  intervalCallback();
+  await flush();
+  check(
+    typeof heldStage1RefreshResolve === "function",
+    "Stage 1 repaint barrier was not held for serialization test"
+  );
+  eventQueue = [{ kind: "status", payload: { announcement: "After repaint barrier." } }];
+  intervalCallback();
+  check(
+    drainCalls === beforeBarrierDrainCalls + 1,
+    "second native drain crossed an unfinished Stage 1 repaint barrier"
+  );
+  heldStage1RefreshResolve();
+  await flush();
+  await flush();
+  await flush();
+  await flush();
+  check(
+    drainCalls === beforeBarrierDrainCalls + 2,
+    "pending native drain did not resume immediately after the Stage 1 repaint barrier"
+  );
+  check(
+    live.textContent === "After repaint barrier.",
+    "event queued behind Stage 1 repaint barrier was lost or stalled until another timer tick"
+  );
+
+  const beforeOrderedStage1Refreshes = stage1RefreshCalls;
+  const beforeOrderedStage1Snapshots = snapshotCalls;
+  holdNextStage1Refresh = true;
+  currentRoute = "board";
+  eventQueue = [
+    { kind: "delegated", payload: { action_id: "edit.undo" } },
+    { kind: "book-board", payload: { focus_target: "board-launcher" } }
+  ];
+  intervalCallback();
+  await flush();
+  check(
+    stage1RefreshCalls === beforeOrderedStage1Refreshes + 1,
+    "multiple Stage 1 refreshes in one native batch started concurrently"
+  );
+  check(
+    snapshotCalls === beforeOrderedStage1Snapshots,
+    "V2 snapshot crossed an unfinished first Stage 1 repaint in the same batch"
+  );
+  check(
+    typeof heldStage1RefreshResolve === "function",
+    "first Stage 1 repaint in ordered batch was not held"
+  );
+  heldStage1RefreshResolve();
+  await flush();
+  await flush();
+  await flush();
+  check(
+    stage1RefreshCalls === beforeOrderedStage1Refreshes + 2,
+    "second Stage 1 repaint did not run after the first repaint completed"
+  );
+  check(
+    snapshotCalls === beforeOrderedStage1Snapshots + 1,
+    "ordered Stage 1 repaint batch did not finish with exactly one canonical V2 snapshot"
+  );
+
   currentRoute = "board";
   eventQueue = [
     { kind: "book-board", payload: { focus_target: "board-launcher" } },
@@ -300,6 +413,86 @@ async function clickRoute(routeId) {
   check(originalMain.hidden === false, "queued Board transition did not restore the Stage 1 main");
   check(workspace.hidden === true, "queued Board transition left the V2 product main exposed");
   check(documentRef.activeElement === boardLauncher, "trailing delegated event erased the Book-to-Board focus target");
+
+  booksAvailable = true;
+  const beforeNativeBookReturnSnapshots = snapshotCalls;
+  currentRoute = "books";
+  eventQueue = [
+    {
+      kind: "delegated",
+      payload: {
+        action_id: "book.return",
+        announcement: "Returned to reading position."
+      }
+    }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  const nativeReturnedBookBlock = documentRef.getElementById("book-block-1");
+  check(
+    snapshotCalls === beforeNativeBookReturnSnapshots + 1,
+    "native Book return did not refresh the canonical V2 snapshot"
+  );
+  check(nativeReturnedBookBlock !== null, "native Book return did not render Books");
+  check(
+    documentRef.activeElement === nativeReturnedBookBlock,
+    "native Book return did not restore focus to the canonical reading block"
+  );
+  check(
+    live.textContent === "Returned to reading position.",
+    "native Book return announcement was lost"
+  );
+
+  const beforeNativePgnBoardSnapshots = snapshotCalls;
+  const beforeNativePgnBoardRefreshes = stage1RefreshCalls;
+  currentRoute = "board";
+  eventQueue = [
+    { kind: "delegated", payload: { action_id: "pgn.open_on_board" } }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    stage1RefreshCalls === beforeNativePgnBoardRefreshes + 1,
+    "native PGN Board open did not refresh the Stage 1 board"
+  );
+  check(
+    snapshotCalls === beforeNativePgnBoardSnapshots + 1,
+    "native PGN Board open did not refresh the canonical V2 snapshot"
+  );
+  check(originalMain.hidden === false, "native PGN Board open did not expose the Stage 1 main");
+  check(workspace.hidden === true, "native PGN Board open left the V2 product main exposed");
+  check(
+    documentRef.activeElement === moveInput,
+    "native PGN Board open did not restore canonical Board keyboard focus"
+  );
+
+  const beforeNativePgnReturnSnapshots = snapshotCalls;
+  const beforeNativePgnReturnRefreshes = stage1RefreshCalls;
+  currentRoute = "pgn";
+  eventQueue = [
+    { kind: "delegated", payload: { action_id: "pgn.return" } }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  const nativeReturnedPgnStatus = documentRef.getElementById("v2-pgn-empty-status");
+  check(
+    snapshotCalls === beforeNativePgnReturnSnapshots + 1,
+    "native PGN return did not refresh the canonical V2 snapshot"
+  );
+  check(
+    stage1RefreshCalls === beforeNativePgnReturnRefreshes,
+    "native PGN return performed an unnecessary Stage 1 board repaint"
+  );
+  check(originalMain.hidden === true, "native PGN return exposed the Stage 1 main");
+  check(workspace.hidden === false, "native PGN return did not expose the V2 product main");
+  check(nativeReturnedPgnStatus !== null, "native PGN return did not render PGN");
+  check(
+    documentRef.activeElement === nativeReturnedPgnStatus,
+    "native PGN return did not restore canonical PGN keyboard focus"
+  );
 
   currentRoute = "pgn";
   eventQueue = [
