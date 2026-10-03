@@ -690,10 +690,9 @@ def _require_json_content_type(
 
 def _content_length(
     headers: Mapping[bytes, tuple[bytes, ...]],
-) -> int | None:
-    raw = _single_header(headers, b"content-length", required=False)
-    if raw is None:
-        return None
+) -> int:
+    raw = _single_header(headers, b"content-length", required=True)
+    assert raw is not None
     try:
         text = raw.decode("ascii")
     except UnicodeDecodeError:
@@ -747,7 +746,7 @@ def _unauthorized() -> _HttpReject:
 async def _read_body(
     receive: Receive,
     *,
-    declared_length: int | None,
+    declared_length: int,
 ) -> bytes:
     body = bytearray()
     event_count = 0
@@ -775,7 +774,7 @@ async def _read_body(
         if not more:
             break
 
-    if declared_length is not None and declared_length != len(body):
+    if declared_length != len(body):
         raise _HttpReject(400, "content_length_mismatch")
     if not body:
         raise _HttpReject(400, "invalid_request")
