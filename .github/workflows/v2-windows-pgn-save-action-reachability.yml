@@ -71,19 +71,25 @@ jobs:
             python -m pip install -q pythonnet==3.0.5
           fi
 
-      - name: Bind exact current-product pull-request geometry
+      - name: Bind exact live Product pull-request geometry
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
         run: |
           set -euo pipefail
-          base="${PR_BASE_SHA:-}"
-          if test -n "$base"; then
-            git cat-file -e "$base^{commit}"
-            git merge-base --is-ancestor "$base" HEAD
-            test "$(git merge-base "$base" HEAD)" = "$base"
-            git diff --check "$base" HEAD
-            echo "PGN_SAVE_PRODUCT_PARENT=$base"
+          event_base="${PR_BASE_SHA:-}"
+          if test -n "$event_base"; then
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+            live_base="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            git diff --check "$live_base" HEAD
+            echo "PGN_SAVE_EVENT_BASE=$event_base"
+            echo "PGN_SAVE_PRODUCT_PARENT=$live_base"
           else
             parent="$(git rev-parse HEAD^)"
             git cat-file -e "$parent^{commit}"
