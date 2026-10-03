@@ -378,7 +378,7 @@ def _integrity_mapping(
 
 def _integrity_from_mapping(
     raw: Mapping[str, object],
-) -> tuple[dict[str, SoundAssetDigest], str | None]:
+) -> tuple[dict[str, SoundAssetDigest], str | None, bool]:
     schema = raw.get("schema_version")
     if type(schema) is not int:
         raise SoundPackStoreError("sound pack integrity schema is invalid")
@@ -386,10 +386,12 @@ def _integrity_from_mapping(
         if set(raw) != {"schema_version", "assets"}:
             raise SoundPackStoreError("sound pack integrity fields are invalid")
         rights_sha256 = None
+        rights_binding_supported = False
     elif schema == SOUND_PACK_INTEGRITY_SCHEMA_VERSION:
         if set(raw) != {"schema_version", "assets", "rights_sha256"}:
             raise SoundPackStoreError("sound pack integrity fields are invalid")
         rights_sha256 = raw["rights_sha256"]
+        rights_binding_supported = True
         if rights_sha256 is not None:
             if (
                 type(rights_sha256) is not str
@@ -419,7 +421,7 @@ def _integrity_from_mapping(
         except (TypeError, ValueError) as exc:
             raise SoundPackStoreError("sound pack integrity asset is invalid") from exc
         result[path] = digest
-    return result, rights_sha256
+    return result, rights_sha256, rights_binding_supported
 
 
 class FilesystemSoundPackStore:
@@ -765,7 +767,7 @@ class FilesystemSoundPackStore:
     @staticmethod
     def _read_integrity(
         version_dir: Path,
-    ) -> tuple[dict[str, SoundAssetDigest], str | None]:
+    ) -> tuple[dict[str, SoundAssetDigest], str | None, bool]:
         path = version_dir / _INTEGRITY_NAME
         metadata = _require_regular_file(
             path, "sound pack integrity metadata"
@@ -831,14 +833,24 @@ class FilesystemSoundPackStore:
                 "installed sound pack version does not match its directory"
             )
 
-        digests, rights_sha256 = self._read_integrity(version_dir)
+        digests, rights_sha256, rights_binding_supported = self._read_integrity(
+            version_dir
+        )
         rights_evidence = self._read_rights(version_dir)
-        if rights_sha256 is not None:
-            if rights_evidence is None:
+        if rights_binding_supported:
+            if rights_evidence is None and rights_sha256 is not None:
                 raise SoundPackStoreError(
                     "sound pack rights digest has no rights metadata"
                 )
-            if _rights_sha256(rights_evidence) != rights_sha256:
+            if rights_evidence is not None and rights_sha256 is None:
+                raise SoundPackStoreError(
+                    "sound pack rights metadata has no integrity binding"
+                )
+            if (
+                rights_evidence is not None
+                and rights_sha256 is not None
+                and _rights_sha256(rights_evidence) != rights_sha256
+            ):
                 raise SoundPackStoreError(
                     "sound pack rights evidence checksum mismatch"
                 )
@@ -1228,10 +1240,10 @@ class FilesystemSoundPackStore:
             return None
         try:
             installed = self._installed_disk_pack(identity)
-            _digests, rights_sha256 = self._read_integrity(
+            _digests, rights_sha256, rights_binding_supported = self._read_integrity(
                 installed.version_dir
             )
-            if rights_sha256 is None:
+            if not rights_binding_supported or rights_sha256 is None:
                 return None
             rights = self._read_rights(installed.version_dir)
             if rights is None or _rights_sha256(rights) != rights_sha256:
