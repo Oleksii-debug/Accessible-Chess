@@ -261,6 +261,29 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertIsNone(raised.exception.__cause__)
         self.assertNotIn("already exists", str(raised.exception).lower())
 
+    def test_service_rejects_object_store_without_reconciliation_status(self):
+        class CanonicalOnlyObjectStore:
+            def put(self, *, object_key, content, expected_sha256):
+                pass
+
+            def issue_read_token(self, *, object_key, participant_id, ttl_seconds):
+                return "token"
+
+            def delete(self, *, object_key):
+                pass
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "stored_sha256 reconciliation",
+        ):
+            ClassroomFileServerService(
+                store=self.store,
+                authorization=self.auth,
+                scanner=self.scanner,
+                object_store=CanonicalOnlyObjectStore(),
+                quota=FileQuotaPolicy(max_file_bytes=64, max_room_bytes=96),
+            )
+
     def test_external_authorization_failure_drops_sensitive_exception_cause(self):
         class BrokenAuthorization:
             def authorize_file_action(self, **_kwargs):
