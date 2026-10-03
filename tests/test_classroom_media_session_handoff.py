@@ -207,6 +207,29 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         )
         self.assertEqual(payload["credential"]["token"], "secret-server-issued-token")
 
+    def test_naive_claim_clock_is_rejected_without_consuming_credential(self):
+        _controller, _composite, _session, host = self.make_host()
+        effect = host.prepare_join(
+            credential(),
+            now=NOW + timedelta(seconds=1),
+        )
+
+        with self.assertRaisesRegex(
+            MediaSessionHandoffError,
+            "timezone-aware current time",
+        ):
+            host.claim_browser_payload(
+                effect.transaction_id,
+                now=datetime(2026, 10, 3, 0, 0),
+            )
+
+        self.assertEqual(host.pending_effect.transaction_id, effect.transaction_id)
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertEqual(payload["credential"]["token"], "secret-server-issued-token")
+
     def test_secret_payload_is_claimable_exactly_once(self):
         _controller, _composite, _session, host = self.make_host()
         effect = host.prepare_join(
