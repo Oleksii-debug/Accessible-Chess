@@ -352,6 +352,45 @@ class ExerciseSessionTests(unittest.TestCase):
         self.assertEqual(expected, restored.snapshot())
         self.assertEqual(["e4", "d5"], snapshot["accepted_path"])
 
+    def test_restore_rejects_duplicate_or_unbounded_snapshot_mappings(self):
+        definition = self.make_definition()
+        payload = ExerciseSession(definition).snapshot()
+        keys = list(payload)
+
+        class DuplicateSnapshot(Mapping):
+            def __len__(self):
+                return len(keys)
+
+            def __iter__(self):
+                # Keep the advertised field count while replacing one real field
+                # with a duplicate schema_version entry.
+                return iter(("schema_version", "schema_version", *keys[2:]))
+
+            def __getitem__(self, key):
+                return payload[key]
+
+        with self.assertRaisesRegex(ValueError, "duplicate fields"):
+            ExerciseSession.restore(definition, DuplicateSnapshot())
+
+        class InfiniteSnapshot(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                while True:
+                    yield "schema_version"
+
+            def __getitem__(self, key):
+                return payload[key]
+
+        with self.assertRaisesRegex(ValueError, "changed while being read"):
+            ExerciseSession.restore(definition, InfiniteSnapshot())
+
+        oversized = dict(payload)
+        oversized["unexpected"] = "value"
+        with self.assertRaisesRegex(ValueError, "too many fields"):
+            ExerciseSession.restore(definition, oversized)
+
     def test_restore_reads_custom_snapshot_mapping_only_once(self):
         definition = self.make_definition()
         session = ExerciseSession(definition)
