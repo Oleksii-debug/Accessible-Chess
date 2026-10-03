@@ -243,6 +243,46 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
 
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
+    def test_malformed_root_line_falls_back_before_result_property_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileLine:
+            @property
+            def result(self):
+                raise AssertionError("malformed root line result must not be accessed")
+
+        game.line = HostileLine()
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(BookBoardMode.GAME, game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
+    def test_malformed_mode_falls_back_before_value_access(self):
+        reader, workflow, bridge = self.compose()
+        before = reader.snapshot()
+        game = self.semantic_game()
+
+        class HostileMode:
+            @property
+            def value(self):
+                raise AssertionError("malformed semantic mode value must not be accessed")
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            return_value=(HostileMode(), game, ()),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
+
     def test_raw_comment_budget_falls_back_before_presenter_scan(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
