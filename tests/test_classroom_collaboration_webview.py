@@ -1041,6 +1041,94 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertFalse(message["can_remove_sender"])
         self.assertNotIn("message_key", message)
 
+    def test_retire_browser_session_invalidates_keys_and_releases_ephemeral_state(self) -> None:
+        self.selected_file = self.root / "retire-clean.pgn"
+        self.selected_file.write_text(
+            '[Event "Retire clean"]\n\n1. e4 e5 *\n',
+            encoding="utf-8",
+        )
+        self.files.scan_state = "clean"
+        view = self.webview()
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+        clean_item = next(
+            item
+            for item in uploaded.payload["collaboration"]["files"]["items"]
+            if item["name"] == "retire-clean.pgn"
+        )
+        old_file_key = clean_item["file_key"]
+
+        self.chat.ordered.append(
+            ChatMessageMetadata(
+                "remote-retire-message",
+                "room-1",
+                "student-2",
+                0,
+                "Unread before unbind",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        synced = view.dispatch("collaboration.chat.sync", {})
+        self.assertEqual(1, synced.payload["collaboration"]["chat"]["unread_count"])
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=RuntimeError("ambiguous send"),
+        ):
+            failed_send = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Pending before unbind"},
+            )
+        self.assertEqual("error", failed_send.kind)
+        self.assertIsNotNone(view._pending_chat)
+
+        self.selected_file = self.root / "retire-retry.pgn"
+        self.selected_file.write_text(
+            '[Event "Retire retry"]\n\n1. d4 d5 *\n',
+            encoding="utf-8",
+        )
+        self.files.fail_upload = True
+        failed_upload = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual("error", failed_upload.kind)
+        self.assertEqual(1, len(view._prepared))
+
+        view._chat_page_bucket = 4
+        view._file_page_bucket = 5
+        view._removed_participant_ids.add("student-2")
+        view.retire_browser_session()
+
+        self.assertIsNone(view._pending_chat)
+        self.assertEqual({}, view._prepared)
+        self.assertIsNone(view._chat_page_bucket)
+        self.assertIsNone(view._file_page_bucket)
+        self.assertEqual(set(), view._removed_participant_ids)
+        snapshot = view.snapshot()
+        self.assertEqual(0, snapshot["chat"]["unread_count"])
+
+        stale = view.dispatch(
+            "collaboration.file.save",
+            {"file_key": old_file_key},
+        )
+        self.assertEqual("error", stale.kind)
+        self.assertEqual([], self.save_calls)
+
+        current_clean = next(
+            item
+            for item in snapshot["files"]["items"]
+            if item["name"] == "retire-clean.pgn"
+        )
+        self.assertNotEqual(old_file_key, current_clean["file_key"])
+        saved = view.dispatch(
+            "collaboration.file.save",
+            {"file_key": current_clean["file_key"]},
+        )
+        self.assertEqual("collaboration.file.saved", saved.kind)
+        self.assertEqual(
+            [("short-lived-read-token", "retire-clean.pgn")],
+            self.save_calls,
+        )
+
     def test_file_sync_drops_retry_source_after_authoritative_recovery(self) -> None:
         self.selected_file = self.root / "ambiguous-recovered.pgn"
         self.selected_file.write_text(
