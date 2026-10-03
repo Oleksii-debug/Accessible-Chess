@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import traceback
 import unittest
 from unittest import mock
 
@@ -477,10 +478,18 @@ class BookProgressStoreTests(unittest.TestCase):
         original_bytes = self.path.read_bytes()
 
         reader.go_to(3)
-        with mock.patch("acs.book_progress_store.os.replace", side_effect=OSError("replace failed")):
+        private_failure = OSError(5, "replace failed", str(self.path))
+        with mock.patch(
+            "acs.book_progress_store.os.replace",
+            side_effect=private_failure,
+        ):
             with self.assertRaises(BookProgressStoreError) as caught:
                 self.store.save("book:atomic", reader)
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn(str(self.path), rendered)
+        self.assertNotIn(self.tempdir.name, rendered)
         self.assertEqual(self.path.read_bytes(), original_bytes)
         self.assertEqual(self.store.restore("book:atomic", self.original_document()).index, 1)
 
@@ -661,6 +670,10 @@ class BookProgressStoreTests(unittest.TestCase):
         message = str(caught.exception)
         self.assertNotIn(str(self.path), message)
         self.assertNotIn(self.tempdir.name, message)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn(str(self.path), rendered)
+        self.assertNotIn(self.tempdir.name, rendered)
 
 
 if __name__ == "__main__":
