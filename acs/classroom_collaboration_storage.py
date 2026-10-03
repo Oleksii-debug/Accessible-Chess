@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -218,6 +218,14 @@ def _stored_integer(
     if type(value) is not int or not 0 <= value <= maximum:
         raise CollaborationStorageError(
             f"stored {label} must be a bounded non-negative integer"
+        )
+    return value
+
+
+def _stored_snapshot_revision(value: object) -> int:
+    if type(value) is not int or not 0 <= value <= MAX_WIRE_INTEGER:
+        raise CollaborationStorageError(
+            "stored attachment snapshot watermark is invalid"
         )
     return value
 
@@ -629,6 +637,77 @@ class ClassroomCollaborationSQLiteStore:
                     "UPDATE collaboration_schema_meta SET value=8 WHERE key='schema_version'"
                 )
                 version = 8
+            if version < 9:
+                db.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS collaboration_attachment_snapshot_watermarks(
+                        attachment_id TEXT PRIMARY KEY,
+                        room_id TEXT NOT NULL,
+                        revision INTEGER NOT NULL CHECK(
+                            revision >= 0 AND revision <= 9007199254740991
+                        )
+                    )
+                    """
+                )
+                columns = tuple(
+                    (
+                        row["name"],
+                        str(row["type"]).upper(),
+                        int(row["notnull"]),
+                        int(row["pk"]),
+                    )
+                    for row in db.execute(
+                        "PRAGMA table_info(collaboration_attachment_snapshot_watermarks)"
+                    )
+                )
+                expected_columns = (
+                    ("attachment_id", "TEXT", 0, 1),
+                    ("room_id", "TEXT", 1, 0),
+                    ("revision", "INTEGER", 1, 0),
+                )
+                if columns != expected_columns:
+                    raise CollaborationStorageError(
+                        "attachment snapshot watermark schema is incompatible"
+                    )
+                table_sql_row = db.execute(
+                    """
+                    SELECT sql FROM sqlite_master
+                    WHERE type='table'
+                      AND name='collaboration_attachment_snapshot_watermarks'
+                    """
+                ).fetchone()
+                normalized_table_sql = (
+                    ""
+                    if table_sql_row is None or type(table_sql_row["sql"]) is not str
+                    else "".join(table_sql_row["sql"].lower().split())
+                )
+                if (
+                    "check(revision>=0andrevision<=9007199254740991)"
+                    not in normalized_table_sql
+                ):
+                    raise CollaborationStorageError(
+                        "attachment snapshot watermark schema is incompatible"
+                    )
+                db.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_collaboration_attachment_snapshot_watermarks_room
+                    ON collaboration_attachment_snapshot_watermarks(room_id, revision)
+                    """
+                )
+                index_columns = tuple(
+                    row["name"]
+                    for row in db.execute(
+                        "PRAGMA index_info(idx_collaboration_attachment_snapshot_watermarks_room)"
+                    )
+                )
+                if index_columns != ("room_id", "revision"):
+                    raise CollaborationStorageError(
+                        "attachment snapshot watermark index is incompatible"
+                    )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=9 WHERE key='schema_version'"
+                )
+                version = 9
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
@@ -1227,6 +1306,7 @@ class ClassroomCollaborationSQLiteStore:
         room_id: str,
         attachments: tuple[AttachmentMetadata, ...],
         updates: tuple[AttachmentStateUpdate, ...],
+        snapshot_state_revision: int | None = None,
     ) -> tuple[AttachmentMetadata, ...]:
         _canonical_id(room_id, "room id")
         if type(attachments) is not tuple:
@@ -1245,6 +1325,13 @@ class ClassroomCollaborationSQLiteStore:
             _safe_object_key(attachment.object_key)
         if any(type(update) is not AttachmentStateUpdate for update in updates):
             raise ValueError("attachment state update has invalid type")
+        if snapshot_state_revision is not None and (
+            type(snapshot_state_revision) is not int
+            or not 0 <= snapshot_state_revision <= MAX_WIRE_INTEGER
+        ):
+            raise ValueError(
+                "snapshot_state_revision must be a bounded JSON-safe integer"
+            )
         if not attachments and not updates:
             return ()
 
@@ -1371,6 +1458,45 @@ class ClassroomCollaborationSQLiteStore:
                     if attachment.sequence_no == expected_sequence:
                         expected_sequence += 1
 
+                for attachment in attachments:
+                    watermark = db.execute(
+                        """
+                        SELECT room_id, revision
+                        FROM collaboration_attachment_snapshot_watermarks
+                        WHERE attachment_id=?
+                        """,
+                        (attachment.attachment_id,),
+                    ).fetchone()
+                    if watermark is not None:
+                        stored_revision = _stored_snapshot_revision(
+                            watermark["revision"]
+                        )
+                        if (
+                            snapshot_state_revision is None
+                            or watermark["room_id"] != room_id
+                            or stored_revision > snapshot_state_revision
+                        ):
+                            raise CollaborationStorageError(
+                                "attachment snapshot state watermark regressed"
+                            )
+                    if snapshot_state_revision is not None:
+                        db.execute(
+                            """
+                            INSERT INTO collaboration_attachment_snapshot_watermarks(
+                                attachment_id, room_id, revision
+                            )
+                            VALUES(?,?,?)
+                            ON CONFLICT(attachment_id) DO UPDATE SET
+                                room_id=excluded.room_id,
+                                revision=excluded.revision
+                            """,
+                            (
+                                attachment.attachment_id,
+                                room_id,
+                                snapshot_state_revision,
+                            ),
+                        )
+
                 cursor = db.execute(
                     "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                     (room_id,),
@@ -1401,52 +1527,73 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationStorageError(
                             "attachment state update references unknown room attachment"
                         )
-                    current = self._attachment_from_row(row)
-                    if current.transfer_state not in {"stored", "deleted"}:
-                        raise CollaborationStorageError(
-                            "attachment state update requires authoritative history"
-                        )
-                    _validate_transfer_transition(
-                        current.transfer_state,
-                        update.transfer_state,
-                    )
-                    _validate_scan_transition(
-                        current.scan_state,
-                        update.scan_state,
-                    )
-                    db.execute(
+                    watermark = db.execute(
                         """
-                        UPDATE collaboration_attachments
-                        SET transfer_state=?, scan_state=?
+                        SELECT room_id, revision
+                        FROM collaboration_attachment_snapshot_watermarks
                         WHERE attachment_id=?
                         """,
-                        (
-                            update.transfer_state,
-                            update.scan_state,
-                            update.attachment_id,
-                        ),
+                        (update.attachment_id,),
+                    ).fetchone()
+                    watermark_revision: int | None = None
+                    if watermark is not None:
+                        if watermark["room_id"] != room_id:
+                            raise CollaborationStorageError(
+                                "stored attachment snapshot watermark crossed room boundary"
+                            )
+                        watermark_revision = _stored_snapshot_revision(watermark["revision"])
+                    covered_by_snapshot = (
+                        watermark_revision is not None
+                        and watermark["room_id"] == room_id
+                        and update.revision <= watermark_revision
                     )
-                    if (
-                        current.transfer_state != "deleted"
-                        and update.transfer_state == "deleted"
-                    ):
-                        _queue_attachment_deletion(
-                            db,
-                            AttachmentMetadata(
-                                current.attachment_id,
-                                current.room_id,
-                                current.sender_id,
-                                current.sequence_no,
-                                current.display_name,
-                                current.mime_type,
-                                current.size_bytes,
-                                current.sha256,
-                                current.object_key,
-                                "deleted",
-                                current.retention,
+                    if not covered_by_snapshot:
+                        current = self._attachment_from_row(row)
+                        if current.transfer_state not in {"stored", "deleted"}:
+                            raise CollaborationStorageError(
+                                "attachment state update requires authoritative history"
+                            )
+                        _validate_transfer_transition(
+                            current.transfer_state,
+                            update.transfer_state,
+                        )
+                        _validate_scan_transition(
+                            current.scan_state,
+                            update.scan_state,
+                        )
+                        db.execute(
+                            """
+                            UPDATE collaboration_attachments
+                            SET transfer_state=?, scan_state=?
+                            WHERE attachment_id=?
+                            """,
+                            (
+                                update.transfer_state,
                                 update.scan_state,
+                                update.attachment_id,
                             ),
                         )
+                        if (
+                            current.transfer_state != "deleted"
+                            and update.transfer_state == "deleted"
+                        ):
+                            _queue_attachment_deletion(
+                                db,
+                                AttachmentMetadata(
+                                    current.attachment_id,
+                                    current.room_id,
+                                    current.sender_id,
+                                    current.sequence_no,
+                                    current.display_name,
+                                    current.mime_type,
+                                    current.size_bytes,
+                                    current.sha256,
+                                    current.object_key,
+                                    "deleted",
+                                    current.retention,
+                                    update.scan_state,
+                                ),
+                            )
                     db.execute(
                         """
                         INSERT INTO collaboration_attachment_state_cursors(room_id, revision)
@@ -1677,6 +1824,36 @@ class ClassroomCollaborationSQLiteStore:
                     (key,),
                 )
 
+    def attachment_snapshot_state_revision(
+        self,
+        attachment_id: str,
+    ) -> int | None:
+        _canonical_id(attachment_id, "attachment id")
+        with closing(self._connect()) as db:
+            row = db.execute(
+                """
+                SELECT
+                    watermark.room_id,
+                    watermark.revision,
+                    attachment.room_id AS attachment_room_id
+                FROM collaboration_attachment_snapshot_watermarks AS watermark
+                LEFT JOIN collaboration_attachments AS attachment
+                    ON attachment.attachment_id=watermark.attachment_id
+                WHERE watermark.attachment_id=?
+                """,
+                (attachment_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        if (
+            row["attachment_room_id"] is None
+            or row["room_id"] != row["attachment_room_id"]
+        ):
+            raise CollaborationStorageError(
+                "stored attachment snapshot watermark crossed room boundary"
+            )
+        return _stored_snapshot_revision(row["revision"])
+
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
         with closing(self._connect()) as db:
@@ -1841,6 +2018,40 @@ class ClassroomCollaborationSQLiteStore:
                             "stored state cursor room id is invalid"
                         ) from error
                     _stored_integer(cursor["revision"], label)
+
+            for watermark in db.execute(
+                """
+                SELECT
+                    watermark.attachment_id,
+                    watermark.room_id,
+                    watermark.revision,
+                    attachment.room_id AS attachment_room_id
+                FROM collaboration_attachment_snapshot_watermarks AS watermark
+                LEFT JOIN collaboration_attachments AS attachment
+                    ON attachment.attachment_id=watermark.attachment_id
+                """
+            ):
+                try:
+                    _canonical_id(
+                        watermark["attachment_id"],
+                        "snapshot watermark attachment id",
+                    )
+                    _canonical_id(
+                        watermark["room_id"],
+                        "snapshot watermark room id",
+                    )
+                except ValueError as error:
+                    raise CollaborationStorageError(
+                        "stored attachment snapshot watermark identity is invalid"
+                    ) from error
+                _stored_snapshot_revision(watermark["revision"])
+                if (
+                    watermark["attachment_room_id"] is None
+                    or watermark["room_id"] != watermark["attachment_room_id"]
+                ):
+                    raise CollaborationStorageError(
+                        "stored attachment snapshot watermark crossed room boundary"
+                    )
 
             for deletion in db.execute(
                 """

@@ -127,6 +127,29 @@ class PreparedFile:
             raise CollaborationError("prepared file metadata is invalid")
 
 
+@dataclass(frozen=True, slots=True)
+class AttachmentHistoryPage:
+    """Current attachment snapshots bound to an authoritative state watermark."""
+
+    attachments: tuple[AttachmentMetadata, ...]
+    snapshot_state_revision: int | None
+
+    def __post_init__(self) -> None:
+        if type(self.attachments) is not tuple or any(
+            type(item) is not AttachmentMetadata for item in self.attachments
+        ):
+            raise CollaborationError(
+                "attachment history page must contain attachment metadata"
+            )
+        if self.snapshot_state_revision is not None and (
+            type(self.snapshot_state_revision) is not int
+            or not 0 <= self.snapshot_state_revision <= MAX_WIRE_INTEGER
+        ):
+            raise CollaborationError(
+                "attachment history state watermark must be a bounded JSON-safe integer"
+            )
+
+
 class ChatTransportPort(Protocol):
     """Server-authoritative room chat transport.
 
@@ -200,8 +223,13 @@ class FileTransferPort(Protocol):
         room_id: str,
         after_sequence: int | None,
         limit: int,
-    ) -> tuple[AttachmentMetadata, ...]:
-        """Return stored/tombstoned attachments ordered by authoritative sequence."""
+    ) -> AttachmentHistoryPage:
+        """Return current snapshots plus the latest state revision they include.
+
+        snapshot_state_revision is a room-wide causal watermark captured
+        atomically with the attachment snapshots. Mutable state updates at or
+        below that revision are already reflected by each returned snapshot.
+        """
         ...
 
     def state_updates_after(
@@ -865,12 +893,15 @@ class ClassroomCollaborationController:
             if attachment.sequence_no != expected:
                 break
             after = attachment.sequence_no
-        incoming = self._files.history_after(
+        page = self._files.history_after(
             room_id=self.room_id,
             after_sequence=after,
             limit=MAX_SYNC_ATTACHMENTS,
         )
-        if type(incoming) is not tuple or len(incoming) > MAX_SYNC_ATTACHMENTS:
+        if type(page) is not AttachmentHistoryPage:
+            raise CollaborationError("file history response is invalid")
+        incoming = page.attachments
+        if len(incoming) > MAX_SYNC_ATTACHMENTS:
             raise CollaborationError("file history response is invalid or too large")
 
         expected_sequence = 0 if after is None else after + 1
@@ -887,6 +918,11 @@ class ClassroomCollaborationController:
             expected_sequence += 1
 
         state_after = self._store.attachment_state_revision(self.room_id)
+        if state_after is not None and (
+            page.snapshot_state_revision is None
+            or page.snapshot_state_revision < state_after
+        ):
+            raise CollaborationError("file history state watermark regressed")
         updates = self._files.state_updates_after(
             room_id=self.room_id,
             after_revision=state_after,
@@ -939,6 +975,7 @@ class ClassroomCollaborationController:
                 room_id=self.room_id,
                 attachments=incoming,
                 updates=tuple(applicable_updates),
+                snapshot_state_revision=page.snapshot_state_revision,
             )
         except CollaborationStorageError as error:
             raise CollaborationError(
@@ -1388,6 +1425,7 @@ def _child_operation_id(root: str, target_id: str) -> str:
 
 
 __all__ = [
+    "AttachmentHistoryPage",
     "ChatDraft",
     "ChatModerationAction",
     "ChatModerationCommand",
