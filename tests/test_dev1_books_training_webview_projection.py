@@ -584,6 +584,25 @@ class TrainingProjectionTests(unittest.TestCase):
             self.projection.submit("  ")
         self.assertEqual(before, self.presenter.snapshot())
 
+    def test_training_host_counters_match_browser_safe_integer_contract(self) -> None:
+        too_large = replace(self.presenter.view(), attempts=1 << 53)
+        with patch.object(self.presenter, "view", return_value=too_large):
+            with self.assertRaisesRegex(ValueError, "training counters are invalid"):
+                self.projection.snapshot()
+
+        exact_max = (1 << 53) - 1
+        accepted = replace(
+            self.presenter.view(),
+            attempts=exact_max,
+            mistakes=exact_max,
+            hints_used=exact_max,
+        )
+        with patch.object(self.presenter, "view", return_value=accepted):
+            snapshot = self.projection.snapshot()
+        self.assertEqual(exact_max, snapshot["progress"]["attempts"])
+        self.assertEqual(exact_max, snapshot["progress"]["mistakes"])
+        self.assertEqual(exact_max, snapshot["progress"]["hints_used"])
+
     def test_training_host_rejects_raw_oversize_before_nul_or_redaction_scan(self) -> None:
         view = replace(self.presenter.view(), title="x" * 361 + "\x00")
         with (
