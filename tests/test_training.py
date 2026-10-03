@@ -275,6 +275,42 @@ class ExerciseSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unfinished"):
             ExerciseSession.restore(definition, snapshot)
 
+    def test_v4_identity_fields_reject_non_text_scalars_at_ingress(self):
+        with self.assertRaisesRegex(TypeError, "hint"):
+            ExerciseStep(frozenset({"e4"}), hint=7)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(TypeError, "explanation"):
+            ExerciseStep(frozenset({"e4"}), explanation=7)  # type: ignore[arg-type]
+
+        step = ExerciseStep(frozenset({"e4"}))
+        with self.assertRaisesRegex(TypeError, "title"):
+            ExerciseDefinition(  # type: ignore[arg-type]
+                "bad-title",
+                Board.START,
+                (step,),
+                title=7,
+            )
+        with self.assertRaisesRegex(TypeError, "tags"):
+            ExerciseDefinition(
+                "bad-tags",
+                Board.START,
+                (step,),
+                tags="opening",  # type: ignore[arg-type]
+            )
+        with self.assertRaisesRegex(TypeError, "metadata"):
+            ExerciseDefinition(  # type: ignore[arg-type]
+                "bad-metadata-value",
+                Board.START,
+                (step,),
+                metadata={"difficulty": 7},
+            )
+        with self.assertRaisesRegex(TypeError, "metadata"):
+            ExerciseDefinition(  # type: ignore[arg-type]
+                "bad-metadata-key",
+                Board.START,
+                (step,),
+                metadata={7: "starter"},
+            )
+
     def test_empty_move_empty_step_and_scalar_coercion_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "at least one"):
             ExerciseStep(frozenset())
