@@ -401,11 +401,13 @@ class _SemanticHtmlParser(HTMLParser):
                     code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
                 )
             attrs[normalized_name] = value or ""
-        if "hidden" in attrs:
-            # The HTML hidden attribute is a deterministic non-rendered boundary.
-            # Hidden text, image metadata and explicit chess markers must not
-            # become readable BookDocument content or semantic Game/Position
-            # blocks. Track all non-void descendants so malformed nesting stays
+        aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
+        if "hidden" in attrs or aria_hidden == "true":
+            # HTML hidden and ARIA-hidden=true are deterministic boundaries for
+            # this accessibility-first semantic import. Text, image metadata and
+            # explicit chess markers excluded from the rendered/accessibility
+            # surface must not reappear in BookDocument or screen-reader output.
+            # Track all non-void descendants so malformed nesting stays
             # fail-closed instead of resuming ingestion too early.
             if tag not in _VOID_TAGS:
                 self._hidden_tags.append(tag)
