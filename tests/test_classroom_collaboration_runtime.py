@@ -529,7 +529,8 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 if committed is None:
                     committed = authoritative
                     raise OSError("response acknowledgement lost after commit")
-                self.assertEqual(authoritative, committed)
+                if authoritative != committed:
+                    raise AssertionError("retry changed committed attachment identity")
                 return Response({"v": 1, "ok": True, "attachment": committed})
 
             @staticmethod
