@@ -89,6 +89,44 @@ class BooksTrainingWebViewBridgeTests(unittest.TestCase):
         self.assertEqual("error", rejected.kind)
         self.assertEqual([("book.open_game", {})], self.book_calls)
 
+    def test_book_bridge_preflights_command_payload_keys_and_language(self) -> None:
+        class HostileText(str):
+            stripped = 0
+
+            def strip(self, *_args, **_kwargs):
+                type(self).stripped += 1
+                raise AssertionError("hostile text must not reach strip")
+
+        before_language = self.book.projection.language
+
+        result = self.book.dispatch(HostileText("book.next"), {})
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, HostileText.stripped)
+
+        result = self.book.dispatch(
+            "book.next",
+            {HostileText("name"): "chapter"},
+        )
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, HostileText.stripped)
+
+        result = self.book.dispatch(
+            "book.language",
+            {"language": HostileText("en")},
+        )
+        self.assertEqual("error", result.kind)
+        self.assertEqual(0, HostileText.stripped)
+        self.assertIs(before_language, self.book.projection.language)
+
+        result = self.book.dispatch("x" * 65, {})
+        self.assertEqual("error", result.kind)
+        result = self.book.dispatch(
+            "book.language",
+            {"language": "e" * 9},
+        )
+        self.assertEqual("error", result.kind)
+        self.assertIs(before_language, self.book.projection.language)
+
     def test_book_bookmark_requires_exact_single_name_field(self) -> None:
         saved = self.book.dispatch("book.bookmark.save", {"name": "chapter"})
         self.assertEqual("render", saved.kind)
