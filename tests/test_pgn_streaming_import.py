@@ -359,6 +359,34 @@ class StreamingPgnImportTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, StreamingPgnErrorCode.INVALID_ENCODING)
             self.assertEqual(database.search_games(limit=100), [])
 
+    def test_windows_1251_ukrainian_special_letters_only_is_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "legacy-ukrainian-specials.pgn"
+            source_text = (
+                '[Event "ЇЇ"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {Ґґ Єє Іі Її} *\n'
+            )
+            source.write_bytes(source_text.encode("cp1251"))
+
+            result = self._new_importer(database).import_file(
+                source,
+                failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                limits=tiny_chunks(),
+            )
+
+            self.assertTrue(result.complete)
+            self.assertEqual(1, result.accepted_games)
+            row = database.get_game(result.library.first_game_id)
+            self.assertIsNotNone(row)
+            assert row is not None
+            reopened = parse_pgn_text(row["pgn_text"], strict=True)[0]
+            self.assertEqual("ЇЇ", reopened.tags["Event"])
+            self.assertEqual(
+                "Ґґ Єє Іі Її",
+                reopened.line.moves[0].comments_after[0].text,
+            )
+
     def test_windows_1251_cyrillic_pgn_is_losslessly_imported(self) -> None:
         with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
             source = Path(directory) / "legacy-russian-book.pgn"
