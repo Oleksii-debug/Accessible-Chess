@@ -198,7 +198,7 @@ class SoundPackManifestTests(unittest.TestCase):
 
     def test_audio_path_resources_are_bounded_before_filesystem_use(self) -> None:
         cases = (
-            "audio/" + ("x" * 250) + ".wav",
+            "audio/" + ("x" * 252) + ".wav",
             "/".join(["a"] * 65) + "/move.wav",
             "audio/" + ("x" * 4090) + ".wav",
         )
