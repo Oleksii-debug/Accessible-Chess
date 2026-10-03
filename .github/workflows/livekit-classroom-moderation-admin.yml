@@ -147,6 +147,47 @@ jobs:
           print("LIVEKIT_PINNED_ROOM_ADMIN_SCHEMA=PASS")
           PY
 
+      - name: Prove recovery verifier is read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path("acs/livekit_classroom_moderation_admin.py")
+          tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+          owner = next(
+              node
+              for node in tree.body
+              if isinstance(node, ast.ClassDef)
+              and node.name == "LiveKitClassroomModerationAdmin"
+          )
+          verifier = next(
+              node
+              for node in owner.body
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and node.name == "moderation_effect_matches"
+          )
+          attributes = {
+              node.attr
+              for node in ast.walk(verifier)
+              if isinstance(node, ast.Attribute)
+          }
+          forbidden = {
+              "update_participant",
+              "mute_published_track",
+              "remove_participant",
+              "apply_moderation_command",
+          }
+          overlap = sorted(attributes & forbidden)
+          if overlap:
+              raise SystemExit(f"provider-state verifier mutates LiveKit: {overlap}")
+          if "get_participant" not in attributes and "_participant" not in attributes:
+              raise SystemExit("provider-state verifier has no participant read path")
+          print("LIVEKIT_MODERATION_STATE_VERIFIER_READ_ONLY=PASS")
+          PY
+
       - name: Prove server-only least-privilege boundary
         shell: bash
         run: |
