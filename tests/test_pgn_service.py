@@ -4,6 +4,7 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
+from acs import pgn_service as pgn_service_module
 from acs.gametree import parse_games, serialize_games
 from acs.import_contract import ImportQuality
 from acs.pgn_service import PgnConcurrentWriteError, PgnFileImporter, export_game_atomic, open_pgn, save_pgn_atomic
@@ -44,6 +45,38 @@ class PgnFileServiceTests(unittest.TestCase):
             saved = save_pgn_atomic(path, games)
             self.assertEqual(saved.sha256, open_pgn(path).source.sha256)
             self.assertEqual(serialize_games(open_pgn(path).games), serialize_games(games))
+
+    def test_successful_publication_does_not_refingerprint_committed_destination(self):
+        games = parse_games('[Event "Committed"]\n[Result "*"]\n\n1. e4 *')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "committed.pgn"
+            real_fingerprint = pgn_service_module.fingerprint
+            calls = []
+
+            def guarded_fingerprint(candidate, *args, **kwargs):
+                candidate_path = Path(candidate)
+                calls.append(candidate_path)
+                if candidate_path == path:
+                    raise AssertionError(
+                        "committed destination must not be fingerprinted after publication"
+                    )
+                return real_fingerprint(candidate, *args, **kwargs)
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=guarded_fingerprint,
+            ):
+                saved = save_pgn_atomic(path, games)
+
+            self.assertTrue(path.is_file())
+            self.assertTrue(calls)
+            self.assertTrue(all(candidate != path for candidate in calls))
+            self.assertTrue(Path(saved.path).samefile(path))
+            reopened = open_pgn(path)
+            self.assertEqual(saved.size, reopened.source.size)
+            self.assertEqual(saved.sha256, reopened.source.sha256)
+            self.assertEqual(saved.suffix, ".pgn")
+            self.assertEqual(reopened.games[0].tags["Event"], "Committed")
 
     def test_existing_file_is_protected_by_default(self):
         games = parse_games('[Event "A"]\n[Result "*"]\n\n1. e4 *')
