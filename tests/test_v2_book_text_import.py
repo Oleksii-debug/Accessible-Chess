@@ -54,6 +54,43 @@ class BookTextImportTests(unittest.TestCase):
         self.assertFalse(any(isinstance(block, (Game, Position, Diagram)) for block in result.document.blocks))
         self.assertTrue(result.book_key.startswith("txt-sha256:"))
 
+    def test_txt_auto_decodes_windows_1251_and_utf16_without_network(self) -> None:
+        cp1251_text = "Шахи українською: Їжак, Ґамбіт, Європа, Ідея.\n\nДругий абзац."
+        cp1251 = import_text_book(
+            cp1251_text.encode("cp1251"),
+            source_name="legacy.txt",
+            source_format="txt",
+        )
+        self.assertEqual(cp1251_text.split("\n\n")[0], cp1251.document.blocks[0].text)
+        self.assertTrue(any("windows-1251" in warning for warning in cp1251.warnings))
+
+        utf16_text = "Шахова книга UTF-16.\n\nSecond paragraph."
+        utf16 = import_text_book(
+            utf16_text.encode("utf-16"),
+            source_name="utf16.txt",
+            source_format="txt",
+        )
+        self.assertEqual("Шахова книга UTF-16.", utf16.document.blocks[0].text)
+        self.assertTrue(any("utf-16" in warning for warning in utf16.warnings))
+
+    def test_binary_or_ambiguous_bytes_do_not_get_guessed_as_text(self) -> None:
+        for payload in (
+            b"\x00\xff\x00\xfe",
+            b"plain prefix \xff suffix",
+            bytes(range(1, 32)),
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(BookTextImportError) as caught:
+                    import_text_book(
+                        payload,
+                        source_name="ambiguous.txt",
+                        source_format="txt",
+                    )
+                self.assertEqual(
+                    BookTextImportErrorCode.UNSUPPORTED_ENCODING,
+                    caught.exception.code,
+                )
+
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
 

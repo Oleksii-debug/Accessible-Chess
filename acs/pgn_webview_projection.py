@@ -55,6 +55,9 @@ _LABELS = {
         "multiple_comments": "На цьому вузлі кілька коментарів. Редагування вимкнено, доки канонічний API не надасть однозначний вибір коментаря.",
         "local_path": "[локальний шлях приховано]",
         "action_failed": "Не вдалося виконати дію.",
+        "selected_move": "Хід",
+        "selected_variation": "Варіант",
+        "level": "рівень",
     },
     UILanguage.EN: {
         "game": "Game",
@@ -80,6 +83,9 @@ _LABELS = {
         "multiple_comments": "This node has multiple comments. Editing is disabled until the canonical API exposes an unambiguous comment selection.",
         "local_path": "[local path hidden]",
         "action_failed": "The action could not be completed.",
+        "selected_move": "Move",
+        "selected_variation": "Variation",
+        "level": "level",
     },
 }
 
@@ -315,14 +321,42 @@ class PgnWebViewProjection:
             **self._safe_view(view, count),
         }
 
+    def _selection_announcement(self, snapshot: Mapping[str, object]) -> str:
+        tree = snapshot.get("tree", ())
+        if not isinstance(tree, (tuple, list)):
+            return ""
+        selected = next(
+            (
+                item
+                for item in tree
+                if isinstance(item, Mapping) and item.get("selected") is True
+            ),
+            None,
+        )
+        if selected is None:
+            game = snapshot.get("game", {})
+            return str(game.get("position_label", ""))[:500] if isinstance(game, Mapping) else ""
+        labels = _LABELS[self._language]
+        kind = (
+            labels["selected_variation"]
+            if selected.get("kind") == "variation"
+            else labels["selected_move"]
+        )
+        level = selected.get("aria_level")
+        label = str(selected.get("label", "")).strip()
+        if type(level) is not int or level < 1:
+            return f"{kind}. {label}".strip()[:500]
+        return f"{kind}, {labels['level']} {level}. {label}".strip()[:500]
+
     def _render_event(self, *, announce: str = "") -> PgnWebViewEvent:
         snapshot = self.snapshot()
+        spoken = announce or self._selection_announcement(snapshot)
         return PgnWebViewEvent(
             "selection",
             {
                 "snapshot": snapshot,
                 "focus_target": snapshot.get("focus_target", ""),
-                "announcement": announce,
+                "announcement": spoken,
             },
         )
 

@@ -249,12 +249,56 @@
     host.appendChild(toolbar);
   }
 
+  function libraryChord(event) {
+    const parts = [];
+    if (event.ctrlKey) parts.push("Ctrl");
+    if (event.altKey) parts.push("Alt");
+    if (event.shiftKey) parts.push("Shift");
+    let key = event.key;
+    if (key === "PageUp") key = "PageUp";
+    else if (key === "PageDown") key = "PageDown";
+    else if (key === "Enter") key = "Enter";
+    else if (key.length === 1) key = key.toUpperCase();
+    parts.push(key);
+    return parts.join("+");
+  }
+
+  function installLibraryKeyboard(root, invoke, announce) {
+    root.__acsLibraryInvoke = invoke;
+    root.__acsLibraryAnnounce = announce;
+    if (root.__acsLibraryKeyboardInstalled) return;
+    root.__acsLibraryKeyboardInstalled = true;
+    root.addEventListener("keydown", function (event) {
+      const chord = libraryChord(event);
+      if (chord === "Ctrl+F") {
+        event.preventDefault();
+        event.stopPropagation();
+        const search = root.querySelector("#library-search-player");
+        if (search) { search.focus(); if (typeof search.select === "function") search.select(); }
+        return;
+      }
+      if (event.target && ["INPUT", "TEXTAREA", "SELECT"].indexOf(event.target.tagName) >= 0) return;
+      let command = "";
+      if (chord === "Alt+PageUp") command = "library.previous_page";
+      else if (chord === "Alt+PageDown") command = "library.next_page";
+      else if (chord === "Ctrl+Enter") command = "library.open_game";
+      else if (chord === "Ctrl+Shift+F") command = "library.reset_filters";
+      else if (chord === "Ctrl+I") command = "library.import";
+      if (!command) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const snapshot = root.__accessibleChessLibrarySnapshot || {};
+      invokeCommand(root, root.__acsLibraryInvoke, root.__acsLibraryAnnounce, snapshot, command, {});
+    });
+  }
+
   function renderLibrarySurface(root, snapshot, invoke, announce, requestedFocus) {
     if (!root || typeof root.replaceChildren !== "function") {
       throw new TypeError("Library root must support replaceChildren");
     }
     requireFunction(invoke, "Library invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Library announce");
+    installLibraryKeyboard(root, invoke, announce);
     if (!snapshot || typeof snapshot !== "object") throw new TypeError("Library snapshot is required");
 
     const fragment = document.createDocumentFragment();
