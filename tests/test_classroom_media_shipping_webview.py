@@ -395,6 +395,55 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         )
         self.assertNotIn(MediaSource.MICROPHONE, controller.state.desired_sources)
 
+    def test_recovery_resolution_requires_trusted_host_reconciliation(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+
+        pending = bridge.dispatch(
+            "media.local_source",
+            {"source": "microphone", "enabled": True},
+        )
+        transaction_id = pending.payload["transaction_id"]
+        transactions.dispatch_provider(
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+        latched = transactions.dispatch_provider(
+            "media.provider_outcome_unknown",
+            {"transaction_id": transaction_id},
+        )
+        self.assertEqual(latched.kind, "error")
+        self.assertTrue(latched.payload["recovery_required"])
+        self.assertIsNotNone(binder.recovery_status)
+
+        browser_attempt = transactions.dispatch_provider(
+            "media.provider_resolve_recovery",
+            {"transaction_id": transaction_id},
+        )
+        self.assertEqual(browser_attempt.kind, "error")
+        self.assertTrue(browser_attempt.payload["recovery_required"])
+        self.assertIsNotNone(binder.recovery_status)
+
+        resolved = transactions.resolve_recovery_after_authoritative_reconciliation(
+            transaction_id
+        )
+        self.assertEqual(resolved.kind, "media-updated")
+        self.assertIsNone(binder.recovery_status)
+        self.assertIsNone(binder.active_lease)
+
+        next_event = bridge.dispatch(
+            "media.local_source",
+            {"source": "camera", "enabled": True},
+        )
+        self.assertEqual(next_event.kind, "provider-dispatch")
+        next_transaction = next_event.payload["transaction_id"]
+        retired = transactions.dispatch_provider(
+            "media.provider_not_started",
+            {"transaction_id": next_transaction},
+        )
+        self.assertEqual(retired.kind, "error")
+        self.assertIsNone(binder.active_lease)
+
     def test_new_mutation_preserves_existing_provider_recovery_state(self):
         controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
         connect(controller, roster, transactions)
