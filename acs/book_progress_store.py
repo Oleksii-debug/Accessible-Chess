@@ -1160,6 +1160,42 @@ class BookProgressStore:
                 )
             if active_directory is not None:
                 self._require_storage_directory_unlocked(active_directory)
+
+            # Guard/target reads above are themselves filesystem operations. A
+            # non-cooperating writer can change recovery authority or substitute
+            # the prepared temp pathname while those reads are in progress.
+            # Rebind every publication precondition once more after the target
+            # CAS and immediately before the replace boundary.
+            if expected_guard_path is not None:
+                final_guard_raw = self._read_raw_file_unlocked(
+                    expected_guard_path,
+                    missing_ok=True,
+                )
+                if final_guard_raw != expected_guard_raw:
+                    raise BookProgressStoreError(
+                        "book progress recovery data changed immediately before publication",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
+            if require_no_orphan_backup_before_replace:
+                self._require_no_orphan_backup_unlocked()
+            try:
+                final_temp = os.lstat(temp_path)
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress temporary file changed immediately before publication",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
+            self._require_private_temp_metadata(final_temp)
+            if temp_identity is None or not self._same_file_identity(
+                temp_identity,
+                final_temp,
+            ):
+                raise BookProgressStoreError(
+                    "book progress temporary file changed immediately before publication",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            if active_directory is not None:
+                self._require_storage_directory_unlocked(active_directory)
             _replace_published_path(temp_path, target)
             temp_path = None
             try:
