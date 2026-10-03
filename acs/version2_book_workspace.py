@@ -29,6 +29,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
 _MAX_BOOK_SEMANTIC_DEPTH = 256
+_MAX_BOOK_SEMANTIC_DETAILS = 4_096
 _MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
 _BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 
@@ -295,20 +296,32 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if players == "? — ?":
             players = ""
 
+        if len(view.tags) > _MAX_BOOK_SEMANTIC_DETAILS:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree exceeds the metadata detail limit"
+            )
+        localized_detail_labels = {
+            "Event": labels["event"],
+            "Site": labels["site"],
+            "Date": labels["date"],
+            "Round": labels["round"],
+        }
         details: list[dict[str, str]] = []
-        for tag_name, label_key in (
-            ("Event", "event"),
-            ("Site", "site"),
-            ("Date", "date"),
-            ("Round", "round"),
-        ):
-            raw_value = game.tags.get(tag_name)
-            if raw_value is None:
+        for tag_name, raw_value in view.tags:
+            if tag_name in {"White", "Black", "Result"}:
                 continue
-            value = safe(raw_value)
-            if not value or value == "?":
-                continue
-            details.append({"label": labels[label_key], "value": value})
+            if type(tag_name) is not str or not tag_name.strip():
+                raise _BookSemanticTreeError(
+                    "book semantic metadata tag name is invalid"
+                )
+            detail_label = localized_detail_labels.get(tag_name)
+            if detail_label is None:
+                detail_label = safe(tag_name)
+                if not detail_label.strip():
+                    raise _BookSemanticTreeError(
+                        "book semantic metadata tag label is empty"
+                    )
+            details.append({"label": detail_label, "value": safe(raw_value)})
 
         root_result = safe(view.result)
         if root_result and root_result not in _BOOK_SEMANTIC_RESULTS:
