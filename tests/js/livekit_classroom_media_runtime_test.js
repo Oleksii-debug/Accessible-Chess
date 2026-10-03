@@ -764,6 +764,65 @@ async function testConcurrentDispatchIsRetiredWithoutSecondProviderCall() {
 }
 
 
+async function testMalformedConcurrentDispatchRetiresExactTransaction() {
+  let releaseFirst;
+  class BlockingAdapter extends RecordingAdapter {
+    async setLocalSource(source, enabled) {
+      this.calls.push(["setLocalSource", source, enabled]);
+      await new Promise((resolve) => { releaseFirst = resolve; });
+    }
+  }
+  const runtime = loadRuntime(BlockingAdapter);
+  const firstTx = "host-" + "a".repeat(32);
+  const malformedTx = "host-" + "b".repeat(32);
+  const first = dispatch(firstTx, {
+    transaction_id: firstTx,
+    operation: "set_local_source",
+    source: "camera",
+    enabled: true
+  }, false);
+  const malformed = dispatch(malformedTx, {
+    transaction_id: malformedTx,
+    operation: "set_local_source",
+    source: "not-a-source",
+    enabled: true
+  }, false);
+  const retired = [];
+
+  async function invoke(command, payload) {
+    if (command === "media.provider_config") return configResult();
+    if (command === "media.provider_dispatched") {
+      return {
+        kind: "provider-ready",
+        payload: { transaction_id: payload.transaction_id }
+      };
+    }
+    if (command === "media.provider_not_started") {
+      retired.push(payload.transaction_id);
+      return { kind: "error", payload: { message: "retired" } };
+    }
+    if (command === "media.provider_effect_success") {
+      return { kind: "media-updated", payload: { snapshot: {} } };
+    }
+    throw new Error("unexpected command " + command);
+  }
+
+  const firstPromise = runtime.execute(first, invoke);
+  while (typeof releaseFirst !== "function") {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const malformedResult = await runtime.execute(malformed, invoke);
+  assert.equal(malformedResult.kind, "error");
+  assert.deepEqual(retired, [malformedTx]);
+  assert.equal(RecordingAdapter.instances[0].calls.length, 1);
+
+  releaseFirst();
+  const firstResult = await firstPromise;
+  assert.equal(firstResult.kind, "media-updated");
+  assert.equal(RecordingAdapter.instances[0].calls.length, 1);
+}
+
 async function testCleanProviderRebindRefreshesConfiguration() {
   RecordingAdapter.instances.length = 0;
   const runtime = loadRuntime(RecordingAdapter);
@@ -1326,6 +1385,7 @@ async function run() {
   await testMalformedModerationRetiresBeforeProviderBoundary();
   await testMalformedDeviceRecoveryRetiresBeforeProviderBoundary();
   await testConcurrentDispatchIsRetiredWithoutSecondProviderCall();
+  await testMalformedConcurrentDispatchRetiresExactTransaction();
   await testCleanProviderRebindRefreshesConfiguration();
   await testProviderRebindRejectsResidualDisconnectedState();
   await testProviderRebindCannotRetargetConnectedAdapter();
