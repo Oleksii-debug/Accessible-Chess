@@ -112,9 +112,9 @@ jobs:
               'tests/test_v2_book_progress_store.py' \
               'tests/test_version2_application.py' | sort)"
             if [ "$books_delta" = "$books_expected" ]; then
-              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "09de09c7a80e97195564f899ffdab7aa75fe9e57"
+              test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "069b83c273b58716cba57e1c55ac6a7373e49728"
               test "$(git rev-parse HEAD:acs/version2_application.py)" = "be647fcfbf8a4ab057680bd84295306c60bfe80d"
-              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "0dc89d8173bbd9ca98d945cb7fa719c9bc091bc7"
+              test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "69ac73ace7b986249db3e649ecdda9bd8cc617fa"
               test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "f2a6e0fa042affbe93de549abde2fd7239e1afb3"
               current_books_recovery=true
             fi
@@ -146,9 +146,9 @@ jobs:
             test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
             test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "a63fdb0875e5409e19037c9cf7cc41d7bd780f06"
             test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "76d18b90ed7d35b6f233ebe98b80ff932094b34f"
-            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "09de09c7a80e97195564f899ffdab7aa75fe9e57"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "069b83c273b58716cba57e1c55ac6a7373e49728"
             test "$(git rev-parse HEAD:acs/version2_application.py)" = "be647fcfbf8a4ab057680bd84295306c60bfe80d"
-            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "0dc89d8173bbd9ca98d945cb7fa719c9bc091bc7"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "69ac73ace7b986249db3e649ecdda9bd8cc617fa"
             test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "f2a6e0fa042affbe93de549abde2fd7239e1afb3"
             orphan_backup_successor=true
           fi
