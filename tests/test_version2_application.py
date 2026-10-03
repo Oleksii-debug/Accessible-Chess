@@ -13,6 +13,7 @@ from acs.book_progress_store import (
 )
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.gametree_navigation import GameTreeCursor
 from acs.pgn_service import open_pgn
 from acs.version2_application import Version2Application
 from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
@@ -64,6 +65,48 @@ class Version2ApplicationTests(unittest.TestCase):
         reopened = open_pgn(self.source)
         self.assertEqual(reopened.games[0].line.moves[0].comments_after[0].text, "новий коментар")
         self.assertEqual(len(reopened.games[0].line.moves[0].variations), 1)
+
+    def test_hidden_application_snapshot_cannot_rebind_stale_pgn_browser_command(self):
+        self.app.browser_command("shell", "pgn.open")
+        initial = self.app.snapshot()["pgn"]
+        first = initial["tree"][0]
+        selected = self.app.browser_command(
+            "pgn",
+            "pgn.select",
+            {
+                "node_id": first["node_id"],
+                "presentation_token": initial["presentation_token"],
+            },
+        )
+        visible = selected["payload"]["snapshot"]
+        old_token = visible["presentation_token"]
+        self.assertEqual(GameTreeCursor((), 1), self.app.session.workspace.cursor)
+
+        # Another host path advances canonical state. The whole-application
+        # snapshot refreshes its internal PGN projection, but this newer
+        # snapshot is intentionally not rendered into the old WebView.
+        self.app.session.workspace.set_cursor(GameTreeCursor((), 2))
+        hidden = self.app.snapshot()["pgn"]
+        self.assertNotEqual(old_token, hidden["presentation_token"])
+        self.assertEqual(GameTreeCursor((), 2), self.app.session.workspace.cursor)
+        before_text = self.app.session.workspace.to_text()
+        before_revision = self.app.session.workspace.content_revision
+
+        stale = self.app.browser_command(
+            "pgn",
+            "pgn.comment_edit",
+            {
+                "text": "must not commit from stale DOM",
+                "presentation_token": old_token,
+            },
+        )
+
+        self.assertEqual("selection", stale["kind"])
+        self.assertEqual(GameTreeCursor((), 2), self.app.session.workspace.cursor)
+        self.assertEqual(before_revision, self.app.session.workspace.content_revision)
+        self.assertEqual(before_text, self.app.session.workspace.to_text())
+        self.assertNotIn("must not commit from stale DOM", self.app.session.workspace.to_text())
+        self.assertEqual(1, stale["payload"]["snapshot"]["game"]["number"])
 
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")

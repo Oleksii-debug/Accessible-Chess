@@ -23,7 +23,10 @@ class FakeElement {
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
   getAttribute(name) { return this.attributes[String(name)] || ""; }
   addEventListener(name, listener) { this.listeners[String(name)] = listener; }
-  focus() { document.activeElement = this; }
+  focus() {
+    document.activeElement = this;
+    if (this.listeners.focus) this.listeners.focus({ target: this });
+  }
   select() { this.selectedText = true; }
   showModal() { this.open = true; }
   close() { this.open = false; }
@@ -44,6 +47,18 @@ global.window = {};
 vm.runInThisContext(fs.readFileSync("web/full_product_pgn.js", "utf8"), { filename: "full_product_pgn.js" });
 
 function check(condition, message) { if (!condition) throw new Error(message); }
+function findRole(root, role) {
+  return root.descendants().find((item) => item.getAttribute("role") === role) || null;
+}
+function pressKey(target, container, key) {
+  let prevented = false;
+  container.listeners.keydown({
+    key: key,
+    target: target,
+    preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
 function snapshot(selectedId) {
   return {
     status: "ready",
@@ -55,6 +70,7 @@ function snapshot(selectedId) {
     ],
     actions: [
       { action: "pgn.comment_edit", label: "Add or edit comment", enabled: true },
+      { action: "pgn.comment_delete", label: "Delete comment", enabled: false },
       { action: "pgn.copy_selection", label: "Copy selection", enabled: true }
     ],
     comment_editor: { enabled: true, value: "", title: "PGN comment", label: "Comment text", save_label: "Save", cancel_label: "Cancel", message: "" },
@@ -79,6 +95,33 @@ async function run() {
   const items = root.querySelectorAll('[role="treeitem"]');
   check(items.length === 2, "semantic tree items missing");
   check(document.activeElement && document.activeElement.id === "pgn-a", "initial tree focus missing");
+
+  const firstToolbar = findRole(root, "toolbar");
+  check(firstToolbar !== null, "PGN action toolbar missing");
+  check(firstToolbar.getAttribute("aria-orientation") === "horizontal", "PGN toolbar orientation missing");
+  const firstToolbarButtons = firstToolbar.children.filter((item) => item.tagName === "BUTTON");
+  check(firstToolbarButtons.length === 3, "PGN toolbar action fixture changed");
+  check(firstToolbarButtons[0].tabIndex === 0, "first enabled PGN toolbar action must be tabbable");
+  check(firstToolbarButtons[1].disabled, "PGN disabled toolbar fixture changed");
+  check(firstToolbarButtons[1].tabIndex === -1, "disabled PGN toolbar action entered roving order");
+  check(firstToolbarButtons[2].tabIndex === -1, "second enabled PGN toolbar action must start outside Tab order");
+
+  firstToolbarButtons[0].focus();
+  check(pressKey(firstToolbarButtons[0], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight must be handled");
+  check(document.activeElement === firstToolbarButtons[2], "PGN toolbar ArrowRight did not skip disabled action");
+  check(firstToolbarButtons[2].tabIndex === 0 && firstToolbarButtons[0].tabIndex === -1, "PGN toolbar roving tab stop did not follow focus");
+  check(pressKey(firstToolbarButtons[2], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight wrap must be handled");
+  check(document.activeElement === firstToolbarButtons[0], "PGN toolbar ArrowRight did not wrap to first action");
+  check(pressKey(firstToolbarButtons[0], firstToolbar, "ArrowLeft"), "PGN toolbar ArrowLeft wrap must be handled");
+  check(document.activeElement === firstToolbarButtons[2], "PGN toolbar ArrowLeft did not wrap to last enabled action");
+  check(pressKey(firstToolbarButtons[2], firstToolbar, "Home"), "PGN toolbar Home must be handled");
+  check(document.activeElement === firstToolbarButtons[0], "PGN toolbar Home did not reach first enabled action");
+  check(pressKey(firstToolbarButtons[0], firstToolbar, "End"), "PGN toolbar End must be handled");
+  check(document.activeElement === firstToolbarButtons[2], "PGN toolbar End did not reach last enabled action");
+  check(!pressKey(firstToolbarButtons[2], firstToolbar, "Enter"), "PGN toolbar hijacked native button activation key");
+
+  firstToolbarButtons[0].focus();
+  check(firstToolbarButtons[0].tabIndex === 0 && firstToolbarButtons[2].tabIndex === -1, "PGN toolbar focus did not update roving tab stop");
 
   let prevented = false;
   items[0].listeners.keydown({ key: "ArrowDown", preventDefault: () => { prevented = true; } });
