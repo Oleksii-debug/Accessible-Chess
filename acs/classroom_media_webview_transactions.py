@@ -162,6 +162,12 @@ class ClassroomMediaTransactionalWebView:
         focus = focus_target or self._focus(transaction_id)
         base = self._projection.error_event(focus_target=focus)
         payload = dict(base.payload)
+        # Explicitly retire the current media snapshot. The existing WebView
+        # surface treats a present snapshot field as an instruction to replace
+        # its controls; None plus recovery_required renders the fail-closed
+        # recovery status immediately instead of leaving stale microphone or
+        # moderation buttons active after an ambiguous provider outcome.
+        payload["snapshot"] = None
         payload["recovery_required"] = True
         payload["transaction_id"] = transaction_id
         return ClassroomMediaWebViewEvent("error", payload)
