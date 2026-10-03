@@ -118,7 +118,7 @@ function snapshot(route) {
     pgn: "pgn-game-list",
     library: "library-search-player",
     books: "book-reader",
-    training: "training-prompt"
+    training: "training-answer"
   }[route] || "";
   const headings = {
     board: "Board",
@@ -292,6 +292,19 @@ async function clickRoute(routeId) {
   await clickRoute("library");
   const libraryInput = documentRef.getElementById("library-search-player");
   check(documentRef.activeElement === libraryInput, "Library route did not restore its real search focus");
+  trainingAvailable = true;
+  await clickRoute("training");
+  const trainingAnswer = documentRef.getElementById("training-answer");
+  check(trainingAnswer !== null, "Training route did not render its real answer control");
+  check(
+    documentRef.activeElement === trainingAnswer,
+    "Training route did not restore canonical answer-input focus"
+  );
+  await clickRoute("library");
+  check(
+    documentRef.activeElement === libraryInput,
+    "return from Training did not restore Library route-local focus"
+  );
   const beforeImportSnapshotCalls = snapshotCalls;
   eventQueue = [
     { kind: "render-import", payload: { import: {}, focus_target: "", announcement: "1 of 4" } },
