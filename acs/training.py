@@ -397,7 +397,7 @@ class ExerciseSession:
             "status": self._status.value,
         }
 
-    def restore_state(self, snapshot: dict[str, object]) -> None:
+    def restore_state(self, snapshot: Mapping[str, object]) -> None:
         """Restore one previously validated progress snapshot in place.
 
         Validation and canonical replay complete on a detached candidate before
@@ -425,7 +425,7 @@ class ExerciseSession:
     def restore(
         cls,
         definition: ExerciseDefinition,
-        snapshot: dict[str, object],
+        snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
         """Restore schema-v3, or migrate unambiguous schema-v2 progress.
 
@@ -435,11 +435,12 @@ class ExerciseSession:
         of guessing which position the learner actually reached.
         """
         definition = _validated_definition(definition)
-        if type(snapshot) is not dict:
-            raise TypeError("exercise snapshot must be an exact dict")
-        if "schema_version" not in snapshot:
+        if not isinstance(snapshot, Mapping):
+            raise TypeError("exercise snapshot must be a mapping")
+        fields = _snapshot_fields(snapshot)
+        if "schema_version" not in fields:
             raise ValueError("invalid exercise snapshot fields (missing fields: schema_version)")
-        schema_version = snapshot["schema_version"]
+        schema_version = _snapshot_value(snapshot, "schema_version")
         if type(schema_version) is not int:
             raise TypeError("exercise snapshot schema_version must be an integer")
         if schema_version == 3:
@@ -452,12 +453,12 @@ class ExerciseSession:
     def _restore_v3(
         cls,
         definition: ExerciseDefinition,
-        snapshot: dict[str, object],
+        snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
         _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V3_FIELDS)
         common = _restore_common(definition, snapshot)
 
-        path_value = snapshot["accepted_path"]
+        path_value = _snapshot_value(snapshot, "accepted_path")
         if type(path_value) is not list:
             raise TypeError("exercise snapshot accepted_path must be a list")
         if len(path_value) != common[0]:
@@ -480,7 +481,7 @@ class ExerciseSession:
                 raise ValueError("exercise snapshot move is not accepted by the exercise revision")
             replayed.append(board.push(move))
 
-        position_fen = snapshot["position_fen"]
+        position_fen = _snapshot_value(snapshot, "position_fen")
         if type(position_fen) is not str:
             raise TypeError("exercise snapshot position_fen must be a string")
         if len(position_fen) > _MAX_DEFINITION_TEXT:
@@ -506,7 +507,7 @@ class ExerciseSession:
     def _restore_v2(
         cls,
         definition: ExerciseDefinition,
-        snapshot: dict[str, object],
+        snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
         _require_snapshot_fields(snapshot, _TRAINING_SNAPSHOT_V2_FIELDS)
         step_index, attempts, mistakes, hints_used, status = _restore_common(definition, snapshot)
@@ -608,9 +609,9 @@ def _definition_authority_digest(definition: ExerciseDefinition) -> str:
 
 def _restore_common(
     definition: ExerciseDefinition,
-    snapshot: dict[str, object],
+    snapshot: Mapping[str, object],
 ) -> tuple[int, int, int, int, ExerciseStatus]:
-    exercise_id = snapshot["exercise_id"]
+    exercise_id = _snapshot_value(snapshot, "exercise_id")
     if type(exercise_id) is not str:
         raise TypeError("exercise snapshot exercise_id must be a string")
     if len(exercise_id) > _MAX_DEFINITION_TEXT:
@@ -618,16 +619,16 @@ def _restore_common(
     if exercise_id != definition.exercise_id:
         raise ValueError("exercise snapshot belongs to a different exercise")
 
-    definition_digest = _snapshot_digest(snapshot["definition_digest"])
+    definition_digest = _snapshot_digest(_snapshot_value(snapshot, "definition_digest"))
     if definition_digest != _definition_digest(definition):
         raise ValueError("exercise snapshot belongs to a different exercise revision")
 
-    step_index = _snapshot_counter(snapshot["step_index"], name="step_index")
-    attempts = _snapshot_counter(snapshot["attempts"], name="attempts")
-    mistakes = _snapshot_counter(snapshot["mistakes"], name="mistakes")
-    hints_used = _snapshot_counter(snapshot["hints_used"], name="hints_used")
+    step_index = _snapshot_counter(_snapshot_value(snapshot, "step_index"), name="step_index")
+    attempts = _snapshot_counter(_snapshot_value(snapshot, "attempts"), name="attempts")
+    mistakes = _snapshot_counter(_snapshot_value(snapshot, "mistakes"), name="mistakes")
+    hints_used = _snapshot_counter(_snapshot_value(snapshot, "hints_used"), name="hints_used")
 
-    status_value = snapshot["status"]
+    status_value = _snapshot_value(snapshot, "status")
     if type(status_value) is not str:
         raise TypeError("exercise snapshot status must be a string")
     if len(status_value) > 32:
@@ -672,18 +673,50 @@ def _validate_reachable_state(
         raise ValueError("in-progress exercise snapshot has no progress")
 
 
-def _require_snapshot_fields(
-    snapshot: dict[str, object],
-    expected: frozenset[str],
-) -> None:
-    if type(snapshot) is not dict:
-        raise TypeError("exercise snapshot must be an exact dict")
-    if len(snapshot) > 32:
-        raise ValueError("invalid exercise snapshot fields (too many fields)")
-    for field_name in snapshot:
+def _snapshot_fields(snapshot: Mapping[str, object]) -> frozenset[str]:
+    if isinstance(snapshot, dict):
+        # Built-in dict subclasses can override len/iter/contains/getitem. Read
+        # their underlying dictionary storage directly so durable restore does
+        # not execute hostile subclass hooks merely to discover the schema.
+        field_count = dict.__len__(snapshot)
+        if field_count > 32:
+            raise ValueError("invalid exercise snapshot fields (too many fields)")
+        raw_fields = tuple(dict.keys(snapshot))
+    else:
+        try:
+            field_count = len(snapshot)
+        except TypeError:
+            try:
+                raw_fields = tuple(islice(iter(snapshot), 33))
+            except TypeError as exc:
+                raise TypeError("exercise snapshot must be a finite mapping") from exc
+            if len(raw_fields) > 32:
+                raise ValueError("invalid exercise snapshot fields (too many fields)")
+            field_count = len(raw_fields)
+        else:
+            if field_count > 32:
+                raise ValueError("invalid exercise snapshot fields (too many fields)")
+            raw_fields = tuple(islice(iter(snapshot), 33))
+            if len(raw_fields) != field_count:
+                raise ValueError("exercise snapshot fields changed during validation")
+
+    for field_name in raw_fields:
         if type(field_name) is not str:
             raise TypeError("exercise snapshot field names must be strings")
-    fields = set(snapshot)
+    return frozenset(raw_fields)
+
+
+def _snapshot_value(snapshot: Mapping[str, object], key: str) -> object:
+    if isinstance(snapshot, dict):
+        return dict.__getitem__(snapshot, key)
+    return snapshot[key]
+
+
+def _require_snapshot_fields(
+    snapshot: Mapping[str, object],
+    expected: frozenset[str],
+) -> None:
+    fields = _snapshot_fields(snapshot)
     if fields == expected:
         return
     missing = sorted(expected - fields)
