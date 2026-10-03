@@ -31,7 +31,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact candidate and live Product ancestry
+      - name: Prove exact candidate and live base ancestry
         shell: bash
         run: |
           set -euo pipefail
@@ -39,12 +39,16 @@ jobs:
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected"
 
-          git fetch --no-tags origin "$PRODUCT_BRANCH"
-          live_product="$(git rev-parse "origin/$PRODUCT_BRANCH")"
-          git cat-file -e "$live_product^{commit}"
-          git merge-base --is-ancestor "$live_product" HEAD
-          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
-          git diff --check "$live_product" HEAD
+          base_branch='${{ github.event.pull_request.base.ref }}'
+          if [ -z "$base_branch" ]; then
+            base_branch="$PRODUCT_BRANCH"
+          fi
+          git fetch --no-tags origin "$base_branch"
+          live_base="$(git rev-parse "origin/$base_branch")"
+          git cat-file -e "$live_base^{commit}"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5

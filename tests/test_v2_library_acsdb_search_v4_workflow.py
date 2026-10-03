@@ -15,15 +15,28 @@ class LibraryAcsdbSearchV4WorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_qualifies_exact_candidate_against_live_product(self) -> None:
+    def test_qualifies_exact_candidate_against_live_pull_request_base(self) -> None:
         text = self.workflow
         self.assertIn(f"PRODUCT_BRANCH: {PRODUCT_BRANCH}", text)
         self.assertIn("expected='${{ github.event.pull_request.head.sha || github.sha }}'", text)
-        self.assertIn('git fetch --no-tags origin "$PRODUCT_BRANCH"', text)
-        self.assertIn('live_product="$(git rev-parse "origin/$PRODUCT_BRANCH")"', text)
-        self.assertIn('git merge-base --is-ancestor "$live_product" HEAD', text)
-        self.assertIn('test "$(git merge-base "$live_product" HEAD)" = "$live_product"', text)
-        self.assertIn('git diff --check "$live_product" HEAD', text)
+        self.assertIn("base_branch='${{ github.event.pull_request.base.ref }}'", text)
+        self.assertIn('if [ -z "$base_branch" ]; then', text)
+        self.assertIn('base_branch="$PRODUCT_BRANCH"', text)
+        self.assertIn('git fetch --no-tags origin "$base_branch"', text)
+        self.assertIn('live_base="$(git rev-parse "origin/$base_branch")"', text)
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', text)
+        self.assertIn('test "$(git merge-base "$live_base" HEAD)" = "$live_base"', text)
+        self.assertIn('git diff --check "$live_base" HEAD', text)
+
+    def test_shared_gate_does_not_require_direct_product_ancestry_for_every_pr(self) -> None:
+        text = self.workflow
+        self.assertNotIn('live_product=', text)
+        self.assertNotIn('git fetch --no-tags origin "$PRODUCT_BRANCH"', text)
+        self.assertNotIn('git merge-base --is-ancestor "$PRODUCT_BRANCH" HEAD', text)
+        self.assertLess(
+            text.index("base_branch='${{ github.event.pull_request.base.ref }}'"),
+            text.index('base_branch="$PRODUCT_BRANCH"'),
+        )
 
     def test_does_not_replace_candidate_acsdb_with_historical_fixture(self) -> None:
         text = self.workflow
