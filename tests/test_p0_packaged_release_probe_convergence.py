@@ -6,9 +6,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "p0-packaged-release-probe-convergence.yml"
-CANONICAL_FULL_PRODUCT_BASE = "codex/v2-runtime-completion-20260907"
-CURRENT_CONVERGENCE_BASE = "converge/p0-release-critical-to-full-product-20260926"
-CURRENT_W4_RELEASE_BASE = "release/w4-v2-current-p0-candidate-20260926"
 
 REQUIRED_RELEASE_PROBE_PATHS = (
     "scripts/p0_packaged_document_copy_probe.ps1",
@@ -21,12 +18,17 @@ REQUIRED_RELEASE_PROBE_PATHS = (
 
 
 class P0PackagedReleaseProbeConvergenceTests(unittest.TestCase):
-    def test_current_release_convergence_base_is_explicitly_admitted(self) -> None:
+    def test_pull_request_identity_is_proven_structurally_not_by_branch_allowlist(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn(CANONICAL_FULL_PRODUCT_BASE, workflow)
-        self.assertIn(CURRENT_CONVERGENCE_BASE, workflow)
-        self.assertIn(CURRENT_W4_RELEASE_BASE, workflow)
-        self.assertNotIn("base='*'", workflow)
+        self.assertIn("EVENT_BASE_SHA:", workflow)
+        self.assertIn("EVENT_HEAD_SHA:", workflow)
+        self.assertIn('git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD', workflow)
+        self.assertIn('git merge-base --is-ancestor "$EVENT_HEAD_SHA" HEAD', workflow)
+        self.assertIn('git show -s --format=%P HEAD', workflow)
+        self.assertIn('git diff --check "$EVENT_BASE_SHA..HEAD"', workflow)
+        self.assertIn("fetch-depth: 0", workflow)
+        self.assertNotIn('case "$base" in', workflow)
+        self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
 
     def test_copy_and_hotkey_packaged_acceptance_probes_are_both_present(self) -> None:
         missing = [path for path in REQUIRED_RELEASE_PROBE_PATHS if not (ROOT / path).is_file()]
