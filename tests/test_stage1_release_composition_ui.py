@@ -303,6 +303,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 events = [event for event, _volume in playback.calls]
                 self.assertEqual(events.count(SoundEvent.START), 1)
                 self.assertEqual(events.count(SoundEvent.MOVE), 0)
+                self.assertFalse(api._suppress_next_engine_move_sound_for_start)
 
                 protected = api.clock_sound_pulse()
                 self.assertTrue(protected["ok"], protected)
