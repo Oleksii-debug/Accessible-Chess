@@ -173,6 +173,8 @@ function collaboration(messages, unreadCount, moderation, sessionKey) {
 const root = new FakeElement("div");
 const calls = [];
 const announcements = [];
+const transferKeyA = "a".repeat(64);
+const transferKeyB = "b".repeat(64);
 const invoke = (command, payload) => {
   calls.push([command, payload]);
   return Promise.resolve({ kind: "noop", payload: {} });
@@ -229,6 +231,7 @@ window.AccessibleChessEducationSurface.apply(
     payload: {
       file_progress: {
         session_key: "session-a",
+        transfer_key: transferKeyA,
         name: "lesson.pgn",
         transferred_bytes: 512,
         total_bytes: 1024,
@@ -263,6 +266,7 @@ check(
 );
 const redrawWithProgress = collaboration([], 0, false, "session-a");
 redrawWithProgress.files.transfer_progress = {
+  transfer_key: transferKeyA,
   name: "lesson.pgn",
   transferred_bytes: 512,
   total_bytes: 1024,
@@ -298,6 +302,7 @@ window.AccessibleChessEducationSurface.apply(
     payload: {
       file_progress: {
         session_key: "stale-session",
+        transfer_key: transferKeyA,
         name: "lesson.pgn",
         transferred_bytes: 900,
         total_bytes: 1024,
@@ -319,6 +324,7 @@ check(
 [
   {
     session_key: "session-a",
+    transfer_key: transferKeyA,
     name: "lesson.pgn",
     transferred_bytes: "700",
     total_bytes: 1024,
@@ -328,6 +334,7 @@ check(
   },
   {
     session_key: "session-a",
+    transfer_key: transferKeyA,
     name: "lesson.pgn",
     transferred_bytes: 400,
     total_bytes: 1024,
@@ -337,6 +344,7 @@ check(
   },
   {
     session_key: "session-a",
+    transfer_key: transferKeyA,
     name: "lesson.pgn",
     transferred_bytes: 700,
     total_bytes: 2048,
@@ -346,6 +354,7 @@ check(
   },
   {
     session_key: "session-a",
+    transfer_key: transferKeyA,
     name: "lesson.pgn",
     transferred_bytes: 900,
     total_bytes: 1024,
@@ -379,6 +388,7 @@ window.AccessibleChessEducationSurface.apply(
     payload: {
       file_progress: {
         session_key: "session-a",
+        transfer_key: transferKeyA,
         name: "lesson.pgn",
         transferred_bytes: 1024,
         total_bytes: 1024,
@@ -405,6 +415,7 @@ window.AccessibleChessEducationSurface.apply(
     payload: {
       file_progress: {
         session_key: "session-a",
+        transfer_key: transferKeyA,
         name: "lesson.pgn",
         transferred_bytes: 1024,
         total_bytes: 1024,
@@ -422,6 +433,35 @@ check(
   root.querySelector("#collaboration-file-transfer-text").textContent ===
     "Transferred 1.0 KB of 1.0 KB: lesson.pgn.",
   "terminal progress must not regress back to a non-terminal state"
+);
+
+window.AccessibleChessEducationSurface.apply(
+  root,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        transfer_key: transferKeyB,
+        name: "second.pgn",
+        transferred_bytes: 0,
+        total_bytes: 2048,
+        complete: false,
+        label: "File transfer progress",
+        text: "Transferred 0 B of 2.0 KB: second.pgn."
+      }
+    }
+  },
+  invoke,
+  (message) => announcements.push(message),
+  "Action failed"
+);
+check(
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "0" &&
+  root.querySelector("#collaboration-file-transfer-meter").getAttribute("max") === "2048" &&
+  root.querySelector("#collaboration-file-transfer-text").textContent ===
+    "Transferred 0 B of 2.0 KB: second.pgn.",
+  "a new opaque transfer identity must reset monotonic progress within the same browser session"
 );
 
 const zeroProgressRoot = new FakeElement("div");
@@ -445,6 +485,7 @@ window.AccessibleChessEducationSurface.apply(
     payload: {
       file_progress: {
         session_key: "zero-session",
+        transfer_key: transferKeyB,
         name: "empty.pgn",
         transferred_bytes: 0,
         total_bytes: 0,
@@ -470,6 +511,7 @@ window.AccessibleChessEducationSurface.apply(
     payload: {
       file_progress: {
         session_key: "zero-session",
+        transfer_key: transferKeyB,
         name: "empty.pgn",
         transferred_bytes: 0,
         total_bytes: 0,
@@ -886,6 +928,67 @@ check(
   fileProgressRoot.querySelector("#classroom-collaboration-status").textContent ===
     "Refreshing files…",
   "pending file refresh must remain visible for review as well as announced"
+);
+
+const fileUploadRoot = new FakeElement("div");
+const fileUploadAnnouncements = [];
+let fileUploadInvokeCount = 0;
+window.AccessibleChessEducationSurface.render(
+  fileUploadRoot,
+  snapshot,
+  () => {
+    fileUploadInvokeCount += 1;
+    return new Promise(() => {});
+  },
+  (message) => fileUploadAnnouncements.push(message),
+  "",
+  "Action failed"
+);
+const fileUploadChoose = fileUploadRoot.querySelector("#collaboration-file-choose");
+fileUploadChoose.focus();
+fileUploadChoose.listeners.click();
+fileUploadChoose.listeners.click();
+const fileUploadWrapper = fileUploadRoot.querySelector("#classroom-collaboration");
+check(
+  fileUploadInvokeCount === 1 &&
+  fileUploadWrapper.getAttribute("data-pending-command") ===
+    "collaboration.file.choose_upload" &&
+  fileUploadWrapper.getAttribute("data-pending-expose-progress") === "true" &&
+  fileUploadWrapper.getAttribute("aria-busy") === "false" &&
+  !fileUploadChoose.disabled &&
+  fileUploadChoose.getAttribute("aria-disabled") === "true" &&
+  fileUploadRoot.querySelector("#collaboration-file-sync").disabled,
+  "upload must remain single-flight without marking the ancestor busy and hiding progress from assistive technology"
+);
+const uploadAnnouncementCount = fileUploadAnnouncements.length;
+window.AccessibleChessEducationSurface.apply(
+  fileUploadRoot,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "session-a",
+        transfer_key: transferKeyA,
+        name: "uploading.pgn",
+        transferred_bytes: 256,
+        total_bytes: 1024,
+        complete: false,
+        label: "File transfer progress",
+        text: "Transferred 256 B of 1.0 KB: uploading.pgn."
+      }
+    }
+  },
+  () => Promise.resolve({ kind: "noop", payload: {} }),
+  (message) => fileUploadAnnouncements.push(message),
+  "Action failed"
+);
+check(
+  fileUploadRoot.querySelector("#collaboration-file-transfer-meter").getAttribute("value") === "256" &&
+  fileUploadWrapper.getAttribute("data-pending-command") ===
+    "collaboration.file.choose_upload" &&
+  fileUploadWrapper.getAttribute("aria-busy") === "false" &&
+  fileUploadAnnouncements.length === uploadAnnouncementCount,
+  "incremental upload progress must stay exposed while the single-flight command remains pending"
 );
 // Native Windows dialogs can temporarily return WebView without an active
 // element. The pending action anchor must still recover deterministic focus.
