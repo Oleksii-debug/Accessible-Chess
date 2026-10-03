@@ -382,19 +382,26 @@ class WindowsSoundPlaybackAdapter:
         )
         with wave.open(io.BytesIO(source_bytes), "rb") as reader:
             params = reader.getparams()
-            if params.sampwidth != 2:
-                raise ValueError("only 16-bit PCM WAV assets support volume scaling")
+            if params.comptype != "NONE" or params.sampwidth not in {1, 2}:
+                raise ValueError("only 8-bit or 16-bit PCM WAV assets support volume scaling")
             frames = reader.readframes(reader.getnframes())
         expected_frame_bytes = params.nframes * params.nchannels * params.sampwidth
         if len(frames) != expected_frame_bytes:
-            raise ValueError("truncated 16-bit PCM WAV asset")
+            raise ValueError("truncated PCM WAV asset")
 
-        samples = struct.unpack("<" + "h" * (len(frames) // 2), frames)
         factor = volume / 100.0
-        scaled = b"".join(
-            struct.pack("<h", max(-32768, min(32767, int(sample * factor))))
-            for sample in samples
-        )
+        if params.sampwidth == 1:
+            # 8-bit PCM WAV samples are unsigned with silence centred at 128.
+            scaled = bytes(
+                max(0, min(255, int(round(128 + (sample - 128) * factor))))
+                for sample in frames
+            )
+        else:
+            samples = struct.unpack("<" + "h" * (len(frames) // 2), frames)
+            scaled = b"".join(
+                struct.pack("<h", max(-32768, min(32767, int(sample * factor))))
+                for sample in samples
+            )
         if destination.is_file() and self._cached_scaled_wave_is_valid(
             destination,
             params,
