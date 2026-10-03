@@ -55,6 +55,7 @@ class BookProgressStoreErrorCode(str, Enum):
     UNSUPPORTED_SCHEMA = "unsupported_schema"
     RESOURCE_LIMIT = "resource_limit"
     IO_FAILURE = "io_failure"
+    DURABILITY_UNKNOWN = "durability_unknown"
     STALE_WRITE = "stale_write"
 
 
@@ -64,6 +65,65 @@ class BookProgressStoreError(ValueError):
     def __init__(self, message: str, *, code: BookProgressStoreErrorCode) -> None:
         super().__init__(message)
         self.code = BookProgressStoreErrorCode(code)
+
+
+_MOVEFILE_REPLACE_EXISTING = 0x00000001
+_MOVEFILE_WRITE_THROUGH = 0x00000008
+
+
+def _windows_replace_write_through(source: Path, destination: Path) -> None:
+    """Atomically replace one Book-progress file with Windows write-through."""
+
+    import ctypes
+
+    move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move_file_ex.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+    )
+    move_file_ex.restype = ctypes.c_int
+    if not move_file_ex(
+        os.fspath(source),
+        os.fspath(destination),
+        _MOVEFILE_REPLACE_EXISTING | _MOVEFILE_WRITE_THROUGH,
+    ):
+        error_code = ctypes.get_last_error()
+        raise OSError(
+            error_code,
+            f"durable Windows Book-progress replacement failed (Win32 {error_code})",
+            os.fspath(destination),
+        )
+
+
+def _replace_published_path(source: Path, destination: Path) -> None:
+    """Publish one prepared file with platform durability intent."""
+
+    if os.name == "nt":
+        _windows_replace_write_through(source, destination)
+        return
+    os.replace(source, destination)
+
+
+def _sync_published_path(path: Path) -> None:
+    """Confirm the published namespace entry reached stable storage."""
+
+    if os.name == "nt":
+        # MoveFileExW above requests write-through for the namespace move. Reopen
+        # and flush the published file as a second barrier before reporting
+        # confirmed durability to the application.
+        with path.open("rb") as handle:
+            os.fsync(handle.fileno())
+        return
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(os.fspath(path.parent), flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _book_key(value: object) -> str:
@@ -718,8 +778,21 @@ class BookProgressStore:
                 # the durable temp is complete and immediately before the
                 # atomic primary replacement, with no intervening disk work.
                 self._require_no_orphan_backup_unlocked()
-            os.replace(temp_path, target)
+            _replace_published_path(temp_path, target)
             temp_path = None
+            try:
+                _sync_published_path(target)
+            except OSError:
+                # Replacement already succeeded. The published bytes may be
+                # visible even though crash durability could not be confirmed.
+                # Callers must reload canonical state before deciding whether a
+                # retry or UI rollback is safe.
+                raise BookProgressStoreError(
+                    "book progress was published but durable storage could not be confirmed",
+                    code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+                ) from None
+        except BookProgressStoreError:
+            raise
         except OSError:
             raise BookProgressStoreError(
                 "book progress storage could not be updated",
