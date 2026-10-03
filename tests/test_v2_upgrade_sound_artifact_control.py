@@ -234,6 +234,115 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
                 b"book-progress-directory-data",
             )
 
+    def test_exact_root_gametree_discard_control_subtree_is_derived_and_nested_names_are_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "settings.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8"
+            )
+
+            guard_root = root / ".GaMeTrEe-ReSuMe-DiScArD"
+            guard_root.mkdir()
+            (guard_root / ("a" * 64 + ".guard")).write_bytes(b"discard-control")
+            (guard_root / "unknown-control.bin").write_bytes(b"reserved-control")
+
+            nested_guard = root / "user-content" / ".gametree-resume-discard"
+            nested_guard.mkdir(parents=True)
+            (nested_guard / "keep.bin").write_bytes(b"nested-user-data")
+
+            near_guard = root / ".gametree-resume-discard.keep"
+            near_guard.mkdir()
+            (near_guard / "keep.bin").write_bytes(b"near-name-user-data")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            files = self._relative_files(coordinator)
+
+            self.assertFalse(
+                any(
+                    name.casefold().startswith(".gametree-resume-discard/")
+                    for name in files
+                )
+            )
+            self.assertIn("user-content/.gametree-resume-discard/keep.bin", files)
+            self.assertIn(".gametree-resume-discard.keep/keep.bin", files)
+
+            backup, manifest = coordinator._create_backup("resume-discard-control")
+            paths = {str(item["path"]) for item in manifest["entries"]}
+            self.assertFalse(
+                any(
+                    name.casefold().startswith(".gametree-resume-discard/")
+                    for name in paths
+                )
+            )
+            self.assertIn("user-content/.gametree-resume-discard/keep.bin", paths)
+            self.assertIn(".gametree-resume-discard.keep/keep.bin", paths)
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / "user-content"
+                    / ".gametree-resume-discard"
+                    / "keep.bin"
+                ).read_bytes(),
+                b"nested-user-data",
+            )
+            self.assertEqual(
+                (
+                    backup
+                    / "data"
+                    / ".gametree-resume-discard.keep"
+                    / "keep.bin"
+                ).read_bytes(),
+                b"near-name-user-data",
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
+    def test_root_gametree_discard_control_symlink_still_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            outside = Path(td) / "outside-discard-control"
+            outside.mkdir()
+            (outside / "foreign.guard").write_bytes(b"outside")
+            os.symlink(
+                outside,
+                root / ".gametree-resume-discard",
+                target_is_directory=True,
+            )
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "symlink or reparse point",
+            ):
+                coordinator._files()
+
+    def test_root_regular_file_named_gametree_discard_control_remains_user_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            payload = root / ".gametree-resume-discard"
+            payload.write_bytes(b"user-owned-regular-file")
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            self.assertIn(
+                ".gametree-resume-discard",
+                self._relative_files(coordinator),
+            )
+
+            backup, manifest = coordinator._create_backup("resume-discard-file")
+            self.assertIn(
+                ".gametree-resume-discard",
+                {str(item["path"]) for item in manifest["entries"]},
+            )
+            self.assertEqual(
+                (backup / "data" / ".gametree-resume-discard").read_bytes(),
+                b"user-owned-regular-file",
+            )
+
     @unittest.skipIf(os.name == "nt", "POSIX symlink safety regression")
     def test_root_sound_cache_symlink_still_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -340,6 +449,11 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             book_lock = root / "book-progress.json.lock"
             cache_lock = root / "sound-cache" / ".playback.lock"
             cache_file = root / "sound-cache" / "scaled" / "move.wav"
+            discard_guard = (
+                root
+                / ".gametree-resume-discard"
+                / ("b" * 64 + ".guard")
+            )
             profile_lock.write_bytes(b"legacy-profile-lock")
             packs_lock.write_bytes(b"legacy-packs-lock")
             resume_lock.write_bytes(b"legacy-resume-lock")
@@ -347,6 +461,8 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             cache_file.parent.mkdir(parents=True)
             cache_lock.write_bytes(b"legacy-cache-lock")
             cache_file.write_bytes(b"legacy-cache")
+            discard_guard.parent.mkdir()
+            discard_guard.write_bytes(b"legacy-discard-guard")
 
             old_control_keys = frozenset(
                 name.casefold()
@@ -391,6 +507,13 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertTrue((backup_data / "book-progress.json.lock").exists())
             self.assertTrue((backup_data / "sound-cache" / ".playback.lock").exists())
             self.assertTrue((backup_data / "sound-cache" / "scaled" / "move.wav").exists())
+            self.assertTrue(
+                (
+                    backup_data
+                    / ".gametree-resume-discard"
+                    / ("b" * 64 + ".guard")
+                ).exists()
+            )
 
             profile_lock.write_bytes(b"new-profile-lock")
             packs_lock.write_bytes(b"new-packs-lock")
@@ -398,6 +521,7 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             book_lock.write_bytes(b"new-book-lock")
             cache_lock.write_bytes(b"new-cache-lock")
             cache_file.write_bytes(b"new-cache")
+            discard_guard.write_bytes(b"new-discard-guard")
 
             recovered = Version2UpgradeCoordinator(
                 UserDataLayout(root)
@@ -410,6 +534,10 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             self.assertEqual(book_lock.read_bytes(), b"new-book-lock")
             self.assertEqual(cache_lock.read_bytes(), b"new-cache-lock")
             self.assertEqual(cache_file.read_bytes(), b"new-cache")
+            self.assertEqual(
+                discard_guard.read_bytes(),
+                b"new-discard-guard",
+            )
 
     def test_disposable_cache_does_not_consume_backup_quota_but_pack_content_does(self):
         with tempfile.TemporaryDirectory() as td:
@@ -422,6 +550,9 @@ class V2UpgradeSoundArtifactControlTests(unittest.TestCase):
             (root / "gametree-resume.json.deadbeef.tmp").write_bytes(b"t" * 4096)
             (root / "gametree-resume.json.cas-deadbeef.bak").write_bytes(b"c" * 4096)
             (root / ".book-progress.json.deadbeef.tmp").write_bytes(b"p" * 4096)
+            discard_guard = root / ".gametree-resume-discard" / ("c" * 64 + ".guard")
+            discard_guard.parent.mkdir()
+            discard_guard.write_bytes(b"g" * 4096)
             durable_profile = root / "sound-profile.json"
             durable_profile.write_bytes(b"x")
 
