@@ -694,6 +694,27 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                 ChatMessageMetadata("m1", "room-1", "student-2", 0, "orphan", sent_at_unix_ms=1700000000000)
             )
 
+    def test_live_received_chat_cannot_smuggle_hidden_moderation_state(self):
+        controller = self.controller()
+        hidden = ChatMessageMetadata(
+            "m-hidden-live",
+            "room-1",
+            "student-2",
+            0,
+            "Hidden state must use the revisioned moderation stream",
+            hidden=True,
+            sent_at_unix_ms=1700000000000,
+        )
+
+        with self.assertRaises(CollaborationError):
+            controller.receive_chat(hidden)
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room-1"))
+
     def test_chat_moderation_capability_projects_canonical_role_hierarchy_without_side_effects(self):
         for actor, expected in (
             ("teacher-1", True),
