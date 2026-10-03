@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import hashlib
 import json
 from pathlib import Path
@@ -10,6 +11,7 @@ import wave
 from unittest import mock
 
 from acs.sound_pack_catalog import (
+    MAX_SOUND_PACK_CATALOG_ENTRIES,
     DownloadedSoundPack,
     SoundAssetDigest,
     SoundPackCatalogEntry,
@@ -27,6 +29,17 @@ from acs.sound_profile_composition import (
 from acs.sound_profile_store import SoundProfileWriteBlockedError
 from acs.sound_profiles import CORE_SOUND_EVENTS, SoundPackManifest
 from acs.sound_runtime import SoundAssetRequest
+
+
+class _OversizedCatalog(Mapping):
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        raise AssertionError("oversized catalog must be rejected before iteration")
+
+    def __len__(self):
+        return MAX_SOUND_PACK_CATALOG_ENTRIES + 1
 
 
 def _pack_manifest(pack_id: str, suffix: str = ".wav") -> SoundPackManifest:
@@ -759,6 +772,22 @@ class LocalSoundCompositionTests(unittest.TestCase):
             )
             self.assertEqual("move", move["sound_id"])
             self.assertNotIn("quiet.move", move["sound_choices"])
+
+    def test_oversized_provider_catalog_is_rejected_before_iteration_or_filesystem_side_effects(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-compose-provider-limit-") as raw:
+            root = Path(raw)
+            data = root / "data"
+
+            with self.assertRaisesRegex(ValueError, "catalog exceeds"):
+                create_local_sound_composition(
+                    application_dir=root / "app",
+                    data_root=data,
+                    asset_playback=_Playback(),
+                    catalog=_OversizedCatalog(),
+                    pack_downloader=mock.Mock(download=mock.Mock()),
+                )
+
+            self.assertFalse(data.exists())
 
     def test_provider_catalog_requires_downloader_and_cannot_replace_classic(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-compose-provider-contract-") as raw:
