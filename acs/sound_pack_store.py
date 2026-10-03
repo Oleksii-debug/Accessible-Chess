@@ -1480,6 +1480,17 @@ class FilesystemSoundPackStore:
             )
         return result
 
+    def installed_manifest(self, pack_id: str) -> SoundPackManifest | None:
+        """Return the verified active manifest for one installed pack."""
+
+        identity = _stable_id(pack_id, allow_dot=True)
+        if identity in self._built_in:
+            return self._built_in[identity]
+        try:
+            return self._installed_disk_pack(identity).manifest
+        except (TypeError, ValueError, SoundPackStoreError):
+            return None
+
     def active_version(self, pack_id: str) -> str | None:
         identity = _stable_id(pack_id, allow_dot=True)
         if identity in self._built_in:
