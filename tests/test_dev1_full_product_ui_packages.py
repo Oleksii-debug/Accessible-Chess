@@ -168,6 +168,7 @@ class PgnPresenterTests(unittest.TestCase):
         )
         self.assertEqual(("$1",), item.nags)
         self.assertEqual((), item.trailing_comments)
+        self.assertIsNone(item.result)
 
     def setUp(self):
         text = """[Event \"Accessible test\"]
@@ -194,6 +195,7 @@ class PgnPresenterTests(unittest.TestCase):
             for item in view.items
             if item.kind == "variation" and item.label == "Variation 1"
         )
+        self.assertEqual("*", variation.result)
         self.assertEqual(("branch tail",), variation.trailing_comments)
         self.assertGreaterEqual(max(item.depth for item in view.items), 3)
 
