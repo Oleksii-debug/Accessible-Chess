@@ -390,6 +390,9 @@
   ) {
     if (!wrapper || wrapper.getAttribute("aria-busy") === "true") return false;
     const root = wrapper.parentNode;
+    const sessionKey = String(
+      wrapper.getAttribute("data-collaboration-session") || ""
+    );
     const active = document.activeElement;
     const pending = {
       command: String(command || ""),
@@ -419,7 +422,11 @@
         if (
           candidate &&
           values.indexOf(candidate) === index &&
-          candidate.getAttribute("data-pending-command") === pending.command
+          candidate.getAttribute("data-pending-command") === pending.command &&
+          (
+            !sessionKey ||
+            candidate.getAttribute("data-collaboration-session") === sessionKey
+          )
         ) {
           clearCollaborationPendingState(candidate);
         }
@@ -427,6 +434,35 @@
     }
 
     safeInvoke(invoke, command, payload, function (result) {
+      const current = (
+        root && typeof root.querySelector === "function"
+          ? root.querySelector("#classroom-collaboration")
+          : null
+      );
+      const resultPayload = (
+        result && result.payload && typeof result.payload === "object"
+          ? result.payload
+          : {}
+      );
+      const resultCollaboration = (
+        resultPayload.collaboration &&
+        typeof resultPayload.collaboration === "object"
+          ? resultPayload.collaboration
+          : null
+      );
+      const resultSessionKey = resultCollaboration
+        ? String(resultCollaboration.session_key || "")
+        : "";
+      if (
+        sessionKey &&
+        (
+          !current ||
+          current.getAttribute("data-collaboration-session") !== sessionKey ||
+          (resultSessionKey && resultSessionKey !== sessionKey)
+        )
+      ) {
+        return;
+      }
       applyEducationEvent(
         root,
         result,
@@ -444,6 +480,12 @@
     const wrapper = node("section");
     wrapper.id = "classroom-collaboration";
     wrapper.setAttribute("aria-labelledby", "classroom-collaboration-heading");
+    if (typeof snapshot.session_key === "string" && snapshot.session_key) {
+      wrapper.setAttribute(
+        "data-collaboration-session",
+        String(snapshot.session_key).slice(0, 128)
+      );
+    }
     const heading = node("h2", snapshot.heading || "");
     heading.id = "classroom-collaboration-heading";
     heading.tabIndex = -1;
