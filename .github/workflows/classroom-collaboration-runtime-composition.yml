@@ -205,11 +205,12 @@ jobs:
           $educationJs=Join-Path $dist 'web\full_product_education.js'
           if(-not (Test-Path -LiteralPath $educationJs -PathType Leaf)){throw 'CLASSROOM_RUNTIME_PACKAGED_EDUCATION_RESOURCE_MISSING'}
           $educationText=Get-Content -LiteralPath $educationJs -Raw
-          foreach($command in @('collaboration.chat.send','collaboration.file.choose_upload','collaboration.file.save')){
+          foreach($command in @('collaboration.chat.send','collaboration.chat.sync','collaboration.file.choose_upload','collaboration.file.save')){
             if($educationText -notmatch [regex]::Escape($command)){throw "CLASSROOM_RUNTIME_PACKAGED_COLLABORATION_COMMAND_MISSING command=$command"}
           }
+          if($educationText -notmatch [regex]::Escape('data-message-redacted')){throw 'CLASSROOM_RUNTIME_PACKAGED_REDACTION_UI_MISSING'}
           $reportText=Get-Content -LiteralPath $report -Raw
-          foreach($module in @('acs.classroom_collaboration_runtime','acs.classroom_chat_http_endpoint','acs.classroom_file_http_transport')){
+          foreach($module in @('acs.classroom_collaboration_runtime','acs.classroom_collaboration_webview','acs.classroom_collaboration_storage','acs.classroom_chat_http_endpoint','acs.classroom_file_http_transport')){
             if($reportText -notmatch [regex]::Escape($module)){throw "CLASSROOM_RUNTIME_PACKAGED_MODULE_MISSING module=$module"}
           }
           $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in @('.py','.pyc','.pyo')})
