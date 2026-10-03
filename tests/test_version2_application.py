@@ -104,6 +104,36 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual("error", result["kind"])
         self.assertFalse(HostileText.touched)
 
+    def test_browser_ingress_rejects_payload_subclasses_before_container_hooks(self):
+        class HostilePayload(dict):
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress truthiness hook must never execute")
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress length hook must never execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress iteration hook must never execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("browser ingress items hook must never execute")
+
+        for area, command in (
+            ("shell", "screen.library"),
+            ("review", "pgn.return"),
+            ("books", "book.next"),
+        ):
+            with self.subTest(area=area):
+                result = self.app.browser_command(area, command, HostilePayload())
+                self.assertEqual("error", result["kind"])
+                self.assertFalse(HostilePayload.touched)
+
     def test_direct_book_dispatch_rejects_command_subclass_without_strip_hook(self):
         self._open_book_game()
 
