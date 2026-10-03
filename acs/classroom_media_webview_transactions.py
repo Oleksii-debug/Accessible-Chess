@@ -525,6 +525,17 @@ class ClassroomMediaTransactionalWebView:
                 focus = self._forget(transaction_id)
                 return self._safe_error(focus_target=focus)
 
+            if command_id == "media.provider_session_recovery_clean":
+                _exact(data, {"transaction_id", "snapshot"})
+                transaction_id = _transaction_id(data["transaction_id"])
+                snapshot = _clean_disconnected_snapshot(data["snapshot"])
+                self._binder.resolve_clean_session_recovery(
+                    transaction_id,
+                    snapshot,
+                )
+                focus = self._forget(transaction_id)
+                return self._projection.updated_event(focus_target=focus)
+
             if command_id in {
                 "media.provider_failed",
                 "media.provider_outcome_unknown",
