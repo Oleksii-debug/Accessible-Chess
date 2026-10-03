@@ -257,7 +257,7 @@ class Version2Application:
             language = books.projection.language
             bookmark_name = books.projection.bookmark_name
             try:
-                reloaded = self.progress_store.restore(key, reader.document)
+                reloaded = self.progress_store.restore_primary(key, reader.document)
                 self._restore_book_progress(
                     reloaded.snapshot(),
                     language=language,
