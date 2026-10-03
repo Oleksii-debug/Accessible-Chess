@@ -2227,23 +2227,53 @@ class Version2UpgradeCoordinator:
             raise Version2UpgradeError(
                 "library backup tracked-state metadata is invalid"
             )
+        path = self.layout.library_path
+        try:
+            before = _safe_stat(path, "library publication target")
+        except OSError as exc:
+            raise Version2UpgradeError(
+                "library publication target could not be inspected"
+            ) from exc
+        if not stat.S_ISREG(before.st_mode):
+            raise Version2UpgradeError(
+                "library publication target must be a regular file"
+            )
+
+        def require_target_identity() -> None:
+            try:
+                current = _safe_stat(path, "library publication target")
+            except OSError as exc:
+                raise Version2UpgradeError(
+                    "library publication target changed during preparation"
+                ) from exc
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or not _same_file_identity(before, current)
+            ):
+                raise Version2UpgradeError(
+                    "library publication target changed during preparation"
+                )
+
         connection = None
         try:
-            connection = sqlite3.connect(
-                str(self.layout.library_path), timeout=0.0
-            )
+            require_target_identity()
+            connection = sqlite3.connect(str(path), timeout=0.0)
+            require_target_identity()
             connection.execute("PRAGMA busy_timeout=0")
             self._validate_library_schema(connection)
+            require_target_identity()
             if _sqlite_state_sha256(connection) != expected_original:
                 raise Version2UpgradeError(
                     "tracked user data changed after the upgrade snapshot"
                 )
+            require_target_identity()
             mode_row = connection.execute("PRAGMA journal_mode").fetchone()
             mode = str(mode_row[0]).casefold() if mode_row else ""
             if mode == "wal":
                 checkpoint = connection.execute(
                     "PRAGMA wal_checkpoint(TRUNCATE)"
                 ).fetchone()
+                require_target_identity()
                 if checkpoint and int(checkpoint[0]) != 0:
                     raise Version2UpgradeBusy(
                         "library is busy during upgrade publication"
@@ -2255,17 +2285,21 @@ class Version2UpgradeCoordinator:
                 mode_row = connection.execute(
                     "PRAGMA journal_mode=DELETE"
                 ).fetchone()
+                require_target_identity()
                 if not mode_row or str(mode_row[0]).casefold() != "delete":
                     raise Version2UpgradeBusy(
                         "library journal mode could not be normalized safely"
                     )
             connection.execute("BEGIN IMMEDIATE")
+            require_target_identity()
             if _sqlite_state_sha256(connection) != expected_original:
                 connection.rollback()
                 raise Version2UpgradeError(
                     "tracked user data changed after the upgrade snapshot"
                 )
+            require_target_identity()
             connection.rollback()
+            require_target_identity()
         except Version2UpgradeError:
             raise
         except sqlite3.OperationalError as exc:
@@ -2280,9 +2314,10 @@ class Version2UpgradeCoordinator:
             if connection is not None:
                 connection.close()
 
+        require_target_identity()
         if (
             _library_state_sha256(
-                self.layout.library_path,
+                path,
                 schema_validator=self._validate_library_schema,
             )
             != expected_original
@@ -2290,10 +2325,12 @@ class Version2UpgradeCoordinator:
             raise Version2UpgradeError(
                 "tracked user data changed after the upgrade snapshot"
             )
+        require_target_identity()
         # No writer held the SQLite write lock and WAL has been checkpointed.
-        # Remove now-stale sidecars before replacing the main file so they cannot
-        # be replayed against the migrated publication.
+        # Remove now-stale sidecars only while the canonical main-file pathname
+        # is still the exact inode normalized above.
         self._clear_library_sidecars()
+        require_target_identity()
 
     def _restore(self, upgrade_id: str) -> int:
         backup, manifest = self._manifest(upgrade_id)
