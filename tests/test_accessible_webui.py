@@ -103,6 +103,18 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn("selection&&selection.toString()", self.html)
         self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)", self.html)
 
+    def test_analysis_hotkeys_remain_available_in_editable_controls(self):
+        self.assertIn("function editableShortcutTarget(node)", self.html)
+        self.assertIn("if(editable&&!e.altKey)return", self.html)
+        self.assertIn("let a=await resolveBinding(chord,'analysis','analysis')", self.html)
+        self.assertIn(
+            "if(editable&&a&&a.context!=='analysis'&&!String(a.actionId||'').startsWith('analysis.'))a=null",
+            self.html,
+        )
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'history','document')", self.html)
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'document','document')", self.html)
+        self.assertIn("e.stopPropagation();executeAction(a.actionId)", self.html)
+
     def test_keymap_editor_is_out_of_main_flow_and_passive_validation_is_silent(self):
         self.assertIn('<dialog id="keymap-dialog"', self.html)
         self.assertIn('id="open-keymap" type="button"', self.html)
