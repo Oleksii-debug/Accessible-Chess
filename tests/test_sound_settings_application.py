@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 import hashlib
 import unittest
 from unittest import mock
@@ -32,6 +33,30 @@ class _LyingCatalog(Mapping):
         self._entry = entry
 
     def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(("pack.0",))
+
+    def __len__(self):
+        return 1
+
+    def items(self):
+        for index in range(MAX_SOUND_PACK_CATALOG_ENTRIES + 1):
+            pack_id = f"pack.{index}"
+            manifest = replace(
+                self._entry.manifest,
+                pack_id=pack_id,
+                title=pack_id,
+            )
+            yield pack_id, replace(self._entry, manifest=manifest)
+
+
+class _DuplicateCatalog(Mapping):
+    def __init__(self, entry: SoundPackCatalogEntry) -> None:
+        self._entry = entry
+
+    def __getitem__(self, key):
         if key == self._entry.manifest.pack_id:
             return self._entry
         raise KeyError(key)
@@ -43,8 +68,8 @@ class _LyingCatalog(Mapping):
         return 1
 
     def items(self):
-        for _ in range(MAX_SOUND_PACK_CATALOG_ENTRIES + 1):
-            yield self._entry.manifest.pack_id, self._entry
+        yield self._entry.manifest.pack_id, self._entry
+        yield self._entry.manifest.pack_id, self._entry
 
 
 class _OversizedCatalog(Mapping):
@@ -186,6 +211,17 @@ class SoundSettingsApplicationTests(unittest.TestCase):
                 manager,
                 runtime,
                 catalog=_LyingCatalog(entry),
+            )
+
+    def test_catalog_rejects_duplicate_identity_from_malformed_mapping(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        entry = _entry(_manifest("soft"))
+
+        with self.assertRaisesRegex(ValueError, "duplicate pack identity"):
+            SoundSettingsApplication(
+                manager,
+                runtime,
+                catalog=_DuplicateCatalog(entry),
             )
 
     def test_snapshot_exposes_all_events_without_paths_or_payload_refs(self) -> None:
