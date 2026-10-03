@@ -303,6 +303,38 @@ class ExerciseSessionTests(unittest.TestCase):
             ExerciseSession.restore(definition, snapshot).snapshot(),
         )
 
+    def test_restore_reads_custom_snapshot_mapping_only_once(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        session.submit("e4")
+        payload = session.snapshot()
+
+        class OneReadSnapshot(Mapping):
+            def __init__(self, values):
+                self.values = dict(values)
+                self.reads = {key: 0 for key in self.values}
+
+            def __iter__(self):
+                return iter(self.values)
+
+            def __len__(self):
+                return len(self.values)
+
+            def __getitem__(self, key):
+                self.reads[key] += 1
+                if self.reads[key] > 1:
+                    raise AssertionError(f"snapshot field re-read: {key}")
+                return self.values[key]
+
+        source = OneReadSnapshot(payload)
+        restored = ExerciseSession.restore(definition, source)
+
+        self.assertEqual(payload, restored.snapshot())
+        self.assertEqual(
+            {key: 1 for key in payload},
+            source.reads,
+        )
+
     def test_restore_fails_closed_if_definition_identity_changes_during_replay(self):
         for schema_version in (4, 3, 2):
             with self.subTest(schema_version=schema_version):
