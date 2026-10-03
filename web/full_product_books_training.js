@@ -159,7 +159,9 @@
       if (action.command !== commands[index]) {
         throw new TypeError(surface + " snapshot action command/order is invalid");
       }
-      if (typeof action.label !== "string" || !action.label) {
+      try {
+        requireBoundedText(action.label, surface + " snapshot action label", false, 120);
+      } catch (_) {
         throw new TypeError(surface + " snapshot action label is invalid");
       }
       if (typeof action.enabled !== "boolean") {
@@ -493,8 +495,8 @@
       if (payload.action !== "book.open_position") {
         throw new TypeError("Book delegated action is invalid");
       }
-    } else if (typeof payload.message !== "string" || !payload.message) {
-      throw new TypeError("Book error message is invalid");
+    } else if (result.kind === "error") {
+      requireBoundedText(payload.message, "Book error message", false, 1000);
     }
     if (payload.announcement) announce(payload.announcement);
     if (result.kind === "error") announce(payload.message);
@@ -696,8 +698,8 @@
         const next = root.querySelector("#training-answer");
         if (next) next.value = priorAnswer;
       }
-    } else if (typeof payload.message !== "string" || !payload.message) {
-      throw new TypeError("Training error message is invalid");
+    } else {
+      requireBoundedText(payload.message, "Training error message", false, 1200);
     }
     if (payload.announcement) announce(payload.announcement);
     if (result.kind === "error") announce(payload.message);
