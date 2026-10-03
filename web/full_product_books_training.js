@@ -1027,6 +1027,10 @@
     let opener = null;
 
     function closeAndRestore() {
+      // Confirm starts a real canonical reset; it is not cancellable once the
+      // command is in flight. Keep the modal/focus ownership intact until the
+      // host either commits a new render or reports a retryable failure.
+      if (resetPending) return;
       if (dialog.open) dialog.close();
       if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
     }
@@ -1036,6 +1040,7 @@
       if (resetPending) return;
       resetPending = true;
       confirm.disabled = true;
+      cancel.disabled = true;
       const started = safeInvoke(
         root,
         invoke,
@@ -1046,6 +1051,7 @@
           if (result && result.kind === "error") {
             resetPending = false;
             confirm.disabled = false;
+            cancel.disabled = false;
             if (dialog.open) confirm.focus({ preventScroll: true });
             return;
           }
@@ -1056,12 +1062,14 @@
         function () {
           resetPending = false;
           confirm.disabled = false;
+          cancel.disabled = false;
           if (dialog.open) confirm.focus({ preventScroll: true });
         }
       );
       if (!started) {
         resetPending = false;
         confirm.disabled = false;
+        cancel.disabled = false;
         if (dialog.open) confirm.focus({ preventScroll: true });
       }
     });
