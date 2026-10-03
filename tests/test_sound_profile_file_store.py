@@ -38,6 +38,36 @@ class JsonSoundProfileStorageTests(unittest.TestCase):
             self.assertEqual(result.profile, SoundProfile())
             self.assertEqual(storage.read_profile(), SoundProfile().to_mapping())
 
+    def test_profile_path_swap_after_lstat_is_rejected_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "sound-profile.json"
+            storage = JsonSoundProfileStorage(path)
+            storage.write_profile_atomically(SoundProfile().to_mapping())
+            replacement = path.with_name("replacement.json")
+            replacement.write_bytes(path.read_bytes())
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(target, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(target) == path and not swapped:
+                    swapped = True
+                    os.replace(replacement, path)
+                if dir_fd is None:
+                    return real_open(target, flags, mode)
+                return real_open(target, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch(
+                "acs.sound_profile_file_store.os.open",
+                side_effect=swap_before_open,
+            ), self.assertRaisesRegex(
+                SoundProfileFileError,
+                "changed before secure read",
+            ):
+                storage.read_profile()
+
+            self.assertTrue(swapped)
+
     def test_atomic_round_trip_preserves_per_event_profile(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / "sound-profile.json"
