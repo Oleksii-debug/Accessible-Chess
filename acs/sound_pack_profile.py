@@ -81,6 +81,11 @@ class SoundPackProfileCoordinator:
 
         return self._packs.resolve_usable_pack(pack_id)
 
+    def installed_manifest(self, pack_id: str) -> SoundPackManifest | None:
+        """Return the storage-verified active manifest for mutation decisions."""
+
+        return self._packs.installed_manifest(pack_id)
+
     def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
         """Project catalog/install status from the current storage authority."""
 
