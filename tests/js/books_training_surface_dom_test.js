@@ -345,6 +345,38 @@ async function run() {
       label + " did not fail closed accessibly"
     );
   }
+  async function expectOversizedTextRejectedBeforeNulScan(
+    candidate,
+    index,
+    label,
+    fallbackMessage,
+    scanThreshold
+  ) {
+    const originalIndexOf = String.prototype.indexOf;
+    let forbiddenScans = 0;
+    String.prototype.indexOf = function (search, ...args) {
+      if (search === "\x00" && this.length > scanThreshold) {
+        forbiddenScans += 1;
+        throw new Error("oversized text reached NUL scan before length rejection");
+      }
+      return originalIndexOf.call(this, search, ...args);
+    };
+    try {
+      await expectBookSnapshotRejected(
+        candidate,
+        index,
+        label,
+        fallbackMessage
+      );
+    } finally {
+      String.prototype.indexOf = originalIndexOf;
+    }
+    check(
+      forbiddenScans === 0,
+      label + " scanned oversized text before its O(1) length bound"
+    );
+  }
+
   const trainingRoot = new FakeElement("div");
   let accepted = false;
   const trainingInvoke = (command, payload) => {
@@ -1236,6 +1268,26 @@ async function run() {
     43,
     "non-semantic block carrying semantic state",
     "Paragraph semantic drift failed"
+  );
+
+  const oversizedWarningNoScan = bookSnapshot(56, "Oversized warning preflight");
+  oversizedWarningNoScan.block.warning = "w".repeat(1001);
+  await expectOversizedTextRejectedBeforeNulScan(
+    oversizedWarningNoScan,
+    56,
+    "oversized bounded Book scalar",
+    "Oversized scalar failed",
+    1000
+  );
+
+  const oversizedHeadingPathNoScan = bookSnapshot(57, "Oversized heading path preflight");
+  oversizedHeadingPathNoScan.block.heading_path = ["h".repeat(361)];
+  await expectOversizedTextRejectedBeforeNulScan(
+    oversizedHeadingPathNoScan,
+    57,
+    "oversized Book heading path component",
+    "Oversized heading path failed",
+    360
   );
 
   const oversizedDepthLabel = bookSnapshot(54, "Oversized variation depth label");
