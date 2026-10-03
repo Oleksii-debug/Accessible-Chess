@@ -32,18 +32,6 @@ class _StaticBookPresenter(BookReaderPresenter):
     def current(self) -> BookBlockView:
         return self._block
 
-    def navigation_availability(self) -> dict[str, bool]:
-        return {
-            "previous": False,
-            "next": False,
-            "previous_heading": False,
-            "next_heading": False,
-            "previous_position": False,
-            "next_position": False,
-            "previous_game": False,
-            "next_game": False,
-        }
-
 
 class _StaticTrainingPresenter(TrainingPresenter):
     def __init__(self, view: TrainingView) -> None:
@@ -67,6 +55,8 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         r"\\?\C:\Users\PrivateUser\Documents\study.pgn",
         r"\\?\UNC\server\private-share\PrivateUser\study.pgn",
         "file:///C:/Users/PrivateUser/Documents/study.pgn",
+        "file:///C:/Users/Public/My Private Folder/PrivateUser/study.pgn",
+        "file://private-server/Public Share/PrivateUser/study.pgn",
         "file:/home/PrivateUser/study.pgn",
         "/home/PrivateUser/study.pgn",
         "/opt/accessible-chess/private/study.pgn",
