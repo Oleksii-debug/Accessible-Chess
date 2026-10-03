@@ -163,7 +163,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (event.kind === "delegated")', queued)
         self.assertIn('if (actionId && !isVersion2DomainAction(actionId)) {', queued)
-        self.assertIn('refreshStage1Surface();', queued)
+        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface);', queued)
         self.assertIn('return false;', queued)
 
     def test_book_board_repaint_is_an_awaited_focus_barrier(self) -> None:
@@ -171,14 +171,15 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (event.kind === "book-board")', queued)
-        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface());', queued)
+        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface);', queued)
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
         self.assertIn('const orderedStage1Refreshes = [];', drain)
-        self.assertIn('const repaintBarrier = orderedStage1Refreshes.length', drain)
-        self.assertIn('Promise.all(orderedStage1Refreshes)', drain)
-        self.assertIn('return refresh(true);', drain)
+        self.assertIn('const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {', drain)
+        self.assertIn('return chain.then(function () { return refreshStage1(); });', drain)
+        self.assertIn('return repaintBarrier.then(function () {', drain)
+        self.assertIn('return needsRefresh ? refresh(true) : undefined;', drain)
 
     def test_native_event_batch_restores_final_route_then_visible_explicit_focus(self) -> None:
         self.assertIn('<button id="board-launcher" type="button">', HTML)
@@ -188,11 +189,11 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('let queuedFocusTarget = "";', drain)
         self.assertIn('const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
         self.assertIn('if (candidate) queuedFocusTarget = candidate;', drain)
-        self.assertIn('return refresh(true);', drain)
-        self.assertIn('if (queuedFocusTarget) focusById(queuedFocusTarget);', drain)
+        self.assertIn('return needsRefresh ? refresh(true) : undefined;', drain)
+        self.assertIn('if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);', drain)
         self.assertLess(
-            drain.index('return refresh(true);'),
-            drain.index('if (queuedFocusTarget) focusById(queuedFocusTarget);'),
+            drain.index('return needsRefresh ? refresh(true) : undefined;'),
+            drain.index('if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);'),
         )
 
     def test_windows_composition_executes_behavioral_v2_bootstrap_smoke(self) -> None:
