@@ -350,6 +350,70 @@ async function run() {
     "malformed Training host result left the surface busy"
   );
 
+  const staleTrainingRoot = new FakeElement("div");
+  let resolveStaleTraining = null;
+  const staleTrainingInvoke = () => new Promise((resolve) => {
+    resolveStaleTraining = resolve;
+  });
+  window.AccessibleChessTrainingSurface.render(
+    staleTrainingRoot,
+    trainingSnapshot(),
+    staleTrainingInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const staleTrainingAnswer = staleTrainingRoot.querySelector("#training-answer");
+  staleTrainingAnswer.value = "d4";
+  find(staleTrainingRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  check(
+    staleTrainingRoot.getAttribute("aria-busy") === "true",
+    "pending Training action did not expose aria-busy"
+  );
+  const refreshedTraining = trainingSnapshot();
+  refreshedTraining.title = "Newer external training render";
+  window.AccessibleChessTrainingSurface.render(
+    staleTrainingRoot,
+    refreshedTraining,
+    staleTrainingInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const refreshedTrainingAnswer = staleTrainingRoot.querySelector("#training-answer");
+  refreshedTrainingAnswer.value = "c4";
+  resolveStaleTraining({
+    kind: "render",
+    payload: {
+      snapshot: trainingSnapshot(),
+      focus_target: "training-answer",
+      announcement: "Stale Training result",
+      clear_answer: true,
+      solution: []
+    }
+  });
+  await flushPromises();
+  await flushPromises();
+  check(
+    find(staleTrainingRoot, "H3", "Newer external training render") !== null,
+    "stale Training result replaced the newer external render"
+  );
+  check(
+    staleTrainingRoot.querySelector("#training-answer") === refreshedTrainingAnswer &&
+      refreshedTrainingAnswer.value === "c4",
+    "stale Training result disturbed the newer answer state"
+  );
+  check(
+    !announcements.includes("Stale Training result"),
+    "stale Training result announced into the newer NVDA context"
+  );
+  check(
+    staleTrainingRoot.getAttribute("aria-busy") === null,
+    "discarded stale Training result left the surface busy"
+  );
+
   const pendingRoot = new FakeElement("div");
   let pendingCalls = 0;
   let resolveFirstPending = null;
