@@ -213,6 +213,26 @@ class ClassroomMediaHostTransactionPort:
         self._transaction_id: str | None = None
         self._expected: MediaProviderEffect | None = None
         self._consumed = False
+        self._coordinator_bound = False
+
+    def _bind_coordinator(self) -> None:
+        """Bind exactly one async transaction coordinator to this provider gate.
+
+        The port returns to an idle call phase between prepare and provider
+        acknowledgement, but the logical provider effect remains in flight.
+        Allowing a second coordinator to bind during that gap would create two
+        independent pending queues over one canonical controller and could let
+        remote moderation commit in an order different from provider execution.
+        """
+
+        with self._lock:
+            if self._coordinator_bound:
+                raise MediaHostTransactionError(
+                    "media transaction port already has a coordinator"
+                )
+            if self._phase != "idle":
+                raise MediaHostTransactionError("media transaction port is busy")
+            self._coordinator_bound = True
 
     def connect(
         self,
@@ -377,6 +397,7 @@ class ClassroomMediaHostTransactions:
             raise ValueError("controller must use the supplied media transaction port")
         if transaction_id_factory is not None and not callable(transaction_id_factory):
             raise TypeError("transaction id factory must be callable")
+        port._bind_coordinator()
         self._controller = controller
         self._port = port
         self._transaction_id_factory = transaction_id_factory
