@@ -50,6 +50,7 @@ _PROCESS_LOCKS: dict[str, threading.RLock] = {}
 _TEMPFILE_TOKEN_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyz0123456789_"
 )
+_TEMPFILE_TOKEN_LENGTH = 8
 
 
 class BookProgressStoreErrorCode(str, Enum):
@@ -318,7 +319,7 @@ def _is_owned_temp_name(name: str, target_name: str) -> bool:
     if not name.startswith(prefix) or not name.endswith(".tmp"):
         return False
     token = name[len(prefix) : -len(".tmp")]
-    return bool(token) and all(
+    return len(token) == _TEMPFILE_TOKEN_LENGTH and all(
         character in _TEMPFILE_TOKEN_CHARACTERS for character in token
     )
 
