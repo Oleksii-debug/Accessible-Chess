@@ -603,6 +603,16 @@ async function run() {
   deferredSubmitForm.listeners.submit({ preventDefault: () => {} });
   check(deferredSubmitCalls === 1,
     "pending Training submit must be serialized");
+  check(deferredSubmitRoot.attributes["aria-busy"] === "true",
+    "pending Training submit must expose aria-busy");
+  const pendingSubmitReset = find(deferredSubmitRoot, "BUTTON", "Reset");
+  pendingSubmitReset.focus();
+  pendingSubmitReset.listeners.click();
+  const pendingSubmitDialog = deferredSubmitRoot.querySelector("#training-reset-dialog");
+  check(!pendingSubmitDialog.open,
+    "pending Training submit must block a stale reset dialog");
+  check(document.activeElement === pendingSubmitReset,
+    "blocked stale reset dialog must preserve the reset control focus");
   check(deferredSubmitRoot.replaceChildrenCalls === deferredSubmitReplaceCount,
     "pending Training submit must not mutate readable DOM");
   check(document.activeElement === deferredSubmitAnswer,
@@ -620,6 +630,8 @@ async function run() {
   await flushPromises();
   check(deferredSubmitCalls === 1,
     "resolved Training submit must have exactly one host call");
+  check(deferredSubmitRoot.attributes["aria-busy"] === "false",
+    "resolved Training submit must clear aria-busy");
   check(deferredSubmitRoot.replaceChildrenCalls === deferredSubmitReplaceCount + 1,
     "resolved Training submit must publish exactly one new DOM");
   check(document.activeElement === deferredSubmitRoot.querySelector("#training-answer"),
@@ -996,6 +1008,8 @@ async function run() {
   deferredBookRestore.listeners.click();
   check(deferredBookCalls === 1,
     "pending Book navigation must serialize cross-control commands");
+  check(deferredBookRoot.attributes["aria-busy"] === "true",
+    "pending Book navigation must expose aria-busy");
   check(deferredBookRoot.replaceChildrenCalls === deferredBookReplaceCount,
     "pending Book navigation must not mutate readable DOM");
   check(document.activeElement === deferredBookNext,
@@ -1011,6 +1025,8 @@ async function run() {
   await flushPromises();
   check(deferredBookCalls === 1,
     "resolved Book navigation must have exactly one host call");
+  check(deferredBookRoot.attributes["aria-busy"] === "false",
+    "resolved Book navigation must clear aria-busy");
   check(deferredBookRoot.replaceChildrenCalls === deferredBookReplaceCount + 1,
     "resolved Book navigation must publish exactly one new DOM");
   check(document.activeElement === deferredBookRoot.querySelector("#book-block-4"),
