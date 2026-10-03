@@ -159,7 +159,8 @@ class ClassroomMediaTransactionalWebView:
         *,
         focus_target: str = "",
     ) -> ClassroomMediaWebViewEvent:
-        focus = focus_target or self._focus(transaction_id)
+        stored_focus = self._forget(transaction_id)
+        focus = focus_target or stored_focus
         base = self._projection.error_event(focus_target=focus)
         payload = dict(base.payload)
         # Explicitly retire the current media snapshot. The existing WebView
@@ -187,16 +188,18 @@ class ClassroomMediaTransactionalWebView:
         self,
         transaction_id: str = "",
     ) -> ClassroomMediaWebViewEvent:
-        """Fail closed if an invalid callback follows provider dispatch."""
+        """Fail closed for malformed, stale, or otherwise rejected callbacks."""
 
         active = self._binder.active_lease
         if (
-            active is not None
-            and active.provider_boundary_crossed
-            and active.transaction_id is not None
-            and (not transaction_id or transaction_id == active.transaction_id)
+            active is None
+            or active.transaction_id is None
+            or (transaction_id and transaction_id != active.transaction_id)
         ):
-            active_transaction = active.transaction_id
+            return self._safe_error(transaction_id)
+
+        active_transaction = active.transaction_id
+        if active.provider_boundary_crossed:
             try:
                 self._binder.provider_outcome_unknown(active_transaction)
             except Exception:
@@ -211,7 +214,28 @@ class ClassroomMediaTransactionalWebView:
                     return self._recovery_event(active_transaction)
                 return self._safe_error(active_transaction)
             return self._recovery_event(active_transaction)
-        return self._safe_error(transaction_id)
+
+        # Before provider dispatch there must never be a stranded global lease.
+        # Retire the exact transaction. Session credential handoff has stronger
+        # semantics in the canonical session owner: if a one-shot credential
+        # already crossed into the browser, provider_not_started raises
+        # MediaHostRecoveryRequired and the binder converts that into the shared
+        # recovery latch instead of pretending the transaction was untouched.
+        try:
+            self._binder.provider_not_started(active_transaction)
+        except MediaHostRecoveryRequired:
+            return self._recovery_event(active_transaction)
+        except Exception:
+            status = self._binder.recovery_status
+            if (
+                status is not None
+                and status.lease.transaction_id == active_transaction
+            ):
+                return self._recovery_event(active_transaction)
+            return self._safe_error(active_transaction)
+
+        focus = self._forget(active_transaction)
+        return self._safe_error(focus_target=focus)
 
     # Mutation-port methods consumed by ClassroomMediaWebViewBridge.
 
