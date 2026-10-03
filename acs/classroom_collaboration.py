@@ -704,12 +704,14 @@ class ClassroomCollaborationController:
             if current.scan_state == "failed"
             else current.scan_state
         )
+        # Validate the host/presentation seam before changing durable transfer
+        # state. A bad consumer must not strand a failed transfer as uploading.
+        progress = self._progress_observer(current, on_progress)
         uploading = self._store.update_attachment_state(
             current.attachment_id,
             transfer_state="uploading",
             scan_state=retry_scan_state,
         )
-        progress = self._progress_observer(uploading, on_progress)
         progress(
             FileTransferProgress(
                 uploading.attachment_id,

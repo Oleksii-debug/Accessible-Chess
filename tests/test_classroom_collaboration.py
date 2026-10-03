@@ -2298,6 +2298,47 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (stored,),
         )
 
+    def test_progress_consumer_validation_precedes_state_mutation(self):
+        controller = self.controller()
+        payload = b"consumer-validation"
+        prepared = controller.prepare_file(
+            attachment_id="progress-consumer-validation",
+            local_path=self.make_file(
+                "progress-consumer-validation.bin",
+                payload,
+            ),
+            sequence_no=0,
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.upload_file(
+                prepared,
+                on_progress="not-callable",
+            )
+        self.assertEqual(self.store.room_attachments("room-1"), ())
+
+        self.files.fail_upload = True
+        with self.assertRaises(RuntimeError):
+            controller.upload_file(prepared)
+        failed = self.store.room_attachments("room-1")[0]
+        self.assertEqual(failed.transfer_state, "failed")
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "progress consumer must be callable",
+        ):
+            controller.retry_file(
+                prepared,
+                on_progress=object(),
+            )
+        self.assertEqual(
+            self.store.room_attachments("room-1"),
+            (failed,),
+        )
+
     def test_retry_reports_fresh_progress_sequence(self):
         controller = self.controller()
         payload = b"retry-progress"
