@@ -296,6 +296,86 @@ class MalformedAndResourceBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
             session.reset()
 
+    def test_session_detaches_from_caller_definition_mutation(self):
+        definition = ExerciseDefinition(
+            "detached-authority",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+
+        object.__setattr__(definition.steps[0], "accepted_moves", frozenset({"d4"}))
+
+        current = session.current_step()
+        self.assertIsNotNone(current)
+        self.assertEqual(frozenset({"e4"}), current.accepted_moves)
+        self.assertTrue(session.submit("e4").completed)
+
+    def test_session_rejects_exact_definition_replacement_before_semantic_access(self):
+        definition = ExerciseDefinition(
+            "bound-authority",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+        session.definition = ExerciseDefinition(
+            "replacement",
+            Board.START,
+            (ExerciseStep(frozenset({"d4"})),),
+        )
+
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.current_step()
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.snapshot()
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.submit("e4")
+
+    def test_session_rejects_low_level_bound_definition_mutation(self):
+        definition = ExerciseDefinition(
+            "low-level-authority",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+        object.__setattr__(session.definition, "exercise_id", "changed-id")
+
+        with self.assertRaisesRegex(ValueError, "changed during session"):
+            session.current_step()
+
+    def test_session_rejects_noncanonical_step_mutation_before_move_parsing(self):
+        definition = ExerciseDefinition(
+            "noncanonical-step",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+        object.__setattr__(
+            session.definition.steps[0],
+            "accepted_moves",
+            frozenset({" e4 "}),
+        )
+
+        with self.assertRaisesRegex(ValueError, "not canonical"):
+            session.submit("e4")
+
+    def test_snapshot_field_scan_is_bounded_and_requires_string_keys(self):
+        definition = ExerciseDefinition(
+            "snapshot-field-bounds",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+
+        oversized = ExerciseSession(definition).snapshot()
+        oversized.update({f"future_{index}": index for index in range(33)})
+        with self.assertRaisesRegex(ValueError, "too many fields"):
+            ExerciseSession.restore(definition, oversized)
+
+        non_text_key = ExerciseSession(definition).snapshot()
+        non_text_key[7] = "future"  # type: ignore[index]
+        with self.assertRaisesRegex(TypeError, "field names must be strings"):
+            ExerciseSession.restore(definition, non_text_key)
+
     def test_constructor_raw_move_and_metadata_resources_are_bounded(self):
         with self.assertRaisesRegex(ValueError, "too long"):
             ExerciseStep(frozenset({"e4" + (" " * 63)}))
