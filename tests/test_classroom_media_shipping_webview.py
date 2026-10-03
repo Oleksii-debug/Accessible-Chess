@@ -574,6 +574,21 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIn('event.kind === "provider-dispatch"', source)
         self.assertIn("media.provider_not_started", source)
         self.assertIn("media.provider_outcome_unknown", source)
+        self.assertIn("function retireAfterRuntimeFailure()", source)
+        runtime_failure_start = source.index("function retireAfterRuntimeFailure()")
+        runtime_failure_end = source.index(
+            "return Promise.resolve(runtime.execute(event, invoke))",
+            runtime_failure_start,
+        )
+        runtime_failure = source[runtime_failure_start:runtime_failure_end]
+        self.assertLess(
+            runtime_failure.index('"media.provider_outcome_unknown"'),
+            runtime_failure.index('"media.provider_not_started"'),
+        )
+        self.assertIn(
+            "Once runtime.execute() was entered, the provider may have run",
+            runtime_failure,
+        )
         self.assertIn(
             "const mediaRecoveryRequired = mediaStatus.media_recovery_required === true;",
             source,
