@@ -13,6 +13,11 @@ TRAINING_SNAPSHOT_SCHEMA_VERSION = 3
 _MAX_EXERCISE_STEPS = 2048
 _MAX_ACCEPTED_MOVES_PER_STEP = 64
 _MAX_MOVE_TEXT = 64
+_MAX_EXERCISE_ID_TEXT = 4096
+_MAX_START_FEN_TEXT = 4096
+_MAX_EXERCISE_AUX_TEXT = 4096
+_MAX_EXERCISE_TAGS = 256
+_MAX_EXERCISE_METADATA_ITEMS = 256
 _TRAINING_SNAPSHOT_V3_FIELDS = frozenset(
     {
         "schema_version",
@@ -70,6 +75,15 @@ class ExerciseStep:
             raise TypeError("exercise accepted_moves must be a finite collection") from exc
         if count > _MAX_ACCEPTED_MOVES_PER_STEP:
             raise ValueError("exercise step has too many accepted moves")
+        if self.hint is not None and (
+            type(self.hint) is not str or len(self.hint) > _MAX_EXERCISE_AUX_TEXT
+        ):
+            raise ValueError("exercise hint must be bounded text or None")
+        if self.explanation is not None and (
+            type(self.explanation) is not str
+            or len(self.explanation) > _MAX_EXERCISE_AUX_TEXT
+        ):
+            raise ValueError("exercise explanation must be bounded text or None")
         normalized = frozenset(_normalize_move(move) for move in self.accepted_moves)
         if not normalized:
             raise ValueError("exercise step requires at least one accepted move")
@@ -91,33 +105,84 @@ class ExerciseDefinition:
     def __post_init__(self) -> None:
         if type(self.exercise_id) is not str:
             raise TypeError("exercise_id must be a string")
+        if len(self.exercise_id) > _MAX_EXERCISE_ID_TEXT:
+            raise ValueError("exercise_id is too long")
         exercise_id = self.exercise_id.strip()
         if not exercise_id:
             raise ValueError("exercise_id must not be empty")
+
         if type(self.start_fen) is not str:
             raise TypeError("start_fen must be a string")
+        if len(self.start_fen) > _MAX_START_FEN_TEXT:
+            raise ValueError("start_fen is too long")
         start_fen = self.start_fen.strip()
         if not start_fen:
             raise ValueError("start_fen must not be empty")
         # Position syntax and legality belong to the shared canonical chess core.
         Board(start_fen)
+
+        try:
+            step_count = len(self.steps)
+        except TypeError as exc:
+            raise TypeError("exercise steps must be a finite sized collection") from exc
+        if step_count < 1:
+            raise ValueError("exercise requires at least one step")
+        if step_count > _MAX_EXERCISE_STEPS:
+            raise ValueError("exercise has too many steps")
         try:
             steps = tuple(self.steps)
         except TypeError as exc:
             raise TypeError("exercise steps must be a finite collection") from exc
-        if not steps:
-            raise ValueError("exercise requires at least one step")
-        if len(steps) > _MAX_EXERCISE_STEPS:
-            raise ValueError("exercise has too many steps")
+        if len(steps) != step_count:
+            raise ValueError("exercise steps changed during validation")
         if any(not isinstance(step, ExerciseStep) for step in steps):
             raise TypeError("exercise steps must contain ExerciseStep values")
-        if self.source_id is not None and type(self.source_id) is not str:
-            raise TypeError("exercise source_id must be a string or None")
+
+        if type(self.title) is not str:
+            raise TypeError("exercise title must be a string")
+        if len(self.title) > _MAX_EXERCISE_AUX_TEXT:
+            raise ValueError("exercise title is too long")
+        if self.source_id is not None and (
+            type(self.source_id) is not str
+            or len(self.source_id) > _MAX_EXERCISE_AUX_TEXT
+        ):
+            raise ValueError("exercise source_id must be bounded text or None")
+
+        try:
+            tag_count = len(self.tags)
+        except TypeError as exc:
+            raise TypeError("exercise tags must be a finite sized collection") from exc
+        if tag_count > _MAX_EXERCISE_TAGS:
+            raise ValueError("exercise has too many tags")
+        tags = tuple(_normalize_tag(tag) for tag in self.tags)
+        if len(tags) != tag_count:
+            raise ValueError("exercise tags changed during validation")
+
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("exercise metadata must be a mapping")
+        try:
+            metadata_count = len(self.metadata)
+        except TypeError as exc:
+            raise TypeError("exercise metadata must be a finite mapping") from exc
+        if metadata_count > _MAX_EXERCISE_METADATA_ITEMS:
+            raise ValueError("exercise metadata has too many items")
+        for key, value in self.metadata.items():
+            if (
+                type(key) is not str
+                or type(value) is not str
+                or len(key) > _MAX_EXERCISE_AUX_TEXT
+                or len(value) > _MAX_EXERCISE_AUX_TEXT
+            ):
+                raise ValueError("exercise metadata must map bounded text to bounded text")
+        metadata = dict(self.metadata)
+        if len(metadata) != metadata_count:
+            raise ValueError("exercise metadata changed during validation")
+
         object.__setattr__(self, "exercise_id", exercise_id)
         object.__setattr__(self, "start_fen", start_fen)
         object.__setattr__(self, "steps", steps)
-        object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "tags", tags)
+        object.__setattr__(self, "metadata", metadata)
 
 
 @dataclass(frozen=True)
@@ -318,6 +383,15 @@ class ExerciseSession:
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("exercise snapshot must be a mapping")
+        try:
+            snapshot_field_count = len(snapshot)
+        except TypeError as exc:
+            raise TypeError("exercise snapshot must be a finite mapping") from exc
+        if snapshot_field_count not in {
+            len(_TRAINING_SNAPSHOT_V2_FIELDS),
+            len(_TRAINING_SNAPSHOT_V3_FIELDS),
+        }:
+            raise ValueError("invalid exercise snapshot field count")
         if "schema_version" not in snapshot:
             raise ValueError("invalid exercise snapshot fields (missing fields: schema_version)")
         schema_version = snapshot["schema_version"]
@@ -364,6 +438,8 @@ class ExerciseSession:
         position_fen = snapshot["position_fen"]
         if type(position_fen) is not str:
             raise TypeError("exercise snapshot position_fen must be a string")
+        if len(position_fen) > _MAX_START_FEN_TEXT:
+            raise ValueError("exercise snapshot position_fen is too long")
         if position_fen != board.fen():
             raise ValueError("exercise snapshot position does not match accepted_path")
 
@@ -422,6 +498,8 @@ def _restore_common(
     exercise_id = snapshot["exercise_id"]
     if type(exercise_id) is not str:
         raise TypeError("exercise snapshot exercise_id must be a string")
+    if len(exercise_id) > _MAX_EXERCISE_ID_TEXT:
+        raise ValueError("exercise snapshot exercise_id is too long")
     if exercise_id != definition.exercise_id:
         raise ValueError("exercise snapshot belongs to a different exercise")
 
@@ -437,6 +515,8 @@ def _restore_common(
     status_value = snapshot["status"]
     if type(status_value) is not str:
         raise TypeError("exercise snapshot status must be a string")
+    if len(status_value) > 32:
+        raise ValueError("invalid exercise snapshot status")
     try:
         status = ExerciseStatus(status_value)
     except ValueError as exc:
@@ -481,6 +561,12 @@ def _require_snapshot_fields(
     snapshot: Mapping[str, object],
     expected: frozenset[str],
 ) -> None:
+    try:
+        field_count = len(snapshot)
+    except TypeError as exc:
+        raise TypeError("exercise snapshot must be a finite mapping") from exc
+    if field_count != len(expected):
+        raise ValueError("invalid exercise snapshot field count")
     fields = set(snapshot)
     if fields == expected:
         return
@@ -560,6 +646,10 @@ def _snapshot_move(value: object) -> str:
 def _normalize_move(value: str) -> str:
     if type(value) is not str:
         raise TypeError("move must be a string")
+    # Raw authoring/submission/snapshot data must fit the canonical scalar
+    # envelope before strip/split/join scans it.
+    if len(value) > _MAX_MOVE_TEXT:
+        raise ValueError("move text is too long")
     text = " ".join(value.strip().split())
     if not text:
         raise ValueError("move must not be empty")
@@ -571,7 +661,11 @@ def _normalize_move(value: str) -> str:
 def _normalize_tag(value: str) -> str:
     if type(value) is not str:
         raise TypeError("exercise tag must be a string")
+    if len(value) > _MAX_EXERCISE_AUX_TEXT:
+        raise ValueError("exercise tag is too long")
     text = value.strip().casefold()
     if not text:
         raise ValueError("exercise tag must not be empty")
+    if len(text) > _MAX_EXERCISE_AUX_TEXT:
+        raise ValueError("exercise tag is too long")
     return text
