@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -64,6 +65,50 @@ class Version2ApplicationTests(unittest.TestCase):
         reopened = open_pgn(self.source)
         self.assertEqual(reopened.games[0].line.moves[0].comments_after[0].text, "новий коментар")
         self.assertEqual(len(reopened.games[0].line.moves[0].variations), 1)
+
+    def test_failed_native_library_projection_preserves_route_and_focus(self):
+        self.app.shell.open_route("board")
+        self.app.shell.record_focus("move-input")
+
+        for action, method_name in (
+            ("library.search", "search"),
+            ("library.reset_filters", "reset_filters"),
+        ):
+            with self.subTest(action=action):
+                self.app.shell.open_route("board")
+                self.app.shell.record_focus("move-input")
+                with patch.object(
+                    self.app.library.projection,
+                    method_name,
+                    side_effect=RuntimeError("simulated Library projection failure"),
+                ):
+                    with self.assertRaises(RuntimeError):
+                        self.app.router.dispatch(
+                            action,
+                            current_focus_id="move-input",
+                        )
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(
+                    self.app.shell.restore_focus_target(),
+                    "move-input",
+                )
+
+    def test_modal_library_action_fails_before_projection_mutation(self):
+        self.app.shell.open_route("board")
+        self.app.shell.open_dialog(
+            "test-dialog",
+            opener_focus_id="move-input",
+            initial_focus_id="test-dialog-confirm",
+        )
+        with patch.object(self.app.library.projection, "search") as search:
+            with self.assertRaises(ValueError):
+                self.app.router.dispatch(
+                    "library.search",
+                    current_focus_id="test-dialog-confirm",
+                )
+        search.assert_not_called()
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app.shell.active_dialog_id, "test-dialog")
 
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
