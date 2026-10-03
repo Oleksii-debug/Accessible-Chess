@@ -6,6 +6,7 @@ on:
       - 'acs/pgn_roundtrip.py'
       - 'acs/pgn_workspace.py'
       - 'tests/test_w1_d06_bounded_model_materialization.py'
+      - 'tests/test_d06_pgn_roundtrip.py'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
   workflow_dispatch:
@@ -50,22 +51,35 @@ jobs:
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          SOURCE_HEAD_SHA: d06c86f3be94cae8aff4674584f5ab961228ba8f
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          SOURCE_HEAD_SHA: 1a029e05219c488cb58c369ef89d26c6735c592b
         run: |
           set -euo pipefail
-          base="${EVENT_BASE_SHA:-}"
-          if [ -z "$base" ]; then
-            base="$(git rev-parse HEAD^)"
+          event_base="${EVENT_BASE_SHA:-}"
+          if [ -n "$event_base" ]; then
+            git cat-file -e "${event_base}^{commit}" || git fetch --no-tags origin "$event_base"
+            git merge-base --is-ancestor "$event_base" HEAD
           fi
-          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
-          git diff --check "$base" HEAD
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            git fetch --no-tags origin "$EVENT_BASE_REF"
+            live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
+          else
+            live_base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${live_base}^{commit}"
+          if ! git merge-base --is-ancestor "$live_base" HEAD; then
+            echo "Current Product base $live_base is not an ancestor of D06 candidate HEAD"
+            exit 1
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base...HEAD"
           for path in \
             acs/pgn_roundtrip.py \
             acs/pgn_workspace.py \
-            tests/test_w1_d06_bounded_model_materialization.py
+            tests/test_w1_d06_bounded_model_materialization.py \
+            tests/test_d06_pgn_roundtrip.py
           do
             test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_HEAD_SHA:$path")"
           done
