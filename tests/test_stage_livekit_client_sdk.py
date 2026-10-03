@@ -108,6 +108,61 @@ class LiveKitClientSdkStageTests(unittest.TestCase):
             hashlib.sha256(self.bundle).hexdigest(),
         )
 
+    def test_verified_stage_is_byte_derived_from_source_archive(self) -> None:
+        staged = self._stage()
+        verified = sdk.verify_staged_livekit_client_sdk(
+            self.archive,
+            staged,
+            expected_integrity=self._integrity(),
+        )
+        self.assertEqual(verified, staged)
+
+    def test_verifier_rejects_bundle_substitution_even_with_valid_archive(self) -> None:
+        staged = self._stage()
+        bundle = staged / "livekit-client.umd.js"
+        bundle.write_bytes(bundle.read_bytes() + b"substitution")
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "does not match pinned npm archive",
+        ):
+            sdk.verify_staged_livekit_client_sdk(
+                self.archive,
+                staged,
+                expected_integrity=self._integrity(),
+            )
+
+    def test_verifier_rejects_rewritten_provenance(self) -> None:
+        staged = self._stage()
+        provenance = staged / "provenance.json"
+        data = json.loads(provenance.read_text(encoding="utf-8"))
+        data["bundle_sha256"] = "0" * 64
+        provenance.write_text(
+            json.dumps(data, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "staged LiveKit provenance does not match pinned npm archive",
+        ):
+            sdk.verify_staged_livekit_client_sdk(
+                self.archive,
+                staged,
+                expected_integrity=self._integrity(),
+            )
+
+    def test_verifier_rejects_extra_staged_file(self) -> None:
+        staged = self._stage()
+        (staged / "unexpected.js").write_text("extra\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            sdk.LiveKitClientSdkStageError,
+            "inventory does not match pinned release",
+        ):
+            sdk.verify_staged_livekit_client_sdk(
+                self.archive,
+                staged,
+                expected_integrity=self._integrity(),
+            )
+
     def test_integrity_mismatch_is_fail_closed(self) -> None:
         with self.assertRaisesRegex(
             sdk.LiveKitClientSdkStageError,
