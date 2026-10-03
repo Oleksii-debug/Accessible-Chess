@@ -11,7 +11,10 @@ from . import classroom_domain as cd
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
-from .education_workspace_store import EducationWorkspaceStore
+from .education_workspace_store import (
+    EducationWorkspaceDurabilityError,
+    EducationWorkspaceStore,
+)
 from .full_product_ui_shell import UILanguage
 from .library_export_workspace import build_library_export_webview
 from .search_service import GameSearchQuery
@@ -141,10 +144,19 @@ class Version2FinalProductApplication(Version2Application):
         """Trusted CAS publication seam for a canonical editor owner."""
 
         self._assert_thread()
-        revision = self.education_store.save(
-            workspace,
-            expected_revision=expected_revision,
-        )
+        try:
+            revision = self.education_store.save(
+                workspace,
+                expected_revision=expected_revision,
+            )
+        except EducationWorkspaceDurabilityError:
+            # Replacement may already be visible even though its durability
+            # barrier could not be confirmed. Never continue serving the stale
+            # in-memory workspace: immediately rebind to the canonical durable
+            # file (or fail the Education surface closed if reload also fails)
+            # before propagating the ambiguity to the trusted editor owner.
+            self._load_education(self.shell.language)
+            raise
         self._education_workspace = workspace
         self._education_revision = revision
         self._education_load_error = False

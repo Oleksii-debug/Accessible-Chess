@@ -1,0 +1,91 @@
+name: D10 Recovery Serial Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/pgn-training-warning-privacy-language-settings-observerqa-p0qa-w6settings-streamingqa-20261003
+    paths:
+      - 'acs/education_workspace_store.py'
+      - 'acs/version2_final_product_application.py'
+      - 'tests/test_education_workspace.py'
+      - 'tests/test_d10_workspace_application_recovery.py'
+      - '.github/workflows/d10-recovery-serial-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d10-recovery-serial-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  d10-recovery-convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      STACK_BASE_SHA: 4766eef88ac0400919cb551103eb28de4300be9e
+      STACK_BASE_REF: converge/pgn-training-warning-privacy-language-settings-observerqa-p0qa-w6settings-streamingqa-20261003
+      SERIAL_EDUCATION_DOMAIN_BLOB: 0288d1895472b9e4ead9389e910ffcdf872019e0
+      SERIAL_FINAL_COMPOSITION_TEST_BLOB: 99d946bcc23a278fbbc98242ebbfdc31921ff003
+      STORE_BLOB: 6eeeff2f46b5190bc1c20e21375ecab07117fab9
+      APP_BLOB: 433086d9308a1c1b87b836ab8d32ae213c9ddb95
+      STORE_TEST_BLOB: 13be259863fd208a8936dd335a73c8a956e3ac55
+      APP_TEST_BLOB: 0b1ef8aac27e74c328625b23d9c27afb297fe66f
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove exact serial parent and bounded convergence scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.event.pull_request.base.ref }}" = "$STACK_BASE_REF"
+          test "${{ github.event.pull_request.base.sha }}" = "$STACK_BASE_SHA"
+          git cat-file -e "$STACK_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$STACK_BASE_SHA" HEAD
+          git diff --check "$STACK_BASE_SHA" HEAD
+          mapfile -t actual < <(git diff --name-only "$STACK_BASE_SHA" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/d10-recovery-serial-convergence.yml'
+            'acs/education_workspace_store.py'
+            'acs/version2_final_product_application.py'
+            'tests/test_d10_workspace_application_recovery.py'
+            'tests/test_education_workspace.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected D10 serial recovery scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          test "$(git rev-parse HEAD:acs/education_workspace.py)" = "$SERIAL_EDUCATION_DOMAIN_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_final_product_composition.py)" = "$SERIAL_FINAL_COMPOSITION_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/education_workspace_store.py)" = "$STORE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_final_product_application.py)" = "$APP_BLOB"
+          test "$(git rev-parse HEAD:tests/test_education_workspace.py)" = "$STORE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d10_workspace_application_recovery.py)" = "$APP_TEST_BLOB"
+          echo 'D10_SERIAL_RECOVERY_IDENTITY=PASS'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Compile exact recovery convergence
+        run: >-
+          python -m py_compile
+          acs/education_workspace_store.py
+          acs/version2_final_product_application.py
+          tests/test_education_workspace.py
+          tests/test_d10_workspace_application_recovery.py
+      - name: Run D10 store, application and final-product recovery contracts
+        run: >-
+          python -m unittest -v
+          tests.test_education_workspace
+          tests.test_d10_workspace_application_recovery
+          tests.test_version2_final_product_composition
