@@ -27,6 +27,7 @@ from .bookdocument import (
 )
 from .chesscore import Board
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
+from .text_encoding import LocalTextDecodeError, decode_local_text
 
 
 MAX_TEXT_SOURCE_BYTES = 8 * 1024 * 1024
@@ -85,7 +86,7 @@ def _optional_text(value: object, field: str) -> str | None:
     return _required_text(value, field)
 
 
-def _source_text(source: object) -> tuple[str, bytes]:
+def _source_text(source: object) -> tuple[str, bytes, str]:
     if type(source) is str:
         try:
             raw = source.encode("utf-8")
@@ -99,7 +100,7 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 "Text book source exceeds the supported size",
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, raw
+        return source, raw, "unicode"
     if type(source) is bytes:
         if len(source) > MAX_TEXT_SOURCE_BYTES:
             raise BookTextImportError(
@@ -107,12 +108,13 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
         try:
-            return source.decode("utf-8-sig"), source
-        except UnicodeDecodeError as exc:
+            decoded = decode_local_text(source)
+        except LocalTextDecodeError as exc:
             raise BookTextImportError(
-                "Text book source must use UTF-8 encoding",
+                "Text book source uses an unsupported or ambiguous encoding",
                 code=BookTextImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        return decoded.text, source, decoded.encoding
     raise BookTextImportError(
         "Text book source must be text or bytes",
         code=BookTextImportErrorCode.INVALID_ARGUMENT,
@@ -527,7 +529,7 @@ def import_text_book(
     author: str | None = None,
     language: str | None = None,
 ) -> BookTextImportResult:
-    """Import UTF-8 TXT or Markdown into an existing semantic ``BookDocument``.
+    """Import local TXT or Markdown into an existing semantic ``BookDocument``.
 
     The adapter performs no filesystem or network access. Plain TXT is readable
     text only: it never guesses headings, games, FENs, or ASCII chess diagrams.
@@ -539,8 +541,12 @@ def import_text_book(
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
     override_language = _optional_text(language, "language")
-    text, raw = _source_text(source)
+    text, raw, source_encoding = _source_text(source)
     builder = _Builder(resolved_format)
+    if source_encoding in {"utf-16", "windows-1251"}:
+        builder.warning(
+            f"Source text was decoded locally from {source_encoding} and normalized to Unicode for reading; original bytes were not modified"
+        )
 
     if resolved_format is BookTextFormat.TXT:
         _parse_txt(text, builder)
