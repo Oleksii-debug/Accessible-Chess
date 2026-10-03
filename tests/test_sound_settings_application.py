@@ -375,9 +375,8 @@ class SoundSettingsApplicationTests(unittest.TestCase):
                 self.assertIn(event_id, item["sound_choices"])
 
     def test_snapshot_labels_every_core_sound_event(self) -> None:
-        _storage, _manager, _playback, runtime = self._profile_runtime()
-        profiles = runtime._profile_provider.__self__
-        app = SoundSettingsApplication(profiles, runtime)
+        _storage, manager, _playback, runtime = self._profile_runtime()
+        app = SoundSettingsApplication(manager, runtime)
 
         snapshot = app.snapshot(language="en")
         labels = {
