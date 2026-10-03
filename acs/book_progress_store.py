@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+import secrets
 import threading
 import time
 from typing import Any
@@ -411,25 +412,78 @@ class BookProgressStore:
             return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
     @classmethod
+    def _quarantine_owned_cleanup_unlocked(
+        cls,
+        path: Path,
+        expected: os.stat_result | None,
+        *,
+        lock_file: bool,
+    ) -> None:
+        """Vacate an owned cleanup pathname without a check-then-unlink race.
+
+        Cleanup runs only on failed/abandoned publication paths.  Moving the
+        candidate to a high-entropy same-directory quarantine makes the
+        canonical temp/lock pathname reusable without ever unlinking after a
+        pathname identity check.  The quarantine is intentionally retained:
+        if a non-cooperating actor wins the final check->rename window, its
+        bytes may be what moved.  Preserving rare residue is safer than a
+        second destructive pathname operation.
+        """
+        if expected is None:
+            return
+        validator = (
+            cls._require_private_lock_metadata
+            if lock_file
+            else cls._require_private_temp_metadata
+        )
+        try:
+            current = os.lstat(path)
+            validator(current)
+        except (FileNotFoundError, OSError, BookProgressStoreError):
+            return
+        if not cls._same_file_identity(expected, current):
+            return
+
+        quarantine: Path | None = None
+        for _ in range(8):
+            candidate = path.parent / (
+                f".{path.name}.cleanup-quarantine-{secrets.token_hex(8)}"
+            )
+            if candidate.exists() or candidate.is_symlink():
+                continue
+            quarantine = candidate
+            break
+        if quarantine is None:
+            return
+
+        try:
+            os.replace(path, quarantine)
+        except OSError:
+            return
+
+        try:
+            moved = os.lstat(quarantine)
+            validator(moved)
+        except (FileNotFoundError, OSError, BookProgressStoreError):
+            return
+        # Do not unlink quarantine even when it is still our inode.  A second
+        # pathname check followed by unlink would simply recreate the same
+        # substitution race this helper exists to eliminate.
+        if not cls._same_file_identity(expected, moved):
+            return
+
+    @classmethod
     def _discard_owned_temp_unlocked(
         cls,
         path: Path,
         expected: os.stat_result | None,
     ) -> None:
-        """Remove only the exact private temp inode created by this writer."""
-        if expected is None:
-            return
-        try:
-            current = os.lstat(path)
-            cls._require_private_temp_metadata(current)
-        except (FileNotFoundError, OSError, BookProgressStoreError):
-            return
-        if not cls._same_file_identity(expected, current):
-            return
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        """Vacate only a writer-owned temp pathname; never unlink by pathname."""
+        cls._quarantine_owned_cleanup_unlocked(
+            path,
+            expected,
+            lock_file=False,
+        )
 
     @classmethod
     def _discard_owned_lock_unlocked(
@@ -437,20 +491,12 @@ class BookProgressStore:
         path: Path,
         expected: os.stat_result | None,
     ) -> None:
-        """Remove only a failed lock inode exclusively created by this store."""
-        if expected is None:
-            return
-        try:
-            current = os.lstat(path)
-            cls._require_private_lock_metadata(current)
-        except (FileNotFoundError, OSError, BookProgressStoreError):
-            return
-        if not cls._same_file_identity(expected, current):
-            return
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        """Vacate only a failed writer-owned lock pathname safely."""
+        cls._quarantine_owned_cleanup_unlocked(
+            path,
+            expected,
+            lock_file=True,
+        )
 
     def _read_raw_file_unlocked(self, path: Path, *, missing_ok: bool) -> bytes | None:
         """Read through the exact descriptor whose file identity was validated.
