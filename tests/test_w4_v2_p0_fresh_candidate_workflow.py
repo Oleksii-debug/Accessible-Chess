@@ -104,6 +104,19 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS", self.text)
         self.assertNotIn("ACCESSIBLE CHESS V2 PRODUCTION COMPOSITION DIAGNOSTIC PASS", self.text)
 
+    def test_fresh_extraction_reproves_exact_user_sound_pack_inside_zip(self) -> None:
+        extract = self.text.index("Expand-Archive")
+        sound = self.text.index("FRESH_EXTRACTION_USER_SOUND_PACK=PASS")
+        diagnostic = self.text.index("PACKAGED_EXE_P0F_DIAGNOSTIC=PASS")
+        self.assertLess(extract, sound)
+        self.assertLess(sound, diagnostic)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_DIGEST_MISMATCH", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH", self.text)
+        self.assertIn("inventory.json", self.text)
+        self.assertIn("EXPECTED_SOURCE_INVENTORY_SHA256", self.text)
+        self.assertIn("EXPECTED_SOURCE_WAV_COUNT", self.text)
+
     def test_fresh_extraction_precedes_packaged_machine_acceptance(self) -> None:
         extract = self.text.index("Expand-Archive")
         preflight = self.text.index("FRESH_EXTRACTION_PREFLIGHT=PASS")
