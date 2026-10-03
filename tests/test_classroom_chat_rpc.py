@@ -311,6 +311,22 @@ class ClassroomChatRpcTests(unittest.TestCase):
             self.assertEqual(sent.message_id, updates[0].message_id)
             self.assertTrue(updates[0].hidden)
 
+            recovered_after_hide = student.send_message(
+                ChatDraft(
+                    "real-rpc-message",
+                    "room-1",
+                    "student-1",
+                    "Durable through RPC",
+                )
+            )
+            self.assertEqual(sent.message_id, recovered_after_hide.message_id)
+            self.assertEqual(sent.sequence_no, recovered_after_hide.sequence_no)
+            self.assertEqual(
+                sent.sent_at_unix_ms,
+                recovered_after_hide.sent_at_unix_ms,
+            )
+            self.assertTrue(recovered_after_hide.hidden)
+
             restarted_server = ClassroomChatServerService(
                 store=ClassroomChatServerSQLiteStore(database),
                 authorization=authorization,
