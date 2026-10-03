@@ -23,7 +23,7 @@ from .classroom_collaboration_webview import (
     ClassroomCollaborationWebViewEvent,
 )
 from .classroom_file_http_transport import ClassroomFileHttpRpcCall
-from .classroom_file_rpc import ClassroomFileRpcClient
+from .classroom_file_rpc import ClassroomFileRpcClient, MAX_RPC_UPLOAD_BYTES
 from .classroom_realtime_media import ClassroomMediaController, ClassroomRosterPort
 from .full_product_ui_shell import UILanguage
 
@@ -90,6 +90,11 @@ def build_classroom_collaboration_http_runtime(
         raise TypeError("allow_insecure_loopback must be bool")
     if local_quota is not None and not isinstance(local_quota, FileQuotaPolicy):
         raise TypeError("local_quota must be FileQuotaPolicy")
+    quota = local_quota or FileQuotaPolicy()
+    if quota.max_file_bytes > MAX_RPC_UPLOAD_BYTES:
+        raise ValueError(
+            "local file quota exceeds the authenticated RPC upload limit"
+        )
 
     if isinstance(store_path, Path):
         path = store_path
@@ -120,6 +125,7 @@ def build_classroom_collaboration_http_runtime(
         room_id=room_id,
         participant_id=participant_id,
         transport=file_call,
+        max_upload_bytes=quota.max_file_bytes,
     )
 
     store = ClassroomCollaborationSQLiteStore(str(path))
@@ -131,7 +137,7 @@ def build_classroom_collaboration_http_runtime(
         files=file_client,
         store=store,
         file_store=file_client,
-        quota=local_quota or FileQuotaPolicy(),
+        quota=quota,
     )
     webview = ClassroomCollaborationWebView(
         controller,
