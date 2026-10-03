@@ -4,7 +4,6 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from types import MappingProxyType
 from typing import Mapping
 
 from .chesscore import Board, Move
@@ -138,14 +137,11 @@ class ExerciseDefinition:
         object.__setattr__(self, "start_fen", start_fen)
         object.__setattr__(self, "steps", steps)
         object.__setattr__(self, "tags", tuple(_normalize_tag(tag) for tag in self.tags))
-        # The dataclass is frozen; keep the definition identity frozen too.
         # Snapshot once before validation/publication so a mutable or custom
         # Mapping cannot change between the checked and stored representations.
-        object.__setattr__(
-            self,
-            "metadata",
-            MappingProxyType(metadata),
-        )
+        # Keep a plain dict for dataclass/deepcopy compatibility; ExerciseSession
+        # captures the schema-v4 definition digest once at session creation.
+        object.__setattr__(self, "metadata", metadata)
 
 
 @dataclass(frozen=True)
@@ -181,6 +177,9 @@ class ExerciseSession:
         if not isinstance(definition, ExerciseDefinition):
             raise TypeError("definition must be an ExerciseDefinition")
         self.definition = definition
+        # Persistence identity is immutable for this session even if a caller
+        # later mutates the plain metadata dict retained for compatibility.
+        self._definition_digest = _definition_digest(definition)
         self._board = Board(definition.start_fen)
         self._accepted_path: list[str] = []
         self._step_index = 0
@@ -321,7 +320,7 @@ class ExerciseSession:
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
             "exercise_id": self.definition.exercise_id,
-            "definition_digest": _definition_digest(self.definition),
+            "definition_digest": self._definition_digest,
             "accepted_path": list(self._accepted_path),
             "position_fen": self._board.fen(),
             "step_index": self._step_index,
