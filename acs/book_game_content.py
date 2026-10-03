@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
-from .bookdocument import Game, VariationTree
+from .bookdocument import BookDocumentError, Game, VariationTree
+from .chesscore import Board
 from .gametree import GameTreeSerializationError, PgnGame, serialize_game
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
@@ -36,6 +37,7 @@ class BookGameContentErrorCode(str, Enum):
     INVALID_CANONICAL_GAME = "invalid_canonical_game"
     MULTI_GAME_BLOCK = "multi_game_block"
     ROOT_FEN_CONFLICT = "root_fen_conflict"
+    INVALID_ROOT_FEN = "invalid_root_fen"
 
 
 class BookGameContentError(ValueError):
@@ -191,9 +193,40 @@ def resolve_book_game(
             "book game resolver requires a Game block",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
+    try:
+        # Book blocks are mutable authoring objects. Rebuild one validated
+        # canonical payload and use that snapshot for the entire resolution.
+        # Re-reading the live block after validation would reopen a TOCTOU window:
+        # authoring could change pgn/game_id or presentation metadata while a
+        # lookup/parser callback is in flight.
+        snapshot = block.as_dict()
+    except (BookDocumentError, AttributeError) as exc:
+        raise BookGameContentError(
+            "book game block is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        ) from exc
+    pgn = snapshot.get("pgn", "")
+    game_id = snapshot.get("game_id")
+    if not isinstance(pgn, str) or (
+        game_id is not None
+        and (
+            not isinstance(game_id, int)
+            or isinstance(game_id, bool)
+            or game_id < 0
+        )
+    ):
+        raise BookGameContentError(
+            "book game snapshot is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        )
+    # BookDocument deliberately accepts str subclasses at its semantic boundary.
+    # The canonical PGN ingress deliberately accepts exact built-in text only.
+    # Normalize only after BookDocument has validated the snapshot so this
+    # adapter preserves both contracts instead of weakening either authority.
+    pgn = str(pgn)
     selected = _source(source)
-    has_embedded = bool(block.pgn.strip())
-    has_reference = block.game_id is not None
+    has_embedded = bool(pgn.strip())
+    has_reference = game_id is not None
 
     if selected is BookGameSource.AUTO:
         if has_embedded and has_reference:
@@ -217,15 +250,15 @@ def resolve_book_game(
                 "book game has no embedded PGN",
                 code=BookGameContentErrorCode.EMBEDDED_GAME_MISSING,
             )
-        game = _one_embedded_game(block.pgn)
+        game = _one_embedded_game(pgn)
     elif selected is BookGameSource.REFERENCE:
         if not has_reference:
             raise BookGameContentError(
                 "book game has no referenced game identity",
                 code=BookGameContentErrorCode.REFERENCED_GAME_MISSING,
             )
-        assert block.game_id is not None
-        game = _reference_game(block.game_id, lookup)
+        assert isinstance(game_id, int) and not isinstance(game_id, bool)
+        game = _reference_game(game_id, lookup)
     else:  # Enum exhaustiveness / defensive future schema boundary.
         raise BookGameContentError(
             "book game source selection is unsupported",
@@ -235,12 +268,38 @@ def resolve_book_game(
     return ResolvedBookGame(
         game=game,
         source=selected,
-        block_id=block.block_id,
-        source_anchor=block.source_anchor,
-        title=block.title,
-        game_id=block.game_id,
+        block_id=snapshot.get("block_id"),
+        source_anchor=snapshot.get("source_anchor"),
+        title=snapshot.get("title"),
+        game_id=game_id,
         warnings=tuple(game.warnings),
     )
+
+
+def _canonical_root_fen(value: object) -> tuple[str, str, bool]:
+    """Return preserved/canonical FEN plus whether counters were authored."""
+    if not isinstance(value, str) or not value.strip():
+        raise BookGameContentError(
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        )
+    # Match the BookDocument text contract, then cross the stricter canonical
+    # Board/PGN boundary with exact built-in text.
+    preserved = str(value).strip()
+    fields = preserved.split()
+    if len(fields) not in {4, 6}:
+        raise BookGameContentError(
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        )
+    try:
+        canonical = Board(preserved).fen()
+    except (TypeError, ValueError) as exc:
+        raise BookGameContentError(
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        ) from exc
+    return preserved, canonical, len(fields) == 4
 
 
 def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
@@ -257,18 +316,73 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
             "book variation resolver requires a VariationTree block",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
-    game = _one_embedded_game(block.pgn)
-    tagged_fen = game.tags.get("FEN")
-    if tagged_fen is not None and tagged_fen.strip() != block.root_fen:
+    # Resolve the root first so root-FEN corruption keeps its precise stable
+    # error code. Then take one canonical BookDocument snapshot and consume only
+    # that payload. This closes the post-validation TOCTOU window without adding
+    # a second Book/chess authority.
+    try:
+        live_root_fen = block.root_fen
+    except AttributeError as exc:
         raise BookGameContentError(
-            "book variation root position conflicts with its PGN FEN tag",
-            code=BookGameContentErrorCode.ROOT_FEN_CONFLICT,
+            "book variation root position is invalid",
+            code=BookGameContentErrorCode.INVALID_ROOT_FEN,
+        ) from exc
+    preserved_root_fen, canonical_root_fen, root_omits_counters = _canonical_root_fen(
+        live_root_fen
+    )
+    try:
+        snapshot = block.as_dict()
+    except (BookDocumentError, AttributeError) as exc:
+        raise BookGameContentError(
+            "book variation block is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        ) from exc
+    snapshot_root = snapshot.get("root_fen")
+    pgn = snapshot.get("pgn")
+    if not isinstance(snapshot_root, str) or not isinstance(pgn, str):
+        raise BookGameContentError(
+            "book variation snapshot is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
         )
+    snapshot_root = str(snapshot_root)
+    pgn = str(pgn)
+    if snapshot_root != preserved_root_fen:
+        raise BookGameContentError(
+            "book variation changed while its canonical snapshot was captured",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        )
+    # Compare semantic positions canonically instead of raw strings:
+    # BookDocument intentionally accepts equivalent four- and six-field FEN
+    # spellings, while PGN FEN tags normally carry all six fields.
+    game = _one_embedded_game(pgn)
+    tagged_fen = game.tags.get("FEN")
+    if tagged_fen is not None:
+        try:
+            canonical_tagged_fen = Board(tagged_fen.strip()).fen()
+        except (TypeError, ValueError) as exc:
+            raise BookGameContentError(
+                "book variation PGN carries an invalid canonical FEN tag",
+                code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+            ) from exc
+        if root_omits_counters:
+            # A compact four-field Book root never asserted halfmove/fullmove
+            # counters. Board() necessarily synthesizes 0/1 while validating it,
+            # so compare only the four authored position fields in this case.
+            positions_match = (
+                canonical_tagged_fen.split()[:4] == canonical_root_fen.split()[:4]
+            )
+        else:
+            positions_match = canonical_tagged_fen == canonical_root_fen
+        if not positions_match:
+            raise BookGameContentError(
+                "book variation root position conflicts with its PGN FEN tag",
+                code=BookGameContentErrorCode.ROOT_FEN_CONFLICT,
+            )
     return ResolvedBookVariation(
-        root_fen=block.root_fen,
+        root_fen=preserved_root_fen,
         game=game,
-        block_id=block.block_id,
-        source_anchor=block.source_anchor,
-        title=block.title,
+        block_id=snapshot.get("block_id"),
+        source_anchor=snapshot.get("source_anchor"),
+        title=snapshot.get("title"),
         warnings=tuple(game.warnings),
     )
