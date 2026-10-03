@@ -166,7 +166,13 @@
     let best = -1;
     let bestScore = -1;
     let bestScoreCount = 0;
+    let candidateCount = 0;
     while (match >= 0) {
+      candidateCount += 1;
+      // Relocation is recovery, not an unbounded search primitive. Exact-offset
+      // direct matches are handled by the caller and remain usable if this
+      // recovery budget is exhausted.
+      if (candidateCount > 4096) return -1;
       const score = contextMatchScore(fullText, selectedText, match, before, after);
       if (score > bestScore) {
         best = match;
