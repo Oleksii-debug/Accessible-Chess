@@ -339,6 +339,25 @@ class SoundPackCatalogTests(unittest.TestCase):
         self.assertIsNone(downloaded.rights_evidence)
         self.assertEqual(downloader.calls[0][1], 1024)
 
+    def test_current_catalog_version_is_not_redownloaded_or_reinstalled(self):
+        current = make_manifest(version="2.0.0")
+        entry = make_entry(current)
+        downloader = FakeDownloader(make_download(entry))
+        storage = FakeStorage(
+            {
+                "classic": make_manifest("classic"),
+                current.pack_id: current,
+            }
+        )
+        manager = SoundPackManager(downloader, storage)
+
+        with self.assertRaisesRegex(SoundPackInstallError, "already installed"):
+            manager.install(entry)
+
+        self.assertEqual([], downloader.calls)
+        self.assertEqual([], storage.install_calls)
+        self.assertEqual(current, storage.items[current.pack_id])
+
     def test_oversized_catalog_entry_is_rejected_before_download(self):
         entry = make_entry()
         downloader = FakeDownloader(make_download(entry))
