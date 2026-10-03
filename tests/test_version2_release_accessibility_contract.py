@@ -120,8 +120,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         focus_handler = BOOTSTRAP[focus_start:focus_end]
         skip = 'if (target.id.indexOf("v2-nav-") === 0) return;'
         record = 'bridge.v2_record_focus(target.id)'
+        self.assertIn('const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;', BOOTSTRAP)
+        self.assertIn('function validFocusId(value)', BOOTSTRAP)
+        self.assertIn('if (!target || !validFocusId(target.id)) return;', focus_handler)
         self.assertIn(skip, focus_handler)
         self.assertIn(record, focus_handler)
+        self.assertLess(focus_handler.index('validFocusId(target.id)'), focus_handler.index(record))
         self.assertLess(focus_handler.index(skip), focus_handler.index(record))
 
     def test_library_import_events_patch_only_the_import_region(self) -> None:
@@ -187,8 +191,9 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
         self.assertIn('let queuedFocusTarget = "";', drain)
-        self.assertIn('const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
-        self.assertIn('if (candidate) queuedFocusTarget = candidate;', drain)
+        self.assertIn('const candidate = payload.focus_target;', drain)
+        self.assertIn('if (validFocusId(candidate)) queuedFocusTarget = candidate;', drain)
+        self.assertNotIn('if (candidate) queuedFocusTarget = candidate;', drain)
         self.assertIn('return needsRefresh ? refresh(true) : undefined;', drain)
         self.assertIn('if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);', drain)
         self.assertLess(
