@@ -57,6 +57,118 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_backup_staging_substitution_is_not_published_or_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "notes.txt").write_bytes(b"canonical-user-data")
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+
+            real_atomic_json = upgrade_base_module._atomic_json
+            substituted: Path | None = None
+            moved_owned: Path | None = None
+
+            def substitute_after_manifest(path: Path, value) -> None:
+                nonlocal substituted, moved_owned
+                real_atomic_json(path, value)
+                staging = Path(path).parent
+                moved_owned = staging.with_name(staging.name + ".owned-original")
+                os.replace(staging, moved_owned)
+                staging.mkdir()
+                (staging / "foreign.txt").write_bytes(b"foreign-staging-directory")
+                substituted = staging
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_atomic_json",
+                side_effect=substitute_after_manifest,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "upgrade backup staging directory changed unexpectedly",
+                ):
+                    coordinator._create_backup("staging-substitution")
+
+            self.assertIsNotNone(substituted)
+            self.assertIsNotNone(moved_owned)
+            assert substituted is not None
+            assert moved_owned is not None
+            self.assertEqual(
+                (substituted / "foreign.txt").read_bytes(),
+                b"foreign-staging-directory",
+                "cleanup deleted a directory substituted at the staging pathname",
+            )
+            self.assertTrue(moved_owned.is_dir())
+            self.assertFalse(
+                (coordinator.layout.backup_root / "staging-substitution").exists()
+            )
+            self.assertIsNone(coordinator._last_backup)
+
+    def test_backup_publication_rejects_published_directory_substitution(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "notes.txt").write_bytes(b"canonical-user-data")
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            final = coordinator.layout.backup_root / "publication-substitution"
+
+            real_atomic_json = upgrade_base_module._atomic_json
+            real_replace = os.replace
+            staging: Path | None = None
+            displaced_owned: Path | None = None
+            injected = False
+
+            def capture_staging(path: Path, value) -> None:
+                nonlocal staging
+                staging = Path(path).parent
+                real_atomic_json(path, value)
+
+            def substitute_after_publish(source: object, destination: object) -> None:
+                nonlocal injected, displaced_owned
+                source_path = Path(source)
+                destination_path = Path(destination)
+                real_replace(source, destination)
+                if (
+                    staging is not None
+                    and source_path == staging
+                    and destination_path == final
+                    and not injected
+                ):
+                    displaced_owned = final.with_name(final.name + ".owned-original")
+                    real_replace(final, displaced_owned)
+                    final.mkdir()
+                    (final / "foreign.txt").write_bytes(
+                        b"foreign-published-directory"
+                    )
+                    injected = True
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_atomic_json",
+                side_effect=capture_staging,
+            ), mock.patch.object(
+                upgrade_base_module.os,
+                "replace",
+                side_effect=substitute_after_publish,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "upgrade backup publication changed unexpectedly",
+                ):
+                    coordinator._create_backup("publication-substitution")
+
+            self.assertTrue(injected)
+            self.assertIsNotNone(displaced_owned)
+            assert displaced_owned is not None
+            self.assertEqual(
+                (final / "foreign.txt").read_bytes(),
+                b"foreign-published-directory",
+            )
+            self.assertTrue(displaced_owned.is_dir())
+            self.assertIsNone(coordinator._last_backup)
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
