@@ -27,6 +27,7 @@ from .sound_pack_catalog import (
     DEFAULT_MAX_SOUND_PACK_BYTES,
     DownloadedSoundPack,
     SoundAssetDigest,
+    SoundPackRightsEvidence,
 )
 from .sound_profiles import (
     SoundPackManifest,
@@ -40,6 +41,7 @@ from .sound_profiles import (
 SOUND_PACK_STORE_SCHEMA_VERSION = 1
 _MANIFEST_NAME = "manifest.json"
 _INTEGRITY_NAME = "integrity.json"
+_RIGHTS_NAME = "rights.json"
 _ACTIVE_NAME = "active.json"
 _MAX_METADATA_BYTES = 128 * 1024
 
@@ -755,6 +757,35 @@ class FilesystemSoundPackStore:
             _decode_json(raw, "sound pack integrity metadata")
         )
 
+    @staticmethod
+    def _read_rights(
+        version_dir: Path,
+    ) -> SoundPackRightsEvidence | None:
+        path = version_dir / _RIGHTS_NAME
+        if not os.path.lexists(path):
+            return None
+        metadata = _require_regular_file(
+            path, "sound pack rights evidence"
+        )
+        if metadata.st_size > _MAX_METADATA_BYTES:
+            raise SoundPackStoreError(
+                "sound pack rights evidence exceeds the resource limit"
+            )
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise SoundPackStoreError(
+                "sound pack rights evidence could not be read"
+            ) from exc
+        try:
+            return SoundPackRightsEvidence.from_mapping(
+                _decode_json(raw, "sound pack rights evidence")
+            )
+        except (TypeError, ValueError) as exc:
+            raise SoundPackStoreError(
+                "sound pack rights evidence is invalid"
+            ) from exc
+
     def _verify_version(
         self,
         version_dir: Path,
@@ -774,6 +805,14 @@ class FilesystemSoundPackStore:
             )
 
         digests = self._read_integrity(version_dir)
+        rights_evidence = self._read_rights(version_dir)
+        if (
+            rights_evidence is not None
+            and rights_evidence.license_id != manifest.license_id
+        ):
+            raise SoundPackStoreError(
+                "sound pack rights license does not match manifest"
+            )
         expected_assets = set(manifest.files.values())
         if set(digests) != expected_assets:
             raise SoundPackStoreError(
@@ -785,6 +824,8 @@ class FilesystemSoundPackStore:
             _INTEGRITY_NAME,
             *expected_assets,
         }
+        if rights_evidence is not None:
+            expected_files.add(_RIGHTS_NAME)
         files, directories = _scan_exact_tree(
             version_dir, "installed sound pack version"
         )
@@ -953,9 +994,11 @@ class FilesystemSoundPackStore:
                 expected_pack_id=manifest.pack_id,
                 expected_version=manifest.version,
             )
+            existing_rights = self._read_rights(destination)
             if (
                 existing_manifest != manifest
                 or existing_digests != digests
+                or existing_rights != downloaded.rights_evidence
             ):
                 raise SoundPackStoreError(
                     "sound pack version already exists with different content"
@@ -995,13 +1038,23 @@ class FilesystemSoundPackStore:
                 staging / _INTEGRITY_NAME,
                 _canonical_json(_integrity_mapping(digests)),
             )
+            if downloaded.rights_evidence is not None:
+                self._write_new(
+                    staging / _RIGHTS_NAME,
+                    _canonical_json(downloaded.rights_evidence.to_mapping()),
+                )
 
             staged_manifest, staged_digests = self._verify_version(
                 staging,
                 expected_pack_id=manifest.pack_id,
                 expected_version=manifest.version,
             )
-            if staged_manifest != manifest or staged_digests != digests:
+            staged_rights = self._read_rights(staging)
+            if (
+                staged_manifest != manifest
+                or staged_digests != digests
+                or staged_rights != downloaded.rights_evidence
+            ):
                 raise SoundPackStoreError(
                     "locally staged sound pack identity changed"
                 )
@@ -1026,9 +1079,11 @@ class FilesystemSoundPackStore:
                         raise SoundPackStoreError(
                             "sound pack install lost an atomic publication race"
                         ) from exc
+                    current_rights = self._read_rights(destination)
                     if (
                         current_manifest == manifest
                         and current_digests == digests
+                        and current_rights == downloaded.rights_evidence
                     ):
                         _fsync_directory(versions_dir)
                         self._publish_active(
@@ -1114,6 +1169,21 @@ class FilesystemSoundPackStore:
             return self._built_in[identity].version
         try:
             return self._installed_disk_pack(identity).manifest.version
+        except (TypeError, ValueError, SoundPackStoreError):
+            return None
+
+    def rights_evidence(
+        self,
+        pack_id: str,
+    ) -> SoundPackRightsEvidence | None:
+        """Return version-bound auditable rights for the active verified pack."""
+
+        identity = _stable_id(pack_id, allow_dot=True)
+        if identity in self._built_in:
+            return None
+        try:
+            installed = self._installed_disk_pack(identity)
+            return self._read_rights(installed.version_dir)
         except (TypeError, ValueError, SoundPackStoreError):
             return None
 
