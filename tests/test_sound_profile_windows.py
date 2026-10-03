@@ -276,6 +276,23 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
                         )
                     )
 
+    def test_hardlinked_cache_lock_never_writes_external_inode(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-hardlink-") as raw:
+            root = Path(raw)
+            _resolver, _store, adapter = self._adapter(root)
+            adapter._ensure_real_cache_dir()
+            external = root / "external.lock"
+            external.write_bytes(b"")
+            os.link(external, adapter._cache_lock_path)
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "private regular file",
+            ):
+                adapter._open_cache_lock_descriptor()
+
+            self.assertEqual(b"", external.read_bytes())
+
     def test_classic_source_swap_after_lstat_fails_before_cache_publication(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-classic-swap-") as raw:
             root = Path(raw)
