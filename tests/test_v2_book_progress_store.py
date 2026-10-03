@@ -1686,6 +1686,57 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
         self.assertFalse(self.path.exists())
 
+    def test_initializing_empty_lock_can_finish_on_same_inode(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"")
+        slept = False
+
+        def finish_initialization(_seconds: float) -> None:
+            nonlocal slept
+            if slept:
+                return
+            slept = True
+            with self.store._lock_path.open("r+b") as stream:
+                stream.write(b"\0")
+                stream.flush()
+                os.fsync(stream.fileno())
+
+        with mock.patch(
+            "acs.book_progress_store.time.sleep",
+            side_effect=finish_initialization,
+        ):
+            self.assertFalse(self.store.has("book:one"))
+
+        self.assertTrue(slept)
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+        self.assertFalse(self.path.exists())
+
+    def test_initializing_empty_lock_replacement_fails_closed(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"")
+        replacement = self.store._lock_path.with_name("replacement-initializer.lock")
+        replacement.write_bytes(b"\0")
+        swapped = False
+
+        def replace_during_wait(_seconds: float) -> None:
+            nonlocal swapped
+            if swapped:
+                return
+            swapped = True
+            os.replace(replacement, self.store._lock_path)
+
+        with mock.patch(
+            "acs.book_progress_store.time.sleep",
+            side_effect=replace_during_wait,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertTrue(swapped)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+        self.assertFalse(self.path.exists())
+
     def test_preexisting_empty_lock_is_rejected_without_initialization(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"")
