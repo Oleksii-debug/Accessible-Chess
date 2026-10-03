@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
+import acs.classroom_media_policy_authority as policy_module
 from acs.classroom_media_policy_authority import (
     ClassroomMediaPolicyError,
     ClassroomMediaPolicyProviderAdmin,
@@ -99,6 +102,64 @@ def _microphone_allowed(authority: SqliteClassroomMediaPolicyAuthority) -> bool:
 
 
 class ClassroomProviderCancellationAtomicityTests(unittest.TestCase):
+    def test_repeated_cancel_during_effect_lock_acquire_recovers_and_releases_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "policy.sqlite3"
+            authority = _authority(
+                path,
+                _RosterResolver(),
+                _JoinIdentityResolver(),
+                timeout_seconds=0.1,
+            )
+            entered = threading.Event()
+            finish = threading.Event()
+            completed = threading.Event()
+            acquired = object()
+            released = []
+
+            def delayed_acquire(_path, _timeout_seconds):
+                entered.set()
+                finish.wait(timeout=2.0)
+                completed.set()
+                return acquired
+
+            async def release_result(connection):
+                released.append(connection)
+
+            async def exercise() -> None:
+                scope = authority.provider_effect_scope(
+                    room_id="room-1",
+                    participant_id="student-1",
+                )
+                with patch.object(
+                    policy_module,
+                    "_acquire_effect_lock",
+                    side_effect=delayed_acquire,
+                ), patch.object(
+                    policy_module,
+                    "_release_effect_lock_async",
+                    side_effect=release_result,
+                ):
+                    waiter = asyncio.create_task(scope.__aenter__())
+                    while not entered.is_set():
+                        await asyncio.sleep(0)
+                    waiter.cancel()
+                    await asyncio.sleep(0)
+                    self.assertFalse(waiter.done())
+                    waiter.cancel()
+                    await asyncio.sleep(0)
+                    self.assertFalse(waiter.done())
+                    finish.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await asyncio.wait_for(waiter, timeout=1.0)
+                    while not completed.is_set():
+                        await asyncio.sleep(0)
+
+                self.assertEqual(released, [acquired])
+                self.assertIsNone(scope._connection)
+
+            asyncio.run(exercise())
+
     def test_cancelled_restore_holds_effect_lock_until_provider_and_durable_restore_finish(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "policy.sqlite3"
