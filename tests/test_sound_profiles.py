@@ -160,7 +160,7 @@ class SoundPackManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "resource limit"):
             self._pack(pack_id="p" * 129)
         with self.assertRaisesRegex(ValueError, "resource limit"):
-            self._pack(version="1.0.0-" + "a" * 122)
+            self._pack(version="1.0.0-" + "a" * 123)
 
         files = {event: f"audio/{event}.wav" for event in CORE_SOUND_EVENTS}
         for index in range(2048 - len(files) + 1):
