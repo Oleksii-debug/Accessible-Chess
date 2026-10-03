@@ -95,6 +95,107 @@ class LiveKitClassroomModerationAdmin:
                 "LiveKit moderation provider operation failed"
             ) from None
 
+    async def moderation_effect_matches(
+        self,
+        *,
+        room_id: str,
+        command: ModerationCommand,
+    ) -> bool:
+        """Read provider state without applying a moderation effect.
+
+        This is a recovery proof seam only. It does not authorize commands and
+        never mutates LiveKit state. Exact True means the provider already
+        satisfies the command's idempotent state assignment.
+        """
+
+        if type(room_id) is not str or not room_id or room_id != room_id.strip():
+            raise LiveKitClassroomModerationAdminError(
+                "LiveKit moderation room id is invalid"
+            )
+        if type(command) is not ModerationCommand:
+            raise LiveKitClassroomModerationAdminError(
+                "LiveKit moderation command is invalid"
+            )
+
+        try:
+            if command.action is ModerationAction.PUBLISH_PERMISSION:
+                assert command.source is not None
+                participant = await self._participant(
+                    room_id=room_id,
+                    participant_id=command.target_id,
+                )
+                if getattr(participant, "identity", None) != command.target_id:
+                    raise LiveKitClassroomModerationAdminError(
+                        "LiveKit participant identity is not canonical"
+                    )
+                permission = getattr(participant, "permission", None)
+                if permission is None:
+                    raise LiveKitClassroomModerationAdminError(
+                        "LiveKit participant permission is unavailable"
+                    )
+                allowed = _explicit_publish_sources(self._api, permission)
+                source = _provider_source(self._api, command.source)
+                return (source in allowed) is bool(command.value)
+
+            if command.action is ModerationAction.SOFT_MUTE:
+                # The canonical false command is intentionally a provider no-op:
+                # it releases teacher policy but never forces remote unmute.
+                if command.value is False:
+                    return True
+                participant = await self._participant(
+                    room_id=room_id,
+                    participant_id=command.target_id,
+                )
+                if getattr(participant, "identity", None) != command.target_id:
+                    raise LiveKitClassroomModerationAdminError(
+                        "LiveKit participant identity is not canonical"
+                    )
+                microphone = _provider_source(
+                    self._api,
+                    MediaSource.MICROPHONE,
+                )
+                tracks = tuple(getattr(participant, "tracks", ()) or ())
+                for track in tracks:
+                    if getattr(track, "source", None) != microphone:
+                        continue
+                    muted = getattr(track, "muted", None)
+                    if type(muted) is not bool:
+                        raise LiveKitClassroomModerationAdminError(
+                            "LiveKit microphone mute state is invalid"
+                        )
+                    if not muted:
+                        return False
+                return True
+
+            if command.action is ModerationAction.REMOVE:
+                request = self._api.RoomParticipantIdentity(
+                    room=room_id,
+                    identity=command.target_id,
+                )
+                try:
+                    participant = await self._room.get_participant(request)
+                except Exception as error:
+                    if _is_not_found(self._api, error):
+                        return True
+                    raise LiveKitClassroomModerationAdminError(
+                        "LiveKit participant lookup failed"
+                    ) from None
+                if getattr(participant, "identity", None) != command.target_id:
+                    raise LiveKitClassroomModerationAdminError(
+                        "LiveKit participant identity is not canonical"
+                    )
+                return False
+
+            raise LiveKitClassroomModerationAdminError(
+                "LiveKit moderation action is unsupported"
+            )
+        except LiveKitClassroomModerationAdminError:
+            raise
+        except Exception:
+            raise LiveKitClassroomModerationAdminError(
+                "LiveKit moderation provider state verification failed"
+            ) from None
+
     async def _set_publish_permission(
         self,
         *,
