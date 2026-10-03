@@ -207,6 +207,8 @@ def _provider_catalog(
             )
         if pack_id != entry.manifest.pack_id:
             raise ValueError("sound pack catalog key must match manifest pack_id")
+        if pack_id in normalized:
+            raise ValueError("sound pack catalog contains duplicate pack identity")
         if pack_id == "classic":
             raise ValueError("provider catalog cannot replace the packaged classic authority")
         if not _windows_pack_is_playable(entry.manifest) and entry.compatible:
