@@ -541,7 +541,132 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
                     pass
 
 
-def _publication_guard(path: Path) -> Path:
+@dataclass(frozen=True, slots=True)
+class _PublicationGuard:
+    path: Path
+    identity: tuple[int, int]
+
+
+def _stat_identity(info: os.stat_result) -> tuple[int, int]:
+    return int(info.st_dev), int(info.st_ino)
+
+
+def _require_publication_guard(guard: _PublicationGuard) -> os.stat_result:
+    try:
+        info = _safe_stat(guard.path, "tracked publication guard")
+    except OSError as exc:
+        raise Version2UpgradeError(
+            "tracked publication guard changed unexpectedly"
+        ) from exc
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or _stat_identity(info) != guard.identity
+    ):
+        raise Version2UpgradeError(
+            "tracked publication guard changed unexpectedly"
+        )
+    return info
+
+
+def _publication_guard_hash(guard: _PublicationGuard) -> str:
+    """Hash one exact guarded inode through a stable descriptor.
+
+    Pathname identity is authenticated before and after the descriptor read.
+    Content stability is proved from descriptor observations only: pathname
+    stat and descriptor fstat timestamps are not cross-compared because
+    Windows exposes different/deprecated st_ctime semantics for those
+    interfaces. A second descriptor-bound hash makes same-size writes visible
+    even when filesystem timestamp granularity is too coarse to move mtime.
+    """
+    _require_publication_guard(guard)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(guard.path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _stat_identity(opened) != guard.identity
+        ):
+            raise Version2UpgradeError(
+                "tracked publication guard changed unexpectedly"
+            )
+        opened_state = (
+            int(opened.st_size),
+            int(getattr(opened, "st_mtime_ns", 0)),
+        )
+
+        first = hashlib.sha256()
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            first.update(block)
+        after_first = os.fstat(descriptor)
+        if (
+            _stat_identity(after_first) != guard.identity
+            or (
+                int(after_first.st_size),
+                int(getattr(after_first, "st_mtime_ns", 0)),
+            )
+            != opened_state
+        ):
+            raise Version2UpgradeError(
+                "tracked publication guard changed unexpectedly"
+            )
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        second = hashlib.sha256()
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            second.update(block)
+        after_second = os.fstat(descriptor)
+        if (
+            _stat_identity(after_second) != guard.identity
+            or (
+                int(after_second.st_size),
+                int(getattr(after_second, "st_mtime_ns", 0)),
+            )
+            != opened_state
+            or second.digest() != first.digest()
+        ):
+            raise Version2UpgradeError(
+                "tracked publication guard changed unexpectedly"
+            )
+    except Version2UpgradeError:
+        raise
+    except OSError as exc:
+        raise Version2UpgradeError(
+            "tracked publication guard could not be authenticated"
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    _require_publication_guard(guard)
+    return first.hexdigest()
+
+
+def _remove_publication_guard(guard: _PublicationGuard) -> None:
+    """Remove only the exact guard inode that this upgrader created."""
+    # Once a guard has been created, disappearance is itself a coordination
+    # failure.  Treat it exactly like substitution instead of silently
+    # accepting a window in which the guarded old inode may have been lost.
+    _require_publication_guard(guard)
+    try:
+        guard.path.unlink()
+    except OSError as exc:
+        raise Version2UpgradeError(
+            "tracked publication guard could not be removed safely"
+        ) from exc
+
+
+def _publication_guard(path: Path) -> _PublicationGuard:
     """Keep the authenticated pre-publication inode reachable across replace.
 
     A legitimate writer can race after the last semantic re-authentication but
@@ -553,12 +678,13 @@ def _publication_guard(path: Path) -> Path:
     info = _safe_stat(path, "tracked publication target")
     if not stat.S_ISREG(info.st_mode):
         raise Version2UpgradeError("tracked publication target must be a file")
+    target_identity = _stat_identity(info)
     for _ in range(8):
-        guard = path.parent / (
+        guard_path = path.parent / (
             f".{path.name}.publish-guard-{secrets.token_hex(6)}"
         )
         try:
-            os.link(path, guard)
+            os.link(path, guard_path)
         except FileExistsError:
             continue
         except OSError as exc:
@@ -566,17 +692,32 @@ def _publication_guard(path: Path) -> Path:
                 "tracked publication cannot be protected safely"
             ) from exc
         try:
-            guard_info = _safe_stat(guard, "tracked publication guard")
-            if not stat.S_ISREG(guard_info.st_mode):
-                raise Version2UpgradeError(
-                    "tracked publication guard must be a file"
+            guard_info = _safe_stat(guard_path, "tracked publication guard")
+            current_info = _safe_stat(path, "tracked publication target")
+            if (
+                not stat.S_ISREG(guard_info.st_mode)
+                or not stat.S_ISREG(current_info.st_mode)
+                or _stat_identity(guard_info) != target_identity
+                or _stat_identity(current_info) != target_identity
+            ):
+                raise Version2UpgradeBusy(
+                    "tracked publication changed while guard was created"
                 )
-            return guard
+            return _PublicationGuard(guard_path, target_identity)
         except Exception:
-            if guard.exists() or guard.is_symlink():
+            # Never clean up a pathname that another actor replaced after the
+            # hard link was created. Only the exact inode we linked is ours.
+            if guard_path.exists() or guard_path.is_symlink():
                 try:
-                    guard.unlink()
-                except OSError:
+                    cleanup_info = _safe_stat(
+                        guard_path, "tracked publication guard"
+                    )
+                    if (
+                        stat.S_ISREG(cleanup_info.st_mode)
+                        and _stat_identity(cleanup_info) == target_identity
+                    ):
+                        guard_path.unlink()
+                except (OSError, Version2UpgradeError):
                     pass
             raise
     raise Version2UpgradeBusy("tracked publication guard could not be allocated")
@@ -1934,22 +2075,26 @@ class Version2UpgradeCoordinator:
                 manifest, self.layout.settings_name
             )
 
-        guard: Path | None = None
+        guard: _PublicationGuard | None = None
         try:
             if original_state is not None:
                 guard = _publication_guard(path)
                 if (
-                    _hash(guard) != original_state
+                    _publication_guard_hash(guard) != original_state
                     or _hash(path) != original_state
                 ):
                     raise Version2UpgradeError(
                         "tracked user data changed during settings publication"
                     )
             _atomic_bytes(path, payload)
-            if guard is not None and _hash(guard) != original_state:
+            if (
+                guard is not None
+                and _publication_guard_hash(guard) != original_state
+            ):
                 # A writer changed the old inode after our final authentication.
                 # Put those exact user bytes back before failing closed.
-                os.replace(guard, path)
+                _require_publication_guard(guard)
+                os.replace(guard.path, path)
                 guard = None
                 _fsync_dir(path.parent)
                 raise Version2UpgradeError(
@@ -1961,11 +2106,8 @@ class Version2UpgradeCoordinator:
                 )
             return True
         finally:
-            if guard is not None and (guard.exists() or guard.is_symlink()):
-                try:
-                    guard.unlink()
-                except OSError:
-                    pass
+            if guard is not None:
+                _remove_publication_guard(guard)
 
     def _migrate_library(
         self,
@@ -2057,13 +2199,19 @@ class Version2UpgradeCoordinator:
             )
             self._prepare_library_publication(str(original_state))
 
-            guard: Path | None = _publication_guard(self.layout.library_path)
+            guard: _PublicationGuard | None = _publication_guard(
+                self.layout.library_path
+            )
             try:
+                assert guard is not None
+                _require_publication_guard(guard)
+                guard_state = _library_state_sha256(
+                    guard.path,
+                    schema_validator=self._validate_library_schema,
+                )
+                _require_publication_guard(guard)
                 if (
-                    _library_state_sha256(
-                        guard, schema_validator=self._validate_library_schema
-                    )
-                    != original_state
+                    guard_state != original_state
                     or _library_state_sha256(
                         self.layout.library_path,
                         schema_validator=self._validate_library_schema,
@@ -2075,15 +2223,17 @@ class Version2UpgradeCoordinator:
                     )
                 os.replace(publish, self.layout.library_path)
                 _fsync_dir(self.layout.root)
-                if (
-                    _library_state_sha256(
-                        guard, schema_validator=self._validate_library_schema
-                    )
-                    != original_state
-                ):
+                _require_publication_guard(guard)
+                guard_state = _library_state_sha256(
+                    guard.path,
+                    schema_validator=self._validate_library_schema,
+                )
+                _require_publication_guard(guard)
+                if guard_state != original_state:
                     # Preserve a writer that committed to the authenticated old
                     # inode after the final re-authentication but before replace.
-                    os.replace(guard, self.layout.library_path)
+                    _require_publication_guard(guard)
+                    os.replace(guard.path, self.layout.library_path)
                     guard = None
                     _fsync_dir(self.layout.root)
                     raise Version2UpgradeError(
@@ -2099,11 +2249,8 @@ class Version2UpgradeCoordinator:
                     )
                 return True
             finally:
-                if guard is not None and (guard.exists() or guard.is_symlink()):
-                    try:
-                        guard.unlink()
-                    except OSError:
-                        pass
+                if guard is not None:
+                    _remove_publication_guard(guard)
         finally:
             if database is not None:
                 close = getattr(database, "close", None)
