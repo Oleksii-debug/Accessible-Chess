@@ -62,6 +62,7 @@ class _PendingClassroomMediaJoinHttp:
     room_id: str
     participant_id: str
     client: ClassroomJoinHttpClient
+    retired: threading.Event
     future: Future[JoinCredential]
 
 
@@ -71,6 +72,7 @@ def _issue_classroom_media_join_http(
     *,
     room_id: str,
     participant_id: str,
+    retired: threading.Event,
 ) -> None:
     """Run only the credential HTTP effect off the native/UI owner thread."""
 
@@ -82,13 +84,20 @@ def _issue_classroom_media_join_http(
             participant_id=participant_id,
         )
     except ClassroomJoinHttpClientError as exc:
-        future.set_exception(exc)
+        future.set_exception(ClassroomJoinHttpClientError(str(exc)))
     except Exception:
         future.set_exception(
             ClassroomJoinHttpClientError("classroom join HTTP worker failed")
         )
     else:
-        future.set_result(value)
+        if retired.is_set():
+            future.set_exception(
+                ClassroomJoinHttpClientError(
+                    "classroom join HTTP request was retired"
+                )
+            )
+        else:
+            future.set_result(value)
 
 
 class Version2FinalProductApplication(Version2Application):
@@ -420,7 +429,12 @@ class Version2FinalProductApplication(Version2Application):
         pending = getattr(self, "_media_join_http_pending", None)
         self._media_join_http_pending = None
         if pending is not None:
+            pending.retired.set()
             pending.future.cancel()
+            if pending.future.done() and (
+                getattr(self, "_media_join_http_inflight", None) is pending.future
+            ):
+                self._media_join_http_inflight = None
 
     def configure_classroom_media_join_http(
         self,
@@ -533,6 +547,7 @@ class Version2FinalProductApplication(Version2Application):
         request_id = self._media_join_http_request_serial
         generation = int(getattr(self, "_media_join_http_generation", 0))
         future: Future[JoinCredential] = Future()
+        retired = threading.Event()
         pending = _PendingClassroomMediaJoinHttp(
             request_id=request_id,
             generation=generation,
@@ -540,6 +555,7 @@ class Version2FinalProductApplication(Version2Application):
             room_id=target_room,
             participant_id=participant_id,
             client=client,
+            retired=retired,
             future=future,
         )
         self._media_join_http_pending = pending
@@ -551,6 +567,7 @@ class Version2FinalProductApplication(Version2Application):
                 "client": client,
                 "room_id": target_room,
                 "participant_id": participant_id,
+                "retired": retired,
             },
             name="AccessibleChess-ClassroomJoinHttp",
             daemon=True,
