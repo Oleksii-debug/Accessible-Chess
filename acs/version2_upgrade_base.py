@@ -766,6 +766,14 @@ def _sqlite_backup(
         raise Version2UpgradeError("library source must be a regular file")
     destination.parent.mkdir(parents=True, exist_ok=True)
 
+    def require_source_identity() -> None:
+        current = _safe_stat(source, "library source")
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or not _same_file_identity(info, current)
+        ):
+            raise Version2UpgradeError("library source changed during backup")
+
     # Do not hand SQLite a pre-created temporary pathname. sqlite3.connect()
     # would reopen that name independently of mkstemp's authenticated inode,
     # allowing a substituted file to become the backup target. Build the
@@ -780,14 +788,17 @@ def _sqlite_backup(
             lock = sqlite3.connect(str(source), timeout=0.0)
             lock.execute("PRAGMA busy_timeout=0")
             lock.execute("BEGIN IMMEDIATE")
+            require_source_identity()
             reader = sqlite3.connect(
                 source.resolve(strict=True).as_uri() + "?mode=ro",
                 uri=True,
                 timeout=0.0,
             )
             reader.execute("PRAGMA busy_timeout=0")
+            require_source_identity()
             version = schema_validator(reader)
             state_digest = _sqlite_state_sha256(reader)
+            require_source_identity()
             target = sqlite3.connect(":memory:")
             reader.backup(target)
             target.commit()
@@ -795,6 +806,7 @@ def _sqlite_backup(
                 raise Version2UpgradeError("library backup schema mismatch")
             if _sqlite_state_sha256(target) != state_digest:
                 raise Version2UpgradeError("library backup logical-state mismatch")
+            require_source_identity()
             serialize = getattr(target, "serialize", None)
             if not callable(serialize):
                 raise Version2UpgradeError(
@@ -819,6 +831,7 @@ def _sqlite_backup(
 
         if serialized is None:
             raise Version2UpgradeError("library backup serialization is unavailable")
+        require_source_identity()
         _atomic_bytes(destination, serialized)
         if (
             _library_state_sha256(
