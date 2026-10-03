@@ -954,6 +954,38 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
         reopened.integrity_check()
 
+    def test_unconfirmed_finalize_preserves_already_committed_upload(self):
+        prepared = self.prepared(
+            attachment_id="finalize-ack-lost-a0",
+            content=b"committed before acknowledgement loss",
+        )
+        original_finalize = self.store.finalize_upload
+
+        def finalize_then_lose_ack(attachment_id):
+            original_finalize(attachment_id)
+            raise RuntimeError("finalize acknowledgement lost")
+
+        with patch.object(
+            self.store,
+            "finalize_upload",
+            side_effect=finalize_then_lose_ack,
+        ):
+            recovered = self.student1.upload(prepared)
+
+        self.assertEqual(recovered.transfer_state, "stored")
+        self.assertEqual(recovered.sequence_no, 0)
+        self.assertIn(recovered.object_key, self.objects.objects)
+        self.assertEqual(self.store.pending_deletions(), ())
+        self.assertEqual(
+            self.student1.history_after(
+                room_id="room-1",
+                after_sequence=None,
+                limit=100,
+            ).attachments,
+            (recovered,),
+        )
+        self.service.integrity_check()
+
     def test_cancel_racing_slow_put_cleans_late_object_without_orphan(self):
         prepared = self.prepared(
             attachment_id="cancel-races-put-a0",
