@@ -123,12 +123,12 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = "8805256b6cb1879a6a835c688ecef369397c990d"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "9f4722a1898f9f1bc17daa62737606d8cb847a2d"
           test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "b7ad9899f614c42589b9f53fddbebe59dee2b9c7"
           test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "6c8018269a1421ab594d0a44db4b662387931a18"
           test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "85e4ef957d587d607c47f3b6c143970fdb5fa9d2"
           test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "4301bd4aca667a0505116d8e4a9138fb90a1b118"
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "f9ebd9988c59cb642e9163a792f231f485388f7e"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "043d8efd1be94b425d9ed153ce7f25e8b9057fed"
           test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "81d5eb59a0b4b8f292480d2dd4c1f82fa4a36b7a"
           test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "6c6ed29a7ea4b366912d2bac526c566bbb972003"
           test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "935392ea7ef81c8f64ed6ef497582388a5d45cb3"
