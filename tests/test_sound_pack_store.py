@@ -1810,6 +1810,47 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
                 FilesystemSoundPackStore._read_active(store.root / manifest.pack_id),
             )
 
+    def test_missing_active_pointer_same_version_reinstall_repairs_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = _manifest(version="2.0.0")
+            downloaded, _ = _staged_download(root, manifest, seed=b"a")
+            store = FilesystemSoundPackStore(root / "packs")
+            store.install_atomically(downloaded)
+
+            pointer = store.root / manifest.pack_id / "active.json"
+            pointer.unlink()
+            self.assertNotIn(manifest.pack_id, store.installed())
+
+            store.install_atomically(downloaded)
+
+            self.assertEqual(manifest, store.installed()[manifest.pack_id])
+            self.assertEqual(
+                (manifest.pack_id, manifest.version),
+                FilesystemSoundPackStore._read_active(store.root / manifest.pack_id),
+            )
+
+    def test_missing_active_pointer_still_blocks_lower_version_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            store = FilesystemSoundPackStore(root / "packs")
+            newer = _manifest(version="2.0.0")
+            newer_download, _ = _staged_download(root, newer, seed=b"n")
+            store.install_atomically(newer_download)
+            (store.root / newer.pack_id / "active.json").unlink()
+
+            older = _manifest(version="1.9.9")
+            older_download, _ = _staged_download(root, older, seed=b"o")
+            with self.assertRaisesRegex(SoundPackStoreError, "roll back"):
+                store.install_atomically(older_download)
+
+            self.assertFalse(
+                (store.root / newer.pack_id / "versions" / older.version).exists()
+            )
+            self.assertTrue(
+                (store.root / newer.pack_id / "versions" / newer.version).is_dir()
+            )
+
     def test_corrupt_active_pointer_still_preserves_highest_version_rollback_floor(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
