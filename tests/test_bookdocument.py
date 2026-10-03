@@ -130,6 +130,52 @@ class BookDocumentTests(unittest.TestCase):
             BookDocumentErrorCode.INVALID_FIELD,
         )
 
+    def test_live_semantic_queries_reject_corrupted_mutable_blocks(self):
+        heading = Heading(text="Heading", level=1, block_id="h1")
+        book = BookDocument("Book", blocks=[heading])
+        heading.level = 7
+
+        for query in (
+            lambda: book.headings(),
+            lambda: list(book.iter_kind(Heading)),
+        ):
+            with self.subTest(query=query):
+                with self.assertRaises(BookDocumentError) as caught:
+                    query()
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.INVALID_FIELD,
+                )
+
+    def test_append_and_extend_refuse_to_build_on_corrupted_live_document(self):
+        paragraph = Paragraph(text="Readable")
+        book = BookDocument("Book", blocks=[paragraph])
+        paragraph.text = ""
+        before = list(book.blocks)
+
+        with self.assertRaises(BookDocumentError) as append_error:
+            book.append(Paragraph(text="New paragraph"))
+        self.assertEqual(
+            append_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertEqual(book.blocks, before)
+
+        consumed = []
+
+        def additions():
+            consumed.append(True)
+            yield Heading(text="New heading")
+
+        with self.assertRaises(BookDocumentError) as extend_error:
+            book.extend(additions())
+        self.assertEqual(
+            extend_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertEqual(consumed, [])
+        self.assertEqual(book.blocks, before)
+
     def test_bookdocument_gate_late_binds_live_product_for_push_and_pr(self):
         workflow = (
             Path(__file__).resolve().parents[1]
