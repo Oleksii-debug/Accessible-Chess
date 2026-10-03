@@ -77,17 +77,13 @@ def _canonical_bytes(payload: Mapping[str, object]) -> bytes:
     return bytes(data)
 
 
-def _replace_published_path(source: Path, destination: Path) -> None:
-    """Atomically publish one prepared file with platform durability intent."""
+_MOVEFILE_REPLACE_EXISTING = 0x00000001
+_MOVEFILE_WRITE_THROUGH = 0x00000008
 
-    if os.name != "nt":
-        os.replace(source, destination)
-        return
 
-    # CPython's os.replace() uses the Windows replace-existing move semantics
-    # but does not expose MOVEFILE_WRITE_THROUGH. Use the native flag here so
-    # namespace publication itself, not only reopened destination contents, is
-    # flushed before success is reported.
+def _windows_replace_write_through(source: Path, destination: Path) -> None:
+    """Publish one prepared file with a write-through Windows namespace move."""
+
     import ctypes
 
     move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
@@ -97,12 +93,10 @@ def _replace_published_path(source: Path, destination: Path) -> None:
         ctypes.c_uint32,
     )
     move_file_ex.restype = ctypes.c_int
-    movefile_replace_existing = 0x00000001
-    movefile_write_through = 0x00000008
     if not move_file_ex(
         os.fspath(source),
         os.fspath(destination),
-        movefile_replace_existing | movefile_write_through,
+        _MOVEFILE_REPLACE_EXISTING | _MOVEFILE_WRITE_THROUGH,
     ):
         error_code = ctypes.get_last_error()
         raise OSError(
@@ -110,6 +104,18 @@ def _replace_published_path(source: Path, destination: Path) -> None:
             f"durable Windows workspace replacement failed (Win32 {error_code})",
             os.fspath(destination),
         )
+
+
+def _replace_published_path(source: Path, destination: Path) -> None:
+    """Atomically publish one prepared file with platform durability intent."""
+
+    if os.name == "nt":
+        # CPython's os.replace() uses replace-existing move semantics but does
+        # not expose MOVEFILE_WRITE_THROUGH. Flush the namespace move itself,
+        # not merely the reopened destination contents.
+        _windows_replace_write_through(source, destination)
+        return
+    os.replace(source, destination)
 
 
 def _sync_published_path(path: Path) -> None:
