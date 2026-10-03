@@ -550,7 +550,7 @@ class BookProgressStoreTests(unittest.TestCase):
             nonlocal checks, substituted_path
             checks += 1
             real_require()
-            if checks != 3:
+            if checks != 4:
                 return
             candidates = tuple(
                 item
@@ -575,7 +575,7 @@ class BookProgressStoreTests(unittest.TestCase):
                     BookReader(self.original_document()),
                 )
 
-        self.assertEqual(checks, 3)
+        self.assertEqual(checks, 4)
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
         self.assertFalse(self.path.exists())
         self.assertIsNotNone(substituted_path)
@@ -594,7 +594,7 @@ class BookProgressStoreTests(unittest.TestCase):
             nonlocal checks, temp_path
             checks += 1
             real_require()
-            if checks != 3:
+            if checks != 4:
                 return
             candidates = tuple(
                 item
@@ -620,7 +620,7 @@ class BookProgressStoreTests(unittest.TestCase):
                     BookReader(self.original_document()),
                 )
 
-        self.assertEqual(checks, 3)
+        self.assertEqual(checks, 4)
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
         self.assertFalse(self.path.exists())
         self.assertIsNotNone(temp_path)
@@ -2078,9 +2078,9 @@ class BookProgressStoreTests(unittest.TestCase):
         real_close = os.close
         lock_descriptor = None
 
-        def capture_lock_descriptor() -> int:
+        def capture_lock_descriptor(**kwargs) -> int:
             nonlocal lock_descriptor
-            lock_descriptor = real_open_lock()
+            lock_descriptor = real_open_lock(**kwargs)
             return lock_descriptor
 
         def close_then_report_failure(descriptor: int) -> None:
