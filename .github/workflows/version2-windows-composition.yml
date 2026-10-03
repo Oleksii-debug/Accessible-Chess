@@ -43,6 +43,7 @@ env:
   V2_ACCEPTED_ENGINE_TIMEOUT_STAGE1_UI_BLOB: 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
   V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB: b579ca0f59ba20f6b69b3a4b7d89589256d54852
   V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
+  V2_ACCEPTED_PGN_DOCUMENT_NEW_POSITION_BLOB: e967712503a2b96d5878f74b257da6fc4a852ad4
   V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB: 6ec93d183da623c80c15b542fb7095725b91af52
 
 jobs:
@@ -105,6 +106,13 @@ jobs:
           fi
 
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
+          if printf '%s\n' "$changed" | grep -Fxq 'acs/pgn_document.py'; then
+            actual_pgn_document_blob="$(git rev-parse HEAD:acs/pgn_document.py)"
+            if [ "$actual_pgn_document_blob" != "$V2_ACCEPTED_PGN_DOCUMENT_NEW_POSITION_BLOB" ]; then
+              echo "Unexpected PGN document successor blob: $actual_pgn_document_blob" >&2
+              exit 1
+            fi
+          fi
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui_core.py'; then
             actual_stage1_core_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
             if [ "${{ github.event.pull_request.head.ref }}" != "integration/clock-engine-serial-intake-20261002" ] \
@@ -141,7 +149,7 @@ jobs:
           fi
           git diff --quiet "$scope_base" HEAD -- \
             run_accessible_chess.py acs/release_app.py \
-            acs/chesscore.py acs/gametree.py acs/pgn_document.py \
+            acs/chesscore.py acs/gametree.py \
             acs/pgn_service.py \
             web/stage1_board_actions.js \
             tools/qa
