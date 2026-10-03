@@ -14,7 +14,7 @@ from acs.classroom_collaboration_storage import (
     ClassroomCollaborationSQLiteStore,
 )
 from acs.classroom_collaboration_webview import ClassroomCollaborationWebView
-from acs.classroom_realtime_media import ClassroomMediaController
+from acs.classroom_realtime_media import ClassroomMediaController, ClassroomRole
 from acs.full_product_ui_shell import UILanguage
 from tests.test_classroom_collaboration import FakeChat, FakeFiles, FakeFileStore, FakeRoster
 from tests.test_classroom_realtime_media import FakeMedia
@@ -810,6 +810,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         def complete_scan():
             self.store.update_attachment_state(
                 "remote-scanning-file",
+                transfer_state="stored",
                 scan_state="clean",
             )
             return ()

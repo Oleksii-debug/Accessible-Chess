@@ -39,10 +39,17 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
             self.ids += 1
             return f"{prefix}-composition-{self.ids}"
 
+        labels = {
+            "student-1": "Local student",
+            "student-2": "Student two",
+            "teacher-1": "Teacher",
+            "co-1": "Co-teacher",
+            "observer-1": "Observer",
+        }
         self.collaboration = ClassroomCollaborationWebView(
             controller,
             self.store,
-            lambda participant_id: "Local student",
+            lambda participant_id: labels.get(participant_id, "Participant"),
             language=UILanguage.EN,
             id_factory=next_id,
         )
