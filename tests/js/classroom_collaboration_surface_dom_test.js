@@ -108,6 +108,8 @@ function collaboration(messages, unreadCount, moderation) {
       can_older: false,
       can_newer: false,
       timestamp_label: "Message time",
+      retention_label: "Retention",
+      retention_policy_label: "New message retention: session",
       hide_label: "Hide message",
       mute_sender_label: "Mute sender",
       allow_sender_label: "Allow sender",
@@ -126,6 +128,7 @@ function collaboration(messages, unreadCount, moderation) {
       heading: "Files",
       sync_label: "Refresh files",
       choose_upload_label: "Choose and send file",
+      retention_policy_label: "New file retention: session",
       older_label: "Older files",
       newer_label: "Newer files",
       page_label: "File history page 1 of 1",
@@ -146,6 +149,7 @@ function collaboration(messages, unreadCount, moderation) {
         type_label: "Type: application/x-chess-pgn",
         status_label: "Status: stored",
         scan_label: "Scan: clean",
+        retention_label: "Retention: session",
         can_save: true,
         can_open: true,
         can_retry: false,
@@ -173,6 +177,7 @@ const snapshot = {
       body: "e4 is the target.",
       timestamp_text: "2023-11-14 22:13:20 UTC",
       timestamp_datetime: "2023-11-14T22:13:20Z",
+      retention_label: "Retention: session",
       unread: false
     }
   ], 0)
@@ -189,6 +194,15 @@ window.AccessibleChessEducationSurface.render(
 
 const collaborationRoot = root.querySelector("#classroom-collaboration");
 check(collaborationRoot !== null, "collaboration section must be rendered inside Classes");
+check(
+  root.querySelector("#collaboration-chat-retention-policy").textContent ===
+    "New message retention: session" &&
+  root.querySelector("#collaboration-chat-retention-policy").getAttribute("aria-live") === "off" &&
+  root.querySelector("#collaboration-file-retention-policy").textContent ===
+    "New file retention: session" &&
+  root.querySelector("#collaboration-file-retention-policy").getAttribute("aria-live") === "off",
+  "trusted-host chat and file retention policies must be visible selectable non-live text"
+);
 const input = root.querySelector("#collaboration-chat-input");
 check(input && input.tagName === "TEXTAREA", "chat composer must be a native textarea");
 check(!input.listeners.keydown, "chat composer must not trap native copy/navigation keys");
@@ -241,6 +255,16 @@ check(
 check(
   timestampValue.getAttribute("aria-live") === "off",
   "timestamps must not become live announcements"
+);
+const retentionDisclosure = messageOne.querySelectorAll("DETAILS").find(
+  (item) => item.getAttribute("data-message-retention") === "true"
+);
+check(retentionDisclosure !== undefined, "message retention must be available on demand");
+check(
+  retentionDisclosure.querySelector("SUMMARY").textContent === "Retention" &&
+  retentionDisclosure.querySelector("SPAN").textContent === "Retention: session" &&
+  retentionDisclosure.querySelector("SPAN").getAttribute("aria-live") === "off",
+  "message retention must remain selectable and must not become live announcement noise"
 );
 
 const pageStatus = root.querySelector("#collaboration-chat-page-status");
@@ -303,6 +327,12 @@ check(
   fileBidi[1].textContent === "Teacher" &&
   fileBidi[1].getAttribute("dir") === "auto",
   "file name and sender must remain selectable while isolated from bidi spillover"
+);
+check(
+  fileItem.querySelectorAll("SPAN").some(
+    (span) => span.textContent === "Retention: session"
+  ),
+  "file retention must be visible as ordinary selectable metadata"
 );
 const buttons = fileItem.querySelectorAll("BUTTON");
 check(buttons.length === 2, "clean stored file must expose explicit Save and Open only");
