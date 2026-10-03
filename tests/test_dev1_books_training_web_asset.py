@@ -89,6 +89,19 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertNotIn("error.message", text)
         self.assertNotIn("String(error)", text)
 
+    def test_book_and_training_surfaces_project_native_main_and_language(self) -> None:
+        text = self.text
+        self.assertEqual(text.count('const main = node("main")'), 2)
+        self.assertEqual(
+            text.count('main.setAttribute("lang", snapshot.document.lang)'),
+            2,
+        )
+        self.assertIn('requireDocumentSpec(snapshot, "Book")', text)
+        self.assertIn('requireDocumentSpec(snapshot, "Training")', text)
+        self.assertIn('documentSpec.landmark !== "main"', text)
+        self.assertIn('documentSpec.lang !== "uk" && documentSpec.lang !== "en"', text)
+        self.assertNotIn('const main = node("section")', text)
+
     def test_malformed_host_events_fail_closed_before_surface_mutation(self) -> None:
         text = self.text
         self.assertIn("function requireHostEvent(result, allowedKinds, surface)", text)
@@ -106,6 +119,7 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         )
         self.assertIn('requireSnapshotRecord(snapshot, "block", "Book")', text)
         self.assertIn('requireSnapshotRecord(snapshot, "bookmark", "Book")', text)
+        self.assertIn('requireSnapshotRecord(snapshot, "document", surface)', text)
         self.assertIn('throw new TypeError("Book snapshot actions must be an array")', text)
         self.assertIn('throw new TypeError("Book snapshot block requires a DOM id")', text)
         self.assertIn('requireSnapshotRecord(snapshot, "progress", "Training")', text)
