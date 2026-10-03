@@ -491,6 +491,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                     "Sound could not be played.",
                 ),
             }
+        preview_guard_seconds = {
+            SoundEvent.START: 8.7,
+            SoundEvent.TICK: 3.5,
+            SoundEvent.LOW_TIME: 4.0,
+        }.get(event)
+        if preview_guard_seconds is not None and getattr(report, "delivered", ()):
+            self._clock_sound_not_before = max(
+                self._clock_sound_not_before,
+                time.monotonic() + preview_guard_seconds,
+            )
         return {
             "ok": True,
             **self._sound_state(),
