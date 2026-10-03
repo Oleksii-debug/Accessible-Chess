@@ -9,6 +9,7 @@ on:
       - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/books-durability-focus-rebind.yml'
       - 'acs/book_progress_store.py'
       - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
@@ -192,6 +193,7 @@ jobs:
             git diff --check "$durability_parent" HEAD
             durability_changed="$(git diff --name-only "$durability_parent" HEAD | sort)"
             durability_expected="$(printf '%s\n' \
+              '.github/workflows/books-durability-focus-rebind.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/full_product_ui_shell.py' \
               'acs/version2_application.py' \
