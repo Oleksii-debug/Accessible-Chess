@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph
 from acs.bookreader import BookReader
@@ -60,6 +61,20 @@ class BookProjectionTests(unittest.TestCase):
         self.assertEqual("book-source.docx", diagram["block"]["source_anchor"])
         self.assertNotIn(FEN, repr(diagram))
         self.assertNotIn("Users", repr(diagram))
+
+    def test_snapshot_rejects_semantic_contract_drift_before_browser_publication(self) -> None:
+        block = self.presenter.current()
+
+        with self.assertRaisesRegex(ValueError, "kind/role"):
+            self.projection._snapshot_from_block(replace(block, role="group"))
+        with self.assertRaisesRegex(ValueError, "heading path"):
+            self.projection._snapshot_from_block(
+                replace(block, heading_path=("a", "b", "c", "d", "e", "f", "g"))
+            )
+        with self.assertRaisesRegex(ValueError, "position presence"):
+            self.projection._snapshot_from_block(
+                replace(block, kind="Position", role="group", position_fen=None)
+            )
 
     def test_open_position_keeps_fen_inside_python_dispatch_boundary(self) -> None:
         self.projection.next_position()
