@@ -21,6 +21,7 @@ on:
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
       - 'tests/test_v2_pgn_webview_path_privacy.py'
+      - 'tests/test_v2_shared_presentation_path_privacy.py'
       - 'tests/test_v2_board_analysis_hotkey_feedback.py'
       - 'web/full_product_pgn.js'
       - 'web/index.html'
@@ -221,12 +222,12 @@ jobs:
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
-          acs/presentation_privacy.py=1ed32933ccbb285db7dba6c7203c313a9b72351c
+          acs/presentation_privacy.py=e30c873e8e9aeca414334a6cc1db5ac7a92fac7f
           web/full_product_pgn.js=947319b17b4dda179bb2393a6194e2d2a8960220
           tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
-          tests/test_v2_pgn_webview_path_privacy.py=e2ff3519fbc3de29a6b9ba7fff86b59dd2f7e204
+          tests/test_v2_pgn_webview_path_privacy.py=9db8d7187873ca59024b390fc840cd9935e6b0a4
           tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
 
@@ -256,7 +257,7 @@ jobs:
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/presentation_privacy.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_pgn_webview_path_privacy.py tests/test_v2_board_analysis_hotkey_feedback.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/presentation_privacy.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_pgn_webview_path_privacy.py tests/test_v2_shared_presentation_path_privacy.py tests/test_v2_board_analysis_hotkey_feedback.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_surface_dom_test.js
@@ -269,6 +270,7 @@ jobs:
           tests.test_dev1_pgn_webview_atomicity
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_v2_pgn_webview_path_privacy
+          tests.test_v2_shared_presentation_path_privacy
           tests.test_dev1_full_product_ui_packages
           tests.test_dev1_full_product_webview_adapter
           tests.test_gametree
