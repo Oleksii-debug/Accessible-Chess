@@ -368,6 +368,34 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_corrupt_schema_version_is_sanitized_and_never_auto_repaired(self) -> None:
+        for value in ("not-an-integer", 0, 3):
+            with self.subTest(value=value):
+                path = Path(self.tmp.name) / f"schema-{str(value).replace(' ', '-')}.sqlite3"
+                ClassroomChatServerSQLiteStore(path)
+                with closing(sqlite3.connect(path)) as db, db:
+                    db.execute(
+                        """
+                        UPDATE classroom_chat_server_meta
+                        SET value=?
+                        WHERE key='schema_version'
+                        """,
+                        (value,),
+                    )
+
+                with self.assertRaises(ClassroomChatServerError) as raised:
+                    ClassroomChatServerSQLiteStore(path)
+                self.assertIsNone(raised.exception.__cause__)
+
+                with closing(sqlite3.connect(path)) as db:
+                    persisted = db.execute(
+                        """
+                        SELECT value FROM classroom_chat_server_meta
+                        WHERE key='schema_version'
+                        """
+                    ).fetchone()[0]
+                self.assertEqual(value, persisted)
+
     def test_two_client_controller_composition_reconnects_and_reconciles_hide(self) -> None:
         roster = SharedRoster()
         teacher_store = ClassroomCollaborationSQLiteStore(
