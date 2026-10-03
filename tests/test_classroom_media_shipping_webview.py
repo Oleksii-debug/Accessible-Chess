@@ -713,6 +713,35 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertIsNotNone(application.media)
         self.assertIsNotNone(application.media_transactions)
 
+    def test_application_rejects_nontransactional_unbind_while_connected(self):
+        controller, roster, _host, _sessions, _binder, _projection, transactions, _bridge = composition()
+        connect(controller, roster, transactions)
+
+        application = object.__new__(Version2FinalProductApplication)
+        application.shell = SimpleNamespace(language=UILanguage.EN)
+        application.media = None
+        application.media_transactions = None
+        application._assert_thread = lambda: None
+        application._events = deque()
+        labels = {
+            participant_id: participant_id.replace("-", " ").title()
+            for participant_id in roster.participant_ids()
+        }
+
+        application.bind_classroom_media(
+            controller,
+            lambda: dict(labels),
+        )
+        self.assertIsNotNone(application.media)
+        self.assertIsNone(application.media_transactions)
+
+        with self.assertRaisesRegex(RuntimeError, "provider session is connected"):
+            application.unbind_classroom_media()
+
+        self.assertIsNotNone(application.media)
+        self.assertIsNone(application.media_transactions)
+        self.assertTrue(controller.state.connected)
+
     def test_transactional_binder_must_own_exact_projection_controller(self):
         controller_a, _roster_a, _host_a, _sessions_a, _binder_a, projection_a, _tx_a, _bridge_a = composition()
         _controller_b, _roster_b, _host_b, _sessions_b, binder_b, _projection_b, _tx_b, _bridge_b = composition()
