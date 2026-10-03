@@ -13,9 +13,6 @@ on:
 permissions:
   contents: read
 
-env:
-  CURRENT_PRODUCT_BASE: 9b8aaca12f4f33eb1c0e15ac057fbdd80039597d
-
 jobs:
   markdown-heading-text-integrity:
     strategy:
@@ -50,7 +47,10 @@ jobs:
             git cat-file -e "$event_base^{commit}"
             git merge-base --is-ancestor "$event_base" "$upstream"
           else
-            upstream="$CURRENT_PRODUCT_BASE"
+            product_branch='work/full-product-teacher-education-reachability-20260911'
+            git fetch --no-tags origin \
+              "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+            upstream="$(git rev-parse "refs/remotes/origin/$product_branch")"
           fi
           git cat-file -e "$upstream^{commit}"
           git merge-base --is-ancestor "$upstream" HEAD
