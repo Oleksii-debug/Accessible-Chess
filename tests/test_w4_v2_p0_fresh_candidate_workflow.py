@@ -138,6 +138,24 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         for name in ("livekit-client.umd.js", "LICENSE", "NOTICE", "provenance.json"):
             self.assertIn(name, self.text)
 
+    def test_pinned_livekit_standalone_bytes_are_reverified_before_payload(self) -> None:
+        build = self.text.index("Build standalone AccessibleChess.exe")
+        verified = self.text.index("PACKAGED_PINNED_LIVEKIT_CLIENT_SDK=PASS")
+        prepare = self.text.index(
+            "Prepare release payload and inject qualified P0-F package content"
+        )
+        self.assertLess(build, verified)
+        self.assertLess(verified, prepare)
+        self.assertIn(
+            "scripts/stage_livekit_client_sdk.py 'release-inputs\\livekit-client.tgz' "
+            "'run_accessible_chess_v2.dist\\web\\vendor\\livekit' --verify-existing",
+            self.text,
+        )
+        self.assertIn(
+            "PACKAGED_PINNED_LIVEKIT_CLIENT_SDK_VERIFY_FAILURE",
+            self.text,
+        )
+
     def test_official_stockfish_is_hash_pinned(self) -> None:
         self.assertIn("official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip", self.text)
         self.assertIn("STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139", self.text)
