@@ -2,6 +2,7 @@
   "use strict";
 
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
+  const MAX_BOOK_SEMANTIC_DEPTH = 256;
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
   const MAX_BOOK_SEMANTIC_DETAILS = 4;
   const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50128;
@@ -241,6 +242,9 @@
       const depth = item.depth;
       if (!Number.isSafeInteger(depth) || depth < 0) {
         throw new TypeError("book semantic item depth is invalid");
+      }
+      if (depth > MAX_BOOK_SEMANTIC_DEPTH) {
+        throw new TypeError("book semantic item depth limit exceeded");
       }
       if (
         (item.kind === "move" && depth % 2 !== 0) ||
@@ -541,14 +545,29 @@
     }
     requireFunction(invoke, "Book invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Book announce");
-    if (!snapshot || typeof snapshot !== "object") throw new TypeError("Book snapshot is required");
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new TypeError("Book snapshot is required");
+    }
+    if (!snapshot.block || typeof snapshot.block !== "object" || Array.isArray(snapshot.block)) {
+      throw new TypeError("Book snapshot block is required");
+    }
+    if (!Number.isSafeInteger(snapshot.block.index) || snapshot.block.index < 0) {
+      throw new TypeError("Book snapshot block index is invalid");
+    }
+    const expectedBlockId = "book-block-" + String(snapshot.block.index);
+    if (snapshot.block.dom_id !== expectedBlockId) {
+      throw new TypeError("Book snapshot block identity is invalid");
+    }
+    if (requestedFocus && requestedFocus !== expectedBlockId) {
+      throw new TypeError("Book focus target does not match the rendered block");
+    }
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
     applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage);
-    const block = snapshot.block || {};
+    const block = snapshot.block;
     renderBookBlock(main, block);
 
     const toolbar = node("div");
