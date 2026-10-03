@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from collections import UserDict
+from pathlib import Path
 from unittest.mock import patch
 
-from acs.bookdocument import BookDocument, Heading
+from acs.bookdocument import BookDocument, Exercise, Heading
 from acs.bookreader import BookReader
 from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewProjection
@@ -14,6 +16,7 @@ from acs.full_product_ui_shell import UILanguage
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 from acs.training_webview_bridge import TrainingWebViewBridge
 from acs.training_webview_projection import TrainingWebViewProjection
+from acs.version2_training_workspace import Version2BookTrainingWorkspace
 
 
 class TrainingAuthorityConvergenceTests(unittest.TestCase):
@@ -183,6 +186,41 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
         projection.set_language(UILanguage.EN)
         self.assertEqual("Authored hint", presenter.message)
 
+    def test_presenter_restore_relocalizes_owned_message_for_target_locale(self) -> None:
+        definition = self.definition()
+        session = ExerciseSession(definition)
+        snapshot = session.snapshot()
+
+        restored = TrainingPresenter.restore(
+            definition,
+            snapshot,
+            language=UILanguage.UA,
+            message="Try again.",
+            message_key="retry",
+        )
+
+        self.assertEqual("retry", restored.message_key)
+        self.assertEqual("Спробуйте ще раз.", restored.message)
+
+    def test_projection_host_restore_preserves_presenter_and_session_identity(self) -> None:
+        presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
+        projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
+        retained_session = presenter.session
+        before = presenter.snapshot()
+
+        projection.submit("e4")
+        projection.restore_state(
+            before,
+            language=UILanguage.EN,
+            message="Try again.",
+            message_key="retry",
+        )
+
+        self.assertIs(retained_session, presenter.session)
+        self.assertEqual(before, presenter.snapshot())
+        self.assertEqual("retry", presenter.message_key)
+        self.assertEqual("Try again.", presenter.message)
+
     def test_invalid_message_key_is_rejected_before_progress_restore(self) -> None:
         presenter = TrainingPresenter(ExerciseSession(self.definition()), language=UILanguage.EN)
         before = presenter.snapshot()
@@ -240,6 +278,72 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
                 self.assertEqual(before, presenter.snapshot())
                 self.assertEqual(before_message, presenter.message)
                 self.assertEqual(before_key, presenter.message_key)
+
+    def test_workspace_persistence_failure_rolls_back_in_place(self) -> None:
+        document = BookDocument(
+            title="Training rollback",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Play e4",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="training-authority-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            retained_bridge = workspace.start_current()
+            retained_session = workspace.session
+            before = workspace.session.snapshot()
+            store = workspace._store
+            self.assertIsNotNone(store)
+            assert store is not None
+
+            with patch.object(store, "save", side_effect=RuntimeError("durable write failed")):
+                with self.assertRaisesRegex(RuntimeError, "durable write failed"):
+                    workspace.dispatch("training.submit", {"answer": "e4"})
+
+            self.assertIs(retained_session, workspace.session)
+            self.assertIs(retained_bridge, workspace.bridge)
+            self.assertEqual(before, workspace.session.snapshot())
+            self.assertEqual("", workspace.presenter_message)
+            self.assertIsNone(workspace.presenter_message_key)
+
+    def test_workspace_generic_error_does_not_replace_live_training_objects(self) -> None:
+        document = BookDocument(
+            title="Training rejected command",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Play e4",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="training-rejected-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            retained_bridge = workspace.start_current()
+            retained_session = workspace.session
+            before = workspace.session.snapshot()
+
+            event = workspace.dispatch("training.submit", {"unexpected": "field"})
+
+            self.assertEqual("error", event.kind)
+            self.assertIs(retained_session, workspace.session)
+            self.assertIs(retained_bridge, workspace.bridge)
+            self.assertEqual(before, workspace.session.snapshot())
 
     def test_browser_payload_dict_subclasses_fail_before_hooks(self) -> None:
         class HostileDict(dict):
