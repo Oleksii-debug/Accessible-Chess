@@ -26,7 +26,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      STACK_BASE_SHA: 31494e1e29e82afe254e732ca4bedf4d6cac1c7e
+      STACK_BASE_SHA: 62da2793d51454e88bb15a6e58c59dbe5ef69fb3
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
