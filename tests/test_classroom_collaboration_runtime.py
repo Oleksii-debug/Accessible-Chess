@@ -1210,6 +1210,24 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertEqual(self.chat_token_calls, 0)
         self.assertEqual(self.file_token_calls, 0)
 
+    def test_final_app_rejects_quota_above_rpc_limit_before_store_creation(self) -> None:
+        app = self.bare_app()
+        target = self.root / "invalid-quota.sqlite3"
+        oversized = FileQuotaPolicy(max_file_bytes=MAX_RPC_UPLOAD_BYTES + 1)
+        with mock.patch.object(Version2FinalProductApplication, "_assert_thread"):
+            with self.assertRaisesRegex(ValueError, "RPC upload limit"):
+                self.configure(
+                    app,
+                    collaboration_store_path=target,
+                    local_quota=oversized,
+                )
+
+        self.assertFalse(target.exists())
+        self.assertIsNone(app.collaboration)
+        self.assertIsNone(app._collaboration_runtime)
+        self.assertEqual(self.chat_token_calls, 0)
+        self.assertEqual(self.file_token_calls, 0)
+
     def test_custom_store_path_and_language_are_bound_without_fetching_tokens(self) -> None:
         app = self.bare_app()
         custom = self.root / "custom" / "room.sqlite3"
