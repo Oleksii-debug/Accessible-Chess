@@ -349,6 +349,14 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
                 type(self).touched = True
                 raise AssertionError("command subclass strip must never execute")
 
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("command subclass equality must never execute")
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("command subclass hash must never execute")
+
         document = BookDocument(
             title="Training hostile command",
             blocks=[
