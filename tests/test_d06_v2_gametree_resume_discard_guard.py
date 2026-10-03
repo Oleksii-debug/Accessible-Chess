@@ -300,6 +300,74 @@ class D06GameTreeResumeDiscardGuardTests(unittest.TestCase):
         self.assertEqual(self.resume_path.read_bytes(), newer_bytes)
         self.assertFalse(self.guard_dir.exists())
 
+    def test_regular_file_at_guard_root_fails_closed_and_is_preserved(self) -> None:
+        self.guard_dir.write_bytes(b"not-a-control-directory")
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertFalse(coordinator.restore(application))
+        self.assertTrue(coordinator.disabled)
+        self.assertEqual(
+            coordinator.error.code,
+            GameTreeResumeCode.IO_FAILURE,
+        )
+        self.assertEqual(
+            self.guard_dir.read_bytes(),
+            b"not-a-control-directory",
+        )
+
+    def test_unknown_guard_entry_fails_closed_and_is_preserved(self) -> None:
+        self.guard_dir.mkdir()
+        unknown = self.guard_dir / "unknown.guard"
+        unknown.write_bytes(b"do-not-delete")
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertFalse(coordinator.restore(application))
+        self.assertTrue(coordinator.disabled)
+        self.assertEqual(
+            coordinator.error.code,
+            GameTreeResumeCode.IO_FAILURE,
+        )
+        self.assertEqual(unknown.read_bytes(), b"do-not-delete")
+
+    def test_multiple_guard_entries_fail_closed_without_choosing_a_winner(self) -> None:
+        first_path, first_token, first_bytes = self._state_file(
+            "first.json",
+            GameTreeCursor((), 1),
+        )
+        second_path, second_token, second_bytes = self._state_file(
+            "second.json",
+            GameTreeCursor((), 2),
+        )
+        self.guard_dir.mkdir()
+        first_guard = self.guard_dir / f"{first_token}.guard"
+        second_guard = self.guard_dir / f"{second_token}.guard"
+        os.replace(first_path, first_guard)
+        os.replace(second_path, second_guard)
+
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertFalse(coordinator.restore(application))
+        self.assertTrue(coordinator.disabled)
+        self.assertEqual(
+            coordinator.error.code,
+            GameTreeResumeCode.STALE_WRITER,
+        )
+        self.assertEqual(first_guard.read_bytes(), first_bytes)
+        self.assertEqual(second_guard.read_bytes(), second_bytes)
+
+    def test_empty_guard_directory_is_cleaned_without_creating_resume(self) -> None:
+        self.guard_dir.mkdir()
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertFalse(coordinator.restore(application))
+        self.assertFalse(coordinator.disabled)
+        self.assertFalse(self.guard_dir.exists())
+        self.assertFalse(self.resume_path.exists())
+
     @unittest.skipIf(os.name == "nt", "POSIX guard-root symlink regression")
     def test_redirected_guard_root_fails_closed(self) -> None:
         outside = self.root / "outside"
