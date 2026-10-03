@@ -1,12 +1,23 @@
 import os
 import tempfile
 from pathlib import Path
+import unicodedata
 import unittest
 from unittest import mock
 
 from acs.gametree import parse_games, serialize_games
 from acs.import_contract import ImportQuality
-from acs.pgn_service import PgnConcurrentWriteError, PgnFileImporter, export_game_atomic, open_pgn, save_pgn_atomic
+from acs.pgn_service import (
+    PgnConcurrentWriteError,
+    PgnFileImporter,
+    _WINDOWS_1251_CYRILLIC_BYTES as FILE_CP1251_CYRILLIC_BYTES,
+    export_game_atomic,
+    open_pgn,
+    save_pgn_atomic,
+)
+from acs.pgn_streaming_import import (
+    _WINDOWS_1251_CYRILLIC_BYTES as STREAM_CP1251_CYRILLIC_BYTES,
+)
 
 
 RICH_PGN = '''[Event "Main"]
@@ -74,6 +85,56 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertFalse(
                 any("bytes were replaced" in warning for warning in opened.global_warnings)
             )
+
+    def test_open_windows_1251_ukrainian_special_letters_are_lossless(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-ukrainian-specials.pgn"
+            source = (
+                '[Event "ЇЇ"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {Ґґ Єє Іі Її} *\n'
+            )
+            encoded = source.encode("cp1251")
+            non_ascii = {value for value in encoded if value >= 0x80}
+            self.assertTrue(non_ascii)
+            self.assertTrue(non_ascii.isdisjoint(range(0xC0, 0x100)))
+            self.assertTrue(non_ascii.isdisjoint({0xA8, 0xB8}))
+            path.write_bytes(encoded)
+
+            opened = open_pgn(path)
+
+            self.assertEqual(opened.total_games, 1)
+            self.assertEqual(opened.games[0].tags["Event"], "ЇЇ")
+            self.assertEqual(
+                opened.games[0].line.moves[0].comments_after[0].text,
+                "Ґґ Єє Іі Її",
+            )
+            self.assertTrue(
+                any(
+                    warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+                    for warning in opened.global_warnings
+                )
+            )
+            self.assertFalse(
+                any("bytes were replaced" in warning for warning in opened.global_warnings)
+            )
+
+    def test_cp1251_evidence_sets_are_exactly_cyrillic_letters(self):
+        expected = set()
+        for value in range(256):
+            try:
+                scalar = bytes((value,)).decode("cp1251", errors="strict")
+            except UnicodeDecodeError:
+                continue
+            if (
+                unicodedata.category(scalar).startswith("L")
+                and "CYRILLIC" in unicodedata.name(scalar, "")
+            ):
+                expected.add(value)
+
+        self.assertEqual(FILE_CP1251_CYRILLIC_BYTES, frozenset(expected))
+        self.assertEqual(STREAM_CP1251_CYRILLIC_BYTES, frozenset(expected))
+        self.assertNotIn(0x98, expected)
 
     def test_malformed_cp1251_like_source_never_leaks_codec_error(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -400,6 +400,40 @@ class StreamingPgnImportTests(unittest.TestCase):
                 "сицилианская защита",
             )
 
+    def test_windows_1251_ukrainian_special_letters_are_atomically_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "legacy-ukrainian-specials.pgn"
+            source_text = (
+                '[Event "ЇЇ"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {Ґґ Єє Іі Її} *\n'
+            )
+            encoded = source_text.encode("cp1251")
+            non_ascii = {value for value in encoded if value >= 0x80}
+            self.assertTrue(non_ascii)
+            self.assertTrue(non_ascii.isdisjoint(range(0xC0, 0x100)))
+            self.assertTrue(non_ascii.isdisjoint({0xA8, 0xB8}))
+            source.write_bytes(encoded)
+
+            result = self._new_importer(database).import_file(
+                source,
+                failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                limits=tiny_chunks(),
+            )
+
+            self.assertTrue(result.complete)
+            self.assertEqual(result.accepted_games, 1)
+            self.assertEqual(result.library.game_count, 1)
+            row = database.get_game(result.library.first_game_id)
+            self.assertIsNotNone(row)
+            assert row is not None
+            reopened = parse_pgn_text(row["pgn_text"], strict=True)[0]
+            self.assertEqual(reopened.tags["Event"], "ЇЇ")
+            self.assertEqual(
+                reopened.line.moves[0].comments_after[0].text,
+                "Ґґ Єє Іі Її",
+            )
+
     def test_cancellation_after_first_accepted_game_never_publishes_spool(self) -> None:
         with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
             source = Path(directory) / "cancel.pgn"
