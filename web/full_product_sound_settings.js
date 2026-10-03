@@ -120,6 +120,7 @@
 
   let currentSnapshot = null;
   let busy = false;
+  let refreshGeneration = 0;
   let eventControls = [];
   let packControls = [];
 
@@ -171,6 +172,9 @@
   }
 
   function invoke(command, payload, restoreFocusFallbackId) {
+    // A user mutation has stronger authority than any older read-only refresh.
+    // Invalidate in-flight refresh responses before touching bridge state.
+    refreshGeneration += 1;
     const active = documentRef.activeElement;
     const restoreFocusId = active && typeof active.id === "string" ? active.id : "";
     const bridge = api();
@@ -466,12 +470,15 @@
   });
 
   function refresh() {
+    if (busy) return Promise.resolve(false);
+    const generation = ++refreshGeneration;
     const bridge = api();
     if (!bridge || typeof bridge.sound_settings_snapshot !== "function") {
-      render(null);
+      if (generation === refreshGeneration) render(null);
       return Promise.resolve(false);
     }
     return bridge.sound_settings_snapshot().then(function (result) {
+      if (generation !== refreshGeneration) return false;
       if (!result || result.ok !== true || !result.snapshot) {
         setStatus(result && result.message ? result.message :
           text("Налаштування звуку недоступні.", "Sound settings are unavailable."));
@@ -481,6 +488,7 @@
       render(currentSnapshot);
       return true;
     }, function () {
+      if (generation !== refreshGeneration) return false;
       setStatus(text("Налаштування звуку недоступні.", "Sound settings are unavailable."));
       return false;
     });
