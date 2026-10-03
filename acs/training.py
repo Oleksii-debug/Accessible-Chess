@@ -578,6 +578,8 @@ class ExerciseSession:
         position_fen = snapshot["position_fen"]
         if type(position_fen) is not str:
             raise TypeError("exercise snapshot position_fen must be a string")
+        if len(position_fen) > _MAX_IDENTITY_TEXT:
+            raise ValueError("exercise snapshot position_fen is too long")
         if position_fen != board.fen():
             raise ValueError("exercise snapshot position does not match accepted_path")
 
@@ -647,6 +649,8 @@ def _restore_common(
     exercise_id = snapshot["exercise_id"]
     if type(exercise_id) is not str:
         raise TypeError("exercise snapshot exercise_id must be a string")
+    if len(exercise_id) > _MAX_IDENTITY_TEXT:
+        raise ValueError("exercise snapshot exercise_id is too long")
     if exercise_id != definition.exercise_id:
         raise ValueError("exercise snapshot belongs to a different exercise")
 
