@@ -47,10 +47,6 @@ _READER_SNAPSHOT_FIELDS = frozenset(
 
 _PROCESS_LOCKS_GUARD = threading.Lock()
 _PROCESS_LOCKS: dict[str, threading.RLock] = {}
-_TEMPFILE_TOKEN_CHARACTERS = frozenset(
-    "abcdefghijklmnopqrstuvwxyz0123456789_"
-)
-_TEMPFILE_TOKEN_LENGTH = 8
 _EXPECTED_TARGET_UNSET = object()
 
 
@@ -312,17 +308,6 @@ def _revision(raw: bytes | None) -> str | None:
     if raw is None:
         return None
     return hashlib.sha256(raw).hexdigest()
-
-
-def _is_owned_temp_name(name: str, target_name: str) -> bool:
-    """Return whether one exact-root name can be emitted by tempfile.mkstemp."""
-    prefix = f".{target_name}."
-    if not name.startswith(prefix) or not name.endswith(".tmp"):
-        return False
-    token = name[len(prefix) : -len(".tmp")]
-    return len(token) == _TEMPFILE_TOKEN_LENGTH and all(
-        character in _TEMPFILE_TOKEN_CHARACTERS for character in token
-    )
 
 
 class BookProgressStore:
@@ -798,30 +783,16 @@ class BookProgressStore:
             raise
 
     def _cleanup_stale_temps_unlocked(self) -> None:
-        parent = self._path.parent
-        target_names = (self._path.name, self.backup_path.name)
-        try:
-            candidates = list(parent.iterdir())
-        except OSError:
-            return
-        for candidate in candidates:
-            name = candidate.name
-            if not any(
-                _is_owned_temp_name(name, target_name)
-                for target_name in target_names
-            ):
-                continue
-            try:
-                metadata = os.lstat(candidate)
-                if (
-                    stat.S_ISREG(metadata.st_mode)
-                    and not stat.S_ISLNK(metadata.st_mode)
-                    and not _is_reparse_point(metadata)
-                    and int(getattr(metadata, "st_nlink", 1)) == 1
-                ):
-                    candidate.unlink(missing_ok=True)
-            except OSError:
-                pass
+        """Leave crash-left temp pathnames untouched.
+
+        Across process lifetimes there is no portable, race-free proof that an
+        exact-looking pathname is still the inode created by this store. The
+        active writer already removes only its own identity-bound temp in its
+        publication finally block. Cross-run scavenging therefore remains
+        deliberately non-destructive instead of guessing ownership and risking
+        deletion of a substituted or user-owned file.
+        """
+        return
 
     @contextmanager
     def _exclusive_access(self) -> Iterator[None]:
