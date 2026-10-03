@@ -207,7 +207,16 @@ class ClassroomChatServerSQLiteStore:
                     (_SERVER_SCHEMA_VERSION,),
                 )
             else:
-                version = int(row["value"])
+                try:
+                    version = int(row["value"])
+                except (TypeError, ValueError, OverflowError):
+                    raise ClassroomChatServerError(
+                        "invalid classroom chat server schema version"
+                    ) from None
+                if version < 1:
+                    raise ClassroomChatServerError(
+                        "invalid classroom chat server schema version"
+                    )
                 if version > _SERVER_SCHEMA_VERSION:
                     raise ClassroomChatServerError(
                         "unsupported classroom chat server schema"
