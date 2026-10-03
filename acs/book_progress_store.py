@@ -387,6 +387,18 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             )
 
+    @classmethod
+    def _require_private_data_metadata(cls, metadata: os.stat_result) -> None:
+        cls._require_regular_metadata(
+            metadata,
+            message="book progress storage is not a regular file",
+        )
+        if int(getattr(metadata, "st_nlink", 1)) != 1:
+            raise BookProgressStoreError(
+                "book progress storage is not private",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+
     @staticmethod
     def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         """Return whether two metadata snapshots identify the same file object."""
@@ -434,10 +446,7 @@ class BookProgressStore:
             ) from None
 
         if before is not None:
-            self._require_regular_metadata(
-                before,
-                message="book progress storage is not a regular file",
-            )
+            self._require_private_data_metadata(before)
             if before.st_size > MAX_BOOK_PROGRESS_STORE_BYTES:
                 raise BookProgressStoreError(
                     "book progress store exceeds the resource limit",
@@ -466,10 +475,7 @@ class BookProgressStore:
 
         try:
             opened = os.fstat(descriptor)
-            self._require_regular_metadata(
-                opened,
-                message="book progress storage is not a regular file",
-            )
+            self._require_private_data_metadata(opened)
             if opened.st_size > MAX_BOOK_PROGRESS_STORE_BYTES:
                 raise BookProgressStoreError(
                     "book progress store exceeds the resource limit",
@@ -488,10 +494,7 @@ class BookProgressStore:
                     "book progress storage changed while being opened",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
-            self._require_regular_metadata(
-                after_open,
-                message="book progress storage is not a regular file",
-            )
+            self._require_private_data_metadata(after_open)
             if not self._same_file_identity(opened, after_open):
                 raise BookProgressStoreError(
                     "book progress storage changed while being opened",
@@ -523,10 +526,7 @@ class BookProgressStore:
                     "book progress storage changed while being read",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
-            self._require_regular_metadata(
-                after_read,
-                message="book progress storage is not a regular file",
-            )
+            self._require_private_data_metadata(after_read)
             if not self._same_file_identity(opened, after_read):
                 raise BookProgressStoreError(
                     "book progress storage changed while being read",
@@ -816,10 +816,7 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             ) from None
         if existing is not None:
-            self._require_regular_metadata(
-                existing,
-                message="book progress storage is not a regular file",
-            )
+            self._require_private_data_metadata(existing)
 
         temp_path: Path | None = None
         temp_identity: os.stat_result | None = None
@@ -831,6 +828,7 @@ class BookProgressStore:
             )
             temp_path = Path(temp_name)
             created_identity = os.fstat(descriptor)
+            temp_identity = created_identity
             self._require_private_temp_metadata(created_identity)
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(encoded)

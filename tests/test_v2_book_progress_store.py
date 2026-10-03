@@ -789,6 +789,48 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(os.lstat(peer).st_nlink, 2)
         self.assertFalse(self.path.exists())
 
+    def test_hardlinked_primary_is_rejected_without_mutating_peer(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:hardlinked-primary", reader)
+        peer = self.path.parent / "user-owned-primary-peer.json"
+        try:
+            os.link(self.path, peer)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard-link creation is unavailable on this runner")
+
+        primary_bytes = self.path.read_bytes()
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.restore("book:hardlinked-primary", self.original_document())
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertEqual(self.path.read_bytes(), primary_bytes)
+        self.assertEqual(peer.read_bytes(), primary_bytes)
+        self.assertEqual(os.lstat(self.path).st_nlink, 2)
+
+    def test_hardlinked_backup_is_rejected_during_explicit_recovery(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:hardlinked-backup", reader)
+        reader.go_to(2)
+        self.store.save("book:hardlinked-backup", reader)
+        peer = self.path.parent / "user-owned-backup-peer.json"
+        try:
+            os.link(self.store.backup_path, peer)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard-link creation is unavailable on this runner")
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.unlink()
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.recover_from_backup()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+        self.assertEqual(peer.read_bytes(), backup_bytes)
+        self.assertEqual(os.lstat(self.store.backup_path).st_nlink, 2)
+
     def test_lock_file_replacement_between_lstat_and_open_fails_closed(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"\0")
