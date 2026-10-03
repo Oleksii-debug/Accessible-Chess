@@ -534,9 +534,7 @@ class SoundSettingsApplication:
             not in {SoundPackState.NOT_INSTALLED, SoundPackState.DIFFERENT_VERSION}
         ):
             raise ValueError("sound pack is not installable in its current state")
-        installed = self._packs.install(entry, activate=False)
-        if activate:
-            self._save_pack_profile(installed.manifest.pack_id, installed.manifest)
+        installed = self._packs.install(entry, activate=activate)
         message = "Sound pack installed." if language == "en" else "Набір звуків установлено."
         return self._result(message, language=language)
 
