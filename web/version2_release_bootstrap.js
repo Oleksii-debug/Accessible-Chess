@@ -134,6 +134,15 @@
       profileDialog.showModal();
     }
     global.setTimeout(function () {
+      if (
+        profileState &&
+        profileState.recoveryRequired === true &&
+        !profileRepair.hidden &&
+        !profileRepair.disabled
+      ) {
+        profileRepair.focus({ preventScroll: true });
+        return;
+      }
       profileName.focus();
       profileName.select();
     }, 0);
