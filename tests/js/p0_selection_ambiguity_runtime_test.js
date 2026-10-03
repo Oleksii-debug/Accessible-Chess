@@ -44,6 +44,21 @@ function verifyLocator(name, locator) {
     name + " must not use the old absolute offset to break a semantic tie"
   );
 
+  const withinBudget = "x e4 y|".repeat(4095) + "TARGET e4 END";
+  const withinBudgetTarget = withinBudget.lastIndexOf(selected);
+  assert.strictEqual(
+    locator(withinBudget, selected, 0, "TARGET ", " END"),
+    withinBudgetTarget,
+    name + " must still reach a uniquely strongest candidate at the relocation budget"
+  );
+
+  const overBudget = "x e4 y|".repeat(4096) + "TARGET e4 END";
+  assert.strictEqual(
+    locator(overBudget, selected, 0, "TARGET ", " END"),
+    -1,
+    name + " must fail closed before scanning beyond the relocation candidate budget"
+  );
+
   assert.strictEqual(locator("abc", "", 0, "", ""), -1, name + " must reject an empty selection");
   assert.strictEqual(locator("abc", "missing", 0, "", ""), -1, name + " must reject absent selected text");
 }
