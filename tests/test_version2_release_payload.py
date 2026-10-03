@@ -478,7 +478,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 self._assert_no_publication(output)
             path.write_bytes(original)
 
-    def test_sound_manifest_must_be_exact_nine_and_distinct(self) -> None:
+    def test_sound_manifest_must_cover_complete_semantic_event_set(self) -> None:
         manifest_path = self.sounds / "manifest.json"
         original = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -486,7 +486,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         missing["files"].pop(next(iter(SoundEvent)).value)
         manifest_path.write_text(json.dumps(missing), encoding="utf-8")
         output = self.root / "payload-missing"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all semantic"):
             self._prepare(output)
         self._assert_no_publication(output)
 
@@ -495,21 +495,41 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._write_wav(self.sounds / "extra.wav", sample=1)
         manifest_path.write_text(json.dumps(extra), encoding="utf-8")
         output = self.root / "payload-extra"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all semantic"):
             self._prepare(output)
         self._assert_no_publication(output)
         (self.sounds / "extra.wav").unlink()
 
-        aliased = json.loads(json.dumps(original))
+    def test_sound_manifest_allows_intentional_alias_when_provenance_matches(self) -> None:
+        manifest_path = self.sounds / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        provenance = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
         events = list(SoundEvent)
-        aliased["files"][events[1].value] = aliased["files"][events[0].value]
-        manifest_path.write_text(json.dumps(aliased), encoding="utf-8")
-        output = self.root / "payload-alias"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "distinct WAV"):
-            self._prepare(output)
-        self._assert_no_publication(output)
+        source_event = events[0].value
+        alias_event = events[1].value
+        shared_file = manifest["files"][source_event]
+        manifest["files"][alias_event] = shared_file
+        provenance["events"][alias_event]["file"] = shared_file
+        provenance["events"][alias_event]["sha256"] = self._digest(self.sounds / shared_file)
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+        self.sound_provenance.write_text(
+            json.dumps(provenance, sort_keys=True),
+            encoding="utf-8",
+        )
 
-        manifest_path.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
+        result = self._prepare(self.root / "payload-alias")
+        packaged_manifest = json.loads(
+            (
+                result.product_dir
+                / "assets"
+                / "sounds"
+                / "manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            packaged_manifest["files"][source_event],
+            packaged_manifest["files"][alias_event],
+        )
 
     def test_layered_sound_assets_are_packaged_and_malformed_layers_fail_atomically(self) -> None:
         impact = self.sounds / "move-hit.wav"
