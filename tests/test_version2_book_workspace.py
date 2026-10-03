@@ -323,6 +323,67 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertEqual(workflow.revision, 0)
         self.assertEqual(reader.snapshot(), before)
 
+    def test_semantic_snapshot_rejects_board_opened_during_render(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Concurrent Board open",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Game")],
+            )
+        )
+        before = reader.snapshot()
+        original = bridge.projection._semantic_tree_snapshot
+
+        def resolve_then_open(index):
+            tree = original(index)
+            workflow.open_current()
+            return tree
+
+        with patch.object(
+            bridge.projection,
+            "_semantic_tree_snapshot",
+            side_effect=resolve_then_open,
+        ):
+            with self.assertRaises(BookBoardWorkflowError) as raised:
+                bridge.projection.snapshot()
+
+        self.assertIs(raised.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertTrue(workflow.active)
+        self.assertEqual(workflow.revision, 1)
+        self.assertEqual(reader.snapshot(), before)
+        workflow.return_to_book()
+        self.assertFalse(workflow.active)
+        self.assertEqual(reader.snapshot(), before)
+
+    def test_semantic_snapshot_rejects_board_closed_during_render(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Concurrent Board close",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Game")],
+            )
+        )
+        workflow.open_current()
+        self.assertTrue(workflow.active)
+        before = reader.snapshot()
+        original = bridge.projection._semantic_tree_snapshot
+
+        def resolve_then_close(index):
+            tree = original(index)
+            workflow.return_to_book()
+            return tree
+
+        with patch.object(
+            bridge.projection,
+            "_semantic_tree_snapshot",
+            side_effect=resolve_then_close,
+        ):
+            with self.assertRaises(BookBoardWorkflowError) as raised:
+                bridge.projection.snapshot()
+
+        self.assertIs(raised.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 2)
+        self.assertEqual(reader.snapshot(), before)
+
     def test_keyboard_navigation_revision_drift_rolls_back_reader_and_returns_safe_error(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(
