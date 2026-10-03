@@ -1482,7 +1482,7 @@ class FilesystemSoundPackStore:
                     except (TypeError, ValueError, SoundPackStoreError):
                         continue
                     valid.append(version)
-        except OSError:
+        except (OSError, SoundPackStoreError):
             return ()
         return tuple(sorted(valid, key=_semantic_version_key))
 
