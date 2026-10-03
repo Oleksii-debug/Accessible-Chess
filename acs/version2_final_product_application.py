@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_collaboration import FileQuotaPolicy
 from .classroom_collaboration_storage import AttachmentMetadata, ChatMessageMetadata
 from .classroom_collaboration_runtime import (
     ClassroomCollaborationRuntime,
@@ -329,6 +330,7 @@ class Version2FinalProductApplication(Version2Application):
         participant_moderation: ClassroomMediaController | None = None,
         chat_retention: str = "session",
         file_retention: str = "session",
+        local_quota: FileQuotaPolicy | None = None,
         chat_timeout_seconds: float = 15.0,
         file_timeout_seconds: float = 30.0,
         allow_insecure_loopback: bool = False,
@@ -368,6 +370,7 @@ class Version2FinalProductApplication(Version2Application):
             participant_moderation=participant_moderation,
             chat_retention=chat_retention,
             file_retention=file_retention,
+            local_quota=local_quota,
             chat_timeout_seconds=chat_timeout_seconds,
             file_timeout_seconds=file_timeout_seconds,
             allow_insecure_loopback=allow_insecure_loopback,
