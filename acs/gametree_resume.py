@@ -576,15 +576,15 @@ def _read_store_bytes(path: Path) -> bytes:
                 code=GameTreeResumeCode.RESOURCE_LIMIT,
             )
 
-        payload_parts: list[bytes] = []
+        payload_buffer = bytearray()
         remaining = MAX_RESUME_RECORD_BYTES + 2
         while remaining > 0:
             block = os.read(fd, min(1024 * 1024, remaining))
             if not block:
                 break
-            payload_parts.append(block)
+            payload_buffer.extend(block)
             remaining -= len(block)
-        payload = b"".join(payload_parts)
+        payload = bytes(payload_buffer)
 
         opened_after = os.fstat(fd)
         current_after = path.lstat()
