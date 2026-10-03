@@ -378,6 +378,38 @@ class ClassroomFileServerSQLiteStore:
                     db.commit()
                     return None
 
+                sequence_stats = db.execute(
+                    """
+                    SELECT COUNT(*) AS item_count,
+                           MAX(sequence_no) AS last_sequence
+                    FROM classroom_file_server_attachments
+                    WHERE room_id=? AND transfer_state IN ('stored','deleted')
+                    """,
+                    (metadata.room_id,),
+                ).fetchone()
+                item_count = sequence_stats["item_count"]
+                last_sequence = sequence_stats["last_sequence"]
+                if type(item_count) is not int or item_count < 0:
+                    raise ClassroomFileServerError(
+                        "authoritative file sequence count is corrupt"
+                    )
+                if last_sequence is None:
+                    if item_count != 0:
+                        raise ClassroomFileServerError(
+                            "authoritative file sequence has a gap"
+                        )
+                elif (
+                    type(last_sequence) is not int
+                    or not 0 <= last_sequence <= MAX_WIRE_INTEGER
+                ):
+                    raise ClassroomFileServerError(
+                        "authoritative file sequence is exhausted or corrupt"
+                    )
+                elif last_sequence + 1 != item_count:
+                    raise ClassroomFileServerError(
+                        "authoritative file sequence has a gap"
+                    )
+
                 if metadata.size_bytes > quota.max_file_bytes:
                     raise CollaborationQuotaError(
                         "file exceeds authoritative server size limit"
