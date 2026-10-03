@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 from threading import Thread
 import unittest
 from unittest import mock
@@ -27,6 +28,12 @@ from acs.classroom_realtime_media import (
 
 
 NOW = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+HOST_TRANSACTION_WORKFLOW = (
+    Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "classroom-media-host-transaction.yml"
+)
 
 
 class FakeRoster:
@@ -679,6 +686,26 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
         with self.assertRaises(MediaHostTransactionError):
             host.provider_failed("host-" + "f" * 32)
         self.assertEqual(host.pending_effect, effect)
+
+    def test_workflow_scope_is_bound_to_immutable_pull_request_base_sha(self):
+        workflow = HOST_TRANSACTION_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            'git diff --name-only "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertIn(
+            'git diff --check "$EVENT_BASE_SHA...HEAD"',
+            workflow,
+        )
+        self.assertNotIn(
+            'refs/remotes/origin/$PR_BASE_REF',
+            workflow,
+        )
 
 
 if __name__ == "__main__":
