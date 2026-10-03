@@ -495,7 +495,7 @@ class ExerciseSession:
             return cls._restore_v3(definition, snapshot_data)
         if schema_version == 2:
             return cls._restore_v2(definition, snapshot_data)
-        raise ValueError(f"unsupported exercise snapshot schema_version: {schema_version}")
+        raise ValueError("unsupported exercise snapshot schema_version")
 
     @classmethod
     def _restore_v4(
