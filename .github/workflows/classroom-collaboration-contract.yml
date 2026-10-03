@@ -19,6 +19,7 @@ concurrency:
   group: classroom-collaboration-${{ github.ref }}
   cancel-in-progress: true
 
+# Provider-consumption object-key tamper regressions live in test_classroom_collaboration.
 jobs:
   contract:
     strategy:
