@@ -617,6 +617,16 @@ class FilesystemSoundPackStoreTests(unittest.TestCase):
 
             self.assertEqual(manifest, record.manifest)
             self.assertIsNone(record.rights_evidence)
+            self.assertIsNotNone(record.asset_digests)
+            assert record.asset_digests is not None
+            self.assertEqual(
+                set(downloaded.assets),
+                set(record.asset_digests),
+            )
+            self.assertEqual(
+                dict(downloaded.assets),
+                dict(record.asset_digests),
+            )
 
     def test_hardlinked_mutation_lock_never_writes_external_inode(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
