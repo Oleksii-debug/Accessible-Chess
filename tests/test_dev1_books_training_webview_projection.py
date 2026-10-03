@@ -125,6 +125,39 @@ class BookProjectionTests(unittest.TestCase):
                 )
             )
 
+    def test_snapshot_visible_text_budget_matches_webview_utf16_units(self) -> None:
+        paragraph = self.presenter.next_block()
+        with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4):
+            with self.assertRaisesRegex(ValueError, "visible-text budget"):
+                self.projection._snapshot_from_block(
+                    replace(paragraph, text="😀😀😀")
+                )
+
+    def test_snapshot_list_aggregate_budget_matches_webview_utf16_units(self) -> None:
+        block = self.presenter.current()
+        with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4):
+            with self.assertRaisesRegex(ValueError, "list exceeds the visible-text budget"):
+                self.projection._snapshot_from_block(
+                    replace(
+                        block,
+                        kind="List",
+                        role="list",
+                        heading_level=None,
+                        list_items=("😀", "😀", "a"),
+                        list_ordered=False,
+                        list_start=None,
+                    )
+                )
+
+    def test_snapshot_bounded_labels_never_exceed_webview_utf16_limit(self) -> None:
+        block = self.presenter.current()
+        snapshot = self.projection._snapshot_from_block(
+            replace(block, title="😀" * 200)
+        )
+        title = snapshot["block"]["title"]
+        self.assertEqual(180, len(title))
+        self.assertEqual(360, len(title.encode("utf-16-le")) // 2)
+
     def test_snapshot_rejects_numbers_that_webview_cannot_represent_exactly(self) -> None:
         block = self.presenter.current()
         too_large = 1 << 53
