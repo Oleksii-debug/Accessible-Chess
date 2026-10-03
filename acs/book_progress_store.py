@@ -113,7 +113,11 @@ def _sync_published_path(path: Path) -> None:
         # MoveFileExW above requests write-through for the namespace move. Reopen
         # and flush the published file as a second barrier before reporting
         # confirmed durability to the application.
-        with path.open("rb") as handle:
+        # FlushFileBuffers (used by Python's os.fsync on Windows) requires
+        # a handle with write access. Reopen the just-published private file
+        # read/write without truncation; opening it read-only makes every
+        # otherwise-successful Windows publication report DURABILITY_UNKNOWN.
+        with path.open("r+b") as handle:
             os.fsync(handle.fileno())
         return
 
