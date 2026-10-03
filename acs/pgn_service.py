@@ -102,11 +102,22 @@ class PgnFileImporter:
             )
             return report
 
-        lossy_source = bool(opened.global_warnings)
+        lossy_source = any(
+            warning.startswith("Invalid UTF-8 bytes were replaced")
+            for warning in opened.global_warnings
+        )
+        legacy_windows_1251 = any(
+            warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+            for warning in opened.global_warnings
+        )
         for game in opened.games:
             warnings = list(game.warnings)
             if lossy_source:
                 warnings.append("Source text required lossy UTF-8 replacement during decoding.")
+            if legacy_windows_1251:
+                warnings.append(
+                    "Source text was decoded losslessly from legacy Windows-1251."
+                )
             report.add(
                 ImportedRecord(
                     source_record_id=str(game.source_index),
@@ -159,7 +170,38 @@ def _bounded_source_size(path: Path) -> int | None:
     return size
 
 
-def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
+_WINDOWS_1251_PGN_HEADER_ANCHORS = (
+    b"[event",
+    b"[site",
+    b"[date",
+    b"[round",
+    b"[white",
+    b"[black",
+    b"[result",
+    b"[fen",
+    b"[setup",
+)
+_WINDOWS_1251_CYRILLIC_BYTES = frozenset((*range(0xC0, 0x100), 0xA8, 0xB8))
+
+
+def _looks_like_windows_1251_pgn_bytes(payload: bytes) -> bool:
+    """Gate legacy Cyrillic decoding without hiding arbitrary invalid UTF-8."""
+
+    if not payload or b"\x00" in payload:
+        return False
+    lowered = payload.lower()
+    if not any(anchor in lowered for anchor in _WINDOWS_1251_PGN_HEADER_ANCHORS):
+        return False
+    previous_cyrillic = False
+    for value in payload:
+        current_cyrillic = value in _WINDOWS_1251_CYRILLIC_BYTES
+        if current_cyrillic and previous_cyrillic:
+            return True
+        previous_cyrillic = current_cyrillic
+    return False
+
+
+def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool, bool]:
     _bounded_source_size(path)
     before = fingerprint(path)
     if before.size > MAX_PGN_SOURCE_BYTES:
@@ -174,6 +216,7 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     # Some focused tests provide a bounded text-handle double.  Real file
     # reads are bytes; accepting exact text here keeps that test seam without
     # weakening production decoding or performing a second race-prone read.
+    legacy_windows_1251 = False
     if isinstance(payload, str):
         text = payload
         decode_replaced = False
@@ -188,13 +231,18 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
             text = payload.decode("utf-8-sig", errors="strict")
             decode_replaced = False
         except UnicodeDecodeError:
-            text = payload.decode("utf-8-sig", errors="replace")
-            decode_replaced = True
+            if _looks_like_windows_1251_pgn_bytes(payload):
+                text = payload.decode("cp1251", errors="strict")
+                decode_replaced = False
+                legacy_windows_1251 = True
+            else:
+                text = payload.decode("utf-8-sig", errors="replace")
+                decode_replaced = True
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     after = fingerprint(path)
     if before.size != after.size or before.sha256 != after.sha256:
         raise PgnSourceChangedError("PGN changed while being read")
-    return before, text, decode_replaced
+    return before, text, decode_replaced, legacy_windows_1251
 
 
 def _parse_file_games(text: str) -> tuple[PgnGame, ...]:
@@ -224,12 +272,16 @@ def open_pgn(path: str | Path) -> PgnOpenResult:
     """Open a PGN without mutating it and preserve recursive GameTree content."""
 
     source_path = Path(path)
-    source, text, decode_replaced = _read_text_snapshot(source_path)
+    source, text, decode_replaced, legacy_windows_1251 = _read_text_snapshot(source_path)
     games = _parse_file_games(text)
     warnings: list[str] = []
     if decode_replaced:
         warnings.append(
             "Invalid UTF-8 bytes were replaced while reading; save to a new file before editing the source."
+        )
+    if legacy_windows_1251:
+        warnings.append(
+            "Legacy Windows-1251 PGN was decoded losslessly; use Save As so the original legacy-encoded source is not overwritten."
         )
     return PgnOpenResult(source=source, games=games, global_warnings=tuple(warnings))
 
