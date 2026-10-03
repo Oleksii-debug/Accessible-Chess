@@ -17,7 +17,13 @@ presentation-safe Book error.
 
 from .acsdb import AcsDatabase
 from .gametree import GameTreeSerializationError, PgnGame, serialize_game
-from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
+from .pgn_roundtrip import (
+    MAX_PGN_LEXICAL_TOKENS,
+    MAX_PGN_TEXT_CHARS,
+    MAX_PGN_TOKEN_CHARS,
+    PgnRoundTripError,
+    parse_pgn_text,
+)
 
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
 
@@ -45,7 +51,7 @@ class AcsdbBookGameLookup:
     @staticmethod
     def _stored_warnings(row: dict) -> list[str]:
         raw = row.get("warnings_json")
-        if type(raw) is not str:
+        if type(raw) is not str or len(raw) > MAX_PGN_TEXT_CHARS:
             raise BookLibraryGameLookupError("stored book game warnings are invalid")
         try:
             warnings = json.loads(raw)
@@ -55,8 +61,12 @@ class AcsdbBookGameLookup:
             ) from None
         if (
             type(warnings) is not list
+            or len(warnings) > MAX_PGN_LEXICAL_TOKENS
             or any(
                 type(item) is not str
+                or not item.strip()
+                or len(item) > MAX_PGN_TOKEN_CHARS
+                or "\x00" in item
                 or any(0xD800 <= ord(character) <= 0xDFFF for character in item)
                 for item in warnings
             )
