@@ -312,6 +312,7 @@ class ClassroomCollaborationWebView:
         self._file_retention = file_retention
         self._id_factory = id_factory
         self._action_secret = secrets.token_bytes(32)
+        self._browser_session_key = secrets.token_hex(16)
         self._unread_message_ids: set[str] = set()
         self._pending_chat: tuple[str, str] | None = None
         self._chat_page_bucket: int | None = None
@@ -338,6 +339,7 @@ class ClassroomCollaborationWebView:
         """
 
         self._action_secret = secrets.token_bytes(32)
+        self._browser_session_key = secrets.token_hex(16)
         self._unread_message_ids.clear()
         self._pending_chat = None
         self._chat_page_bucket = None
@@ -524,6 +526,7 @@ class ClassroomCollaborationWebView:
         labels = _LABELS[self._language]
         return {
             "available": False,
+            "session_key": self._browser_session_key,
             "heading": labels["heading"],
             "status_message": labels["unavailable"],
             "chat": {
@@ -705,6 +708,7 @@ class ClassroomCollaborationWebView:
         moderation_available = self._moderator()
         return {
             "available": True,
+            "session_key": self._browser_session_key,
             "heading": labels["heading"],
             "chat": {
                 "heading": labels["chat"],
