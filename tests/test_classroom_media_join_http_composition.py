@@ -119,6 +119,21 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
             self.configure(unbound, lambda: "never")
         self.assertIsNone(unbound._media_join_http)
 
+    def test_invalid_clock_configuration_is_atomic(self):
+        application, _controller, _transactions = self.application()
+        with self.assertRaisesRegex(
+            TypeError,
+            "classroom media join clock must be callable",
+        ):
+            application.configure_classroom_media_join_http(
+                endpoint_url="https://classroom.example/v1/classroom/join-credential",
+                bearer_token_provider=lambda: "account-token",
+                now_provider=object(),
+            )
+        self.assertIsNone(application._media_join_http)
+        self.assertIsNone(application._media_join_now_provider)
+        self.assertIsNone(getattr(application, "_media_join_now_provider", None))
+
     def test_join_uses_canonical_controller_participant_and_redacts_provider_token(self):
         application, _controller, transactions = self.application()
         self.configure(application, lambda: "account-token")
