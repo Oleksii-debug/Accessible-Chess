@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import errno
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ import stat
 import tempfile
 import threading
 from typing import Iterator, Mapping
+import wave
 
 from .sound_pack_catalog import (
     DEFAULT_MAX_SOUND_PACK_BYTES,
@@ -541,8 +543,9 @@ def _read_verified_asset_bytes(
             raise SoundPackStoreError("installed sound asset changed during secure read")
         if sha.hexdigest() != digest.sha256:
             raise SoundPackStoreError("installed sound asset checksum mismatch")
-        _validate_audio_header(digest.path, bytes(prefix))
-        return b"".join(chunks)
+        content = b"".join(chunks)
+        _validate_audio_payload(digest.path, content)
+        return content
     finally:
         os.close(descriptor)
 
@@ -564,6 +567,40 @@ def _validate_audio_header(path: str, prefix: bytes) -> None:
             return
         raise SoundPackStoreError("sound MP3 asset has an invalid signature")
     raise SoundPackStoreError("unsupported sound asset type")
+
+
+def _validate_audio_payload(path: str, content: bytes) -> None:
+    """Validate exact verified asset bytes beyond a superficial media signature."""
+
+    _validate_audio_header(path, content[:16])
+    if Path(path).suffix.lower() != ".wav":
+        return
+    try:
+        with wave.open(io.BytesIO(content), "rb") as reader:
+            if reader.getcomptype() != "NONE":
+                raise SoundPackStoreError(
+                    "sound WAV asset must use uncompressed PCM"
+                )
+            channels = reader.getnchannels()
+            sample_width = reader.getsampwidth()
+            sample_rate = reader.getframerate()
+            frame_count = reader.getnframes()
+            if (
+                channels <= 0
+                or sample_width not in {1, 2, 3, 4}
+                or sample_rate <= 0
+                or frame_count <= 0
+            ):
+                raise SoundPackStoreError(
+                    "sound WAV asset has unusable PCM parameters"
+                )
+            frames = reader.readframes(frame_count)
+            if len(frames) != frame_count * channels * sample_width:
+                raise SoundPackStoreError("sound WAV asset is truncated")
+    except SoundPackStoreError:
+        raise
+    except (EOFError, OSError, ValueError, wave.Error) as exc:
+        raise SoundPackStoreError("sound WAV asset is invalid") from exc
 
 
 def _rights_sha256(rights: SoundPackRightsEvidence) -> str:
