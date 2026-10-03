@@ -2195,8 +2195,34 @@ class Version2UpgradeCoordinator:
             notify=False,
         )
 
-    def _clear_library_sidecars(self) -> None:
+    def _clear_library_sidecars(
+        self,
+        *,
+        expected_library_identity: tuple[int, int] | None = None,
+    ) -> None:
+        def require_library_identity() -> None:
+            if expected_library_identity is None:
+                return
+            try:
+                current = _safe_stat(
+                    self.layout.library_path,
+                    "library sidecar owner",
+                )
+            except OSError as exc:
+                raise Version2UpgradeRecoveryError(
+                    "library changed during sidecar cleanup"
+                ) from exc
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or _stat_identity(current) != expected_library_identity
+            ):
+                raise Version2UpgradeRecoveryError(
+                    "library changed during sidecar cleanup"
+                )
+
+        require_library_identity()
         for suffix in _DB_SIDECARS:
+            require_library_identity()
             sidecar = Path(str(self.layout.library_path) + suffix)
             if not sidecar.exists() and not sidecar.is_symlink():
                 continue
@@ -2215,6 +2241,8 @@ class Version2UpgradeCoordinator:
                 raise Version2UpgradeRecoveryError(
                     "library sidecar changed during removal"
                 ) from exc
+            require_library_identity()
+        require_library_identity()
 
     def _prepare_library_publication(self, expected_original: str) -> None:
         """Normalize a quiescent live SQLite file before atomic publication.
@@ -2329,7 +2357,9 @@ class Version2UpgradeCoordinator:
         # No writer held the SQLite write lock and WAL has been checkpointed.
         # Remove now-stale sidecars only while the canonical main-file pathname
         # is still the exact inode normalized above.
-        self._clear_library_sidecars()
+        self._clear_library_sidecars(
+            expected_library_identity=_stat_identity(before),
+        )
         require_target_identity()
 
     def _restore(self, upgrade_id: str) -> int:
