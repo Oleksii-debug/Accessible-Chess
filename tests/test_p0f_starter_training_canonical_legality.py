@@ -217,7 +217,7 @@ class StarterTrainingCanonicalLegalityTests(unittest.TestCase):
                 self.assertEqual(expected.fen(), session.current_fen)
 
 
-    def test_every_release_exercise_rejects_an_alternative_legal_move_without_advancing(self) -> None:
+    def test_every_release_exercise_rejects_every_alternative_legal_move_without_advancing(self) -> None:
         tasks = build_training_task_catalogue()
         course = build_release_starter_course()
         exercise_entries = BookIndex(course).of_kind(BookEntryKind.EXERCISE)
@@ -239,24 +239,38 @@ class StarterTrainingCanonicalLegalityTests(unittest.TestCase):
 
                 material = build_book_training_material(course, entry.target.key)
                 session = ExerciseSession(material.definition)
-                rejected = session.submit(alternatives[0])
 
-                self.assertFalse(
-                    rejected.accepted,
-                    msg=(
-                        f"starter task {task.task_id} accepted alternative legal move "
-                        f"{alternatives[0]!r}"
-                    ),
-                )
-                self.assertFalse(rejected.completed)
-                self.assertFalse(session.completed)
-                self.assertEqual((), session.accepted_path)
-                self.assertEqual(task.fen, session.current_fen)
+                # Exhaust the canonical legal move set, not merely one sampled
+                # negative. Every other legal move must remain a mistake and
+                # must leave the semantic training position/path untouched.
+                for attempt_number, alternative in enumerate(alternatives, start=1):
+                    rejected = session.submit(alternative)
+                    self.assertFalse(
+                        rejected.accepted,
+                        msg=(
+                            f"starter task {task.task_id} accepted alternative legal move "
+                            f"{alternative!r}"
+                        ),
+                    )
+                    self.assertFalse(rejected.completed)
+                    self.assertFalse(session.completed)
+                    self.assertEqual(0, session.step_index)
+                    self.assertEqual((), session.accepted_path)
+                    self.assertEqual(task.fen, session.current_fen)
+                    self.assertEqual(attempt_number, session.attempts)
+                    self.assertEqual(attempt_number, session.mistakes)
 
+                expected = Board(task.fen)
+                expected.push(expected.parse_move(task.answer_uci))
                 accepted = session.submit(task.answer_uci)
                 self.assertTrue(accepted.accepted)
                 self.assertTrue(accepted.completed)
                 self.assertTrue(session.completed)
+                self.assertEqual(1, session.step_index)
+                self.assertEqual(len(alternatives) + 1, session.attempts)
+                self.assertEqual(len(alternatives), session.mistakes)
+                self.assertEqual(expected.fen(), session.current_fen)
+                self.assertEqual(1, len(session.accepted_path))
 
     def test_release_exercises_preserve_authored_identity_and_durable_origin(self) -> None:
         tasks = build_training_task_catalogue()
