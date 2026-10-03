@@ -95,6 +95,20 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual(1, len(self.store.room_messages("room-1")))
         self.assertNotIn("browser-owned", repr(rejected.payload))
 
+    def test_browser_chat_body_is_bounded_before_identity_or_pending_state(self) -> None:
+        view = self.webview()
+
+        for body in ("", "   ", "bad\x00body", "x" * 4001, "bad" + chr(0xD800)):
+            with self.subTest(body=repr(body[:20])):
+                event = view.dispatch(
+                    "collaboration.chat.send",
+                    {"body": body},
+                )
+                self.assertEqual("error", event.kind)
+                self.assertIsNone(view._pending_chat)
+                self.assertEqual({}, self.ids)
+                self.assertEqual((), self.store.room_messages("room-1"))
+
     def test_failed_chat_send_reuses_host_identity_for_same_draft(self) -> None:
         view = self.webview()
         calls: list[tuple[str, str]] = []
