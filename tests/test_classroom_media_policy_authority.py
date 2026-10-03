@@ -55,6 +55,19 @@ class FakeResolver:
         return self.rooms[room_id]
 
 
+class FakeJoinIdentityResolver:
+    def __init__(self):
+        self.mapping = {
+            "account-17": "student-1",
+            "account-student-2": "student-2",
+        }
+        self.calls = []
+
+    def participant_for_caller(self, *, room_id, trusted_caller_identity):
+        self.calls.append((room_id, trusted_caller_identity))
+        return self.mapping.get(trusted_caller_identity, trusted_caller_identity)
+
+
 class FakeProviderAdmin:
     def __init__(self):
         self.commands = []
@@ -91,11 +104,17 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "policy.sqlite3"
         self.resolver = FakeResolver()
+        self.join_identity = FakeJoinIdentityResolver()
 
-    def authority(self, path=None, resolver=None):
+    def authority(self, path=None, resolver=None, join_identity_resolver=None):
         return SqliteClassroomMediaPolicyAuthority(
             path or self.path,
             roster_resolver=resolver or self.resolver,
+            join_identity_resolver=(
+                self.join_identity
+                if join_identity_resolver is None
+                else join_identity_resolver
+            ),
         )
 
     def test_shared_default_source_policy_is_exact_for_every_role(self):
@@ -155,6 +174,29 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
         )
         self.assertEqual(observer.publish_sources, ())
 
+    def test_join_maps_authenticated_account_to_room_participant(self):
+        authority = self.authority()
+        grant = authority.authorize_join(
+            room_id="room-1",
+            trusted_caller_identity="account-17",
+            requested_participant_id="student-1",
+        )
+        self.assertEqual(grant.participant_id, "student-1")
+        self.assertEqual(
+            self.join_identity.calls[-1],
+            ("room-1", "account-17"),
+        )
+
+        with self.assertRaisesRegex(
+            ClassroomMediaPolicyError,
+            "not authorized for caller",
+        ):
+            authority.authorize_join(
+                room_id="room-1",
+                trusted_caller_identity="account-student-2",
+                requested_participant_id="student-1",
+            )
+
     def test_join_rejects_impersonation_unknown_room_and_unknown_participant(self):
         authority = self.authority()
         cases = (
@@ -178,6 +220,40 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ClassroomMediaPolicyError):
                     authority.authorize_join(**value)
+
+    def test_join_identity_lookup_failures_are_sanitized_and_fail_closed(self):
+        secret = "private-auth-backend-detail"
+
+        class BrokenJoinIdentity:
+            def participant_for_caller(self, *, room_id, trusted_caller_identity):
+                raise RuntimeError(secret)
+
+        authority = self.authority(join_identity_resolver=BrokenJoinIdentity())
+        with self.assertRaisesRegex(
+            ClassroomMediaPolicyError,
+            "^canonical join identity lookup failed$",
+        ) as caught:
+            authority.authorize_join(
+                room_id="room-1",
+                trusted_caller_identity="account-17",
+                requested_participant_id="student-1",
+            )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertNotIn(
+            secret,
+            "".join(traceback.format_exception(caught.exception)),
+        )
+
+        self.join_identity.mapping["account-17"] = "bad participant id"
+        with self.assertRaisesRegex(
+            ClassroomMediaPolicyError,
+            "canonical join participant id is invalid",
+        ):
+            self.authority().authorize_join(
+                room_id="room-1",
+                trusted_caller_identity="account-17",
+                requested_participant_id="student-1",
+            )
 
     def test_hard_source_revoke_survives_restart_and_fresh_join(self):
         authority = self.authority()
@@ -752,6 +828,7 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             SqliteClassroomMediaPolicyAuthority(
                 ":memory:",
                 roster_resolver=self.resolver,
+                join_identity_resolver=self.join_identity,
             )
 
     def test_invalid_roster_and_timeout_inputs_fail_closed(self):
@@ -773,7 +850,17 @@ class ClassroomMediaPolicyAuthorityTests(unittest.TestCase):
             SqliteClassroomMediaPolicyAuthority(
                 self.path,
                 roster_resolver=self.resolver,
+                join_identity_resolver=self.join_identity,
                 timeout_seconds=True,
+            )
+        with self.assertRaisesRegex(
+            ClassroomMediaPolicyError,
+            "join identity resolver",
+        ):
+            SqliteClassroomMediaPolicyAuthority(
+                self.path,
+                roster_resolver=self.resolver,
+                join_identity_resolver=None,
             )
 
 
