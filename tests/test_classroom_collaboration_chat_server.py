@@ -862,6 +862,114 @@ class ClassroomChatServerTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
+    def test_version_one_migration_backfills_hidden_message_state_stream(self) -> None:
+        path = Path(self.tmp.name) / "schema-v1-hidden-backfill.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("DROP INDEX idx_classroom_chat_server_state_updates_message")
+            db.execute("DROP TABLE classroom_chat_server_state_updates")
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=1
+                WHERE key='schema_version'
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,1,?)
+                """,
+                (
+                    "legacy-hidden-message",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Hidden before state stream existed",
+                    "session",
+                    1700000000000,
+                ),
+            )
+
+        migrated = ClassroomChatServerSQLiteStore(path)
+        updates = migrated.state_updates_after(
+            room_id=ROOM,
+            after_revision=None,
+            limit=10,
+        )
+
+        self.assertEqual(1, len(updates))
+        self.assertEqual("legacy-hidden-message", updates[0].message_id)
+        self.assertEqual(0, updates[0].revision)
+        self.assertTrue(updates[0].hidden)
+        migrated.integrity_check()
+
+    def test_version_one_migration_rejects_nonempty_partial_state_stream(self) -> None:
+        path = Path(self.tmp.name) / "schema-v1-partial-state.sqlite3"
+        ClassroomChatServerSQLiteStore(path)
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,1,?)
+                """,
+                (
+                    "partial-hidden-message",
+                    ROOM,
+                    STUDENT,
+                    0,
+                    "Partially migrated",
+                    "session",
+                    1700000000000,
+                ),
+            )
+            db.execute(
+                """
+                INSERT INTO classroom_chat_server_state_updates(
+                    room_id, revision, message_id, hidden
+                ) VALUES(?,?,?,1)
+                """,
+                (ROOM, 0, "partial-hidden-message"),
+            )
+            db.execute(
+                """
+                UPDATE classroom_chat_server_meta
+                SET value=1
+                WHERE key='schema_version'
+                """
+            )
+
+        with self.assertRaisesRegex(
+            ClassroomChatServerError,
+            "version one chat state migration is partial",
+        ):
+            ClassroomChatServerSQLiteStore(path)
+
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(
+                1,
+                db.execute(
+                    """
+                    SELECT value FROM classroom_chat_server_meta
+                    WHERE key='schema_version'
+                    """
+                ).fetchone()[0],
+            )
+            self.assertEqual(
+                1,
+                db.execute(
+                    """
+                    SELECT COUNT(*) FROM classroom_chat_server_state_updates
+                    WHERE room_id=?
+                    """,
+                    (ROOM,),
+                ).fetchone()[0],
+            )
+
     def test_version_one_migration_may_create_only_version_two_state_table(self) -> None:
         path = Path(self.tmp.name) / "schema-v1-migration.sqlite3"
         ClassroomChatServerSQLiteStore(path)

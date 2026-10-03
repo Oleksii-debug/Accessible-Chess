@@ -296,6 +296,25 @@ class ClassroomChatServerSQLiteStore:
                         db,
                         version=version,
                     )
+                    if (
+                        version == 1
+                        and "classroom_chat_server_state_updates"
+                        in namespace_objects
+                    ):
+                        self._validate_schema_shape(
+                            db,
+                            version=2,
+                        )
+                        if db.execute(
+                            """
+                            SELECT 1
+                            FROM classroom_chat_server_state_updates
+                            LIMIT 1
+                            """
+                        ).fetchone() is not None:
+                            raise ClassroomChatServerError(
+                                "version one chat state migration is partial"
+                            )
                 elif namespace_objects:
                     raise ClassroomChatServerError(
                         "classroom chat server schema metadata is missing"
@@ -352,6 +371,37 @@ class ClassroomChatServerSQLiteStore:
                         (_SERVER_SCHEMA_VERSION,),
                     )
                 elif version < 2:
+                    expected_sequence: dict[str, int] = {}
+                    next_revision: dict[str, int] = {}
+                    for stored in db.execute(
+                        """
+                        SELECT * FROM classroom_chat_server_messages
+                        ORDER BY room_id, sequence_no
+                        """
+                    ):
+                        message = self._row_message(stored)
+                        expected = expected_sequence.get(message.room_id, 0)
+                        if message.sequence_no != expected:
+                            raise ClassroomChatServerError(
+                                "version one message sequence is not contiguous"
+                            )
+                        expected_sequence[message.room_id] = expected + 1
+                        if not message.hidden:
+                            continue
+                        revision = next_revision.get(message.room_id, 0)
+                        db.execute(
+                            """
+                            INSERT INTO classroom_chat_server_state_updates(
+                                room_id, revision, message_id, hidden
+                            ) VALUES(?,?,?,1)
+                            """,
+                            (
+                                message.room_id,
+                                revision,
+                                message.message_id,
+                            ),
+                        )
+                        next_revision[message.room_id] = revision + 1
                     db.execute(
                         """
                         UPDATE classroom_chat_server_meta
