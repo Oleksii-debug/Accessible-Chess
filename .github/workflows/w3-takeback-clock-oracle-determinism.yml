@@ -64,18 +64,23 @@ jobs:
           set -euo pipefail
           product_ref="work/full-product-teacher-education-reachability-20260911"
           if [ "${{ github.event.pull_request.base.ref }}" = "$product_ref" ]; then
-            # Product is long-lived: the pull-request event base SHA can lag
-            # the live Product tip after independent intake. Prove monotonic
-            # event-base -> live Product -> candidate ancestry, then scope only
-            # from the freshly fetched Product tip.
+            # The workflow checks out the immutable candidate head rather than
+            # GitHub's synthetic merge. A queued PR event can therefore keep an
+            # older event-base while independent serial intake advances Product.
+            # Prove both lines still descend monotonically from that event-base,
+            # then scope this immutable candidate against the base it was built on.
+            # Integration still requires a fresh Product reread/reconvergence.
             event_base="${{ github.event.pull_request.base.sha }}"
             test -n "$event_base"
             git cat-file -e "$event_base^{commit}"
             git fetch --no-tags origin "+refs/heads/$product_ref:refs/remotes/origin/$product_ref"
-            base="$(git rev-parse "refs/remotes/origin/$product_ref")"
-            git merge-base --is-ancestor "$event_base" "$base"
-            git merge-base --is-ancestor "$base" HEAD
-            test "$(git merge-base "$base" HEAD)" = "$base"
+            live_product="$(git rev-parse "refs/remotes/origin/$product_ref")"
+            git cat-file -e "$live_product^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_product"
+            test "$(git merge-base "$event_base" "$live_product")" = "$event_base"
+            git merge-base --is-ancestor "$event_base" HEAD
+            test "$(git merge-base "$event_base" HEAD)" = "$event_base"
+            base="$event_base"
             git diff --check "$base" HEAD
             changed="$(git diff --name-only "$base" HEAD | sort)"
             expected="$(printf '%s\n' \
@@ -89,6 +94,9 @@ jobs:
               echo 'W3 Product convergence must not mutate runtime source ownership' >&2
               exit 1
             }
+            echo "W3_EVENT_BASE=$event_base"
+            echo "W3_LIVE_PRODUCT=$live_product"
+            echo "W3_CANDIDATE_HEAD=$(git rev-parse HEAD)"
           elif [ "${{ github.event.pull_request.head.ref }}" = "$product_ref" ]; then
             # Retained W3 qualification on the long-lived Product PR: do not
             # reinterpret the entire historical Product diff as a W3 change.
