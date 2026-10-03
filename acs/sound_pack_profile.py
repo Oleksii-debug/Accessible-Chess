@@ -116,10 +116,27 @@ class SoundPackProfileCoordinator:
             manifest = self._packs.install(entry)
         except Exception:
             if prepared_before_install:
-                # SoundPackStoragePort.install_atomically() must not commit on
-                # exception. Restore the exact prior profile while the old active
-                # pack is still authoritative.
-                self._profiles.save(original_profile)
+                # Publication can fail after an active-pointer outcome becomes
+                # externally visible. Re-read the storage authority before
+                # deciding whether old pack-relative sound IDs are still valid.
+                try:
+                    active_manifest = self._packs.installed_manifest(
+                        entry.manifest.pack_id
+                    )
+                except Exception:
+                    # Inventory is unreadable: the pre-install profile already
+                    # cleared pack-relative IDs and is the safest state to keep.
+                    active_manifest = None
+                if active_manifest is not None:
+                    recovered = _profile_for_manifest(
+                        original_profile,
+                        active_manifest,
+                    )
+                    if recovered != self._profiles.current:
+                        self._profiles.save(recovered)
+                # If the pack disappeared or inventory cannot be trusted, keep
+                # the already-persisted default-safe prepared profile. Startup
+                # reconciliation can then fall back through the normal resolver.
             raise
 
         profile = self._profiles.current
