@@ -130,7 +130,20 @@
       return validFocusId(block.dom_id) ? block.dom_id : "";
     }
     if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
-      return "training-answer";
+      const training = snapshot.training;
+      const answer = training.answer && typeof training.answer === "object"
+        ? training.answer
+        : {};
+      if (answer.disabled !== true) return "training-answer";
+      const actions = Array.isArray(training.actions) ? training.actions : [];
+      const continueAction = actions.find(function (action) {
+        return action && action.command === "training.continue" && action.enabled === true;
+      });
+      if (continueAction) return "training-action-continue";
+      const resetAction = actions.find(function (action) {
+        return action && action.command === "training.reset.request" && action.enabled === true;
+      });
+      return resetAction ? "training-action-reset" : "";
     }
     return emptyStatusId(routeId);
   }
