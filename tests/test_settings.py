@@ -67,6 +67,10 @@ class SettingsTests(unittest.TestCase):
             self.assertTrue(lock.is_symlink())
             self.assertFalse(path.exists())
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open lock pathname is not portable on Windows",
+    )
     def test_save_rejects_lock_path_swap_after_open(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -103,6 +107,10 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(foreign_bytes, lock.read_bytes())
             self.assertFalse(path.exists())
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open lock pathname is not portable on Windows",
+    )
     def test_save_rechecks_lock_identity_before_final_settings_replace(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
