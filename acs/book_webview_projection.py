@@ -17,6 +17,7 @@ from .presentation_privacy import redact_local_paths
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 _MAX_BOOKMARK_NAME = 80
+_MAX_BOOK_LIST_ITEMS = 10_000
 # Accepted TXT/HTML ingress bounds visible content at 12 MiB. Preserve the
 # complete current semantic block up to that release budget instead of silently
 # truncating reader-visible/copyable content to a small UI preview.
@@ -100,6 +101,8 @@ def _safe_visible_list_items(
     *,
     language: UILanguage,
 ) -> tuple[str, ...]:
+    if len(values) > _MAX_BOOK_LIST_ITEMS:
+        raise ValueError("book presentation list exceeds the item budget")
     rendered: list[str] = []
     total = 0
     for value in values:
