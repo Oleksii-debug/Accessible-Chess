@@ -580,6 +580,54 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_aria_hidden_true_cannot_publish_accessible_or_chess_semantics(self) -> None:
+        source = f"""<html><body>
+<section aria-hidden="TRUE">
+  <p>Screen-reader-hidden text</p>
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Accessible text</p>
+</body></html>"""
+        result = import_html_book(source, source_name="aria-hidden.html")
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Accessible text", rendered)
+        self.assertNotIn("Screen-reader-hidden text", rendered)
+
+    def test_aria_hidden_false_remains_semantically_available(self) -> None:
+        source = f"""<html><body>
+<p aria-hidden="false">Readable text</p>
+<div aria-hidden="false" data-acs-fen="{Board.START}">Visible position</div>
+</body></html>"""
+        result = import_html_book(source, source_name="aria-visible.html")
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Readable text"
+                for block in result.document.blocks
+            )
+        )
+        positions = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, Position)
+        ]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].fen, Board.START)
+
     def test_hidden_void_element_does_not_hide_following_visible_content(self) -> None:
         source = f"""<html><body>
 <img hidden src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
