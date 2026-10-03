@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from acs.chesscore import Board
 from acs.training import (
@@ -131,6 +132,206 @@ class ExerciseSessionTests(unittest.TestCase):
         snapshot["status"] = "completed"
         with self.assertRaisesRegex(ValueError, "unfinished"):
             ExerciseSession.restore(definition, snapshot)
+
+    def test_raw_move_bound_precedes_chess_parsing_and_preserves_state(self):
+        session = ExerciseSession(self.make_definition())
+        before = session.snapshot()
+        oversized = "e4" + (" " * 63)
+
+        with patch(
+            "acs.training.Board.parse_move",
+            side_effect=AssertionError("oversized raw move must fail before chess parsing"),
+        ) as parse_move:
+            with self.assertRaisesRegex(ValueError, "move text is too long"):
+                session.submit(oversized)
+
+        parse_move.assert_not_called()
+        self.assertEqual(before, session.snapshot())
+
+    def test_durable_move_bound_precedes_board_replay(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        session.submit("e4")
+        snapshot = session.snapshot()
+        snapshot["accepted_path"][0] = "e4" + (" " * 63)
+
+        with patch(
+            "acs.training.Board",
+            side_effect=AssertionError("oversized durable move must fail before board replay"),
+        ) as board_type:
+            with self.assertRaisesRegex(ValueError, "move text is too long"):
+                ExerciseSession.restore(definition, snapshot)
+
+        board_type.assert_not_called()
+
+    def test_definition_step_count_precedes_materialization(self):
+        class OversizedSteps:
+            def __len__(self):
+                return 2049
+
+            def __iter__(self):
+                raise AssertionError("oversized steps must fail before iteration")
+
+        with self.assertRaisesRegex(ValueError, "too many steps"):
+            ExerciseDefinition(
+                "oversized-steps",
+                Board.START,
+                OversizedSteps(),  # type: ignore[arg-type]
+            )
+
+    def test_unsized_definition_iterables_remain_supported_but_bounded(self):
+        steps = (
+            step
+            for step in (
+                ExerciseStep(frozenset({"e4"})),
+                ExerciseStep(frozenset({"e5"})),
+            )
+        )
+        tags = (tag for tag in ("Opening", "Calculation"))
+        definition = ExerciseDefinition(
+            "generator-definition",
+            Board.START,
+            steps,  # type: ignore[arg-type]
+            tags=tags,  # type: ignore[arg-type]
+        )
+        self.assertEqual(2, len(definition.steps))
+        self.assertEqual(("opening", "calculation"), definition.tags)
+
+        yielded_steps = 0
+
+        def endless_steps():
+            nonlocal yielded_steps
+            step = ExerciseStep(frozenset({"e4"}))
+            while True:
+                yielded_steps += 1
+                yield step
+
+        with self.assertRaisesRegex(ValueError, "too many steps"):
+            ExerciseDefinition(
+                "endless-steps",
+                Board.START,
+                endless_steps(),  # type: ignore[arg-type]
+            )
+        self.assertEqual(2049, yielded_steps)
+
+        yielded_tags = 0
+
+        def endless_tags():
+            nonlocal yielded_tags
+            while True:
+                yielded_tags += 1
+                yield "tag"
+
+        with self.assertRaisesRegex(ValueError, "too many tags"):
+            ExerciseDefinition(
+                "endless-tags",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                tags=endless_tags(),  # type: ignore[arg-type]
+            )
+        self.assertEqual(257, yielded_tags)
+
+    def test_source_id_type_contract_is_preserved(self):
+        with self.assertRaisesRegex(TypeError, "source_id must be a string or None"):
+            ExerciseDefinition(
+                "bad-source-id",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                source_id=True,  # type: ignore[arg-type]
+            )
+
+    def test_definition_tag_count_precedes_tag_iteration(self):
+        class OversizedTags:
+            def __len__(self):
+                return 257
+
+            def __iter__(self):
+                raise AssertionError("oversized tags must fail before iteration")
+
+        with self.assertRaisesRegex(ValueError, "too many tags"):
+            ExerciseDefinition(
+                "oversized-tags",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                tags=OversizedTags(),  # type: ignore[arg-type]
+            )
+
+    def test_definition_metadata_count_precedes_item_iteration(self):
+        class OversizedMetadata(dict):
+            def __len__(self):
+                return 257
+
+            def items(self):
+                raise AssertionError("oversized metadata must fail before items scan")
+
+        with self.assertRaisesRegex(ValueError, "too many items"):
+            ExerciseDefinition(
+                "oversized-metadata",
+                Board.START,
+                (ExerciseStep(frozenset({"e4"})),),
+                metadata=OversizedMetadata(),
+            )
+
+    def test_definition_raw_scalar_bounds_precede_normalization_and_board_parse(self):
+        with patch(
+            "acs.training.Board",
+            side_effect=AssertionError("oversized definition scalar must fail before Board"),
+        ) as board_type:
+            with self.assertRaisesRegex(ValueError, "exercise_id is too long"):
+                ExerciseDefinition(
+                    "x" * 4097,
+                    Board.START,
+                    (ExerciseStep(frozenset({"e4"})),),
+                )
+        board_type.assert_not_called()
+
+        with patch(
+            "acs.training.Board",
+            side_effect=AssertionError("oversized FEN must fail before Board"),
+        ) as board_type:
+            with self.assertRaisesRegex(ValueError, "start_fen is too long"):
+                ExerciseDefinition(
+                    "fen-bound",
+                    "x" * 4097,
+                    (ExerciseStep(frozenset({"e4"})),),
+                )
+        board_type.assert_not_called()
+
+    def test_snapshot_field_count_precedes_mapping_iteration(self):
+        class OversizedSnapshot(dict):
+            def __len__(self):
+                return 10
+
+            def __contains__(self, _key):
+                raise AssertionError("oversized snapshot must fail before key lookup")
+
+            def __iter__(self):
+                raise AssertionError("oversized snapshot must fail before field iteration")
+
+        with self.assertRaisesRegex(ValueError, "field count"):
+            ExerciseSession.restore(self.make_definition(), OversizedSnapshot())
+
+    def test_snapshot_scalar_bounds_precede_identity_and_position_comparison(self):
+        definition = self.make_definition()
+        session = ExerciseSession(definition)
+        snapshot = session.snapshot()
+        snapshot["exercise_id"] = "x" * 4097
+        with self.assertRaisesRegex(ValueError, "exercise_id is too long"):
+            ExerciseSession.restore(definition, snapshot)
+
+        snapshot = session.snapshot()
+        snapshot["position_fen"] = "x" * 4097
+        with self.assertRaisesRegex(ValueError, "position_fen is too long"):
+            ExerciseSession.restore(definition, snapshot)
+
+    def test_snapshot_counters_must_fit_javascript_safe_integer_domain(self):
+        definition = self.make_definition()
+        for field in ("attempts", "mistakes", "hints_used"):
+            snapshot = ExerciseSession(definition).snapshot()
+            snapshot[field] = 1 << 53
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ValueError, "invalid exercise counters"):
+                    ExerciseSession.restore(definition, snapshot)
 
     def test_empty_move_empty_step_and_scalar_coercion_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "at least one"):
