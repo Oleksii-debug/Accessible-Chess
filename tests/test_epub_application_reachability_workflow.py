@@ -37,17 +37,17 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
     def test_epub_parser_successor_is_exact_pair_and_application_oracle_stays_locked(self) -> None:
         self.assertIn("parser_path='acs/book_epub_import.py'", self.workflow)
         self.assertIn("parser_test_path='tests/test_v2_book_epub_import.py'", self.workflow)
-        self.assertIn("successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'", self.workflow)
-        self.assertIn("successor_parser_test='dce2f3042a254e2b6130ebbb2762c87acb9358bb'", self.workflow)
+        self.assertIn("package_identity_successor_parser='a88a50e67ff6c5d8758680107500e8168e061ac2'", self.workflow)
+        self.assertIn("package_identity_successor_parser_test='90741983e84a87cece2553de64ad62b2d6409c27'", self.workflow)
         self.assertIn(
-            'test "$candidate_parser" = "$successor_parser"',
+            'test "$candidate_parser" = "$package_identity_successor_parser"',
             self.workflow,
         )
         self.assertIn(
-            'test "$candidate_parser_test" = "$successor_parser_test"',
+            'test "$candidate_parser_test" = "$package_identity_successor_parser_test"',
             self.workflow,
         )
-        self.assertIn("EPUB_XML_DECLARATION_SUCCESSOR=EXACT", self.workflow)
+        self.assertIn("EPUB_PACKAGE_IDENTITY_SUCCESSOR=EXACT", self.workflow)
         self.assertIn(
             "EPUB parser/test drift requires an exact reviewed successor pair",
             self.workflow,
