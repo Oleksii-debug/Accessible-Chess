@@ -194,6 +194,27 @@ class TrainingWebViewProjection:
             )
             raise
 
+    def restore_state(
+        self,
+        snapshot: Mapping[str, object],
+        *,
+        language: UILanguage,
+        message: str,
+        message_key: str | None,
+    ) -> None:
+        """Restore trusted host rollback state without replacing presenter/session identity."""
+        if not isinstance(language, UILanguage):
+            raise TypeError("language must be UILanguage")
+        # Presenter restoration validates message provenance and replays the
+        # canonical session on a detached candidate before mutating live state.
+        self._presenter.restore_state(
+            snapshot,
+            message=message,
+            message_key=message_key,
+        )
+        self._language = language
+        self._presenter.set_language(language)
+
     def set_language(self, language: UILanguage | str) -> TrainingWebViewEvent:
         if type(language) is str:
             if len(language) > 8:
