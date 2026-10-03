@@ -8,14 +8,6 @@ on:
     paths:
       - "acs/local_profile.py"
       - "tests/test_local_profile.py"
-      - "tests/js/version2_library_open_route_refresh_dom_test.js"
-      - "tests/js/version2_release_bootstrap_dom_test.js"
-      - "tests/test_v2_native_dialog_language.py"
-      - "tests/test_version2_composition_publication_boundary.py"
-      - "tests/test_version2_composition_startup_cleanup.py"
-      - "tests/test_version2_composition_startup_cleanup_current.py"
-      - "tests/test_version2_release_accessibility_contract.py"
-      - "tests/test_w6_v2_language_owner_current.py"
       - ".github/workflows/local-profile-identity.yml"
   workflow_dispatch:
 
@@ -35,86 +27,54 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact candidate and pull-request scope
+      - name: Prove current Product merge and exact identity scope
         shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          expected='${{ github.event.pull_request.head.sha || github.sha }}'
-          test "$(git rev-parse HEAD)" = "$expected"
-          echo "LOCAL_PROFILE_IDENTITY_EXACT_HEAD=$expected"
 
           if test '${{ github.event_name }}' = 'pull_request'; then
-            event_base='${{ github.event.pull_request.base.sha }}'
-            base_ref='${{ github.event.pull_request.base.ref }}'
-            test -n "$event_base"
-            test -n "$base_ref"
-            git cat-file -e "${event_base}^{commit}"
-            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
-            live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
-            git merge-base --is-ancestor "$event_base" "$live_base"
-            git merge-base --is-ancestor "$live_base" HEAD
-            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-            changed="$(git diff --name-only "$live_base" HEAD | sort)"
-            if test "$base_ref" = 'feature/local-profile-first-launch-ui-20260929'; then
-              expected_paths="$(printf '%s\n' \
-                '.github/workflows/local-profile-first-launch-ui.yml' \
-                '.github/workflows/p0-release-critical-triad-convergence.yml' \
-                '.github/workflows/local-profile-identity.yml' \
-                'acs/local_profile.py' \
-                'tests/js/version2_library_open_route_refresh_dom_test.js' \
-                'tests/js/version2_release_bootstrap_dom_test.js' \
-                'tests/test_local_profile.py' \
-                'tests/test_p0_release_critical_triad_convergence.py' \
-                'tests/test_v2_native_dialog_language.py' \
-                'tests/test_version2_composition_publication_boundary.py' \
-                'tests/test_version2_composition_startup_cleanup.py' \
-                'tests/test_version2_composition_startup_cleanup_current.py' \
-                'tests/test_version2_local_profile_ui_contract.py' \
-                'tests/test_version2_release_accessibility_contract.py' \
-                'tests/test_w6_v2_language_owner_current.py' | sort)"
-              scope='EXACT_MUTATION_SUCCESSOR_FIFTEEN_PATHS'
-            elif test "$base_ref" = 'work/local-profile-identity-foundation-20260929'; then
-              expected_paths="$(printf '%s\n' \
-                '.github/workflows/local-profile-first-launch-ui.yml' \
-                '.github/workflows/local-profile-identity.yml' \
-                '.github/workflows/p0-release-critical-triad-convergence.yml' \
-                'acs/local_profile.py' \
-                'acs/version2_local_profile_api.py' \
-                'acs/version2_release_app.py' \
-                'tests/js/version2_library_open_route_refresh_dom_test.js' \
-                'tests/js/version2_release_bootstrap_dom_test.js' \
-                'tests/test_local_profile.py' \
-                'tests/test_p0_release_critical_triad_convergence.py' \
-                'tests/test_v2_native_dialog_language.py' \
-                'tests/test_version2_composition_publication_boundary.py' \
-                'tests/test_version2_composition_startup_cleanup.py' \
-                'tests/test_version2_composition_startup_cleanup_current.py' \
-                'tests/test_version2_local_profile_api.py' \
-                'tests/test_version2_local_profile_ui_contract.py' \
-                'tests/test_version2_release_accessibility_contract.py' \
-                'tests/test_w6_v2_language_owner_current.py' \
-                'web/version2_release_bootstrap.js' | sort)"
-              scope='EXACT_ROOT_NINETEEN_PATHS'
-            else
-              printf 'Unexpected local-profile identity base: %s\n' "$base_ref" >&2
-              exit 1
-            fi
-            test "$changed" = "$expected_paths" || {
-              printf 'Unexpected local-profile identity scope:\n%s\n' "$changed" >&2
-              exit 1
-            }
-            git diff --check "$live_base" HEAD
-            echo "LOCAL_PROFILE_IDENTITY_EVENT_BASE=$event_base"
-            echo "LOCAL_PROFILE_IDENTITY_LIVE_BASE=$live_base"
-            echo "LOCAL_PROFILE_IDENTITY_SCOPE=$scope"
+            test "$PR_BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+            test -n "$PR_BASE_SHA"
+            test -n "$PR_HEAD_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git cat-file -e "$PR_HEAD_SHA^{commit}"
+
+            # GitHub's pull_request checkout is the synthetic merge of the
+            # current Product base and this exact identity head. Proving both
+            # parents avoids a race against an independently moving base.
+            test "$(git rev-parse HEAD^1)" = "$PR_BASE_SHA"
+            test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
+
+            mapfile -t changed < <(git diff --name-only "$PR_BASE_SHA...$PR_HEAD_SHA")
+            printf '%s\n' "${changed[@]}"
+            allowed='^(acs/local_profile\.py|tests/test_local_profile\.py|\.github/workflows/local-profile-identity\.yml)$'
+            for path in "${changed[@]}"; do
+              if [[ ! "$path" =~ $allowed ]]; then
+                echo "Unexpected path in local-profile identity scope: $path" >&2
+                exit 1
+              fi
+            done
+            test "${#changed[@]}" -eq 3
+            git diff --check "$PR_BASE_SHA...$PR_HEAD_SHA"
+            echo "LOCAL_PROFILE_IDENTITY_BASE=$PR_BASE_SHA"
+            echo "LOCAL_PROFILE_IDENTITY_HEAD=$PR_HEAD_SHA"
+            echo "LOCAL_PROFILE_IDENTITY_SCOPE=EXACT_THREE_PATHS"
+          else
+            expected='${{ github.sha }}'
+            test "$(git rev-parse HEAD)" = "$expected"
+            git diff --check HEAD^ HEAD
+            echo "LOCAL_PROFILE_IDENTITY_EXACT_HEAD=$expected"
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
 

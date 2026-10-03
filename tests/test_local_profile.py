@@ -46,45 +46,20 @@ def _acquire_profile_mutation_lock(
 
 
 class LocalProfileContractTests(unittest.TestCase):
-    def test_identity_workflow_uses_exact_head_and_live_product_base(self) -> None:
+    def test_identity_workflow_qualifies_current_product_merge(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1]
             / ".github"
             / "workflows"
             / "local-profile-identity.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn(
-            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
-            workflow,
-        )
-        self.assertIn("push:", workflow)
-        self.assertIn("work/local-profile-identity-foundation-20260929", workflow)
-        self.assertIn("group: local-profile-identity-${{ github.ref }}", workflow)
-        self.assertIn("cancel-in-progress: true", workflow)
-        self.assertIn("event_base='${{ github.event.pull_request.base.sha }}'", workflow)
-        self.assertIn("base_ref='${{ github.event.pull_request.base.ref }}'", workflow)
-        self.assertIn(
-            'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
-            workflow,
-        )
-        self.assertIn('git merge-base --is-ancestor "$event_base" "$live_base"', workflow)
-        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
-        self.assertIn(
-            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
-            workflow,
-        )
-        self.assertIn('git diff --name-only "$live_base" HEAD', workflow)
-        self.assertIn('git diff --check "$live_base" HEAD', workflow)
-        self.assertIn("feature/local-profile-first-launch-ui-20260929", workflow)
-        self.assertIn("EXACT_MUTATION_SUCCESSOR_FIFTEEN_PATHS", workflow)
-        self.assertIn("EXACT_ROOT_ELEVEN_PATHS", workflow)
-        self.assertIn("'.github/workflows/local-profile-first-launch-ui.yml'", workflow)
-        self.assertIn("'.github/workflows/p0-release-critical-triad-convergence.yml'", workflow)
-        self.assertIn("'tests/test_p0_release_critical_triad_convergence.py'", workflow)
-        self.assertNotIn(
-            'git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD',
-            workflow,
-        )
+        self.assertIn("Prove current Product merge and exact identity scope", workflow)
+        self.assertIn("HEAD^1", workflow)
+        self.assertIn("HEAD^2", workflow)
+        self.assertIn("PR_BASE_SHA", workflow)
+        self.assertIn("PR_HEAD_SHA", workflow)
+        self.assertIn("EXACT_THREE_PATHS", workflow)
+        self.assertNotIn("live_base", workflow)
 
     def test_explicit_unicode_name_round_trips(self) -> None:
         profile = new_local_profile("  Олексій   Шахіст  ")

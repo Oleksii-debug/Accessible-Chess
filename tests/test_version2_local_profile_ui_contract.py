@@ -17,28 +17,21 @@ class Version2LocalProfileUiContractTests(unittest.TestCase):
         workflow = self.workflow
         self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn("fetch-depth: 0", workflow)
-        self.assertIn('actual="$(git rev-parse HEAD)"', workflow)
-        self.assertIn("event_base='${{ github.event.pull_request.base.sha }}'", workflow)
-        self.assertIn("base_ref='${{ github.event.pull_request.base.ref }}'", workflow)
-        self.assertIn(
-            'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
-            workflow,
-        )
-        self.assertIn('git merge-base --is-ancestor "$event_base" "$live_base"', workflow)
-        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
-        self.assertIn(
-            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
-            workflow,
-        )
-        self.assertIn('git diff --check "$live_base" HEAD', workflow)
-        self.assertIn('changed="$(git diff --name-only "$live_base" HEAD | sort)"', workflow)
-        self.assertIn("feature/local-profile-first-launch-ui-20260929", workflow)
+        self.assertIn("Prove live parent ancestry and exact UI scope", workflow)
+        self.assertIn("PR_BASE_REF", workflow)
+        self.assertIn("PR_BASE_SHA", workflow)
+        self.assertIn("PR_HEAD_SHA", workflow)
         self.assertIn("work/local-profile-identity-foundation-20260929", workflow)
-        self.assertIn("EXACT_MUTATION_SUCCESSOR_FIFTEEN_PATHS", workflow)
-        self.assertIn("EXACT_ROOT_ELEVEN_PATHS", workflow)
-        self.assertIn("'.github/workflows/local-profile-identity.yml'", workflow)
-        self.assertIn("'.github/workflows/p0-release-critical-triad-convergence.yml'", workflow)
-        self.assertIn("'tests/test_p0_release_critical_triad_convergence.py'", workflow)
+        self.assertIn('git merge-base --is-ancestor "$PR_BASE_SHA" "$live_base"', workflow)
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
+        self.assertIn('test "$(git merge-base "$live_base" HEAD)" = "$live_base"', workflow)
+        self.assertIn('git diff --check "$live_base" HEAD', workflow)
+        self.assertIn('git diff --name-only "$live_base" HEAD', workflow)
+        self.assertIn("EXACT_SIXTEEN_PATHS", workflow)
+        self.assertNotIn("feature/local-profile-first-launch-ui-20260929", workflow)
+        self.assertNotIn("EXACT_MUTATION_SUCCESSOR", workflow)
+        self.assertNotIn("local-profile-identity.yml", workflow)
+        self.assertNotIn("p0-release-critical-triad-convergence", workflow)
         self.assertIn("'acs/local_profile.py'", workflow)
         self.assertIn("'tests/test_local_profile.py'", workflow)
         self.assertIn('python-version: "3.12.10"', workflow)
