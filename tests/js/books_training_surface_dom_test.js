@@ -637,6 +637,56 @@ async function run() {
   check(document.activeElement === deferredSubmitRoot.querySelector("#training-answer"),
     "resolved Training submit must focus the new answer field");
 
+  const staleTrainingRoot = new FakeElement("div");
+  let staleTrainingResolve = null;
+  const staleTrainingInvoke = () => new Promise(function (resolve) {
+    staleTrainingResolve = resolve;
+  });
+  window.AccessibleChessTrainingSurface.render(
+    staleTrainingRoot,
+    trainingSnapshot(),
+    staleTrainingInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  find(staleTrainingRoot, "BUTTON", "Hint").listeners.click();
+  check(staleTrainingRoot.attributes["aria-busy"] === "true",
+    "deferred Training command must enter busy state before rerender");
+  const newerTrainingSnapshot = trainingSnapshot();
+  newerTrainingSnapshot.title = "Newer Training render";
+  window.AccessibleChessTrainingSurface.render(
+    staleTrainingRoot,
+    newerTrainingSnapshot,
+    staleTrainingInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const staleTrainingReplaceCount = staleTrainingRoot.replaceChildrenCalls;
+  const staleTrainingFocus = document.activeElement;
+  check(staleTrainingRoot.attributes["aria-busy"] === "false",
+    "newer Training render must invalidate the pending command");
+  staleTrainingResolve({
+    kind: "render",
+    payload: {
+      snapshot: trainingSnapshot(),
+      focus_target: "training-answer",
+      announcement: "Stale Training response must not announce",
+      clear_answer: false,
+      solution: []
+    }
+  });
+  await flushPromises();
+  check(staleTrainingRoot.replaceChildrenCalls === staleTrainingReplaceCount,
+    "stale deferred Training response must not replace the newer DOM");
+  check(document.activeElement === staleTrainingFocus,
+    "stale deferred Training response must not steal newer focus");
+  check(!announcements.includes("Stale Training response must not announce"),
+    "stale deferred Training response must not announce");
+
   const synchronousTrainingRoot = new FakeElement("div");
   const synchronousTrainingInvoke = () => {
     throw new Error("synchronous Training host failure");
@@ -1031,6 +1081,50 @@ async function run() {
     "resolved Book navigation must publish exactly one new DOM");
   check(document.activeElement === deferredBookRoot.querySelector("#book-block-4"),
     "resolved Book navigation must focus the new reading block");
+
+  const staleBookRoot = new FakeElement("div");
+  let staleBookResolve = null;
+  const staleBookInvoke = () => new Promise(function (resolve) {
+    staleBookResolve = resolve;
+  });
+  window.AccessibleChessBookSurface.render(
+    staleBookRoot,
+    bookSnapshot(3, "Older Book render"),
+    staleBookInvoke,
+    announce,
+    "book-block-3",
+    "Action failed"
+  );
+  find(staleBookRoot, "BUTTON", "Next").listeners.click();
+  check(staleBookRoot.attributes["aria-busy"] === "true",
+    "deferred Book command must enter busy state before rerender");
+  window.AccessibleChessBookSurface.render(
+    staleBookRoot,
+    bookSnapshot(4, "Newer Book render"),
+    staleBookInvoke,
+    announce,
+    "book-block-4",
+    "Action failed"
+  );
+  const staleBookReplaceCount = staleBookRoot.replaceChildrenCalls;
+  const staleBookFocus = document.activeElement;
+  check(staleBookRoot.attributes["aria-busy"] === "false",
+    "newer Book render must invalidate the pending command");
+  staleBookResolve({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(5, "Stale Book response"),
+      focus_target: "book-block-5",
+      announcement: "Stale Book response must not announce"
+    }
+  });
+  await flushPromises();
+  check(staleBookRoot.replaceChildrenCalls === staleBookReplaceCount,
+    "stale deferred Book response must not replace the newer DOM");
+  check(document.activeElement === staleBookFocus,
+    "stale deferred Book response must not steal newer reading focus");
+  check(!announcements.includes("Stale Book response must not announce"),
+    "stale deferred Book response must not announce");
 
   const malformedBookHeading = bookSnapshot(3, "Malformed heading");
   malformedBookHeading.heading = { text: "Chess book reader" };
