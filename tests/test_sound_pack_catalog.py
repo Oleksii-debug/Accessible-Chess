@@ -258,6 +258,44 @@ class SoundPackCatalogTests(unittest.TestCase):
         self.assertEqual([], downloader.calls)
         self.assertEqual([], storage.install_calls)
 
+    def test_download_port_cannot_replace_catalog_rights_authority(self):
+        entry = make_entry()
+        spoofed = SoundPackRightsEvidence(
+            license_id=entry.manifest.license_id,
+            source_uri="https://example.invalid/spoofed-source",
+            license_uri="https://example.invalid/spoofed-license",
+        )
+        downloaded = make_download(entry, rights_evidence=spoofed)
+        storage = FakeStorage({"classic": make_manifest("classic")})
+
+        with self.assertRaisesRegex(
+            SoundPackInstallError,
+            "must not supply sound pack rights authority",
+        ):
+            SoundPackManager(FakeDownloader(downloaded), storage).install(entry)
+
+        self.assertEqual([], storage.install_calls)
+
+    def test_rights_evidence_round_trips_through_strict_mapping(self):
+        rights = make_rights(make_manifest())
+        self.assertEqual(
+            rights,
+            SoundPackRightsEvidence.from_mapping(rights.to_mapping()),
+        )
+        for malformed in (
+            {},
+            {**rights.to_mapping(), "extra": "x"},
+            {
+                "license_id": rights.license_id,
+                "source_uri": rights.source_uri,
+                "license_uri": 7,
+            },
+        ):
+            with self.subTest(malformed=repr(malformed)), self.assertRaises(
+                (TypeError, ValueError)
+            ):
+                SoundPackRightsEvidence.from_mapping(malformed)
+
     def test_catalog_signature_rejects_control_character_spoofing(self):
         for signature in ("signed\nextra", "signed\tshadow", "signed\u2028second-line"):
             with self.subTest(signature=repr(signature)), self.assertRaisesRegex(
@@ -280,7 +318,14 @@ class SoundPackCatalogTests(unittest.TestCase):
         installed = manager.install(entry)
 
         self.assertEqual(installed, entry.manifest)
-        self.assertEqual(storage.install_calls, [downloaded])
+        self.assertEqual(len(storage.install_calls), 1)
+        committed = storage.install_calls[0]
+        self.assertEqual(committed.manifest, downloaded.manifest)
+        self.assertEqual(committed.assets, downloaded.assets)
+        self.assertEqual(committed.total_bytes, downloaded.total_bytes)
+        self.assertIs(committed.payload_ref, downloaded.payload_ref)
+        self.assertEqual(committed.rights_evidence, entry.rights_evidence)
+        self.assertIsNone(downloaded.rights_evidence)
         self.assertEqual(downloader.calls[0][1], 1024)
 
     def test_oversized_catalog_entry_is_rejected_before_download(self):
