@@ -54,6 +54,44 @@ class BookTextImportTests(unittest.TestCase):
         self.assertFalse(any(isinstance(block, (Game, Position, Diagram)) for block in result.document.blocks))
         self.assertTrue(result.book_key.startswith("txt-sha256:"))
 
+    def test_windows_1251_txt_and_markdown_are_decoded_losslessly_without_ai(self) -> None:
+        txt_source = (
+            "Шахові етюди\n\n"
+            "Розділ про короля і пішака. Аналіз позиції словами.\n"
+        ).encode("cp1251")
+        txt = import_text_book(
+            txt_source,
+            source_name="legacy-studies.txt",
+            source_format="txt",
+        )
+        self.assertTrue(
+            any("Windows-1251" in warning and "losslessly" in warning for warning in txt.warnings)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and "Шахові етюди" in block.text
+                for block in txt.document.blocks
+            )
+        )
+
+        markdown_source = f"""# Шахова книга
+
+Пояснення варіанта і позиції.
+
+```fen
+{Board.START}
+Початкова позиція
+```
+""".encode("cp1251")
+        markdown = import_text_book(
+            markdown_source,
+            source_name="legacy-book.md",
+            source_format="markdown",
+        )
+        self.assertEqual(markdown.positions, 1)
+        self.assertEqual(markdown.document.title, "Шахова книга")
+        self.assertTrue(any("Windows-1251" in warning for warning in markdown.warnings))
+
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
 
@@ -211,6 +249,8 @@ After game.
         nonclaims = set(BOOK_TEXT_CAPABILITIES["does_not_claim"])
         self.assertTrue({"HTML/XHTML", "DOCX", "EPUB", "PDF/OCR"}.issubset(nonclaims))
         self.assertIn("ASCII-diagram recognition", nonclaims)
+        self.assertIn("Windows-1251", BOOK_TEXT_CAPABILITIES["TXT"]["encoding"])
+        self.assertIn("Windows-1251", BOOK_TEXT_CAPABILITIES["Markdown"]["encoding"])
 
 
 if __name__ == "__main__":

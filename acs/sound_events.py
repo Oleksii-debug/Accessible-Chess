@@ -21,7 +21,10 @@ class SoundEvent(str, Enum):
     ILLEGAL = "illegal"
     START = "start"
     END = "end"
+    MATE = "mate"
+    DRAW = "draw"
     TICK = "tick"
+    LOW_TIME = "low_time"
 
 
 @dataclass(frozen=True)
@@ -79,12 +82,24 @@ class SoundEventPolicy:
         return (SoundEvent.END,)
 
     @staticmethod
+    def checkmate() -> tuple[SoundEvent, ...]:
+        return (SoundEvent.MATE,)
+
+    @staticmethod
+    def draw() -> tuple[SoundEvent, ...]:
+        return (SoundEvent.DRAW,)
+
+    @staticmethod
     def illegal() -> tuple[SoundEvent, ...]:
         return (SoundEvent.ILLEGAL,)
 
     @staticmethod
     def clock_tick() -> tuple[SoundEvent, ...]:
         return (SoundEvent.TICK,)
+
+    @staticmethod
+    def low_time() -> tuple[SoundEvent, ...]:
+        return (SoundEvent.LOW_TIME,)
 
     @staticmethod
     def for_move(facts: MoveSoundFacts) -> tuple[SoundEvent, ...]:

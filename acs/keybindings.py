@@ -152,6 +152,7 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("history.previous", BindingContext.HISTORY, "Previous historical position", "Shift+A"),
     ActionDefinition("history.next", BindingContext.HISTORY, "Next historical position", "Shift+D"),
     ActionDefinition("history.go_to_move", BindingContext.HISTORY, "Go to move", "Ctrl+G"),
+    ActionDefinition("file.new", BindingContext.GLOBAL, "New standard position", "Ctrl+N"),
     ActionDefinition("edit.undo", BindingContext.GLOBAL, "Undo", "Ctrl+Z"),
     ActionDefinition("edit.redo", BindingContext.GLOBAL, "Redo", "Ctrl+Shift+Z"),
     ActionDefinition("analysis.pv1", BindingContext.ANALYSIS, "Read principal variation 1", "Alt+1"),

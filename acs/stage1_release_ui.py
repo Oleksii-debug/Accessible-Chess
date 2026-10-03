@@ -274,6 +274,9 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
 
         context = self._capture_engine_commit_context()
         previous_defer = getattr(self, "_defer_engine_game_move_sound", False)
+        protect_start_sound = bool(
+            getattr(self, "_suppress_next_engine_move_sound_for_start", False)
+        )
         self._defer_engine_game_move_sound = True
         self._engine_thinking = True
         before = len(self.sans)
@@ -357,7 +360,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
 
             self._record_engine_clock(after_move)
             self._defer_engine_game_move_sound = False
-            if self._game_sounds is not None:
+            if self._game_sounds is not None and not protect_start_sound:
                 super()._play_latest_move()
 
             engine_san = _shared_spoken_san(self.sans[-1], self.lang)
@@ -385,6 +388,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                 else f"Stockfish played: {engine_san}. Your move."
             )
         finally:
+            self._suppress_next_engine_move_sound_for_start = False
             self._defer_engine_game_move_sound = previous_defer
 
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:

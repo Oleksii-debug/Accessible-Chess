@@ -108,6 +108,10 @@
         invokeCommand(root, invoke, announce, "pgn.select", { node_id: item.node_id });
       });
       treeItem.addEventListener("keydown", function (event) {
+        // Modified chords belong to the central keymap (for example
+        // Alt+Up/Alt+Down analysis-PV navigation). Do not steal them as plain
+        // GameTree arrows before the document-level router can resolve them.
+        if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
         let command = "";
         let payload = {};
         if (event.key === "ArrowUp") {

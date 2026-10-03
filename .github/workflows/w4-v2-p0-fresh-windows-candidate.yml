@@ -3,8 +3,21 @@ name: W4 V2 P0 Fresh Windows Candidate
 on:
   workflow_dispatch:
     inputs:
+      owner_final_candidate_approved:
+        description: Repository owner explicitly approved creating the user-facing Windows test candidate
+        required: true
+        default: false
+        type: boolean
       product_sha:
         description: Exact integrated Full Product commit to package
+        required: true
+        type: string
+      sound_pack_url:
+        description: HTTPS URL for the exact user-supplied Accessible Chess sound-pack ZIP
+        required: true
+        type: string
+      sound_pack_sha256:
+        description: SHA-256 of the sound-pack ZIP supplied by sound_pack_url
         required: true
         type: string
 
@@ -32,6 +45,8 @@ env:
   QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
   STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+  USER_SOUND_WAV_COUNT: '330'
+  USER_SOUND_INVENTORY_SHA256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920
 
 jobs:
   candidate:
@@ -47,6 +62,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test '${{ inputs.owner_final_candidate_approved }}' = 'true' || {
+            echo 'OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED' >&2
+            exit 1
+          }
           test "$GITHUB_REF_TYPE" = "branch" || {
             echo 'W4 candidate must be dispatched from a branch ref' >&2
             exit 1
@@ -186,48 +205,167 @@ jobs:
           Write-Host "STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
           Write-Host 'STANDALONE_BUILD=PASS'
 
-      - name: Build deterministic nine-event sound input with provenance
+      - name: Materialize exact user-supplied 330-WAV sound pack
         shell: pwsh
         working-directory: product-source
+        env:
+          USER_SOUND_PACK_URL: ${{ inputs.sound_pack_url }}
+          USER_SOUND_PACK_SHA256: ${{ inputs.sound_pack_sha256 }}
         run: |
           $ErrorActionPreference='Stop'
+          $url=[string]$env:USER_SOUND_PACK_URL
+          $wanted=([string]$env:USER_SOUND_PACK_SHA256).Trim().ToLowerInvariant()
+          if($url -notmatch '^https://'){throw 'USER_SOUND_PACK_URL_MUST_BE_HTTPS'}
+          if($wanted -notmatch '^[0-9a-f]{64}$'){throw 'USER_SOUND_PACK_SHA256_INVALID'}
+
+          New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
+          $archive='release-inputs\user-sound-pack.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($actual -ne $wanted){throw "USER_SOUND_PACK_ZIP_SHA256_MISMATCH actual=$actual expected=$wanted"}
+          $env:USER_SOUND_PACK_ZIP_SHA256=$actual
+
+          python scripts/build_user_sound_pack.py $archive release-inputs/sounds --expected-source-archive-sha256 $wanted
+          if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_CANONICALIZATION_FAILED'}
+
           @'
-          import hashlib, json, math, struct, wave
+          import json, os
           from pathlib import Path
-          from acs.sound_events import SoundEvent
+          from scripts.build_user_sound_pack import (
+              DEFAULT_EVENT_FILES,
+              EVENT_VARIANTS,
+              EXPECTED_SOURCE_INVENTORY_SHA256,
+              EXPECTED_SOURCE_WAV_COUNT,
+              NEW_GAME_DURATION_SECONDS_BY_VARIANT,
+              NEW_GAME_IMPACTS_BY_VARIANT,
+              SOUND_LAYERS,
+          )
+
           root = Path('release-inputs/sounds')
-          root.mkdir(parents=True, exist_ok=False)
-          frequencies = (330, 220, 660, 440, 550, 140, 392, 196, 880)
-          files = {}
-          provenance = {}
-          for event, frequency in zip(SoundEvent, frequencies, strict=True):
-              name = f'{event.value}.wav'
-              path = root / name
-              sample_rate = 22050
-              duration = 0.12 if event.value == 'tick' else 0.18
-              count = int(sample_rate * duration)
-              frames = []
-              for index in range(count):
-                  envelope = max(0.0, 1.0 - index / count)
-                  value = int(9000 * envelope * math.sin(2 * math.pi * frequency * index / sample_rate))
-                  frames.append(struct.pack('<h', value))
-              with wave.open(str(path), 'wb') as writer:
-                  writer.setnchannels(1); writer.setsampwidth(2); writer.setframerate(sample_rate)
-                  writer.writeframes(b''.join(frames))
-              files[event.value] = name
-              provenance[event.value] = {
-                  'file': name,
-                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                  'license_id': 'CC0-1.0',
-                  'source': f'urn:accessible-chess:generated-tone:v1:{event.value}',
-                  'creator': 'Accessible Chess deterministic tone generator',
-              }
-          (root / 'manifest.json').write_text(json.dumps({'schema_version': 1, 'files': files}, sort_keys=True, indent=2) + '\n', encoding='utf-8')
-          (root / 'provenance.json').write_text(json.dumps({'schema_version': 1, 'events': provenance}, sort_keys=True, indent=2) + '\n', encoding='utf-8')
-          assert len(files) == 9
-          print('DETERMINISTIC_SOUND_INPUT_WITH_PROVENANCE=PASS')
+          inventory = json.loads((root / 'inventory.json').read_text(encoding='utf-8'))
+          if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('USER_SOUND_PACK_WAV_COUNT_MISMATCH')
+          if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('USER_SOUND_PACK_INVENTORY_SHA256_MISMATCH')
+          if inventory.get('source_archive_sha256') != os.environ['USER_SOUND_PACK_ZIP_SHA256']:
+              raise SystemExit('USER_SOUND_PACK_SOURCE_ZIP_SHA256_MISMATCH')
+          if int(inventory.get('source_archive_bytes', -1)) != Path('release-inputs/user-sound-pack.zip').stat().st_size:
+              raise SystemExit('USER_SOUND_PACK_SOURCE_ZIP_SIZE_MISMATCH')
+          if EXPECTED_SOURCE_WAV_COUNT != int(os.environ['USER_SOUND_WAV_COUNT']):
+              raise SystemExit('USER_SOUND_PACK_WORKFLOW_COUNT_AUTHORITY_MISMATCH')
+          if EXPECTED_SOURCE_INVENTORY_SHA256 != os.environ['USER_SOUND_INVENTORY_SHA256']:
+              raise SystemExit('USER_SOUND_PACK_WORKFLOW_DIGEST_AUTHORITY_MISMATCH')
+
+          variants = json.loads((root / 'variants.json').read_text(encoding='utf-8'))
+          layers = json.loads((root / 'layers.json').read_text(encoding='utf-8'))
+          impacts = json.loads((root / 'newgame_impacts.json').read_text(encoding='utf-8'))
+          if variants['events']['move'][0]['id'] != '1':
+              raise SystemExit('USER_SOUND_PACK_DEFAULT_MOVE_VARIANT_INVALID')
+          if layers['events']['move']['1'][-1] != 'library/Board/MOVEHIT1.WAV':
+              raise SystemExit('USER_SOUND_PACK_MOVE_LAYER_INVALID')
+          if layers['events']['capture']['1'][-1] != 'library/Board/CAPHIT1.WAV':
+              raise SystemExit('USER_SOUND_PACK_CAPTURE_LAYER_INVALID')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          if manifest['files'].get('mate') != 'library/Server/Gong.WAV':
+              raise SystemExit('USER_SOUND_PACK_MATE_DEFAULT_INVALID')
+          if manifest['files'].get('draw') != 'library/Server/Gong.WAV':
+              raise SystemExit('USER_SOUND_PACK_DRAW_DEFAULT_INVALID')
+          mate_files = {item.get('file') for item in variants['events'].get('mate', [])}
+          draw_files = {item.get('file') for item in variants['events'].get('draw', [])}
+          if 'library/Russian/Notation/Mate.wav' not in mate_files:
+              raise SystemExit('USER_SOUND_PACK_MATE_VOICE_MISSING')
+          if {
+              'library/English/Draw.wav',
+              'library/Russian/Draw.wav',
+          } - draw_files:
+              raise SystemExit('USER_SOUND_PACK_DRAW_VOICES_MISSING')
+          if manifest['files'].get('low_time') != 'library/Server/aooga.wav':
+              raise SystemExit('USER_SOUND_PACK_LOW_TIME_DEFAULT_INVALID')
+          low_time_files = {
+              item.get('file') for item in variants['events'].get('low_time', [])
+          }
+          if 'library/Server/ping.wav' not in low_time_files:
+              raise SystemExit('USER_SOUND_PACK_LOW_TIME_ALTERNATIVE_MISSING')
+          if impacts.get('schema_version') != 2:
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_TIMING_INVALID')
+          if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_IMPACT_COUNT_INVALID')
+
+          expected_manifest = {
+              'schema_version': 1,
+              'files': DEFAULT_EVENT_FILES,
+          }
+          expected_variants = {
+              'schema_version': 1,
+              'events': {
+                  event: [
+                      {
+                          'id': variant_id,
+                          'file': file_name,
+                          'label_uk': label_uk,
+                          'label_en': label_en,
+                      }
+                      for variant_id, file_name, label_uk, label_en in options
+                  ]
+                  for event, options in EVENT_VARIANTS.items()
+              },
+          }
+          expected_layers = {
+              'schema_version': 1,
+              'events': {
+                  event: {
+                      variant_id: list(sequence)
+                      for variant_id, sequence in by_variant.items()
+                  }
+                  for event, by_variant in SOUND_LAYERS.items()
+              },
+          }
+          expected_impacts = {
+              'schema_version': 2,
+              'default_variant': '1',
+              'variants': {
+                  variant_id: {
+                      'source_file': next(
+                          file_name
+                          for current_id, file_name, _uk, _en
+                          in EVENT_VARIANTS['start']
+                          if current_id == variant_id
+                      ),
+                      'duration_seconds': NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                      'impact_count': len(impact_values),
+                      'impacts_ms': list(impact_values),
+                  }
+                  for variant_id, impact_values in NEW_GAME_IMPACTS_BY_VARIANT.items()
+              },
+              'analysis': {
+                  'window_ms': 20,
+                  'hop_ms': 5,
+                  'threshold_percentile': 60,
+                  'minimum_peak_separation_ms': 90,
+                  'three_d_selection': '32 strongest separated candidate peaks',
+              },
+          }
+          if manifest != expected_manifest:
+              raise SystemExit('USER_SOUND_PACK_MANIFEST_SEMANTICS_MISMATCH')
+          if variants != expected_variants:
+              raise SystemExit('USER_SOUND_PACK_VARIANT_SEMANTICS_MISMATCH')
+          if layers != expected_layers:
+              raise SystemExit('USER_SOUND_PACK_LAYER_SEMANTICS_MISMATCH')
+          if impacts != expected_impacts:
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_SEMANTICS_MISMATCH')
+          wavs = [path for path in (root / 'library').rglob('*') if path.is_file() and path.suffix.lower() == '.wav']
+          if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('USER_SOUND_PACK_LIBRARY_WAV_COUNT_MISMATCH')
+          print(f'USER_SOUND_PACK_WAV_COUNT={len(wavs)}')
+          print(f'USER_SOUND_PACK_INVENTORY_SHA256={EXPECTED_SOURCE_INVENTORY_SHA256}')
+          print('USER_SOUND_PACK_CATALOG_SEMANTICS=PASS')
+          print('USER_SOUND_PACK_EXACT=PASS')
           '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'Sound input generation/provenance failed'}
+          if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_VALIDATION_FAILED'}
+
+          "USER_SOUND_PACK_ZIP_SHA256=$actual" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "USER_SOUND_PACK_ZIP_SHA256=$actual"
+          Write-Host 'USER_SOUND_PACK_CANONICAL=PASS'
 
       - name: Download pinned official Stockfish 18 and lawful starter corpus
         shell: pwsh
@@ -314,13 +452,268 @@ jobs:
           Expand-Archive -LiteralPath (Join-Path 'candidate-output' $env:CANDIDATE_FILE) -DestinationPath fresh-extraction
           @'
           import os
+          import json
           from pathlib import Path
           from acs.version2_package_preflight import validate_version2_package_tree
-          report = validate_version2_package_tree(Path('fresh-extraction'), expected_integration_sha=os.environ['PRODUCT_SHA'])
+          from scripts.build_user_sound_pack import (
+              DEFAULT_EVENT_FILES,
+              EVENT_VARIANTS,
+              EXPECTED_SOURCE_INVENTORY_SHA256,
+              EXPECTED_SOURCE_WAV_COUNT,
+              NEW_GAME_DURATION_SECONDS_BY_VARIANT,
+              NEW_GAME_IMPACTS_BY_VARIANT,
+              SOUND_LAYERS,
+          )
+
+          extraction = Path('fresh-extraction')
+          report = validate_version2_package_tree(
+              extraction,
+              expected_integration_sha=os.environ['PRODUCT_SHA'],
+          )
+          sound_root = extraction / 'AccessibleChess' / 'assets' / 'sounds'
+          inventory = json.loads(
+              (sound_root / 'inventory.json').read_text(encoding='utf-8')
+          )
+          inventory_notice = json.loads(
+              (
+                  extraction
+                  / 'THIRD_PARTY_NOTICES'
+                  / 'SOUND_INVENTORY.json'
+              ).read_text(encoding='utf-8')
+          )
+          if inventory_notice != inventory:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE_MISMATCH')
+          if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH')
+          if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DIGEST_MISMATCH')
+          expected_archive_sha = os.environ['USER_SOUND_PACK_ZIP_SHA256'].strip().lower()
+          if inventory.get('source_archive_sha256') != expected_archive_sha:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SHA256_MISMATCH')
+          if int(inventory.get('source_archive_bytes', -1)) <= 0:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SIZE_MISSING')
+
+          manifest = json.loads((sound_root / 'manifest.json').read_text(encoding='utf-8'))
+          variants = json.loads((sound_root / 'variants.json').read_text(encoding='utf-8'))
+          layers = json.loads((sound_root / 'layers.json').read_text(encoding='utf-8'))
+          impacts = json.loads((sound_root / 'newgame_impacts.json').read_text(encoding='utf-8'))
+          if variants.get('schema_version') != 1:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_VARIANTS_INVALID')
+          if variants['events']['move'][0].get('id') != '1':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DEFAULT_MOVE_VARIANT_INVALID')
+          if layers.get('schema_version') != 1:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LAYERS_INVALID')
+          if layers['events']['move']['1'][-1] != 'library/Board/MOVEHIT1.WAV':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_MOVE_LAYER_INVALID')
+          if layers['events']['capture']['1'][-1] != 'library/Board/CAPHIT1.WAV':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_CAPTURE_LAYER_INVALID')
+          if impacts.get('schema_version') != 2:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_TIMING_INVALID')
+          if set(impacts.get('variants', {})) != {'1', '3d'}:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_VARIANTS_INVALID')
+          if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_IMPACT_COUNT_INVALID')
+
+          expected_manifest = {
+              'schema_version': 1,
+              'files': DEFAULT_EVENT_FILES,
+          }
+          expected_variants = {
+              'schema_version': 1,
+              'events': {
+                  event: [
+                      {
+                          'id': variant_id,
+                          'file': file_name,
+                          'label_uk': label_uk,
+                          'label_en': label_en,
+                      }
+                      for variant_id, file_name, label_uk, label_en in options
+                  ]
+                  for event, options in EVENT_VARIANTS.items()
+              },
+          }
+          expected_layers = {
+              'schema_version': 1,
+              'events': {
+                  event: {
+                      variant_id: list(sequence)
+                      for variant_id, sequence in by_variant.items()
+                  }
+                  for event, by_variant in SOUND_LAYERS.items()
+              },
+          }
+          expected_impacts = {
+              'schema_version': 2,
+              'default_variant': '1',
+              'variants': {
+                  variant_id: {
+                      'source_file': next(
+                          file_name
+                          for current_id, file_name, _uk, _en
+                          in EVENT_VARIANTS['start']
+                          if current_id == variant_id
+                      ),
+                      'duration_seconds': NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                      'impact_count': len(impact_values),
+                      'impacts_ms': list(impact_values),
+                  }
+                  for variant_id, impact_values in NEW_GAME_IMPACTS_BY_VARIANT.items()
+              },
+              'analysis': {
+                  'window_ms': 20,
+                  'hop_ms': 5,
+                  'threshold_percentile': 60,
+                  'minimum_peak_separation_ms': 90,
+                  'three_d_selection': '32 strongest separated candidate peaks',
+              },
+          }
+          if manifest != expected_manifest:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_MANIFEST_SEMANTICS_MISMATCH')
+          if variants != expected_variants:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_VARIANT_SEMANTICS_MISMATCH')
+          if layers != expected_layers:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LAYER_SEMANTICS_MISMATCH')
+          if impacts != expected_impacts:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_SEMANTICS_MISMATCH')
+          wavs = [
+              path for path in (sound_root / 'library').rglob('*')
+              if path.is_file() and path.suffix.lower() == '.wav'
+          ]
+          if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH')
           print(f'FRESH_EXTRACTION_PREFLIGHT_FILES={len(report.inventory)}')
+          print(f'FRESH_EXTRACTION_USER_SOUND_WAV_COUNT={len(wavs)}')
+          print('FRESH_EXTRACTION_USER_SOUND_CATALOG_SEMANTICS=PASS')
+          print('FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE=PASS')
+          print('FRESH_EXTRACTION_USER_SOUND_PACK=PASS')
           print('FRESH_EXTRACTION_PREFLIGHT=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Fresh extraction canonical preflight failed'}
+
+      - name: Exercise exact packaged sound runtime at default volume
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import sys
+          import types
+          import wave
+          from pathlib import Path
+
+          from acs.sound_events import SoundEvent
+          from acs.sound_windows import (
+              ASYNC_SOUND_EVENTS,
+              PackagedSoundAssetResolver,
+              WindowsSoundPlaybackAdapter,
+          )
+
+          product = Path('fresh-extraction/AccessibleChess').resolve()
+          cache = Path('candidate-output/sound-runtime-probe-cache').resolve()
+          resolver = PackagedSoundAssetResolver(product)
+          selected = {event: '1' for event in SoundEvent}
+          calls = []
+
+          fake_winsound = types.SimpleNamespace(
+              SND_FILENAME=0x00020000,
+              SND_NODEFAULT=0x00000002,
+              SND_ASYNC=0x00000001,
+              PlaySound=lambda sound, flags: calls.append((str(sound), int(flags))),
+          )
+          sys.modules['winsound'] = fake_winsound
+
+          adapter = WindowsSoundPlaybackAdapter(
+              resolver,
+              cache_dir=cache,
+              variant_provider=lambda event: selected[event],
+          )
+
+          expected_calls = 0
+          expected_async_flags = []
+          expected_call_labels = []
+          for event in SoundEvent:
+              options = resolver.variants_for(event)
+              if not options:
+                  raise SystemExit(f'FRESH_PACKAGED_SOUND_VARIANTS_EMPTY event={event.value}')
+              for option in options:
+                  selected[event] = option.variant_id
+                  sequence = resolver.resolve_sequence(event, variant_id=option.variant_id)
+                  expected_calls += len(sequence)
+                  is_async = event in ASYNC_SOUND_EVENTS
+                  if is_async and len(sequence) != 1:
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_ASYNC_LAYER_INVALID event={event.value}'
+                      )
+                  expected_async_flags.extend([is_async] * len(sequence))
+                  expected_call_labels.extend(
+                      [
+                          f'{event.value}:{option.variant_id}:{index}'
+                          for index in range(len(sequence))
+                      ]
+                  )
+                  adapter.play(event, volume=80)
+
+          if len(calls) != expected_calls:
+              raise SystemExit(
+                  f'FRESH_PACKAGED_SOUND_RUNTIME_CALL_COUNT_MISMATCH '
+                  f'actual={len(calls)} expected={expected_calls}'
+              )
+          if len(expected_async_flags) != len(calls):
+              raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_EXPECTATION_COUNT_MISMATCH')
+          async_calls = 0
+          for index, (playable_text, flags) in enumerate(calls):
+              playable = Path(playable_text).resolve()
+              try:
+                  playable.relative_to(cache)
+              except ValueError as exc:
+                  raise SystemExit(
+                      f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_ESCAPE {playable}'
+                  ) from exc
+              if not playable.is_file():
+                  raise SystemExit(
+                      f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_MISSING {playable}'
+                  )
+              if not flags & fake_winsound.SND_FILENAME:
+                  raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_FILENAME_FLAG_MISSING')
+              if not flags & fake_winsound.SND_NODEFAULT:
+                  raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_NODEFAULT_FLAG_MISSING')
+              actual_async = bool(flags & fake_winsound.SND_ASYNC)
+              expected_async = expected_async_flags[index]
+              if actual_async != expected_async:
+                  raise SystemExit(
+                      f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_FLAG_MISMATCH '
+                      f'call={expected_call_labels[index]} '
+                      f'actual={actual_async} expected={expected_async}'
+                  )
+              if actual_async:
+                  async_calls += 1
+              with wave.open(str(playable), 'rb') as reader:
+                  if reader.getcomptype() != 'NONE':
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_COMPRESSION {playable}'
+                      )
+                  if reader.getsampwidth() not in {1, 2}:
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_WIDTH {playable}'
+                      )
+                  frame_count = reader.getnframes()
+                  if frame_count < 1 or not reader.readframes(frame_count):
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_EMPTY {playable}'
+                      )
+          expected_async_calls = sum(expected_async_flags)
+          if async_calls != expected_async_calls:
+              raise SystemExit(
+                  f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_COUNT_MISMATCH '
+                  f'actual={async_calls} expected={expected_async_calls}'
+              )
+          print(f'FRESH_PACKAGED_SOUND_RUNTIME_CALLS={len(calls)}')
+          print(f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_CALLS={async_calls}')
+          print('FRESH_PACKAGED_SOUND_RUNTIME_DEFAULT_VOLUME=80')
+          print('FRESH_PACKAGED_SOUND_RUNTIME_TRANSFORM=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Fresh packaged sound runtime transform failed'}
 
       - name: Fresh-extracted packaged diagnostic and Stockfish smoke
         shell: pwsh
@@ -465,6 +858,9 @@ jobs:
               "workflow_sha": workflow_sha,
               "pre_upload_product_freshness": True,
               "pre_upload_workflow_freshness": True,
+              "user_sound_pack_zip_sha256": os.environ["USER_SOUND_PACK_ZIP_SHA256"].strip().lower(),
+              "user_sound_inventory_sha256": os.environ["USER_SOUND_INVENTORY_SHA256"].strip().lower(),
+              "user_sound_wav_count": int(os.environ["USER_SOUND_WAV_COUNT"]),
               "human_tested": False,
               "nvda_verified": False,
           }
@@ -496,6 +892,9 @@ jobs:
           Write-Host 'P0_DOCUMENT_COPY_MACHINE_PROOF=PASS'
           Write-Host 'P0G_HOTKEY_RESULT_MACHINE_PROOF=PASS'
           Write-Host 'P0F_PACKAGED_STARTER_MACHINE_PROOF=PASS'
+          Write-Host "USER_SOUND_PACK_ZIP_SHA256=$env:USER_SOUND_PACK_ZIP_SHA256"
+          Write-Host "USER_SOUND_INVENTORY_SHA256=$env:USER_SOUND_INVENTORY_SHA256"
+          Write-Host 'USER_SOUND_PACK_330_WAV=YES'
           Write-Host 'HUMAN_TESTED=NO'
           Write-Host 'NVDA_VERIFIED=NO'
 
