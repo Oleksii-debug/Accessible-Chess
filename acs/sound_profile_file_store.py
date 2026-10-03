@@ -264,6 +264,7 @@ class JsonSoundProfileStorage:
             try:
                 self._lock_descriptor(descriptor)
                 acquired = True
+                _require_real_directory_chain(self.path.parent)
                 yield
             finally:
                 if acquired:
