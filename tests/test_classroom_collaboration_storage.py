@@ -98,6 +98,82 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             indexes,
         )
 
+    def test_v5_failed_upgrade_rolls_back_schema_and_version_atomically(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DROP INDEX uq_collaboration_attachments_authoritative_sequence"
+            )
+            db.execute(
+                """
+                CREATE UNIQUE INDEX uq_collaboration_attachments_stored_sequence
+                ON collaboration_attachments(room_id, sequence_no)
+                WHERE transfer_state='stored'
+                """
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=5 "
+                "WHERE key='schema_version'"
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "stored-a0",
+                    "room",
+                    "teacher",
+                    0,
+                    "stored.bin",
+                    None,
+                    1,
+                    "a" * 64,
+                    "rooms/room/stored-a0",
+                    "stored",
+                    "persistent",
+                    "clean",
+                ),
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "deleted-a0",
+                    "room",
+                    "teacher",
+                    0,
+                    "deleted.bin",
+                    None,
+                    1,
+                    "b" * 64,
+                    "rooms/room/deleted-a0",
+                    "deleted",
+                    "persistent",
+                    "clean",
+                ),
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            ClassroomCollaborationSQLiteStore(str(self.db_path))
+
+        with closing(sqlite3.connect(self.db_path)) as db:
+            version = db.execute(
+                "SELECT value FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()[0]
+            indexes = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA index_list(collaboration_attachments)"
+                )
+            }
+
+        self.assertEqual(version, 5)
+        self.assertIn(
+            "uq_collaboration_attachments_stored_sequence",
+            indexes,
+        )
+        self.assertNotIn(
+            "uq_collaboration_attachments_authoritative_sequence",
+            indexes,
+        )
+
     def test_v1_message_schema_migrates_without_inventing_historical_timestamp(self) -> None:
         self.db_path.unlink()
         with closing(sqlite3.connect(self.db_path)) as db, db:
