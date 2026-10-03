@@ -252,29 +252,6 @@ class Version2ApplicationTests(unittest.TestCase):
                 self.assertIs(result.value, projected)
                 self.assertEqual(self.app.shell.current_route.route_id, "library")
 
-    def test_modal_library_pagination_fails_before_projection_mutation(self):
-        for action, method_name in (
-            ("library.next_page", "next_page"),
-            ("library.previous_page", "previous_page"),
-        ):
-            with self.subTest(action=action):
-                self.app.shell.open_route("board")
-                self.app.shell.open_dialog(
-                    "test-dialog",
-                    opener_focus_id="move-input",
-                    initial_focus_id="test-dialog-confirm",
-                )
-                with patch.object(self.app.library.projection, method_name) as method:
-                    with self.assertRaises(ValueError):
-                        self.app.router.dispatch(
-                            action,
-                            current_focus_id="test-dialog-confirm",
-                        )
-                method.assert_not_called()
-                self.assertEqual(self.app.shell.current_route.route_id, "board")
-                self.assertEqual(self.app.shell.active_dialog_id, "test-dialog")
-                self.app.shell.close_dialog("test-dialog")
-
     def test_library_pagination_error_render_preserves_route_and_focus(self):
         for action, method_name in (
             ("library.next_page", "next_page"),
@@ -383,6 +360,36 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIs(before_session, self.app.session)
         self.assertEqual("board", self.app.shell.current_route.route_id)
         self.assertEqual("library-open-modal", self.app.shell.active_dialog_id)
+
+    def test_modal_library_pagination_fails_before_projection_mutation(self):
+        self.app.shell.open_route("library")
+        self.app.shell.open_dialog(
+            "library-page-modal",
+            opener_focus_id="library-search-player",
+            initial_focus_id="library-page-modal-confirm",
+        )
+
+        for action, method_name in (
+            ("library.next_page", "next_page"),
+            ("library.previous_page", "previous_page"),
+        ):
+            with self.subTest(action=action):
+                with patch.object(
+                    self.app.library.projection,
+                    method_name,
+                    side_effect=AssertionError(
+                        "modal Library pagination must fail before projection mutation"
+                    ),
+                ) as method:
+                    with self.assertRaises(ValueError):
+                        self.app.router.dispatch(
+                            action,
+                            current_focus_id="library-page-modal-confirm",
+                        )
+                method.assert_not_called()
+
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertEqual("library-page-modal", self.app.shell.active_dialog_id)
 
     def test_modal_library_file_workflows_fail_before_host_or_export_dispatch(self):
         self.app.shell.open_route("library")
