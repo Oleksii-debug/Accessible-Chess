@@ -27,8 +27,77 @@ from .settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION, Settings
 UPGRADE_JOURNAL_SCHEMA_VERSION = 2
 _BACKUP_MANIFEST_SCHEMA_VERSION = 2
 _PHASES = {"prepared", "migrating", "verifying", "committed", "rolled_back"}
-_CONTROL_NAMES = {".v2-upgrade.lock", ".v2-upgrade-state.json", "profile.json.lock"}
+_CONTROL_NAMES = {
+    ".v2-upgrade.lock",
+    ".v2-upgrade-state.json",
+    "profile.json.lock",
+    "gametree-resume.json.lock",
+    "book-progress.json.lock",
+    "sound-profile.json.lock",
+    "sound-packs.lock",
+}
 _CONTROL_NAME_KEYS = frozenset(name.casefold() for name in _CONTROL_NAMES)
+_DERIVED_ROOT_DIRECTORIES = {
+    ".gametree-resume-discard",
+    "sound-cache",
+}
+_DERIVED_ROOT_DIRECTORY_KEYS = frozenset(
+    name.casefold() for name in _DERIVED_ROOT_DIRECTORIES
+)
+# CPython tempfile._RandomNameSequence currently emits exactly eight characters
+# from this alphabet. The release workflows pin CPython 3.12.10. If tempfile
+# changes in a future runtime, preserving an unknown residue in the backup is
+# safer than silently dropping a user file that merely resembles writer state.
+_TEMPFILE_RANDOM_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
+
+
+def _has_tempfile_random_token(
+    name: str,
+    *,
+    prefix: str,
+    suffix: str,
+) -> bool:
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return False
+    token = name[len(prefix):len(name) - len(suffix)]
+    return (
+        len(token) == 8
+        and all(character in _TEMPFILE_RANDOM_CHARS for character in token)
+    )
+
+
+def _is_generated_root_runtime_file(relative_path: PurePosixPath) -> bool:
+    """Recognize only exact root residue shapes emitted by canonical writers."""
+    if len(relative_path.parts) != 1:
+        return False
+    # Do not case-fold generated names. The production writers receive the exact
+    # lowercase canonical paths from version2_release_app and tempfile preserves
+    # those prefixes. Case/shape near-misses are ordinary preservation-backed data.
+    name = relative_path.parts[0]
+    return (
+        _has_tempfile_random_token(
+            name,
+            prefix="gametree-resume.json.",
+            suffix=".tmp",
+        )
+        or _has_tempfile_random_token(
+            name,
+            prefix="gametree-resume.json.cas-",
+            suffix=".bak",
+        )
+        or _has_tempfile_random_token(
+            name,
+            prefix=".book-progress.json.",
+            suffix=".tmp",
+        )
+        or _has_tempfile_random_token(
+            name,
+            prefix=".book-progress.json.bak.",
+            suffix=".tmp",
+        )
+    )
+
+
 _DB_SIDECARS = ("-wal", "-shm", "-journal")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
@@ -635,7 +704,45 @@ class Version2UpgradeCoordinator:
             .casefold(),
         ):
             relative = _relative(self.layout.root, path)
+            relative_path = PurePosixPath(relative)
             if relative.casefold() in _CONTROL_NAME_KEYS:
+                # Exact runtime-control files are not preservation-backed, but
+                # their filesystem object must still be authenticated. A symlink,
+                # reparse point, FIFO, or device at a canonical control path must
+                # not become an unchecked escape hatch from root validation.
+                control_info = _safe_stat(path, "runtime control entry")
+                if not (
+                    stat.S_ISREG(control_info.st_mode)
+                    or stat.S_ISDIR(control_info.st_mode)
+                ):
+                    raise Version2UpgradeError(
+                        "runtime control entry must be a regular file or directory"
+                    )
+                continue
+            # Derived runtime/control subtrees are not preservation-backed user
+            # state. Exclude only descendants of exact root runtime directories.
+            # The root object itself is still validated below, so a regular file
+            # using one of these names remains user data and a symlink/reparse
+            # point still fails closed.
+            if (
+                len(relative_path.parts) > 1
+                and relative_path.parts[0].casefold()
+                in _DERIVED_ROOT_DIRECTORY_KEYS
+            ):
+                continue
+            # Atomic GameTree/Book-progress writers may leave these exact-root
+            # temporary files behind only after abrupt process death. They are
+            # internal publication residue, not preservation-backed user data.
+            # Nested lookalikes and non-matching near names remain ordinary data.
+            if _is_generated_root_runtime_file(relative_path):
+                residue_info = _safe_stat(path, "runtime residue entry")
+                if not (
+                    stat.S_ISREG(residue_info.st_mode)
+                    or stat.S_ISDIR(residue_info.st_mode)
+                ):
+                    raise Version2UpgradeError(
+                        "runtime residue entry must be a regular file or directory"
+                    )
                 continue
             folded = relative.casefold()
             if folded in seen:
