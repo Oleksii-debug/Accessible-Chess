@@ -101,7 +101,49 @@ function importState(phase, processed) {
   };
 }
 
+function libraryFilters() {
+  return [
+    { id: "player", kind: "text", label: "Player", value: "" },
+    { id: "event", kind: "text", label: "Event", value: "" },
+    { id: "eco", kind: "text", label: "ECO", value: "" },
+    { id: "opening", kind: "text", label: "Opening", value: "" },
+    {
+      id: "result",
+      kind: "select",
+      label: "Result",
+      value: "",
+      options: [
+        { value: "", label: "Any" },
+        { value: "1-0", label: "1-0" },
+        { value: "0-1", label: "0-1" },
+        { value: "1/2-1/2", label: "1/2-1/2" },
+        { value: "*", label: "*" }
+      ]
+    },
+    { id: "source_id", kind: "number", label: "Source ID", value: "", minimum: 1 },
+    { id: "source_name", kind: "text", label: "Source name", value: "" },
+    {
+      id: "limit",
+      kind: "select",
+      label: "Limit",
+      value: "50",
+      options: ["25", "50", "100", "200"].map((value) => ({ value, label: value }))
+    }
+  ];
+}
+
+function libraryActions() {
+  return [
+    { action: "library.previous_page", label: "Previous", enabled: false },
+    { action: "library.next_page", label: "Next", enabled: false },
+    { action: "library.open_game", label: "Open", enabled: false },
+    { action: "library.reset_filters", label: "Reset", enabled: false }
+  ];
+}
+
 const snapshot = {
+  document: { lang: "en", landmark: "main" },
+  status: "empty",
   heading: "Library",
   description: "Search games",
   filters_heading: "Filters",
@@ -109,9 +151,11 @@ const snapshot = {
   search_label: "Search",
   transport_error_message: "Could not complete action.",
   import: importState("running", 0),
-  filters: [{ id: "player", kind: "text", label: "Player", value: "" }],
+  filters: libraryFilters(),
   rows: [],
-  actions: [],
+  selected_game_id: null,
+  focus_target: "library-search-player",
+  actions: libraryActions(),
   summary: "No games",
   message: ""
 };
@@ -123,6 +167,55 @@ window.AccessibleChessLibrarySurface.render(root, snapshot, invoke, announce, "l
 
 const search = root.querySelector("#library-search-player");
 check(search !== null, "search input missing");
+
+const exportDomId = "library-game-0123456789abcdefabcd";
+const exportSnapshot = {
+  ...snapshot,
+  status: "ready",
+  rows: [
+    {
+      dom_id: exportDomId,
+      game_id: 1,
+      position: 1,
+      selected: true,
+      label: "White — Black",
+      source_label: "source.pgn",
+      result: "1-0",
+      export_selected: true,
+      export_dom_id: exportDomId + "-export",
+      export_label: "Include in export: White — Black"
+    }
+  ],
+  selected_game_id: 1,
+  focus_target: exportDomId,
+  actions: libraryActions().concat([
+    { action: "library.export_selected", label: "Export selected games (1)", enabled: true },
+    { action: "library.export_filtered", label: "Export all filtered results", enabled: true },
+    { action: "library.clear_export_selection", label: "Clear export selection", enabled: true }
+  ]),
+  export_selection_heading: "Games to export",
+  export_selection_count: 1,
+  summary: "Showing one game"
+};
+const exportRoot = new FakeElement("div");
+window.AccessibleChessLibrarySurface.render(
+  exportRoot,
+  exportSnapshot,
+  invoke,
+  announce,
+  exportDomId + "-export"
+);
+check(
+  exportRoot.querySelector("#" + exportDomId + "-export") !== null,
+  "canonical export-enriched Library snapshot lost its checkbox"
+);
+check(
+  document.activeElement === exportRoot.querySelector("#" + exportDomId + "-export"),
+  "canonical export checkbox focus target was rejected"
+);
+
+// Continue the partial-import test on the original base Library surface.
+search.focus();
 search.value = "Kasparov";
 search.focus();
 const wholeRenders = root.replaceChildrenCalls;
@@ -244,4 +337,60 @@ check(
 );
 check(document.activeElement === stableFocus, "oversized import text moved Library focus");
 
-console.log("Library partial progress DOM contract PASS");
+let hostileHeadingTouched = false;
+const hostileHeadingSnapshot = {
+  ...snapshot,
+  heading: {
+    toString() {
+      hostileHeadingTouched = true;
+      return "Hostile Library";
+    }
+  }
+};
+const rendersBeforeHostileSnapshot = root.replaceChildrenCalls;
+let hostileHeadingRejected = false;
+try {
+  window.AccessibleChessLibrarySurface.render(
+    root,
+    hostileHeadingSnapshot,
+    invoke,
+    announce,
+    "library-search-player"
+  );
+} catch (error) {
+  hostileHeadingRejected = error instanceof TypeError;
+}
+check(hostileHeadingRejected, "hostile full Library heading was accepted");
+check(!hostileHeadingTouched, "hostile full Library heading reached String coercion");
+check(
+  root.replaceChildrenCalls === rendersBeforeHostileSnapshot,
+  "invalid full Library snapshot mutated the DOM"
+);
+
+const malformedFilterSnapshot = {
+  ...snapshot,
+  filters: libraryFilters()
+};
+malformedFilterSnapshot.filters[0] = {
+  ...malformedFilterSnapshot.filters[0],
+  id: "attacker"
+};
+let malformedFilterRejected = false;
+try {
+  window.AccessibleChessLibrarySurface.render(
+    root,
+    malformedFilterSnapshot,
+    invoke,
+    announce,
+    "library-search-player"
+  );
+} catch (error) {
+  malformedFilterRejected = error instanceof TypeError;
+}
+check(malformedFilterRejected, "malformed canonical Library filter was accepted");
+check(
+  root.replaceChildrenCalls === rendersBeforeHostileSnapshot,
+  "malformed Library filter partially replaced the surface"
+);
+
+console.log("Library partial/full snapshot DOM contract PASS");
