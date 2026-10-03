@@ -155,6 +155,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 for comment in (safe(raw) for raw in item.trailing_comments)
                 if comment
             )
+            result = ""
+            if item.result is not None:
+                if item.kind != "variation":
+                    raise _BookSemanticTreeError(
+                        "book semantic move unexpectedly carries a line result"
+                    )
+                result = safe(item.result)
+                if not result:
+                    raise _BookSemanticTreeError(
+                        "book semantic variation result is empty"
+                    )
             rendered_items.append(
                 {
                     "kind": item.kind,
@@ -163,6 +174,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     "comments": comments,
                     "comments_before": comments_before,
                     "comments_after": comments_after,
+                    "result": result,
                     "trailing_comments": trailing_comments,
                 }
             )
