@@ -288,6 +288,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             if comment
         )
 
+        if type(view.items) is not tuple:
+            raise _BookSemanticTreeError(
+                "book semantic GameTree items must be a tuple"
+            )
         if len(view.items) > _MAX_BOOK_SEMANTIC_ITEMS:
             raise _BookSemanticTreeError(
                 "book semantic GameTree exceeds the browser item limit"
@@ -353,6 +357,14 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             if not label:
                 raise _BookSemanticTreeError("book semantic GameTree item label is empty")
             if item.kind == "move":
+                if (
+                    type(item.comments_before) is not tuple
+                    or type(item.comments_after) is not tuple
+                    or type(item.trailing_comments) is not tuple
+                ):
+                    raise _BookSemanticTreeError(
+                        "book semantic move comment slots are invalid"
+                    )
                 comments_before = tuple(
                     comment
                     for comment in (safe(raw) for raw in item.comments_before)
@@ -365,6 +377,19 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 )
                 comments = ()
             else:
+                if (
+                    type(item.comments) is not tuple
+                    or type(item.comments_before) is not tuple
+                    or type(item.comments_after) is not tuple
+                    or type(item.trailing_comments) is not tuple
+                ):
+                    raise _BookSemanticTreeError(
+                        "book semantic variation comment slots are invalid"
+                    )
+                if item.comments_before or item.comments_after:
+                    raise _BookSemanticTreeError(
+                        "book semantic variation unexpectedly carries move comment slots"
+                    )
                 comments_before = ()
                 comments_after = ()
                 comments = tuple(
@@ -377,6 +402,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 for comment in (safe(raw) for raw in item.trailing_comments)
                 if comment
             )
+            if item.kind == "move" and trailing_comments:
+                raise _BookSemanticTreeError(
+                    "book semantic move unexpectedly carries line trailing comments"
+                )
             try:
                 line_result = item.result
             except AttributeError as exc:
