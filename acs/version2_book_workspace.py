@@ -28,6 +28,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 
 
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
+_MAX_BOOK_SEMANTIC_DEPTH = 256
 _MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
 
 _SEMANTIC_TREE_LABELS = {
@@ -175,6 +176,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 raise _BookSemanticTreeError("book semantic GameTree item kind is invalid")
             if type(item.depth) is not int or item.depth < 0:
                 raise _BookSemanticTreeError("book semantic GameTree depth is invalid")
+            if item.depth > _MAX_BOOK_SEMANTIC_DEPTH:
+                raise _BookSemanticTreeError(
+                    "book semantic GameTree depth limit exceeded"
+                )
             if (
                 (item.kind == "move" and item.depth % 2 != 0)
                 or (item.kind == "variation" and item.depth % 2 != 1)

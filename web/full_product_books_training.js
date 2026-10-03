@@ -2,6 +2,7 @@
   "use strict";
 
   const MAX_BOOK_SEMANTIC_ITEMS = 10000;
+  const MAX_BOOK_SEMANTIC_DEPTH = 256;
   const MAX_BOOK_SEMANTIC_VISIBLE_CHARS = 12 * 1024 * 1024;
   const MAX_BOOK_SEMANTIC_DETAILS = 4;
   const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50128;
@@ -71,7 +72,9 @@
       if (!Object.prototype.hasOwnProperty.call(value, index)) {
         throw new TypeError(name + " must be dense");
       }
-      out.push(semanticText(value[index], name, budget));
+      const text = semanticText(value[index], name, budget);
+      if (!text.trim()) throw new TypeError(name + " must contain visible text");
+      out.push(text);
     }
     return out;
   }
@@ -237,6 +240,9 @@
       if (!Number.isSafeInteger(depth) || depth < 0) {
         throw new TypeError("book semantic item depth is invalid");
       }
+      if (depth > MAX_BOOK_SEMANTIC_DEPTH) {
+        throw new TypeError("book semantic item depth limit exceeded");
+      }
       if (
         (item.kind === "move" && depth % 2 !== 0) ||
         (item.kind === "variation" && depth % 2 !== 1)
@@ -360,7 +366,12 @@
   function renderBookBlock(host, block) {
     const role = String(block.role || "group");
     let content;
-    if (block.semantic_tree && typeof block.semantic_tree === "object") {
+    const hasSemanticTree = Object.prototype.hasOwnProperty.call(block, "semantic_tree") &&
+      block.semantic_tree !== undefined && block.semantic_tree !== null;
+    if (hasSemanticTree) {
+      if (!block.semantic_tree || typeof block.semantic_tree !== "object" || Array.isArray(block.semantic_tree)) {
+        throw new TypeError("book semantic tree must be an object");
+      }
       content = node("section");
       content.setAttribute("role", "group");
       if (block.title) {
@@ -500,14 +511,22 @@
     }
     requireFunction(invoke, "Book invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Book announce");
-    if (!snapshot || typeof snapshot !== "object") throw new TypeError("Book snapshot is required");
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new TypeError("Book snapshot is required");
+    }
+    if (!snapshot.block || typeof snapshot.block !== "object" || Array.isArray(snapshot.block)) {
+      throw new TypeError("Book snapshot block is required");
+    }
+    if (typeof snapshot.block.dom_id !== "string" || !snapshot.block.dom_id.trim()) {
+      throw new TypeError("Book snapshot block identity is required");
+    }
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
     applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(main, snapshot, invoke, announce, fallbackMessage);
-    const block = snapshot.block || {};
+    const block = snapshot.block;
     renderBookBlock(main, block);
 
     const toolbar = node("div");

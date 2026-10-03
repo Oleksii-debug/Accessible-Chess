@@ -600,6 +600,123 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "sparse semantic comments must not steal reading focus");
 
+  const malformedSemanticTree = semanticGameSnapshot();
+  malformedSemanticTree.block.semantic_tree = "not-an-object";
+  let malformedSemanticTreeRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedSemanticTree,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedSemanticTreeRejected = true;
+  }
+  check(malformedSemanticTreeRejected, "non-object semantic tree must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "non-object semantic tree must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "non-object semantic tree must not steal reading focus");
+
+  const blankSemanticComment = semanticGameSnapshot();
+  blankSemanticComment.block.semantic_tree.items[0].comments_after = ["   "];
+  let blankSemanticCommentRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      blankSemanticComment,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    blankSemanticCommentRejected = true;
+  }
+  check(blankSemanticCommentRejected, "blank semantic comment entries must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "blank semantic comments must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "blank semantic comments must not steal reading focus");
+
+  const excessiveDepth = semanticGameSnapshot();
+  excessiveDepth.block.semantic_tree.items = [];
+  for (let depth = 0; depth <= 257; depth += 1) {
+    excessiveDepth.block.semantic_tree.items.push({
+      kind: depth % 2 === 0 ? "move" : "variation",
+      depth: depth,
+      parent_index: depth === 0 ? null : depth - 1,
+      label: "Node " + String(depth),
+      comments: [],
+      comments_before: [],
+      comments_after: [],
+      trailing_comments: []
+    });
+  }
+  let excessiveDepthRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      excessiveDepth,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    excessiveDepthRejected = true;
+  }
+  check(excessiveDepthRejected, "excessive semantic nesting depth must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive semantic depth must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive semantic depth must not steal reading focus");
+
+  const malformedBlockShape = semanticGameSnapshot();
+  malformedBlockShape.block = [];
+  let malformedBlockShapeRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedBlockShape,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedBlockShapeRejected = true;
+  }
+  check(malformedBlockShapeRejected, "non-object Book block must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed Book block must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed Book block must not steal reading focus");
+
+  const missingBlockIdentity = semanticGameSnapshot();
+  missingBlockIdentity.block.dom_id = "";
+  let missingBlockIdentityRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      missingBlockIdentity,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    missingBlockIdentityRejected = true;
+  }
+  check(missingBlockIdentityRejected, "Book block without identity must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "missing Book block identity must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "missing Book block identity must not steal reading focus");
+
   const malformedAlternation = semanticGameSnapshot();
   malformedAlternation.block.semantic_tree.items[1].kind = "move";
   let malformedAlternationRejected = false;
