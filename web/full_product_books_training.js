@@ -8,6 +8,9 @@
   const MAX_BOOK_LIST_ITEMS = 65536;
   const MAX_BOOK_HEADING_PATH_PARTS = 6;
   const MAX_BOOK_HEADING_PATH_TEXT = 360;
+  const MAX_BOOK_SEMANTIC_ITEMS = 10000;
+  const MAX_BOOK_SEMANTIC_DEPTH = 256;
+  const MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50000;
   const MAX_STARTER_BOOKLETS = 24;
   const MAX_TRAINING_SOLUTION_MOVES = 64;
   const MAX_TRAINING_SOLUTION_TEXT = 128;
@@ -266,6 +269,98 @@
     }
   }
 
+  function requireBookSemanticTree(snapshot) {
+    const tree = snapshot.semantic_tree;
+    const block = snapshot.block;
+    const semanticKind = block.kind === "Game" ? "game" :
+      (block.kind === "VariationTree" ? "variation" : "");
+    if (tree === undefined || tree === null) {
+      return;
+    }
+    if (!semanticKind || typeof tree !== "object" || Array.isArray(tree)) {
+      throw new TypeError("Book semantic tree is invalid for this block");
+    }
+    if (tree.kind !== semanticKind) {
+      throw new TypeError("Book semantic tree kind is inconsistent");
+    }
+
+    let visibleText = 0;
+    let textEntries = 0;
+    function semanticText(value, name, allowEmpty, maxLength) {
+      requireBoundedText(value, name, allowEmpty, maxLength);
+      textEntries += 1;
+      if (textEntries > MAX_BOOK_SEMANTIC_TEXT_ENTRIES) {
+        throw new TypeError("Book semantic text-entry budget exceeded");
+      }
+      visibleText += value.length;
+      if (visibleText > MAX_BOOK_BLOCK_VISIBLE_CHARS) {
+        throw new TypeError("Book semantic visible-text budget exceeded");
+      }
+    }
+    function semanticComments(values, name) {
+      if (!Array.isArray(values)) {
+        throw new TypeError(name + " must be an array");
+      }
+      values.forEach(function (value) {
+        semanticText(value, name + " item", false, MAX_BOOK_BLOCK_VISIBLE_CHARS);
+      });
+    }
+
+    semanticText(tree.label, "Book semantic label", false, 360);
+    semanticText(tree.players_label, "Book semantic players label", false, 120);
+    semanticText(tree.players, "Book semantic players", false, 720);
+    semanticText(tree.result_label, "Book semantic result label", false, 120);
+    if (["1-0", "0-1", "1/2-1/2", "*"].indexOf(tree.result) < 0) {
+      throw new TypeError("Book semantic result is invalid");
+    }
+    semanticText(tree.result, "Book semantic result", false, 16);
+    semanticComments(tree.intro_comments, "Book semantic intro comments");
+    semanticComments(tree.outro_comments, "Book semantic outro comments");
+
+    if (!Array.isArray(tree.items) || tree.items.length > MAX_BOOK_SEMANTIC_ITEMS) {
+      throw new TypeError("Book semantic items are invalid");
+    }
+    tree.items.forEach(function (item, index) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new TypeError("Book semantic item is invalid");
+      }
+      if (item.kind !== "move" && item.kind !== "variation") {
+        throw new TypeError("Book semantic item kind is invalid");
+      }
+      if (!Number.isSafeInteger(item.depth) ||
+          item.depth < 0 ||
+          item.depth > MAX_BOOK_SEMANTIC_DEPTH) {
+        throw new TypeError("Book semantic item depth is invalid");
+      }
+      if ((item.kind === "move" && item.depth % 2 !== 0) ||
+          (item.kind === "variation" && item.depth % 2 !== 1)) {
+        throw new TypeError("Book semantic item kind/depth is inconsistent");
+      }
+      if (item.depth === 0) {
+        if (item.parent_index !== null) {
+          throw new TypeError("Book semantic root parent is invalid");
+        }
+      } else {
+        if (!Number.isSafeInteger(item.parent_index) ||
+            item.parent_index < 0 ||
+            item.parent_index >= index ||
+            tree.items[item.parent_index].depth !== item.depth - 1) {
+          throw new TypeError("Book semantic item parent is invalid");
+        }
+      }
+      semanticText(item.label, "Book semantic item label", false, 1200);
+      semanticComments(item.leading_comments, "Book semantic leading comments");
+      semanticComments(item.comments_before, "Book semantic comments before");
+      semanticComments(item.comments_after, "Book semantic comments after");
+      semanticComments(item.trailing_comments, "Book semantic trailing comments");
+      if (item.result !== "" &&
+          ["1-0", "0-1", "1/2-1/2", "*"].indexOf(item.result) < 0) {
+        throw new TypeError("Book semantic item result is invalid");
+      }
+      semanticText(item.result, "Book semantic item result", true, 16);
+    });
+  }
+
   function requireBookSnapshot(snapshot) {
     const block = requireSnapshotRecord(snapshot, "block", "Book");
     requireDocumentSpec(snapshot, "Book");
@@ -397,6 +492,7 @@
     if (hasBoardState && typeof snapshot.board_active !== "boolean") {
       throw new TypeError("Book board-active state is invalid");
     }
+    requireBookSemanticTree(snapshot);
     if (hasBoardState) {
       const boardActive = snapshot.board_active;
       if (openPosition.enabled !== (block.has_position && !boardActive)) {
@@ -490,7 +586,65 @@
     }
   }
 
-  function renderBookBlock(host, block) {
+  function appendSemanticComments(host, comments) {
+    comments.forEach(function (comment) {
+      host.appendChild(node("p", comment));
+    });
+  }
+
+  function renderBookSemanticTree(host, tree) {
+    const section = node("section");
+    section.setAttribute("aria-label", tree.label);
+    section.appendChild(node("h4", tree.label));
+    section.appendChild(node("p", tree.players_label + ": " + tree.players));
+    section.appendChild(node("p", tree.result_label + ": " + tree.result));
+    appendSemanticComments(section, tree.intro_comments);
+
+    const children = tree.items.map(function () { return []; });
+    const roots = [];
+    tree.items.forEach(function (item, index) {
+      if (item.parent_index === null) roots.push(index);
+      else children[item.parent_index].push(index);
+    });
+
+    function renderItem(index) {
+      const item = tree.items[index];
+      const entry = node("li");
+      appendSemanticComments(entry, item.comments_before);
+      if (item.kind === "variation") {
+        const label = node("strong", item.label);
+        entry.appendChild(label);
+        appendSemanticComments(entry, item.leading_comments);
+      } else {
+        entry.appendChild(node("span", item.label));
+      }
+      appendSemanticComments(entry, item.comments_after);
+      if (children[index].length) {
+        const nested = node("ol");
+        children[index].forEach(function (childIndex) {
+          nested.appendChild(renderItem(childIndex));
+        });
+        entry.appendChild(nested);
+      }
+      appendSemanticComments(entry, item.trailing_comments);
+      if (item.result) {
+        entry.appendChild(node("p", tree.result_label + ": " + item.result));
+      }
+      return entry;
+    }
+
+    if (roots.length) {
+      const list = node("ol");
+      roots.forEach(function (index) {
+        list.appendChild(renderItem(index));
+      });
+      section.appendChild(list);
+    }
+    appendSemanticComments(section, tree.outro_comments);
+    host.appendChild(section);
+  }
+
+  function renderBookBlock(host, block, semanticTree) {
     const role = String(block.role || "group");
     let content;
     if (block.list && Array.isArray(block.list.items)) {
@@ -526,7 +680,11 @@
       content = node("section");
       content.setAttribute("role", "group");
       if (block.title) content.appendChild(node("h3", block.title));
-      if (block.text) content.appendChild(node("p", block.text));
+      if (semanticTree) {
+        renderBookSemanticTree(content, semanticTree);
+      } else if (block.text) {
+        content.appendChild(node("p", block.text));
+      }
     }
     content.id = String(block.dom_id || "");
     content.tabIndex = -1;
@@ -633,7 +791,7 @@
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage);
     const block = snapshot.block || {};
-    renderBookBlock(main, block);
+    renderBookBlock(main, block, snapshot.semantic_tree || null);
 
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
