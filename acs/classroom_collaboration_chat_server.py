@@ -347,6 +347,10 @@ class ClassroomChatServerSQLiteStore:
     def _ensure_schema(self) -> None:
         with closing(self._connect()) as db, db:
             try:
+                # Keep schema DDL, migration repair, and schema_version in one
+                # atomic unit. sqlite3.executescript() would implicitly commit
+                # before running its script and can leave a half-migrated DB.
+                db.execute("BEGIN IMMEDIATE")
                 namespace_rows = db.execute(
                     """
                     SELECT name FROM sqlite_master
@@ -421,12 +425,14 @@ class ClassroomChatServerSQLiteStore:
                         "classroom chat server schema metadata is missing"
                     )
 
-                db.executescript(
+                schema_statements = (
                     """
                     CREATE TABLE IF NOT EXISTS classroom_chat_server_meta(
                         key TEXT PRIMARY KEY,
                         value INTEGER NOT NULL
-                    );
+                    )
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS classroom_chat_server_messages(
                         message_id TEXT PRIMARY KEY,
                         room_id TEXT NOT NULL,
@@ -437,32 +443,44 @@ class ClassroomChatServerSQLiteStore:
                         hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
                         sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0),
                         UNIQUE(room_id, sequence_no)
-                    );
+                    )
+                    """,
+                    """
                     CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_messages_room
-                        ON classroom_chat_server_messages(room_id, sequence_no);
+                    ON classroom_chat_server_messages(room_id, sequence_no)
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS classroom_chat_server_permissions(
                         room_id TEXT NOT NULL,
                         target_id TEXT NOT NULL,
                         allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
                         PRIMARY KEY(room_id, target_id)
-                    );
+                    )
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS classroom_chat_server_moderation_ops(
                         room_id TEXT NOT NULL,
                         operation_id TEXT NOT NULL,
                         fingerprint TEXT NOT NULL,
                         PRIMARY KEY(room_id, operation_id)
-                    );
+                    )
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS classroom_chat_server_state_updates(
                         room_id TEXT NOT NULL,
                         revision INTEGER NOT NULL CHECK(revision >= 0),
                         message_id TEXT NOT NULL,
                         hidden INTEGER NOT NULL CHECK(hidden = 1),
                         PRIMARY KEY(room_id, revision)
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_state_updates_message
-                        ON classroom_chat_server_state_updates(room_id, message_id);
+                    )
+                    """,
                     """
+                    CREATE INDEX IF NOT EXISTS idx_classroom_chat_server_state_updates_message
+                    ON classroom_chat_server_state_updates(room_id, message_id)
+                    """,
                 )
+                for statement in schema_statements:
+                    db.execute(statement)
                 if version is None:
                     db.execute(
                         """
