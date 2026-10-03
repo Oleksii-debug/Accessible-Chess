@@ -35,6 +35,15 @@
   const MAX_STARTER_TEXT = 360;
   const BOOKMARK_MAX_LENGTH = 80;
 
+  const TRAINING_ANSWER_MAX_LENGTH = 128;
+  const MAX_TRAINING_ACTIONS = 5;
+  const MAX_TRAINING_SOLUTION_MOVES = 64;
+  const TRAINING_STATUS_IDS = Object.freeze({
+    ready: true,
+    in_progress: true,
+    completed: true
+  });
+
   const TRAINING_ACTION_IDS = Object.freeze({
     "training.hint": "training-action-hint",
     "training.reveal": "training-action-reveal",
@@ -1172,24 +1181,27 @@
     }
     requireFunction(invoke, "Training invoke");
     announce = announce == null ? function () {} : requireFunction(announce, "Training announce");
-    if (!Array.isArray(solution)) throw new TypeError("Training solution is required");
-    const validated = validateTrainingSnapshot(snapshot, requestedFocus, solution);
+    const validated = validateTrainingSnapshot(snapshot, solution, requestedFocus);
+    const progress = validated.progress;
+    const answerSpec = validated.answer;
+    const actions = validated.actions;
+    const resetSpec = validated.reset_dialog;
+    solution = validated.solution;
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
     applySnapshotLanguage(main, snapshot);
-    main.appendChild(node("h2", snapshot.heading || ""));
-    main.appendChild(node("h3", snapshot.title || ""));
+    main.appendChild(node("h2", snapshot.heading));
+    main.appendChild(node("h3", snapshot.title));
 
-    const progress = validated.progress;
     const stats = node("dl");
     [
-      [progress.step_label, String(progress.step || 0) + " " + (progress.of_label || "") + " " + String(progress.total || 0)],
+      [progress.step_label, String(progress.step) + " " + progress.of_label + " " + String(progress.total)],
       [progress.attempts_label, progress.attempts],
       [progress.mistakes_label, progress.mistakes],
       [progress.hints_label, progress.hints_used]
     ].forEach(function (pair) {
-      stats.appendChild(node("dt", pair[0] || ""));
+      stats.appendChild(node("dt", pair[0]));
       stats.appendChild(node("dd", pair[1]));
     });
     main.appendChild(stats);
@@ -1200,20 +1212,19 @@
       main.appendChild(message);
     }
 
-    const answerSpec = validated.answer;
     const form = node("form");
-    const label = node("label", answerSpec.label || "");
+    const label = node("label", answerSpec.label);
     const input = node("input");
     input.id = "training-answer";
     input.type = "text";
-    input.maxLength = Number(answerSpec.max_length || 128);
-    input.disabled = !!answerSpec.disabled;
+    input.maxLength = answerSpec.max_length;
+    input.disabled = answerSpec.disabled;
     input.autocomplete = "off";
     input.spellcheck = false;
     label.htmlFor = input.id;
-    const submit = node("button", answerSpec.submit_label || "");
+    const submit = node("button", answerSpec.submit_label);
     submit.type = "submit";
-    submit.disabled = !!answerSpec.disabled;
+    submit.disabled = answerSpec.disabled;
     form.appendChild(label);
     form.appendChild(input);
     form.appendChild(submit);
@@ -1225,11 +1236,11 @@
     });
     main.appendChild(form);
 
-    if (Array.isArray(solution) && solution.length) {
+    if (solution.length) {
       const solutionSection = node("section");
       solutionSection.id = "training-solution";
       solutionSection.tabIndex = -1;
-      const solutionHeading = node("h3", snapshot.solution_label || "");
+      const solutionHeading = node("h3", snapshot.solution_label);
       solutionHeading.id = "training-solution-heading";
       solutionSection.setAttribute("aria-labelledby", solutionHeading.id);
       solutionSection.appendChild(solutionHeading);
@@ -1239,18 +1250,15 @@
       main.appendChild(solutionSection);
     }
 
-    const resetDialog = buildResetDialog(root, validated.reset_dialog, invoke, announce, fallbackMessage);
+    const resetDialog = buildResetDialog(root, resetSpec, invoke, announce, fallbackMessage);
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
-    const actions = validated.actions;
     actions.forEach(function (action) {
-      const button = node("button", action.label || action.command || "");
+      const button = node("button", action.label);
       button.type = "button";
       button.disabled = !action.enabled;
-      const command = String(action.command || "");
-      if (Object.prototype.hasOwnProperty.call(TRAINING_ACTION_IDS, command)) {
-        button.id = TRAINING_ACTION_IDS[command];
-      }
+      const command = action.command;
+      button.id = TRAINING_ACTION_IDS[command];
       button.addEventListener("click", function () {
         if (command === "training.reset.request") {
           resetDialog.open(button);
@@ -1267,7 +1275,7 @@
 
     fragment.appendChild(main);
     root.replaceChildren(fragment);
-    focusTarget(root, requestedFocus || "");
+    focusTarget(root, requestedFocus);
   }
 
   global.AccessibleChessBookSurface = Object.freeze({ render: renderBookSurface });
