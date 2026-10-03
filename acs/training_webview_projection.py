@@ -66,16 +66,34 @@ _LABELS = {
 }
 
 
+def _utf16_units(value: str) -> int:
+    """Count browser-visible UTF-16 code units after an O(1) scalar preflight."""
+
+    return sum(2 if ord(character) > 0xFFFF else 1 for character in value)
+
+
+def _bounded_text_units(value: str, *, limit: int, label: str) -> None:
+    # Python len() is O(1). Reject any value that cannot possibly fit before
+    # NUL/path/whitespace scans, then finish the browser-equivalent UTF-16 check
+    # while the remaining scan is deterministically bounded by the field limit.
+    if len(value) > limit:
+        raise ValueError(f"{label} is too long")
+    if _utf16_units(value) > limit:
+        raise ValueError(f"{label} is too long")
+
+
 def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise TypeError("training presentation text must be text")
+    _bounded_text_units(value, limit=limit, label="training presentation text")
     if "\x00" in value:
         raise ValueError("training presentation text contains NUL")
     text = value.strip()
     text = redact_local_paths(text, _LABELS[language]["hidden_path"])
-    return text[:limit]
+    _bounded_text_units(text, limit=limit, label="training presentation text")
+    return text
 
 
 def _safe_solution(value: object, *, language: UILanguage) -> tuple[str, ...]:
@@ -87,26 +105,32 @@ def _safe_solution(value: object, *, language: UILanguage) -> tuple[str, ...]:
     for move in value:
         if type(move) is not str:
             raise TypeError("training solution moves must be text")
+        _bounded_text_units(
+            move,
+            limit=_MAX_ANSWER,
+            label="training solution move",
+        )
         if "\x00" in move:
             raise ValueError("training solution move contains NUL")
-        if len(move) > _MAX_ANSWER:
-            raise ValueError("training solution move is too long")
         token = move.strip()
         if not token:
             raise ValueError("training solution move must not be empty")
-        rendered.append(
-            redact_local_paths(token, _LABELS[language]["hidden_path"])
+        token = redact_local_paths(token, _LABELS[language]["hidden_path"])
+        _bounded_text_units(
+            token,
+            limit=_MAX_ANSWER,
+            label="training solution move",
         )
+        rendered.append(token)
     return tuple(rendered)
 
 
 def _answer(value: object) -> str:
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise TypeError("training answer must be text")
+    _bounded_text_units(value, limit=_MAX_ANSWER, label="training answer")
     if "\x00" in value:
         raise ValueError("training answer contains NUL")
-    if len(value) > _MAX_ANSWER:
-        raise ValueError("training answer is too long")
     token = " ".join(value.split())
     if not token:
         raise ValueError("training answer must not be empty")
