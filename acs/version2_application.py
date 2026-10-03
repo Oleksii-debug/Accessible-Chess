@@ -44,6 +44,10 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 
 
 class Version2Application:
+    _MAX_BROWSER_AREA_CHARS = 16
+    _MAX_BROWSER_COMMAND_CHARS = 128
+    _MAX_CANONICAL_BOARD_POSITION_CHARS = 4096
+
     # Some canonical shutdown/recovery tests deliberately construct a minimal
     # application via __new__ instead of __init__. Keep optional Training state
     # absent-safe on those valid pre-Training construction paths.
@@ -432,7 +436,10 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _dispatch_training_surface_command(self, command, payload=None):
-        command_id = command.strip() if isinstance(command, str) else command
+        # Inspect transaction ownership only for an exact built-in browser/native
+        # command. The strict Training bridge remains the schema authority for
+        # malformed values; this preflight must not execute subclass hooks first.
+        command_id = command.strip() if type(command) is str else None
         if self.shell.current_route.route_id != "training":
             raise ValueError(self._training_error_message())
         if self.shell.active_dialog_id is not None:
@@ -530,7 +537,10 @@ class Version2Application:
 
     def _dispatch_book_surface_command(self, command, payload=None):
         """Publish mutating Book commands only after durable progress succeeds."""
-        command_id = command.strip() if isinstance(command, str) else command
+        # Transaction preflight is intentionally exact-string only. A hostile
+        # str subclass must reach the strict Book bridge unchanged and fail
+        # closed there, never run an overridden strip/equality hook here.
+        command_id = command.strip() if type(command) is str else None
         if self.books is None or self.reader is None:
             raise ValueError("no book is open")
         if command_id == "book.language":
@@ -663,7 +673,15 @@ class Version2Application:
         projector = self._board_position_projector
         if projector is None:
             raise RuntimeError("release board position projector is unavailable")
-        if not isinstance(position, str) or not position.strip():
+        # The board projector is a release-boundary sink. Fail closed before
+        # invoking subclass hooks or scanning an unbounded malformed token.
+        if type(position) is not str:
+            raise RuntimeError("canonical board position is unavailable")
+        if (
+            len(position) > self._MAX_CANONICAL_BOARD_POSITION_CHARS
+            or "\x00" in position
+            or not position.strip()
+        ):
             raise RuntimeError("canonical board position is unavailable")
         result = projector(position)
         if not isinstance(result, dict) or result.get("ok") is not True:
@@ -871,6 +889,20 @@ class Version2Application:
     def browser_command(self, area, command, payload=None):
         self._assert_thread()
         try:
+            # Browser ingress is a scalar trust boundary before any equality,
+            # hashing, startswith or strip operation in the per-surface routers.
+            if (
+                type(area) is not str
+                or not area
+                or len(area) > self._MAX_BROWSER_AREA_CHARS
+            ):
+                raise ValueError("invalid browser command area")
+            if (
+                type(command) is not str
+                or not command
+                or len(command) > self._MAX_BROWSER_COMMAND_CHARS
+            ):
+                raise ValueError("invalid browser command")
             if area == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
