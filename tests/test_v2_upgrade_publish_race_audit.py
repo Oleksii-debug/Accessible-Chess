@@ -506,6 +506,119 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
             retry.set("volume", 97)
             self.assertEqual(Settings(settings).get("volume"), 97)
 
+    def test_library_publish_same_bytes_inode_swap_preserves_old_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+            original_sources = self._source_names(library)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            backup, manifest = coordinator._create_backup("candidate-inode-swap")
+
+            real_replace = upgrade_base_module.os.replace
+            injected = False
+
+            def swap_candidate_at_replace(source: object, destination: object) -> None:
+                nonlocal injected
+                source_path = Path(source)
+                destination_path = Path(destination)
+                if (
+                    destination_path == library
+                    and ".library-publish-" in source_path.name
+                    and not injected
+                ):
+                    substitute = coordinator.layout.backup_root / (
+                        "same-bytes-publish-substitute.acsdb"
+                    )
+                    shutil.copyfile(source_path, substitute)
+                    real_replace(substitute, source_path)
+                    injected = True
+                real_replace(source, destination)
+
+            with mock.patch.object(
+                upgrade_base_module.os,
+                "replace",
+                side_effect=swap_candidate_at_replace,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "library migration publication changed before durability confirmation",
+                ):
+                    coordinator._migrate_library(backup, manifest)
+
+            self.assertTrue(injected)
+            guards = list(root.glob(".library.acsdb.publish-guard-*"))
+            self.assertEqual(
+                1,
+                len(guards),
+                "ambiguous post-replace failure discarded the authenticated old Library inode",
+            )
+            self.assertEqual(self._source_names(guards[0]), original_sources)
+            guard_connection = sqlite3.connect(guards[0])
+            try:
+                self.assertEqual(
+                    1,
+                    guard_connection.execute("PRAGMA user_version").fetchone()[0],
+                )
+            finally:
+                guard_connection.close()
+
+    def test_library_publish_cleanup_preserves_substituted_candidate_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            library = root / "library.acsdb"
+            self._make_real_v1_library(library)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            backup, manifest = coordinator._create_backup("candidate-cleanup")
+            real_prepare = coordinator._prepare_library_publication
+            substituted: Path | None = None
+            injected = False
+            foreign_bytes = b"foreign-publish-path-bytes"
+
+            def substitute_candidate(original_state: str) -> None:
+                nonlocal substituted, injected
+                real_prepare(original_state)
+                if injected:
+                    return
+                candidates = list(
+                    coordinator.layout.backup_root.glob(
+                        ".None.library-publish-*.acsdb"
+                    )
+                )
+                self.assertEqual(1, len(candidates))
+                candidate = candidates[0]
+                displaced = candidate.with_name(candidate.name + ".owned-original")
+                os.replace(candidate, displaced)
+                candidate.write_bytes(foreign_bytes)
+                substituted = candidate
+                injected = True
+
+            with mock.patch.object(
+                coordinator,
+                "_prepare_library_publication",
+                side_effect=substitute_candidate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "publication candidate changed before durability confirmation",
+                ):
+                    coordinator._migrate_library(backup, manifest)
+
+            self.assertTrue(injected)
+            self.assertIsNotNone(substituted)
+            assert substituted is not None
+            self.assertEqual(
+                foreign_bytes,
+                substituted.read_bytes(),
+                "migration cleanup deleted a substituted publish pathname",
+            )
+
     def test_library_publication_rejects_guard_path_substitution(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
