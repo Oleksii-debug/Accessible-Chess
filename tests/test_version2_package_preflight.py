@@ -243,6 +243,40 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
             self.assertEqual(len(readback.archive_sha256 or ""), 64)
 
+    def test_sound_manifest_allows_provenance_verified_semantic_alias(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sounds = root / "AccessibleChess" / "assets" / "sounds"
+            manifest_path = sounds / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            events = list(SoundEvent)
+            shared_event = events[0]
+            alias_event = events[1]
+            shared_file = manifest["files"][shared_event.value]
+            manifest["files"][alias_event.value] = shared_file
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][alias_event.value]["file"] = shared_file
+            provenance["events"][alias_event.value]["sha256"] = _sha256(
+                sounds / shared_file
+            )
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            report = _validate_tree(root)
+            self.assertEqual(report.integration_sha, _SHA)
+
     def test_winforms_accessibility_app_config_is_required(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
