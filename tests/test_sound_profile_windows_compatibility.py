@@ -144,6 +144,26 @@ class SoundCachePathSafetyTests(unittest.TestCase):
             self.assertEqual([sentinel], list(outside.iterdir()))
 
 
+    @unittest.skipIf(os.name == "nt", "ordinary Windows runners cannot reliably create symlinks")
+    def test_cache_symlinked_ancestor_is_rejected_without_touching_target(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sound-cache-ancestor-symlink-") as raw:
+            root = Path(raw)
+            outside = root / "outside"
+            outside.mkdir()
+            redirected = root / "redirected"
+            redirected.symlink_to(outside, target_is_directory=True)
+            cache = redirected / "nested" / "cache"
+            source = root / "source.wav"
+            _write_wav(source)
+            adapter = _cache_adapter(cache, mock.Mock())
+
+            with self.assertRaisesRegex(ValueError, "real directory"):
+                adapter._scaled_copy(source, "custom-redaction", 50)
+
+            self.assertFalse((outside / "nested").exists())
+            self.assertEqual([], list(outside.iterdir()))
+
+
 class SoundCachePlaybackLockTests(unittest.TestCase):
     def test_adapters_for_same_cache_share_in_process_lock(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sound-cache-shared-lock-") as raw:

@@ -42,6 +42,33 @@ def _cache_process_lock(path: Path) -> threading.RLock:
         return lock
 
 
+def _is_reparse_point(metadata: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return bool(flag and attributes & flag)
+
+
+def _require_real_cache_directory(path: Path) -> None:
+    try:
+        metadata = os.lstat(path)
+    except OSError as exc:
+        raise ValueError("profiled sound cache directory is unavailable") from exc
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or _is_reparse_point(metadata)
+        or not stat.S_ISDIR(metadata.st_mode)
+    ):
+        raise ValueError("profiled sound cache is not a real directory")
+
+
+def _require_real_cache_directory_chain(path: Path) -> None:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    chain = tuple(reversed(absolute.parents)) + (absolute,)
+    for directory in chain:
+        if os.path.lexists(directory):
+            _require_real_cache_directory(directory)
+
+
 def _scale_pcm_frames(frames: bytes, sample_width: int, factor: float) -> bytes:
     """Scale little-endian PCM while preserving the WAV sample representation."""
 
@@ -270,19 +297,10 @@ class ProfiledWindowsSoundPlaybackAdapter:
                 os.close(descriptor)
 
     def _ensure_real_cache_dir(self) -> None:
-        if os.path.lexists(self._cache_dir):
-            metadata = os.lstat(self._cache_dir)
-        else:
+        _require_real_cache_directory_chain(self._cache_dir.parent)
+        if not os.path.lexists(self._cache_dir):
             self._cache_dir.mkdir(parents=True, exist_ok=True)
-            metadata = os.lstat(self._cache_dir)
-        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-        attributes = getattr(metadata, "st_file_attributes", 0)
-        if (
-            stat.S_ISLNK(metadata.st_mode)
-            or bool(reparse_flag and attributes & reparse_flag)
-            or not stat.S_ISDIR(metadata.st_mode)
-        ):
-            raise ValueError("profiled sound cache is not a real directory")
+        _require_real_cache_directory_chain(self._cache_dir)
 
     def _scaled_copy(self, source: Path, cache_key: str, volume: int) -> Path:
         """Return an exact, content-addressed scaled WAV snapshot.
