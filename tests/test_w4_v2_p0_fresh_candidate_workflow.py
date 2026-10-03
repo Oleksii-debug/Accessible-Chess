@@ -55,7 +55,13 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("USER_SOUND_PACK_URL_MUST_BE_HTTPS", self.text)
         self.assertIn("USER_SOUND_PACK_SHA256_INVALID", self.text)
         self.assertIn("USER_SOUND_PACK_ZIP_SHA256_MISMATCH", self.text)
-        self.assertIn("scripts/build_user_sound_pack.py", self.text)
+        self.assertIn(
+            "scripts/build_user_sound_pack.py $archive release-inputs/sounds --expected-source-archive-sha256 $wanted",
+            self.text,
+        )
+        self.assertNotIn("Expand-Archive -LiteralPath $archive -DestinationPath $source", self.text)
+        self.assertIn("USER_SOUND_PACK_SOURCE_ZIP_SHA256_MISMATCH", self.text)
+        self.assertIn("USER_SOUND_PACK_SOURCE_ZIP_SIZE_MISMATCH", self.text)
         self.assertIn("USER_SOUND_PACK_EXACT=PASS", self.text)
         self.assertIn("USER_SOUND_PACK_CANONICAL=PASS", self.text)
         self.assertIn("USER_SOUND_PACK_330_WAV=YES", self.text)
