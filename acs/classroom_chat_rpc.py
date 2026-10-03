@@ -228,9 +228,10 @@ class ClassroomChatRpcClient(ChatTransportPort):
     def _call(self, request: Mapping[str, object]) -> dict[str, object]:
         try:
             response = self._transport.call(request)
-        except ClassroomChatRpcError:
-            raise
         except Exception:
+            # The transport boundary must never expose backend/service exception
+            # detail to the desktop client. This includes ClassroomChatRpcError
+            # raised by an in-process BoundCall used by trusted composition tests.
             raise ClassroomChatRpcError("classroom chat service unavailable") from None
         if type(response) is not dict:
             raise ClassroomChatRpcError("classroom chat response is invalid")
