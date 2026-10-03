@@ -12,6 +12,10 @@ on:
       - 'web/**'
       - 'run_accessible_chess_v2.py'
 
+concurrency:
+  group: p0-release-critical-triad-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
