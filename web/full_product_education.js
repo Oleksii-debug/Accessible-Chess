@@ -106,7 +106,10 @@
     if (!wrapper || wrapper.getAttribute("aria-busy") !== "true") return null;
     return {
       command: String(wrapper.getAttribute("data-pending-command") || ""),
-      lockComposer: wrapper.getAttribute("data-pending-lock-composer") === "true"
+      lockComposer: wrapper.getAttribute("data-pending-lock-composer") === "true",
+      focusControlId: String(
+        wrapper.getAttribute("data-pending-focus-control") || ""
+      )
     };
   }
 
@@ -118,12 +121,22 @@
       "data-pending-lock-composer",
       pending.lockComposer ? "true" : "false"
     );
+    if (pending.focusControlId) {
+      wrapper.setAttribute(
+        "data-pending-focus-control",
+        String(pending.focusControlId)
+      );
+    } else {
+      wrapper.removeAttribute("data-pending-focus-control");
+    }
     wrapper.querySelectorAll("BUTTON").forEach(function (control) {
       control.setAttribute(
         "data-pending-was-disabled",
         control.disabled ? "true" : "false"
       );
-      control.disabled = true;
+      if (!pending.focusControlId || control.id !== pending.focusControlId) {
+        control.disabled = true;
+      }
       control.setAttribute("aria-disabled", "true");
     });
     if (pending.lockComposer) {
@@ -140,6 +153,7 @@
     wrapper.setAttribute("aria-busy", "false");
     wrapper.removeAttribute("data-pending-command");
     wrapper.removeAttribute("data-pending-lock-composer");
+    wrapper.removeAttribute("data-pending-focus-control");
     wrapper.querySelectorAll("BUTTON").forEach(function (control) {
       const wasDisabled = control.getAttribute("data-pending-was-disabled");
       if (wasDisabled === "false") control.disabled = false;
@@ -376,9 +390,16 @@
   ) {
     if (!wrapper || wrapper.getAttribute("aria-busy") === "true") return false;
     const root = wrapper.parentNode;
+    const active = document.activeElement;
     const pending = {
       command: String(command || ""),
-      lockComposer: !!(options && options.lockComposer)
+      lockComposer: !!(options && options.lockComposer),
+      focusControlId: (
+        active &&
+        active.tagName === "BUTTON" &&
+        typeof wrapper.contains === "function" &&
+        wrapper.contains(active)
+      ) ? String(active.id || "") : ""
     };
     applyCollaborationPendingState(wrapper, pending);
     const pendingAnnouncement = (
