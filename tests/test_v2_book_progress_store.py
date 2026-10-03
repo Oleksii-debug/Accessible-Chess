@@ -766,6 +766,73 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertEqual(self.store.backup_path.read_bytes(), future_backup)
 
+    def test_valid_primary_save_preserves_future_schema_backup(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:future-rolling", reader)
+        primary_before = self.path.read_bytes()
+        future_backup = b'{"entries":{},"generation":99,"schema_version":999}'
+        self.store.backup_path.write_bytes(future_backup)
+
+        reader.go_to(2)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:future-rolling", reader)
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.UNSUPPORTED_SCHEMA,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), future_backup)
+
+    def test_valid_primary_save_preserves_newer_generation_backup(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:newer-rolling", reader)
+        primary_before = self.path.read_bytes()
+        newer_backup = b'{"entries":{},"generation":99,"schema_version":2}'
+        self.store.backup_path.write_bytes(newer_backup)
+
+        reader.go_to(2)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:newer-rolling", reader)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), newer_backup)
+
+    def test_valid_primary_save_rejects_divergent_same_generation_backup(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:divergent-rolling", reader)
+        primary_before = self.path.read_bytes()
+        divergent_backup = b'{"entries":{},"generation":1,"schema_version":2}'
+        self.store.backup_path.write_bytes(divergent_backup)
+
+        reader.go_to(2)
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save("book:divergent-rolling", reader)
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), divergent_backup)
+
+    def test_valid_primary_save_repairs_corrupt_backup(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:repair-rolling", reader)
+        primary_before = self.path.read_bytes()
+        self.store.backup_path.write_bytes(
+            b'{"entries":{},"generation":'
+        )
+
+        reader.go_to(2)
+        saved = self.store.save("book:repair-rolling", reader)
+
+        self.assertEqual(saved["current_target"], "block:diagram")
+        self.assertNotEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
+
     def test_corrupt_orphan_backup_is_preserved_instead_of_erased_by_save(self) -> None:
         self.path.parent.mkdir(parents=True)
         corrupt_backup = b'{"schema_version":2,"generation":'
