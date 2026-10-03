@@ -306,6 +306,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         synced = view.dispatch("collaboration.chat.sync", {})
         self.assertEqual("collaboration.chat.synced", synced.kind)
         self.assertEqual("Message sent.", synced.payload["announcement"])
+        self.assertIs(synced.payload["clear_chat_draft"], True)
         self.assertEqual({}, view._pending_chat)
         self.assertNotIn(pending_id, repr(synced.payload))
 
@@ -622,6 +623,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
 
         self.assertEqual("collaboration.chat.synced", synced.kind)
         self.assertEqual("Message sent.", synced.payload["announcement"])
+        self.assertIs(synced.payload["clear_chat_draft"], True)
         self.assertEqual({}, view._pending_chat)
         self.assertEqual(0, synced.payload["collaboration"]["chat"]["unread_count"])
         tombstone = synced.payload["collaboration"]["chat"]["messages"][0]
@@ -658,6 +660,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("collaboration.chat.received", recovered.kind)
         self.assertEqual("Message sent.", recovered.payload["announcement"])
+        self.assertIs(recovered.payload["clear_chat_draft"], True)
         self.assertEqual({}, view._pending_chat)
         self.assertEqual(
             0,
