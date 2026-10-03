@@ -1,0 +1,102 @@
+name: Books Semantic Game DOM
+
+on:
+  pull_request:
+    branches:
+      - 'feature/pgn-semantic-comment-slots-20261003'
+    paths:
+      - 'acs/version2_book_workspace.py'
+      - 'web/full_product_books_training.js'
+      - 'tests/test_version2_book_workspace.py'
+      - 'tests/test_books_semantic_host_bounds.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - '.github/workflows/books-semantic-game-dom.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-semantic-game-dom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-game-dom:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove stacked ancestry, bounded scope, and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          parent_branch='feature/pgn-semantic-comment-slots-20261003'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$parent_branch"
+            live_ref="refs/remotes/origin/$parent_branch"
+            git fetch --no-tags origin "+refs/heads/$parent_branch:$live_ref"
+            live_parent="$(git rev-parse "$live_ref")"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_parent"
+            git merge-base --is-ancestor "$live_parent" HEAD
+            test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+            changed="$(git diff --name-only "$live_parent" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/books-semantic-game-dom.yml' \
+              'acs/version2_book_workspace.py' \
+              'tests/js/books_training_surface_dom_test.js' \
+              'tests/test_books_semantic_host_bounds.py' \
+              'tests/test_version2_book_workspace.py' \
+              'web/full_product_books_training.js' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$live_parent" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "e6ee9d253a4cd5f583e661a0f69876764220a54c"
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "3a8cfc63d1c37c4ada781e3910e0d7d436a12c8b"
+          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "1266288420f5daabb6d73b939fa850fa43b7cce7"
+          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "1a45512c0aa430a6f044345d45754754f5d479ee"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "121c86a72dee4b1e64f510e7aa28521144161f95"
+
+      - name: Validate browser semantic contract
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile semantic Books projection
+        run: >-
+          python -m compileall -q
+          acs/version2_book_workspace.py
+          tests/test_version2_book_workspace.py
+          tests/test_books_semantic_host_bounds.py
+
+      - name: Prove semantic reading and retained canonical Book flow
+        run: >-
+          python -m unittest -v
+          tests.test_books_semantic_host_bounds
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_dev1_full_product_ui_packages
+          tests.test_dev1_books_training_webview_projection

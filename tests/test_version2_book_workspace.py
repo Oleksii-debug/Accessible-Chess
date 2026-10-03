@@ -10,7 +10,7 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_board_workflow import BookBoardWorkflow
 from acs.book_progress_store import BookProgressStore
-from acs.bookdocument import BookDocument, Game, ListBlock, Paragraph, Position
+from acs.bookdocument import BookDocument, Game, ListBlock, Paragraph, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
@@ -38,6 +38,124 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         router = build_version2_router(build_version2_shell(), delegate)
         bridge = build_version2_book_webview(reader, workflow, router.dispatch)
         return reader, workflow, bridge, events
+
+    def test_game_and_variation_blocks_project_bounded_readable_semantic_moves(self):
+        cases = (
+            Game(
+                pgn=(
+                    '[White "Alpha"]\n'
+                    '[Black "Beta"]\n'
+                    '[Result "*"]\n\n'
+                    '{Intro} 1. {Before main} e4 {After C:\\private\\secret.txt} '
+                    '(1. d4 d5 * {Variation tail}) e5 * {Outro}'
+                ),
+                title="Annotated game",
+                block_id="game",
+            ),
+            VariationTree(
+                root_fen=Board.START,
+                pgn=(
+                    '[White "Gamma"]\n'
+                    '[Black "Delta"]\n'
+                    '[Result "*"]\n\n'
+                    '1. e4 (1. d4 d5 *) e5 *'
+                ),
+                title="Variation study",
+                block_id="variation",
+            ),
+        )
+        for semantic in cases:
+            with self.subTest(kind=type(semantic).__name__):
+                reader, workflow, bridge, _ = self.compose(
+                    BookDocument(title="Semantic book", blocks=[semantic])
+                )
+                before = reader.snapshot()
+
+                snapshot = bridge.projection.snapshot()
+                tree = snapshot["semantic_tree"]
+
+                self.assertIsInstance(tree, dict)
+                self.assertIn(tree["kind"], {"game", "variation"})
+                self.assertEqual(tree["result"], "*")
+                self.assertIn(" — ", tree["players"])
+                self.assertGreaterEqual(len(tree["items"]), 3)
+                self.assertEqual(tree["items"][0]["kind"], "move")
+                self.assertEqual(tree["items"][0]["depth"], 0)
+                self.assertIsNone(tree["items"][0]["parent_index"])
+                self.assertIn("e4", tree["items"][0]["label"])
+                variation = next(item for item in tree["items"] if item["kind"] == "variation")
+                self.assertEqual(variation["depth"], 1)
+                self.assertEqual(variation["parent_index"], 0)
+                nested = next(
+                    item
+                    for item in tree["items"]
+                    if item["kind"] == "move" and "d4" in item["label"]
+                )
+                self.assertEqual(nested["parent_index"], tree["items"].index(variation))
+                serialized = json.dumps(tree, ensure_ascii=False)
+                self.assertNotIn("[White", serialized)
+                self.assertNotIn("private", serialized.casefold())
+                self.assertNotIn("C:\\", serialized)
+                self.assertNotIn(Board.START, serialized)
+                self.assertFalse(workflow.active)
+                self.assertEqual(workflow.revision, 0)
+                self.assertEqual(reader.snapshot(), before)
+
+    def test_semantic_reading_relocalizes_without_moving_reader_progress(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Language semantic reading",
+                blocks=[
+                    Game(
+                        pgn='[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n\n1. e4 (1. d4) e5 *',
+                        title="Game",
+                    )
+                ],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        ua = bridge.projection.snapshot()["semantic_tree"]
+        switched = bridge.dispatch("book.language", {"language": "en"})
+        en = switched.payload["snapshot"]["semantic_tree"]
+
+        self.assertEqual(switched.kind, "render")
+        self.assertEqual(ua["kind"], en["kind"])
+        self.assertEqual(ua["players"], en["players"])
+        self.assertEqual(ua["result"], en["result"])
+        self.assertNotEqual(ua["label"], en["label"])
+        self.assertEqual(en["label"], "Moves and variations")
+        self.assertTrue(any(item["kind"] == "variation" for item in en["items"]))
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
+
+    def test_semantic_projection_failure_falls_back_without_leaking_error_details(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Fallback",
+                blocks=[Game(pgn='[Result "*"]\n\n1. e4 *', title="Readable title")],
+            )
+        )
+        progress_before = reader.snapshot()
+
+        with patch.object(
+            workflow,
+            "semantic_game_snapshot",
+            side_effect=ValueError(r"SECRET C:\\private\\source.pgn"),
+        ):
+            snapshot = bridge.projection.snapshot()
+
+        self.assertIsNone(snapshot["semantic_tree"])
+        self.assertEqual(snapshot["block"]["text"], "Readable title")
+        self.assertIn("шахівниця", snapshot["block"]["warning"])
+        self.assertNotIn("SECRET", repr(snapshot))
+        self.assertNotIn("private", repr(snapshot).casefold())
+        actions = {item["command"]: item["enabled"] for item in snapshot["actions"]}
+        self.assertTrue(actions["book.open_game"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), progress_before)
 
     def test_game_open_move_and_exact_return_use_one_canonical_workflow(self):
         document = BookDocument(title="Книга", blocks=[
