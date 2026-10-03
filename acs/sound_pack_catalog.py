@@ -468,15 +468,21 @@ class SoundPackManager:
             return profile
         return profile.with_pack(resolved)
 
-    def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
-        installed = dict(self._storage.installed())
-        current = installed.get(entry.manifest.pack_id)
+    @staticmethod
+    def status_for_installed_manifest(
+        entry: SoundPackCatalogEntry,
+        current: SoundPackManifest | None,
+    ) -> SoundPackCatalogStatus:
+        if not isinstance(entry, SoundPackCatalogEntry):
+            raise TypeError("entry must be SoundPackCatalogEntry")
+        if current is not None and not isinstance(current, SoundPackManifest):
+            raise SoundPackInstallError("installed sound pack metadata is invalid")
+        if current is not None and current.pack_id != entry.manifest.pack_id:
+            raise SoundPackInstallError("installed sound pack id does not match catalog entry")
         if not entry.compatible:
             state = SoundPackState.INCOMPATIBLE
         elif current is None:
             state = SoundPackState.NOT_INSTALLED
-        elif not isinstance(current, SoundPackManifest):
-            raise SoundPackInstallError("installed sound pack metadata is invalid")
         elif (
             current.version == entry.manifest.version
             and current != entry.manifest
@@ -496,3 +502,8 @@ class SoundPackManager:
             installed_version=None if current is None else current.version,
             state=state,
         )
+
+    def status(self, entry: SoundPackCatalogEntry) -> SoundPackCatalogStatus:
+        installed = dict(self._storage.installed())
+        current = installed.get(entry.manifest.pack_id)
+        return self.status_for_installed_manifest(entry, current)
