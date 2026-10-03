@@ -652,6 +652,13 @@ class FilesystemSoundPackStore:
             try:
                 self._lock_descriptor(descriptor)
                 acquired = True
+                root_boundary = (
+                    self.root if os.path.lexists(self.root) else self.root.parent
+                )
+                _require_real_dir_chain(
+                    root_boundary,
+                    "sound pack storage root",
+                )
                 yield
             finally:
                 if acquired:
