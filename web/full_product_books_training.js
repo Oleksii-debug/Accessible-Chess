@@ -1,7 +1,7 @@
 (function (global) {
   "use strict";
 
-  const inFlightRoots = new WeakSet();
+  const inFlightRoots = new WeakMap();
   const renderEpochs = new WeakMap();
 
   function renderEpoch(root) {
@@ -10,6 +10,8 @@
 
   function markRendered(root) {
     renderEpochs.set(root, renderEpoch(root) + 1);
+    inFlightRoots.delete(root);
+    setBusy(root, false);
   }
 
   function setBusy(root, busy) {
@@ -48,12 +50,15 @@
   }
 
   function safeInvoke(root, invoke, command, payload, onResult, announce, fallbackMessage) {
-    if (inFlightRoots.has(root)) return;
     const startedAtEpoch = renderEpoch(root);
-    inFlightRoots.add(root);
+    const activeFlight = inFlightRoots.get(root);
+    if (activeFlight && activeFlight.epoch === startedAtEpoch) return;
+    const flight = { epoch: startedAtEpoch };
+    inFlightRoots.set(root, flight);
     setBusy(root, true);
 
     function finish() {
+      if (inFlightRoots.get(root) !== flight) return;
       inFlightRoots.delete(root);
       setBusy(root, false);
     }
