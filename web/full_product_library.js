@@ -227,6 +227,13 @@
           invokeCommand(root, invoke, announce, snapshot, "library.move", {
             delta: delta
           });
+        } else if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          const targetIndex = event.key === "Home" ? 0 : rows.length - 1;
+          if (targetIndex === index || targetIndex < 0) return;
+          invokeCommand(root, invoke, announce, snapshot, "library.select", {
+            game_id: rows[targetIndex].game_id
+          });
         } else if (event.key === "Enter") {
           event.preventDefault();
           invokeCommand(root, invoke, announce, snapshot, "library.open_game", {});
