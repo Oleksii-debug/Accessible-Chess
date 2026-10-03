@@ -166,6 +166,62 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 b"user-owned-substitute",
             )
 
+    def test_guard_cleanup_rejects_missing_owned_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_bytes(b"original-settings")
+            guard = upgrade_base_module._publication_guard(settings)
+            guard.path.unlink()
+
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "publication guard changed unexpectedly",
+            ):
+                upgrade_base_module._remove_publication_guard(guard)
+
+    def test_settings_publication_fails_if_guard_disappears_after_final_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            settings = root / "settings.json"
+            settings.write_text(
+                json.dumps({"language": "en", "volume": 10}),
+                encoding="utf-8",
+            )
+            original_bytes = settings.read_bytes()
+            real_hash = upgrade_base_module._publication_guard_hash
+            hash_calls = 0
+
+            def race_hash(
+                guard: upgrade_base_module._PublicationGuard,
+            ) -> str:
+                nonlocal hash_calls
+                digest = real_hash(guard)
+                hash_calls += 1
+                if hash_calls == 2:
+                    guard.path.unlink()
+                return digest
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_publication_guard_hash",
+                side_effect=race_hash,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "publication guard changed unexpectedly",
+                ):
+                    Version2UpgradeCoordinator(UserDataLayout(root)).run()
+
+            self.assertEqual(hash_calls, 2)
+            self.assertEqual(
+                settings.read_bytes(),
+                original_bytes,
+                "missing post-publication guard was accepted as a committed migration",
+            )
+
     def test_settings_publication_rejects_guard_path_substitution(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
