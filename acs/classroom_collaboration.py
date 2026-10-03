@@ -171,6 +171,12 @@ class FileTransferPort(Protocol):
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
+        """Idempotently cancel the same provisional attachment identity.
+
+        An accepted cancellation may lose its acknowledgement. Callers retain
+        provisional metadata after that ambiguous failure and retry the same
+        attachment_id, so providers must treat repeated cancellation as success.
+        """
         ...
 
     def retry(self, prepared: PreparedFile) -> AttachmentMetadata:
