@@ -3,7 +3,7 @@ name: Accessible Chess Version 2 Windows Composition
 on:
   push:
     branches:
-      - work/version2-windows-composition-20260828
+      - work/full-product-teacher-education-reachability-20260911
   pull_request:
     paths:
       - 'run_accessible_chess_v2.py'
@@ -78,18 +78,53 @@ jobs:
       - name: Prove Version 2 ancestry and convergence-safe isolation
         shell: bash
         env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+          PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
 
-          scope_base="$V2_FORMATS_UPSTREAM"
-          if [ -n "$PR_BASE_SHA" ]; then
-            scope_base="$PR_BASE_SHA"
+          expected_head="${PR_HEAD_SHA:-}"
+          if [ -n "$expected_head" ]; then
+            test "$(git rev-parse HEAD)" = "$expected_head"
           fi
-          git cat-file -e "$scope_base^{commit}"
-          git merge-base --is-ancestor "$scope_base" HEAD
+
+          event_base="${PR_BASE_SHA:-}"
+          base_ref="${PR_BASE_REF:-}"
+          if [ -n "$event_base" ]; then
+            git cat-file -e "$event_base^{commit}" || git fetch --no-tags origin "$event_base"
+            if [ "$base_ref" = "$PRODUCT_BRANCH" ]; then
+              git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+              live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+              git cat-file -e "$live_product^{commit}"
+              git merge-base --is-ancestor "$event_base" "$live_product"
+              git merge-base --is-ancestor "$live_product" HEAD
+              test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+              scope_base="$live_product"
+              echo "V2_COMPOSITION_EVENT_BASE=$event_base"
+              echo "V2_COMPOSITION_PRODUCT_PARENT=$live_product"
+            else
+              scope_base="$event_base"
+              git merge-base --is-ancestor "$scope_base" HEAD
+              test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+              echo "V2_COMPOSITION_STACKED_PARENT=$scope_base"
+            fi
+          else
+            push_base="${PUSH_BASE_SHA:-}"
+            zero_sha='0000000000000000000000000000000000000000'
+            if [ -n "$push_base" ] && [ "$push_base" != "$zero_sha" ]; then
+              scope_base="$push_base"
+            else
+              scope_base="$(git rev-parse HEAD^)"
+            fi
+            git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"
+            git merge-base --is-ancestor "$scope_base" HEAD
+            test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+          fi
           git diff --check "$scope_base" HEAD
 
           actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
@@ -107,8 +142,10 @@ jobs:
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui_core.py'; then
             actual_stage1_core_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-            if [ "${{ github.event.pull_request.head.ref }}" != "integration/clock-engine-serial-intake-20261002" ] \
-               || [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
+            # The takeback-recovery successor is now canonical Product. If a
+            # candidate changes this path, only that exact current identity is
+            # accepted; no branch-name heuristic and no legacy fallback.
+            if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
               echo "Unexpected Stage 1 core blob: $actual_stage1_core_blob" >&2
               exit 1
             fi
@@ -169,6 +206,7 @@ jobs:
           tests.test_version2_import_terminal_ui
           tests.test_v2_windows_library_import_observer
           tests.test_w3_windows_file_action_ui_thread_affinity
+          tests.test_version2_windows_composition_workflow
 
       - name: Version 2 composition and accessibility contracts
         run: >-
