@@ -328,6 +328,86 @@ class V2UpgradePublishRaceAuditTests(unittest.TestCase):
                 (backup / "data" / coordinator.layout.settings_name).read_bytes(),
             )
 
+    def test_manifest_rejects_whole_backup_directory_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "notes.txt").write_bytes(b"preserved-user-data")
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            upgrade_id = "backup-directory-swap"
+            backup, _manifest = coordinator._create_backup(upgrade_id)
+
+            replacement = coordinator.layout.backup_root / "replacement-backup-tree"
+            shutil.copytree(backup, replacement)
+            displaced = coordinator.layout.backup_root / "displaced-backup-tree"
+            real_read_json = coordinator._read_json
+            injected = False
+
+            def swap_then_read(path: Path, label: str):
+                nonlocal injected
+                if not injected:
+                    os.replace(backup, displaced)
+                    os.replace(replacement, backup)
+                    injected = True
+                return real_read_json(path, label)
+
+            with mock.patch.object(
+                coordinator,
+                "_read_json",
+                side_effect=swap_then_read,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "backup directory changed during recovery",
+                ):
+                    coordinator._manifest(upgrade_id)
+
+            self.assertTrue(injected)
+            self.assertTrue(displaced.is_dir())
+            self.assertTrue(backup.is_dir())
+
+    def test_manifest_rejects_backup_data_directory_swap_during_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            (root / "notes.txt").write_bytes(b"preserved-user-data")
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            coordinator._ensure_roots()
+            upgrade_id = "backup-data-directory-swap"
+            backup, _manifest = coordinator._create_backup(upgrade_id)
+            data = backup / "data"
+
+            replacement = backup / "replacement-data-tree"
+            shutil.copytree(data, replacement)
+            displaced = backup / "displaced-data-tree"
+            real_hash = upgrade_base_module._hash
+            injected = False
+
+            def swap_then_hash(path: Path, *, label: str = "hashed file"):
+                nonlocal injected
+                candidate = Path(path)
+                if data in candidate.parents and not injected:
+                    os.replace(data, displaced)
+                    os.replace(replacement, data)
+                    injected = True
+                return real_hash(path, label=label)
+
+            with mock.patch.object(
+                upgrade_base_module,
+                "_hash",
+                side_effect=swap_then_hash,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeRecoveryError,
+                    "backup directory changed during recovery",
+                ):
+                    coordinator._manifest(upgrade_id)
+
+            self.assertTrue(injected)
+            self.assertTrue(displaced.is_dir())
+            self.assertTrue(data.is_dir())
+
     def test_guard_creation_rejects_target_inode_swap(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
