@@ -22,6 +22,9 @@ from acs.version2_package_assembler import assemble_version2_package_tree
 
 _REQUIRED_WEB_FILES = (
     "index.html",
+    "accessible-chess-theme.css",
+    "vendor/pico-2.1.1/pico.min.css",
+    "vendor/pico-2.1.1/LICENSE.md",
     "stage1_release_bootstrap.js",
     "stage1_board_actions.js",
     "full_product_pgn.js",
@@ -57,10 +60,15 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         for name in _REQUIRED_WEB_FILES:
-            (self.standalone / "web" / name).write_text(
-                f"/* {name} */\n" if name.endswith(".js") else "<main>Accessible Chess</main>\n",
-                encoding="utf-8",
-            )
+            target = self.standalone / "web" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if name.endswith(".js") or name.endswith(".css"):
+                payload_text = f"/* {name} */\n"
+            elif name.endswith(".md"):
+                payload_text = "MIT License fixture\n"
+            else:
+                payload_text = "<main>Accessible Chess</main>\n"
+            target.write_text(payload_text, encoding="utf-8")
 
         self.sounds = self.root / "sounds"
         self.sounds.mkdir()
