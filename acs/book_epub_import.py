@@ -468,15 +468,35 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
     for element in manifest:
         if _local_name(element.tag) != "item":
             continue
-        item_id = (element.attrib.get("id") or "").strip()
+        raw_item_id = element.attrib.get("id")
         media_type = (element.attrib.get("media-type") or "").strip().casefold()
         href = element.attrib.get("href")
-        fallback = (element.attrib.get("fallback") or "").strip() or None
-        if not item_id or not media_type:
+        raw_fallback = element.attrib.get("fallback")
+        if (
+            type(raw_item_id) is not str
+            or not raw_item_id
+            or raw_item_id != raw_item_id.strip()
+            or any(character.isspace() for character in raw_item_id)
+            or not media_type
+        ):
             raise _error(
-                "EPUB manifest item is missing required identity",
+                "EPUB manifest item is missing or has malformed required identity",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        item_id = raw_item_id
+        if raw_fallback is None:
+            fallback = None
+        elif (
+            not raw_fallback
+            or raw_fallback != raw_fallback.strip()
+            or any(character.isspace() for character in raw_fallback)
+        ):
+            raise _error(
+                "EPUB manifest fallback identifier is malformed",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        else:
+            fallback = raw_fallback
         if item_id in output:
             raise _error(
                 "EPUB manifest contains duplicate item identifiers",
@@ -515,12 +535,18 @@ def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
     for element in spine:
         if _local_name(element.tag) != "itemref":
             continue
-        item_id = (element.attrib.get("idref") or "").strip()
-        if not item_id:
+        raw_item_id = element.attrib.get("idref")
+        if (
+            type(raw_item_id) is not str
+            or not raw_item_id
+            or raw_item_id != raw_item_id.strip()
+            or any(character.isspace() for character in raw_item_id)
+        ):
             raise _error(
-                "EPUB spine item is missing its manifest reference",
+                "EPUB spine item has a missing or malformed manifest reference",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        item_id = raw_item_id
         ids.append(item_id)
         if (element.attrib.get("linear") or "").strip().casefold() == "no":
             warnings.add(f"EPUB non-linear spine item {item_id!r} was preserved in document order")
