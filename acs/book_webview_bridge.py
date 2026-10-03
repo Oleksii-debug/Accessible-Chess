@@ -26,10 +26,12 @@ class BookWebViewBridge:
             raise ValueError("book browser payload has too many fields")
         out: dict[str, object] = {}
         for key, item in value.items():
-            if not isinstance(key, str):
+            if type(key) is not str:
                 raise TypeError("book browser payload keys must be text")
+            if len(key) > 64:
+                raise ValueError("invalid book browser payload key")
             token = key.strip()
-            if not token or len(token) > 64 or token in out:
+            if not token or token in out:
                 raise ValueError("invalid book browser payload key")
             out[token] = item
         return out
@@ -45,10 +47,12 @@ class BookWebViewBridge:
         payload: Mapping[str, object] | None = None,
     ) -> BookWebViewEvent:
         try:
-            if not isinstance(command, str):
+            if type(command) is not str:
                 raise TypeError("book browser command must be text")
+            if len(command) > 64:
+                raise ValueError("invalid book browser command")
             command_id = command.strip()
-            if not command_id or len(command_id) > 64:
+            if not command_id:
                 raise ValueError("invalid book browser command")
             data = self._payload(payload)
 
