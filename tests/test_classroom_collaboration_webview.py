@@ -57,7 +57,13 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.ids[prefix] = self.ids.get(prefix, 0) + 1
         return f"{prefix}-ui-{self.ids[prefix]}"
 
-    def webview(self, *, language: UILanguage = UILanguage.EN) -> ClassroomCollaborationWebView:
+    def webview(
+        self,
+        *,
+        language: UILanguage = UILanguage.EN,
+        chat_retention: str = "session",
+        file_retention: str = "session",
+    ) -> ClassroomCollaborationWebView:
         return ClassroomCollaborationWebView(
             self.controller,
             self.store,
@@ -66,6 +72,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             file_picker=lambda: self.selected_file,
             file_saver=lambda token, name: self.save_calls.append((token, name)),
             file_opener=lambda token, name: self.open_calls.append((token, name)),
+            chat_retention=chat_retention,
+            file_retention=file_retention,
             id_factory=self.next_id,
         )
 
@@ -1109,15 +1117,88 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("error", event.kind)
         self.assertEqual("The action could not be completed.", event.payload["message"])
 
+    def test_trusted_host_retention_policy_is_explicit_and_browser_cannot_override(self) -> None:
+        self.selected_file = self.root / "retention.pgn"
+        self.selected_file.write_text(
+            '[Event "Retention"]\n\n1. e4 e5 *\n',
+            encoding="utf-8",
+        )
+        self.files.scan_state = "clean"
+        view = self.webview(
+            chat_retention="persistent",
+            file_retention="transient",
+        )
+
+        initial = view.snapshot()
+        self.assertEqual(
+            "New message retention: persistent",
+            initial["chat"]["retention_policy_label"],
+        )
+        self.assertEqual(
+            "New file retention: transient",
+            initial["files"]["retention_policy_label"],
+        )
+
+        sent = view.dispatch("collaboration.chat.send", {"body": "Keep this"})
+        self.assertEqual("persistent", self.store.room_messages("room-1")[0].retention)
+        self.assertEqual(
+            "Retention: persistent",
+            sent.payload["collaboration"]["chat"]["messages"][0]["retention_label"],
+        )
+
+        uploaded = view.dispatch("collaboration.file.choose_upload", {})
+        self.assertEqual(
+            "transient",
+            self.store.room_attachments("room-1")[0].retention,
+        )
+        self.assertEqual(
+            "Retention: transient",
+            uploaded.payload["collaboration"]["files"]["items"][0]["retention_label"],
+        )
+
+        rejected_chat = view.dispatch(
+            "collaboration.chat.send",
+            {"body": "Browser override", "retention": "transient"},
+        )
+        self.assertEqual("error", rejected_chat.kind)
+        self.assertEqual(1, len(self.store.room_messages("room-1")))
+        rejected_file = view.dispatch(
+            "collaboration.file.choose_upload",
+            {"retention": "persistent"},
+        )
+        self.assertEqual("error", rejected_file.kind)
+        self.assertEqual(1, len(self.store.room_attachments("room-1")))
+
+        with self.assertRaises(ValueError):
+            self.webview(chat_retention="forever")
+        with self.assertRaises(ValueError):
+            self.webview(file_retention="forever")
+
     def test_language_switch_changes_presentation_without_rebuilding_core(self) -> None:
         view = self.webview(language=UILanguage.EN)
         self.assertEqual("Chat", view.snapshot()["chat"]["heading"])
         self.assertEqual("Message time", view.snapshot()["chat"]["timestamp_label"])
         self.assertEqual("Refresh files", view.snapshot()["files"]["sync_label"])
+        self.assertEqual(
+            "New message retention: session",
+            view.snapshot()["chat"]["retention_policy_label"],
+        )
+        self.assertEqual(
+            "New file retention: session",
+            view.snapshot()["files"]["retention_policy_label"],
+        )
         view.set_language(UILanguage.UA)
         self.assertEqual("Чат", view.snapshot()["chat"]["heading"])
         self.assertEqual("Час повідомлення", view.snapshot()["chat"]["timestamp_label"])
         self.assertEqual("Оновити файли", view.snapshot()["files"]["sync_label"])
+        self.assertEqual(
+            "Зберігання нових повідомлень: до завершення сесії",
+            view.snapshot()["chat"]["retention_policy_label"],
+        )
+        self.assertEqual(
+            "Зберігання нових файлів: до завершення сесії",
+            view.snapshot()["files"]["retention_policy_label"],
+        )
 
 
 if __name__ == "__main__":
