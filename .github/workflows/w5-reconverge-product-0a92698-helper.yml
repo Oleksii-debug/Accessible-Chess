@@ -1,0 +1,95 @@
+name: W5 exact Product 0a92698 reconvergence helper
+
+on:
+  push:
+    branches:
+      - work/w5-product-0a92698-anchor-20261004
+    paths:
+      - '.github/workflows/w5-reconverge-product-0a92698-helper.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-exact-child:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact helper trigger
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: work/w5-product-0a92698-anchor-20261004
+
+      - name: Prove lineage and prepare workflow-only package child
+        shell: bash
+        env:
+          ANCHOR_SHA: a947ecd6aabb73fcbe0c500be1f9178e53b6c703
+          PRODUCT_SHA: 0a92698bbb923ef6d7bc2d672e3fd30554fb0138
+          PREVIOUS_W5_SHA: a766331db6bce5ec5424ab739fd4a418d0cd9349
+          PREVIOUS_WORKFLOW_BLOB: a6969641d41667acc81217327ba664e82b9f0732
+          CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
+          P0G_PROBE_BLOB: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
+          P0_DOCUMENT_PROBE_BLOB: 08c343f04b6383445b9360f5cee346d7a4a414a5
+          TARGET_BRANCH: work/w5-product-0a92698-anchor-20261004
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$ANCHOR_SHA^1")" = "$PRODUCT_SHA"
+          test "$(git rev-parse "$ANCHOR_SHA^2")" = "$PREVIOUS_W5_SHA"
+          test "$(git rev-parse "$ANCHOR_SHA:.github/workflows/post-freeze-v2-windows-package-qualification.yml")" = "$PREVIOUS_WORKFLOW_BLOB"
+          if git cat-file -e "$PRODUCT_SHA:.github/workflows/post-freeze-v2-windows-package-qualification.yml" 2>/dev/null; then
+            echo 'PACKAGE_WORKFLOW_ALREADY_PRESENT_IN_PRODUCT' >&2
+            exit 1
+          fi
+          test "$(git rev-parse "$PRODUCT_SHA:packaging/AccessibleChess.exe.config")" = "$CONFIG_BLOB"
+          test "$(git rev-parse "$PRODUCT_SHA:scripts/p0g_packaged_hotkey_result_probe.ps1")" = "$P0G_PROBE_BLOB"
+          test "$(git rev-parse "$PRODUCT_SHA:scripts/p0_packaged_document_copy_probe.ps1")" = "$P0_DOCUMENT_PROBE_BLOB"
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/post-freeze-v2-windows-package-qualification.yml')
+          text = path.read_text(encoding='utf-8')
+          replacements = (
+              ('# exact-package-reconvergence: 8b546db / p0g 8b546db / p0-document 8b546db',
+               '# exact-package-reconvergence: 0a92698 / p0g 0a92698 / p0-document 0a92698'),
+              ('  LINEAGE_PARENT_SHA: 31fdc741cb50cb2aa255fad9c2f855432176577d',
+               '  LINEAGE_PARENT_SHA: a947ecd6aabb73fcbe0c500be1f9178e53b6c703'),
+              ('  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: 1259f379ca3b432f7babf112aee6174c75b3d2a7',
+               '  LINEAGE_PARENT_WORKFLOW_BLOB_SHA: a6969641d41667acc81217327ba664e82b9f0732'),
+              ('  AUDITED_PARENT_SHA: 5a7e1ad24397a6ef2f12d6f03ad467eca3fb0d19',
+               '  AUDITED_PARENT_SHA: a766331db6bce5ec5424ab739fd4a418d0cd9349'),
+              ('  PACKAGE_ANCHOR_SHA: 31fdc741cb50cb2aa255fad9c2f855432176577d',
+               '  PACKAGE_ANCHOR_SHA: a947ecd6aabb73fcbe0c500be1f9178e53b6c703'),
+              ('  PRODUCT_PARENT_SHA: 8b546db07b3b539a545746e6de2eea4eca1db3b4',
+               '  PRODUCT_PARENT_SHA: 0a92698bbb923ef6d7bc2d672e3fd30554fb0138'),
+              ('  PREVIOUS_PACKAGE_SHA: bfada5e3f4d530686478e5d19c7dabfadd124366',
+               '  PREVIOUS_PACKAGE_SHA: a766331db6bce5ec5424ab739fd4a418d0cd9349'),
+              ('  PREVIOUS_WORKFLOW_BLOB_SHA: 1259f379ca3b432f7babf112aee6174c75b3d2a7',
+               '  PREVIOUS_WORKFLOW_BLOB_SHA: a6969641d41667acc81217327ba664e82b9f0732'),
+              ('  P0G_QA_SHA: 8b546db07b3b539a545746e6de2eea4eca1db3b4',
+               '  P0G_QA_SHA: 0a92698bbb923ef6d7bc2d672e3fd30554fb0138'),
+              ('  P0_DOCUMENT_QA_SHA: 8b546db07b3b539a545746e6de2eea4eca1db3b4',
+               '  P0_DOCUMENT_QA_SHA: 0a92698bbb923ef6d7bc2d672e3fd30554fb0138'),
+          )
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one provenance token {old!r}, found {count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8', newline='\n')
+          print('W5_PROVENANCE_PATCH=PASS replacements=10')
+          PY
+
+          rm -f .github/workflows/w5-reconverge-product-0a92698-helper.yml
+          test "$(git diff --name-only "$ANCHOR_SHA" -- | sort)" = "$(printf '%s\n' '.github/workflows/post-freeze-v2-windows-package-qualification.yml' '.github/workflows/w5-reconverge-product-0a92698-helper.yml' | sort)"
+          git add -A
+          tree="$(git write-tree)"
+          git config user.name 'Accessible Chess W5 Reconvergence'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          final="$(printf '%s\n' 'W5: qualify exact Product 0a92698 with terminal-green package lineage' | git commit-tree "$tree" -p "$ANCHOR_SHA")"
+          test "$(git rev-parse "$final^1")" = "$ANCHOR_SHA"
+          test "$(git diff --name-only "$PRODUCT_SHA" "$final")" = '.github/workflows/post-freeze-v2-windows-package-qualification.yml'
+          git diff --check "$PRODUCT_SHA" "$final"
+          git push origin "$final:refs/heads/$TARGET_BRANCH" --force-with-lease="refs/heads/$TARGET_BRANCH:$GITHUB_SHA"
+          echo "PREPARED_W5_SHA=$final"
