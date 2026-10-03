@@ -881,6 +881,20 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertEqual("training-solution", self.app._focus)
 
+        language = self.app.browser_command(
+            "training",
+            "training.language",
+            {"language": "en"},
+        )
+        self.assertEqual("render", language["kind"])
+        self.assertEqual("training-answer", language["payload"]["focus_target"])
+        self.assertEqual(
+            "training-answer",
+            language["payload"]["snapshot"]["focus_target"],
+        )
+        self.assertEqual("training-answer", self.app.shell.restore_focus_target())
+        self.assertEqual("training-answer", self.app._focus)
+
     def test_book_render_failure_rolls_back_reader_and_durable_progress(self):
         book = self.root / "render-failure.md"
         book.write_text("Коротко\n\n12345678901\n", encoding="utf-8")
