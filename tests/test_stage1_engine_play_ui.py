@@ -61,6 +61,9 @@ class _RecordingGameSounds:
     def draw(self) -> None:
         self.draw_events += 1
 
+    def low_time(self) -> None:
+        pass
+
     def end(self) -> None:
         self.end_events += 1
 
