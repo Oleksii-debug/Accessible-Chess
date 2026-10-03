@@ -103,6 +103,46 @@
     Promise.resolve(result).then(onResult).catch(fail);
   }
 
+  const PENDING_WEBVIEW_ROOTS = new WeakSet();
+
+  function safeInvokeOnce(
+    root,
+    invoke,
+    command,
+    payload,
+    onResult,
+    announce,
+    fallbackMessage,
+    onFailure
+  ) {
+    if (PENDING_WEBVIEW_ROOTS.has(root)) return false;
+    PENDING_WEBVIEW_ROOTS.add(root);
+
+    function release() {
+      PENDING_WEBVIEW_ROOTS.delete(root);
+    }
+
+    safeInvoke(
+      invoke,
+      command,
+      payload,
+      function (result) {
+        try {
+          onResult(result);
+        } finally {
+          release();
+        }
+      },
+      announce,
+      fallbackMessage,
+      function () {
+        release();
+        if (typeof onFailure === "function") onFailure();
+      }
+    );
+    return true;
+  }
+
   function semanticText(value, name, budget) {
     if (typeof value !== "string") throw new TypeError(name + " must be text");
     budget.entries += 1;
@@ -977,7 +1017,7 @@
     if (result.kind === "error") announce(payload.message);
   }
 
-  function renderStarterMaterials(main, catalogue, invoke, announce, fallbackMessage) {
+  function renderStarterMaterials(root, main, catalogue, invoke, announce, fallbackMessage) {
     if (!catalogue) return;
     const items = catalogue.items;
 
@@ -1007,9 +1047,17 @@
     open.addEventListener("click", function () {
       const materialId = String(select.value || "");
       if (!materialId) return;
-      safeInvoke(invoke, "book.open_starter_material", { material_id: materialId }, function (result) {
-        applyBookEvent(main.parentNode, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+      safeInvokeOnce(
+        root,
+        invoke,
+        "book.open_starter_material",
+        { material_id: materialId },
+        function (result) {
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     section.appendChild(open);
     main.appendChild(section);
@@ -1051,7 +1099,7 @@
     const main = node("section");
     applySnapshotLanguage(main, snapshot);
     main.appendChild(node("h2", heading));
-    renderStarterMaterials(main, starterCatalogue, invoke, announce, fallbackMessage);
+    renderStarterMaterials(root, main, starterCatalogue, invoke, announce, fallbackMessage);
     const block = snapshot.block;
     renderBookBlock(main, block);
 
@@ -1062,9 +1110,17 @@
       button.type = "button";
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
-        safeInvoke(invoke, action.command, {}, function (result) {
-          applyBookEvent(root, result, invoke, announce, fallbackMessage);
-        }, announce, fallbackMessage);
+        safeInvokeOnce(
+          root,
+          invoke,
+          action.command,
+          {},
+          function (result) {
+            applyBookEvent(root, result, invoke, announce, fallbackMessage);
+          },
+          announce,
+          fallbackMessage
+        );
       });
       toolbar.appendChild(button);
     });
@@ -1088,14 +1144,30 @@
     form.appendChild(restore);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      safeInvoke(invoke, "book.bookmark.save", { name: input.value }, function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+      safeInvokeOnce(
+        root,
+        invoke,
+        "book.bookmark.save",
+        { name: input.value },
+        function (result) {
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     restore.addEventListener("click", function () {
-      safeInvoke(invoke, "book.bookmark.restore", { name: input.value }, function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+      safeInvokeOnce(
+        root,
+        invoke,
+        "book.bookmark.restore",
+        { name: input.value },
+        function (result) {
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     main.appendChild(form);
 
@@ -1128,7 +1200,8 @@
       if (resetPending) return;
       resetPending = true;
       confirm.disabled = true;
-      safeInvoke(
+      const started = safeInvokeOnce(
+        root,
         invoke,
         "training.reset",
         { confirmed: true },
@@ -1144,6 +1217,11 @@
           if (dialog.open) confirm.focus({ preventScroll: true });
         }
       );
+      if (!started) {
+        resetPending = false;
+        confirm.disabled = false;
+        if (dialog.open) confirm.focus({ preventScroll: true });
+      }
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
@@ -1305,9 +1383,17 @@
     form.appendChild(submit);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      safeInvoke(invoke, "training.submit", { answer: input.value }, function (result) {
-        applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+      safeInvokeOnce(
+        root,
+        invoke,
+        "training.submit",
+        { answer: input.value },
+        function (result) {
+          applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     main.appendChild(form);
 
@@ -1339,9 +1425,17 @@
           resetDialog.open(button);
           return;
         }
-        safeInvoke(invoke, command, {}, function (result) {
-          applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
-        }, announce, fallbackMessage);
+        safeInvokeOnce(
+          root,
+          invoke,
+          command,
+          {},
+          function (result) {
+            applyTrainingEvent(root, result, invoke, announce, fallbackMessage);
+          },
+          announce,
+          fallbackMessage
+        );
       });
       toolbar.appendChild(button);
     });
