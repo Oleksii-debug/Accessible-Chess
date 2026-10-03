@@ -272,8 +272,17 @@ class ExerciseSession:
 
     @property
     def definition(self) -> ExerciseDefinition:
-        """The immutable definition reference bound to this session."""
-        return self._definition
+        """Return a defensive canonical copy of the session-bound definition."""
+        definition = self._definition
+        return ExerciseDefinition(
+            definition.exercise_id,
+            definition.start_fen,
+            definition.steps,
+            title=definition.title,
+            tags=definition.tags,
+            source_id=definition.source_id,
+            metadata=definition.metadata,
+        )
 
     @property
     def status(self) -> ExerciseStatus:
@@ -312,13 +321,13 @@ class ExerciseSession:
     def current_step(self) -> ExerciseStep | None:
         if self.completed:
             return None
-        return self.definition.steps[self._step_index]
+        return self._definition.steps[self._step_index]
 
     def submit(self, move: str) -> ExerciseResult:
         if self.completed:
             raise ValueError("exercise is already completed")
         submitted = _normalize_move(move)
-        step = self.definition.steps[self._step_index]
+        step = self._definition.steps[self._step_index]
 
         # Validate authored accepted answers before touching counters or state.
         accepted = _resolved_accepted_moves(step, self._board)
@@ -342,15 +351,15 @@ class ExerciseSession:
 
         # Fail atomically if the newly reached step contains chess content that
         # cannot be interpreted by the canonical core in this exact position.
-        if next_index < len(self.definition.steps):
-            _resolved_accepted_moves(self.definition.steps[next_index], candidate)
+        if next_index < len(self._definition.steps):
+            _resolved_accepted_moves(self._definition.steps[next_index], candidate)
 
         explanation = step.explanation
         self._board = candidate
         self._accepted_path.append(canonical_san)
         self._attempts += 1
         self._step_index = next_index
-        if self._step_index == len(self.definition.steps):
+        if self._step_index == len(self._definition.steps):
             self._status = ExerciseStatus.COMPLETED
         else:
             self._status = ExerciseStatus.IN_PROGRESS
@@ -384,7 +393,7 @@ class ExerciseSession:
     def request_hint(self) -> HintResult:
         if self.completed:
             return HintResult(False, self._step_index, None, self._hints_used)
-        step = self.definition.steps[self._step_index]
+        step = self._definition.steps[self._step_index]
         if step.hint is None:
             return HintResult(False, self._step_index, None, self._hints_used)
         self._hints_used += 1
@@ -393,7 +402,7 @@ class ExerciseSession:
     def reset(self) -> None:
         # Reconstruct from the authored start position through canonical core;
         # reset never reuses a potentially mutated hidden board object.
-        board = Board(self.definition.start_fen)
+        board = Board(self._definition.start_fen)
         self._board = board
         self._accepted_path = []
         self._step_index = 0
@@ -406,7 +415,7 @@ class ExerciseSession:
         """Return strict schema-v4 progress bound to the full exercise definition."""
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
-            "exercise_id": self.definition.exercise_id,
+            "exercise_id": self._definition.exercise_id,
             "definition_digest": self._definition_digest,
             "accepted_path": list(self._accepted_path),
             "position_fen": self._board.fen(),
