@@ -501,6 +501,70 @@ class ExerciseSessionTests(unittest.TestCase):
         authored[0] = "d4"
         self.assertEqual(frozenset({"e4"}), step.accepted_moves)
 
+    def test_full_definition_identity_ingress_is_bounded(self):
+        oversized = "x" * 4097
+        step = ExerciseStep(frozenset({"e4"}))
+
+        for field, kwargs in (
+            ("exercise_id", {"exercise_id": oversized}),
+            ("start_fen", {"start_fen": oversized}),
+            ("title", {"title": oversized}),
+            ("source_id", {"source_id": oversized}),
+        ):
+            with self.subTest(field=field):
+                values = {
+                    "exercise_id": "bounded",
+                    "start_fen": Board.START,
+                    "steps": (step,),
+                }
+                values.update(kwargs)
+                with self.assertRaisesRegex(ValueError, "too long"):
+                    ExerciseDefinition(**values)
+
+        with self.assertRaisesRegex(ValueError, "hint is too long"):
+            ExerciseStep(frozenset({"e4"}), hint=oversized)
+        with self.assertRaisesRegex(ValueError, "explanation is too long"):
+            ExerciseStep(frozenset({"e4"}), explanation=oversized)
+        with self.assertRaisesRegex(ValueError, "too many tags"):
+            ExerciseDefinition(
+                "too-many-tags",
+                Board.START,
+                (step,),
+                tags=tuple(f"tag-{index}" for index in range(65)),
+            )
+        with self.assertRaisesRegex(ValueError, "tag is too long"):
+            ExerciseDefinition(
+                "long-tag",
+                Board.START,
+                (step,),
+                tags=(oversized,),
+            )
+        with self.assertRaisesRegex(ValueError, "too many entries"):
+            ExerciseDefinition(
+                "too-much-metadata",
+                Board.START,
+                (step,),
+                metadata={f"k{index}": "v" for index in range(65)},
+            )
+        with self.assertRaisesRegex(ValueError, "metadata text is too long"):
+            ExerciseDefinition(
+                "long-metadata",
+                Board.START,
+                (step,),
+                metadata={"key": oversized},
+            )
+
+    def test_definition_tags_are_snapshotted_from_caller_collection(self):
+        tags = ["Opening", "Calculation"]
+        definition = ExerciseDefinition(
+            "tag-snapshot",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+            tags=tags,  # type: ignore[arg-type]
+        )
+        tags[:] = ["forged"]
+        self.assertEqual(("opening", "calculation"), definition.tags)
+
     def test_empty_move_empty_step_and_scalar_coercion_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "at least one"):
             ExerciseStep(frozenset())
