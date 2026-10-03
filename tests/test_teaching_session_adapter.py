@@ -14,7 +14,7 @@ from acs.classroom_domain import (
     Lesson,
     Student,
 )
-from acs.interaction_contracts import EngineVisibilityPolicy
+from acs.interaction_contracts import BoardPermissionState, EngineVisibilityPolicy
 from acs.teaching_session import (
     LessonSession,
     PositionSourceKind,
@@ -138,6 +138,73 @@ class TeachingSessionAdapterTests(unittest.TestCase):
         )
         self.assertEqual((teacher.target_square, teacher.target_piece), ("e4", "P"))
         self.assertEqual((student.target_square, student.target_piece), (None, None))
+
+    def test_student_submit_capabilities_follow_timer_and_board_permission(self) -> None:
+        plan = self.plan(
+            self.step(
+                TeachingActivity.STUDENT_RESPONDS,
+                timer_seconds=5,
+            )
+        )
+        active = start_session(plan)
+        before_expiry = project_teaching_session(
+            plan,
+            active,
+            self.classroom(),
+            audience=TeachingAudience.STUDENT,
+            viewer_student_id="student-1",
+        )
+        self.assertTrue(before_expiry.can_submit_selection)
+        self.assertFalse(before_expiry.can_submit_move)
+
+        expired = apply_teaching_action(
+            plan,
+            active,
+            "teaching.tick",
+            {"elapsed_seconds": 5},
+            expected_revision=0,
+        )
+        expired_student = project_teaching_session(
+            plan,
+            expired,
+            self.classroom(),
+            audience=TeachingAudience.STUDENT,
+            viewer_student_id="student-1",
+        )
+        expired_teacher = project_teaching_session(
+            plan,
+            expired,
+            self.classroom(),
+            audience=TeachingAudience.TEACHER,
+        )
+        self.assertEqual(expired.remaining_seconds, 0)
+        self.assertFalse(expired_student.can_submit_selection)
+        self.assertFalse(expired_student.can_submit_move)
+        self.assertTrue(expired_teacher.can_advance)
+
+        locked = replace(
+            active,
+            presentation=replace(
+                active.presentation,
+                board_permission=BoardPermissionState.LOCKED,
+            ),
+        )
+        locked_student = project_teaching_session(
+            plan,
+            locked,
+            self.classroom(),
+            audience=TeachingAudience.STUDENT,
+            viewer_student_id="student-1",
+        )
+        locked_teacher = project_teaching_session(
+            plan,
+            locked,
+            self.classroom(),
+            audience=TeachingAudience.TEACHER,
+        )
+        self.assertFalse(locked_student.can_submit_selection)
+        self.assertFalse(locked_student.can_submit_move)
+        self.assertTrue(locked_teacher.can_advance)
 
     def test_solution_reveal_is_exposed_only_by_canonical_policy(self) -> None:
         plan = self.plan(self.step(TeachingActivity.SOLUTION_REVEAL, solution_text="Qh7+"))

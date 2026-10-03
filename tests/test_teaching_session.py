@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 
@@ -324,9 +325,88 @@ class TeachingSessionDomainTests(unittest.TestCase):
         self.assertEqual(expired.remaining_seconds, 0)
         self.assertEqual(expired.phase, TeachingSessionPhase.ACTIVE)
         self.assertEqual(expired.position_fen, Board.START)
-        untimed = self.plan(self.step("s1", TeachingActivity.TEACHER_EXPLAINS))
+        self.assertEqual(expired.presentation.board_permission, BoardPermissionState.LOCKED)
+        expired_snapshot = expired.to_json()
+        self.assertEqual(TeachingSessionState.from_json(expired_snapshot), expired)
+
+        unlocked_record = state.to_record()
+        unlocked_record["remaining_seconds"] = 0
+        body = dict(unlocked_record)
+        body.pop("digest")
+        unlocked_record["digest"] = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         with self.assertRaises(TeachingSessionError):
-            tick_timer(untimed, start_session(untimed), 1, 0)
+            TeachingSessionState.from_record(unlocked_record)
+
+        def restored_with_remaining(source_state: TeachingSessionState, remaining: int | None) -> TeachingSessionState:
+            record = source_state.to_record()
+            record["remaining_seconds"] = remaining
+            body = dict(record)
+            body.pop("digest")
+            record["digest"] = hashlib.sha256(
+                json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            return TeachingSessionState.from_record(record)
+
+        with self.assertRaises(TeachingSessionError):
+            current_step(timed_plan, restored_with_remaining(state, None))
+        with self.assertRaises(TeachingSessionError):
+            current_step(timed_plan, restored_with_remaining(state, 6))
+
+        locked_record = state.to_record()
+        locked_record["presentation"]["board_permission"] = BoardPermissionState.LOCKED.value
+        body = dict(locked_record)
+        body.pop("digest")
+        locked_record["digest"] = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        locked_state = TeachingSessionState.from_record(locked_record)
+        locked_snapshot = locked_state.to_json()
+        with self.assertRaises(TeachingSessionError):
+            submit_selection(timed_plan, locked_state, "student-1", "e4", locked_state.revision)
+        self.assertEqual(locked_state.to_json(), locked_snapshot)
+
+        untimed = self.plan(self.step("s1", TeachingActivity.TEACHER_EXPLAINS))
+        untimed_state = start_session(untimed)
+        with self.assertRaises(TeachingSessionError):
+            current_step(untimed, restored_with_remaining(untimed_state, 1))
+
+        with self.assertRaises(TeachingSessionError):
+            tick_timer(timed_plan, expired, 1, expired.revision)
+        with self.assertRaises(TeachingSessionError):
+            submit_selection(timed_plan, expired, "student-1", "e4", expired.revision)
+        self.assertEqual(expired.to_json(), expired_snapshot)
+
+        with self.assertRaises(TeachingSessionError):
+            tick_timer(untimed, untimed_state, 1, 0)
+
+    def test_expired_move_step_stays_locked_across_pause_resume_until_advance(self) -> None:
+        plan = self.plan(
+            self.step("s1", TeachingActivity.MAKE_MOVE, timer_seconds=1),
+            self.step("s2", TeachingActivity.MAKE_MOVE),
+        )
+        expired = tick_timer(plan, start_session(plan), 2, 0)
+        self.assertEqual(expired.remaining_seconds, 0)
+        self.assertEqual(expired.presentation.board_permission, BoardPermissionState.LOCKED)
+        before = expired.to_json()
+        with self.assertRaises(TeachingSessionError):
+            submit_move(plan, expired, "student-1", "e4", expired.revision)
+        self.assertEqual(expired.to_json(), before)
+
+        paused = pause_session(plan, expired, expired.revision)
+        resumed = resume_session(plan, paused, paused.revision)
+        self.assertEqual(resumed.phase, TeachingSessionPhase.ACTIVE)
+        self.assertEqual(resumed.remaining_seconds, 0)
+        self.assertEqual(resumed.presentation.board_permission, BoardPermissionState.LOCKED)
+        with self.assertRaises(TeachingSessionError):
+            submit_move(plan, resumed, "student-1", "e4", resumed.revision)
+
+        next_step = advance_step(plan, resumed, resumed.revision)
+        self.assertEqual(next_step.remaining_seconds, None)
+        self.assertEqual(next_step.presentation.board_permission, BoardPermissionState.MOVE_ALLOWED)
+        moved = submit_move(plan, next_step, "student-1", "e4", next_step.revision)
+        self.assertEqual(moved.last_response.value, "e4")
 
     def test_stale_revision_and_wrong_plan_fail_without_partial_state(self) -> None:
         plan = self.plan(self.step("s1", TeachingActivity.SHOW_SQUARE, target_square="e4"))
