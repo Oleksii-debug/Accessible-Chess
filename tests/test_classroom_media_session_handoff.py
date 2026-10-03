@@ -307,6 +307,77 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         self.assertIsNone(host.recovery_status)
         self.assertIsNone(host.pending_effect)
 
+    def test_verified_clean_connect_failure_drops_pending_without_recovery(self):
+        controller, _composite, _session, host = self.make_host()
+        before = controller.state
+        effect = host.prepare_join(
+            credential(),
+            now=NOW + timedelta(seconds=1),
+        )
+        host.claim_browser_payload(effect.transaction_id)
+
+        host.provider_connection_failed_clean(
+            effect.transaction_id,
+            connected=False,
+            cleanup_required=False,
+        )
+
+        self.assertEqual(controller.state, before)
+        self.assertIsNone(host.pending_effect)
+        self.assertIsNone(host.recovery_status)
+        next_effect = host.prepare_join(
+            credential("fresh-after-clean-failure"),
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertIsNotNone(next_effect)
+
+    def test_verified_clean_failure_rejects_unclean_adapter_snapshot(self):
+        _controller, _composite, _session, host = self.make_host()
+        effect = host.prepare_join(
+            credential(),
+            now=NOW + timedelta(seconds=1),
+        )
+        host.claim_browser_payload(effect.transaction_id)
+
+        with self.assertRaisesRegex(
+            MediaSessionHandoffError,
+            "not proven clean",
+        ):
+            host.provider_connection_failed_clean(
+                effect.transaction_id,
+                connected=False,
+                cleanup_required=True,
+            )
+        self.assertEqual(host.pending_effect.transaction_id, effect.transaction_id)
+
+        with self.assertRaisesRegex(
+            MediaSessionHandoffError,
+            "not proven clean",
+        ):
+            host.provider_connection_failed_clean(
+                effect.transaction_id,
+                connected=True,
+                cleanup_required=False,
+            )
+        self.assertEqual(host.pending_effect.transaction_id, effect.transaction_id)
+
+    def test_disconnect_failure_cannot_use_clean_connect_shortcut(self):
+        controller, _composite, _session, host = self.make_host()
+        self.complete_join(controller, host)
+        effect = host.prepare_leave()
+        host.claim_browser_payload(effect.transaction_id)
+
+        with self.assertRaisesRegex(
+            MediaSessionHandoffError,
+            "only to connect or reconnect",
+        ):
+            host.provider_connection_failed_clean(
+                effect.transaction_id,
+                connected=False,
+                cleanup_required=False,
+            )
+        self.assertEqual(host.pending_effect.transaction_id, effect.transaction_id)
+
     def test_provider_failure_latches_recovery_and_blocks_next_session_effect(self):
         _controller, _composite, _session, host = self.make_host()
         effect = host.prepare_join(
@@ -528,6 +599,8 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             source,
         )
         self.assertIn("async disconnect()", source)
+        self.assertIn("cleanup_required: this._cleanupRoom !== null", source)
+        self.assertIn("connected: false", source)
         self.assertIn(
             'const allowed = ["participant_id", "room_id", "token"]',
             source,
