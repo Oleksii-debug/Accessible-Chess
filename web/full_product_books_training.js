@@ -209,7 +209,7 @@
 
   function requireBoundedText(value, label, allowEmpty, limit) {
     const text = requireText(value, label, allowEmpty);
-    if (text.indexOf("\x00") >= 0 || text.length > limit) {
+    if (text.length > limit || text.indexOf("\x00") >= 0) {
       throw new TypeError(label + " exceeds its canonical text contract");
     }
     return text;
@@ -558,8 +558,8 @@
         block.heading_path.some(function (part) {
           return typeof part !== "string" ||
             !part ||
-            part.indexOf("\x00") >= 0 ||
-            part.length > MAX_BOOK_HEADING_PATH_TEXT;
+            part.length > MAX_BOOK_HEADING_PATH_TEXT ||
+            part.indexOf("\x00") >= 0;
         })) {
       throw new TypeError("Book heading path is invalid");
     }
@@ -582,7 +582,10 @@
         block.list.items.length < 1 ||
         block.list.items.length > MAX_BOOK_LIST_ITEMS ||
         block.list.items.some(function (item) {
-          return typeof item !== "string" || !item || item.indexOf("\x00") >= 0;
+          return typeof item !== "string" ||
+            !item ||
+            item.length > MAX_BOOK_BLOCK_VISIBLE_CHARS ||
+            item.indexOf("\x00") >= 0;
         })
       ) {
         throw new TypeError("Book list items are invalid");
@@ -1115,8 +1118,8 @@
            payload.solution.some(function (move) {
              return typeof move !== "string" ||
                !move ||
-               move.indexOf("\x00") >= 0 ||
-               move.length > MAX_TRAINING_SOLUTION_TEXT;
+               move.length > MAX_TRAINING_SOLUTION_TEXT ||
+               move.indexOf("\x00") >= 0;
            }))) {
         throw new TypeError("Training solution payload is invalid");
       }
