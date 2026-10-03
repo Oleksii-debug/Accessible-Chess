@@ -1140,6 +1140,7 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
   let configCalls = 0;
   const retired = [];
   const providerDispatches = [];
+  let transportLosses = 0;
 
   async function invoke(command, payload) {
     if (command === "media.provider_config") {
@@ -1175,6 +1176,11 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
       retired.push(payload.transaction_id);
       return { kind: "error", payload: { message: "sanitized" } };
     }
+    if (command === "media.provider_transport_lost") {
+      transportLosses += 1;
+      assert.equal(isCleanSnapshot(payload.snapshot), true);
+      return { kind: "media-updated", payload: { snapshot: { connected: false } } };
+    }
     throw new Error("unexpected command " + command);
   }
 
@@ -1198,6 +1204,17 @@ async function testProviderRebindCannotRetargetConnectedAdapter() {
   assert.deepEqual(retired, [effectTx]);
   assert.deepEqual(providerDispatches, [sessionTx]);
   assert.equal(RecordingAdapter.instances.length, 1);
+  assert.equal(runtime._cleanupRetryPending, true);
+
+  const reconciled = await runtime.reconcileTransport(invoke);
+  assert.equal(reconciled.kind, "media-updated");
+  assert.equal(transportLosses, 1);
+  assert.equal(runtime._cleanupRetryPending, false);
+  assert.equal(isCleanSnapshot(RecordingAdapter.instances[0].snapshot()), true);
+  assert.equal(
+    RecordingAdapter.instances[0].calls.filter((item) => item[0] === "disconnect").length,
+    1
+  );
 }
 
 async function testFailedReconnectCleanupRetriesWhileTrustedRecoveryRemainsLatched() {
