@@ -603,6 +603,48 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertTrue(substituted_path.exists())
         self.assertEqual(substituted_path.read_bytes(), substitute_bytes)
 
+    def test_temp_cleanup_last_window_substitution_preserves_foreign_bytes(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        candidate = self.path.parent / ".book-progress.json.cleanup-probe.tmp"
+        candidate.write_bytes(b"writer-owned-temp")
+        expected = os.lstat(candidate)
+        foreign = self.path.parent / "foreign-temp-last-window.bin"
+        foreign_bytes = b"foreign-temp-last-window"
+        foreign.write_bytes(foreign_bytes)
+        real_replace = os.replace
+        injected = False
+
+        def substitute_then_quarantine(source, destination):
+            nonlocal injected
+            source_path = Path(source)
+            destination_path = Path(destination)
+            if (
+                source_path == candidate
+                and ".cleanup-quarantine-" in destination_path.name
+                and not injected
+            ):
+                real_replace(foreign, candidate)
+                injected = True
+            return real_replace(source, destination)
+
+        with mock.patch(
+            "acs.book_progress_store.os.replace",
+            side_effect=substitute_then_quarantine,
+        ):
+            self.store._discard_owned_temp_unlocked(candidate, expected)
+
+        self.assertTrue(injected)
+        self.assertFalse(candidate.exists())
+        quarantines = tuple(
+            item
+            for item in self.path.parent.iterdir()
+            if item.name.startswith(
+                f".{candidate.name}.cleanup-quarantine-"
+            )
+        )
+        self.assertEqual(len(quarantines), 1)
+        self.assertEqual(quarantines[0].read_bytes(), foreign_bytes)
+
     def test_publish_rejects_hardlinked_temp_inode_without_unlinking_peer(self) -> None:
         self.path.parent.mkdir(parents=True)
         real_require = self.store._require_no_orphan_backup_unlocked
@@ -1706,6 +1748,50 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.store._lock_path.read_bytes(), foreign_bytes)
         self.assertFalse(self.path.exists())
 
+    def test_lock_cleanup_last_window_substitution_preserves_foreign_bytes(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"\0")
+        expected = os.lstat(self.store._lock_path)
+        foreign = self.path.parent / "foreign-lock-last-window.bin"
+        foreign_bytes = b"foreign-lock-last-window"
+        foreign.write_bytes(foreign_bytes)
+        real_replace = os.replace
+        injected = False
+
+        def substitute_then_quarantine(source, destination):
+            nonlocal injected
+            source_path = Path(source)
+            destination_path = Path(destination)
+            if (
+                source_path == self.store._lock_path
+                and ".cleanup-quarantine-" in destination_path.name
+                and not injected
+            ):
+                real_replace(foreign, self.store._lock_path)
+                injected = True
+            return real_replace(source, destination)
+
+        with mock.patch(
+            "acs.book_progress_store.os.replace",
+            side_effect=substitute_then_quarantine,
+        ):
+            self.store._discard_owned_lock_unlocked(
+                self.store._lock_path,
+                expected,
+            )
+
+        self.assertTrue(injected)
+        self.assertFalse(self.store._lock_path.exists())
+        quarantines = tuple(
+            item
+            for item in self.path.parent.iterdir()
+            if item.name.startswith(
+                f".{self.store._lock_path.name}.cleanup-quarantine-"
+            )
+        )
+        self.assertEqual(len(quarantines), 1)
+        self.assertEqual(quarantines[0].read_bytes(), foreign_bytes)
+
     def test_initializing_empty_lock_can_finish_on_same_inode(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"")
@@ -1974,6 +2060,76 @@ class BookProgressStoreTests(unittest.TestCase):
             BookProgressStoreErrorCode.IO_FAILURE,
         )
         self.assertIsNone(caught.exception.__cause__)
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an actively locked pathname is a POSIX continuity probe",
+    )
+    def test_active_lock_path_split_before_publication_fails_without_primary_write(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        displaced = self.path.parent / "book-progress.lock.displaced"
+        replacement = self.path.parent / "replacement-active.lock"
+        replacement.write_bytes(b"\0")
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            with self.store._exclusive_access():
+                os.replace(self.store._lock_path, displaced)
+                os.replace(replacement, self.store._lock_path)
+                self.store._atomic_publish_bytes_unlocked(
+                    self.path,
+                    b"must-not-publish",
+                    expected_target_raw=None,
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an actively locked pathname is a POSIX continuity probe",
+    )
+    def test_active_lock_split_after_replace_reports_durability_unknown(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        displaced = self.path.parent / "book-progress.lock.displaced"
+        replacement = self.path.parent / "replacement-active.lock"
+        replacement.write_bytes(b"\0")
+        real_publish = __import__(
+            "acs.book_progress_store",
+            fromlist=["_replace_published_path"],
+        )._replace_published_path
+        injected = False
+
+        def publish_then_split_lock(source: Path, destination: Path) -> None:
+            nonlocal injected
+            real_publish(source, destination)
+            if not injected:
+                os.replace(self.store._lock_path, displaced)
+                os.replace(replacement, self.store._lock_path)
+                injected = True
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            with self.store._exclusive_access():
+                with mock.patch(
+                    "acs.book_progress_store._replace_published_path",
+                    side_effect=publish_then_split_lock,
+                ):
+                    self.store._atomic_publish_bytes_unlocked(
+                        self.path,
+                        b"published-before-lock-loss",
+                        expected_target_raw=None,
+                    )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(self.path.read_bytes(), b"published-before-lock-loss")
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
 
     def test_lock_marker_is_rechecked_after_os_lock_acquisition(self) -> None:
         real_lock = self.store._lock_file_descriptor
