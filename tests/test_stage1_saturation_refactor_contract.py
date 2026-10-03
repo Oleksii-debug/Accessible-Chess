@@ -99,6 +99,7 @@ class Stage1SaturationRefactorContractTests(unittest.TestCase):
                 "c8b4959a7c4ed67617766b87691020694a609fb6",  # #1135 independent low-time warning
                 "48306efcc79851a17ffc215593bcf92c069ebfbe",  # #1135 protect NEWGAME from first engine move
                 "03048189cfb677a7233d90d178be1d7bb6274c95",  # #1135 complete low-time alert and retry
+                "b362e2ac5bb4a8d300279d43e4ae296fec3a074a",  # #1135 long preview clock protection
             },
         )
         self.assertIn(
