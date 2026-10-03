@@ -486,8 +486,20 @@ class ClassroomMediaHostTransactions:
                 )
             transaction_id = self._transaction_id()
             base_revision = self._controller.state.revision
-            effect, _result = self._port._prepare(transaction_id, replay)
+            try:
+                effect, _result = self._port._prepare(transaction_id, replay)
+            except Exception:
+                # Nothing crossed the provider boundary: _port._prepare raises its
+                # private sentinel at the first provider effect and converts that
+                # sentinel into a returned effect. Validation/no-op failures before
+                # that point therefore do not need a permanently retired identity.
+                self._used_transaction_ids.discard(transaction_id)
+                raise
             if effect is None:
+                # A controller no-op never exposes this identity to the browser or
+                # provider, so it is safe to reuse and avoids unbounded identity
+                # retention under repeated already-satisfied UI commands.
+                self._used_transaction_ids.discard(transaction_id)
                 return None
             self._pending = _PendingTransaction(
                 effect=effect,
