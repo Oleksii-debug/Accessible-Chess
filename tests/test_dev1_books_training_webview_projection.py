@@ -584,6 +584,73 @@ class TrainingProjectionTests(unittest.TestCase):
             self.projection.submit("  ")
         self.assertEqual(before, self.presenter.snapshot())
 
+    def test_training_host_rejects_raw_oversize_before_nul_or_redaction_scan(self) -> None:
+        view = replace(self.presenter.view(), title="x" * 361 + "\x00")
+        with (
+            patch.object(self.presenter, "view", return_value=view),
+            patch(
+                "acs.training_webview_projection.redact_local_paths",
+                side_effect=AssertionError("redaction must not scan raw oversize Training text"),
+            ) as redact,
+        ):
+            with self.assertRaisesRegex(ValueError, "training presentation text is too long"):
+                self.projection.snapshot()
+        redact.assert_not_called()
+
+    def test_training_host_text_bounds_match_browser_utf16_units(self) -> None:
+        oversized = replace(self.presenter.view(), title="😀" * 181)
+        with patch.object(self.presenter, "view", return_value=oversized):
+            with self.assertRaisesRegex(ValueError, "training presentation text is too long"):
+                self.projection.snapshot()
+
+        exact = replace(self.presenter.view(), title="😀" * 180)
+        with patch.object(self.presenter, "view", return_value=exact):
+            snapshot = self.projection.snapshot()
+        self.assertEqual("😀" * 180, snapshot["title"])
+        self.assertEqual(360, len(snapshot["title"].encode("utf-16-le")) // 2)
+
+    def test_training_host_rejects_string_subclasses_before_string_operations(self) -> None:
+        class HostileText(str):
+            def __contains__(self, _item) -> bool:
+                raise AssertionError("string subclass must not reach NUL scan")
+
+            def strip(self, *_args, **_kwargs):
+                raise AssertionError("string subclass must not reach strip")
+
+        view = replace(self.presenter.view(), title=HostileText("title"))
+        with patch.object(self.presenter, "view", return_value=view):
+            with self.assertRaisesRegex(TypeError, "training presentation text must be text"):
+                self.projection.snapshot()
+
+        before = self.presenter.snapshot()
+        with self.assertRaisesRegex(TypeError, "training answer must be text"):
+            self.projection.submit(HostileText("e4"))
+        self.assertEqual(before, self.presenter.snapshot())
+
+    def test_training_solution_and_answer_bounds_precede_nul_scan_and_use_utf16(self) -> None:
+        with patch.object(
+            self.presenter,
+            "reveal_solution",
+            return_value=("x" * 129 + "\x00",),
+        ):
+            with self.assertRaisesRegex(ValueError, "training solution move is too long"):
+                self.projection.reveal()
+
+        with patch.object(
+            self.presenter,
+            "reveal_solution",
+            return_value=("😀" * 65,),
+        ):
+            with self.assertRaisesRegex(ValueError, "training solution move is too long"):
+                self.projection.reveal()
+
+        before = self.presenter.snapshot()
+        with self.assertRaisesRegex(ValueError, "training answer is too long"):
+            self.projection.submit("x" * 129 + "\x00")
+        with self.assertRaisesRegex(ValueError, "training answer is too long"):
+            self.projection.submit("😀" * 65)
+        self.assertEqual(before, self.presenter.snapshot())
+
     def test_reset_requires_exact_true_and_resets_canonical_session(self) -> None:
         self.projection.submit("e3")
         before = self.presenter.snapshot()
