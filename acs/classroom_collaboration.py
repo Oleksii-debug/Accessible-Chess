@@ -182,6 +182,12 @@ class FileTransferPort(Protocol):
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
+        """Idempotently cancel the same provisional attachment identity.
+
+        An accepted cancellation may lose its acknowledgement. Callers retain
+        provisional metadata after that ambiguous failure and retry the same
+        attachment_id, so providers must treat repeated cancellation as success.
+        """
         ...
 
     def retry(self, prepared: PreparedFile) -> AttachmentMetadata:
@@ -282,20 +288,14 @@ class ClassroomCollaborationController:
                         )
                     except Exception:
                         raise initial_error
-                    if (
-                        type(history) is not tuple
-                        or len(history) > MAX_SYNC_MESSAGES
-                    ):
-                        raise CollaborationError(
-                            "ambiguous chat recovery history is invalid or too large"
-                        )
+                    self._validate_chat_history_page(
+                        history,
+                        after_sequence=after,
+                    )
                     matches = tuple(
                         message
                         for message in history
-                        if (
-                            type(message) is ChatMessageMetadata
-                            and message.message_id == draft.message_id
-                        )
+                        if message.message_id == draft.message_id
                     )
                 if len(matches) != 1:
                     if not matches:
@@ -304,17 +304,15 @@ class ClassroomCollaborationController:
                         "ambiguous chat recovery returned duplicate message identity"
                     )
                 recovered = matches[0]
-                if (
-                    recovered.room_id != draft.room_id
-                    or recovered.sender_id != draft.sender_id
-                    or recovered.body != draft.body
-                    or recovered.retention != draft.retention
-                    or recovered.sent_at_unix_ms is None
-                ):
-                    raise CollaborationError(
-                        "recovered chat message changed immutable message identity"
-                    )
+                self._validate_recovered_message(draft, recovered)
                 return self._persist_chat_with_gap_recovery(recovered)
+            # A first call may have committed before its acknowledgement was
+            # lost, and moderation may hide that accepted message before this
+            # exact retry returns. Hidden is mutable state, not immutable send
+            # identity, so preserve the authoritative hidden result instead of
+            # turning a successful idempotent recovery into a false send error.
+            self._validate_recovered_message(draft, delivered)
+            return self._persist_chat_with_gap_recovery(delivered)
         self._validate_delivered_message(draft, delivered)
         return self._persist_chat_with_gap_recovery(delivered)
 
@@ -324,6 +322,10 @@ class ClassroomCollaborationController:
             raise CollaborationError("received chat message has invalid type")
         if message.room_id != self.room_id:
             raise CollaborationError("received chat message belongs to another room")
+        if message.hidden:
+            raise CollaborationError(
+                "live chat message cannot carry moderation state"
+            )
         self._require_member(message.sender_id)
         _chat_body(message.body)
         self._require_transport_timestamp(message)
@@ -339,25 +341,16 @@ class ClassroomCollaborationController:
             self.sync_chat()
             return self._store.append_message(message)
 
-    def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
-        self._require_member(self.local_participant_id)
-        existing = self._store.room_messages(self.room_id, include_hidden=True)
-        existing_ids = {message.message_id for message in existing}
-        after: int | None = None
-        for message in existing:
-            expected = 0 if after is None else after + 1
-            if message.sequence_no != expected:
-                break
-            after = message.sequence_no
-        incoming = self._chat.history_after(
-            room_id=self.room_id,
-            after_sequence=after,
-            limit=MAX_SYNC_MESSAGES,
-        )
+    def _validate_chat_history_page(
+        self,
+        incoming: tuple[ChatMessageMetadata, ...],
+        *,
+        after_sequence: int | None,
+    ) -> None:
         if type(incoming) is not tuple or len(incoming) > MAX_SYNC_MESSAGES:
             raise CollaborationError("chat history response is invalid or too large")
 
-        previous = after
+        previous = after_sequence
         for message in incoming:
             if type(message) is not ChatMessageMetadata:
                 raise CollaborationError("chat history contains invalid message type")
@@ -376,6 +369,26 @@ class ClassroomCollaborationController:
             self._require_transport_timestamp(message)
             previous = message.sequence_no
 
+    def sync_chat(self) -> tuple[ChatMessageMetadata, ...]:
+        self._require_member(self.local_participant_id)
+        existing = self._store.room_messages(self.room_id, include_hidden=True)
+        existing_ids = {message.message_id for message in existing}
+        after: int | None = None
+        for message in existing:
+            expected = 0 if after is None else after + 1
+            if message.sequence_no != expected:
+                break
+            after = message.sequence_no
+        incoming = self._chat.history_after(
+            room_id=self.room_id,
+            after_sequence=after,
+            limit=MAX_SYNC_MESSAGES,
+        )
+        self._validate_chat_history_page(
+            incoming,
+            after_sequence=after,
+        )
+
         state_after = self._store.chat_state_revision(self.room_id)
         updates = self._chat.state_updates_after(
             room_id=self.room_id,
@@ -391,8 +404,9 @@ class ClassroomCollaborationController:
             message.message_id for message in existing
         }
         known_message_ids.update(message.message_id for message in incoming)
+
         state_previous = state_after
-        applicable_updates: list[ChatMessageStateUpdate] = []
+        validated_updates: list[ChatMessageStateUpdate] = []
         for update in updates:
             if type(update) is not ChatMessageStateUpdate:
                 raise CollaborationError(
@@ -407,6 +421,48 @@ class ClassroomCollaborationController:
                 raise CollaborationError(
                     "chat moderation state has an unresolved revision gap"
                 )
+            validated_updates.append(update)
+            state_previous = update.revision
+
+        # History and mutable-state pages are separate transport reads. A message
+        # can be accepted and hidden after the first history snapshot but before
+        # the state snapshot, making a legitimate state update appear to reference
+        # an unknown message. If the first history page was complete, make one
+        # bounded catch-up read before classifying that state as corrupt.
+        if (
+            history_complete
+            and any(
+                update.message_id not in known_message_ids
+                for update in validated_updates
+            )
+        ):
+            remaining = MAX_SYNC_MESSAGES - len(incoming)
+            catch_up_after = (
+                incoming[-1].sequence_no
+                if incoming
+                else after
+            )
+            catch_up = self._chat.history_after(
+                room_id=self.room_id,
+                after_sequence=catch_up_after,
+                limit=remaining,
+            )
+            if type(catch_up) is not tuple or len(catch_up) > remaining:
+                raise CollaborationError(
+                    "chat history response exceeded requested catch-up bound"
+                )
+            self._validate_chat_history_page(
+                catch_up,
+                after_sequence=catch_up_after,
+            )
+            incoming = incoming + catch_up
+            known_message_ids.update(
+                message.message_id for message in catch_up
+            )
+            history_complete = len(catch_up) < remaining
+
+        applicable_updates: list[ChatMessageStateUpdate] = []
+        for update in validated_updates:
             if update.message_id not in known_message_ids:
                 if history_complete:
                     raise CollaborationError(
@@ -414,7 +470,6 @@ class ClassroomCollaborationController:
                     )
                 break
             applicable_updates.append(update)
-            state_previous = update.revision
 
         try:
             persisted = self._store.reconcile_message_sync_atomic(
@@ -719,6 +774,9 @@ class ClassroomCollaborationController:
                     "live file reused attachment identity with different payload"
                 )
             if current.transfer_state == "pending":
+                # No provider operation has started for a pending row, so a
+                # live server event reusing that identity is a collision, not
+                # ambiguous-upload recovery.
                 raise CollaborationError(
                     "live file conflicts with local pending attachment identity"
                 )
@@ -786,11 +844,19 @@ class ClassroomCollaborationController:
 
     def sync_files(self) -> tuple[AttachmentMetadata, ...]:
         self._require_member(self.local_participant_id)
+        # Retry already-durable cleanup before any network dependency. A
+        # provider outage after restart must not strand object-store bytes whose
+        # tombstone was committed by an earlier authoritative sync.
+        self._drain_file_deletions()
+        existing = self._store.room_attachments(self.room_id)
         authoritative = tuple(
             item
-            for item in self._store.room_attachments(self.room_id)
+            for item in existing
             if item.transfer_state in {"stored", "deleted"}
         )
+        existing_authoritative_ids = {
+            item.attachment_id for item in authoritative
+        }
         # Advance only through the locally complete authoritative prefix. A
         # later terminal row must never cause reconnect to skip missing history.
         after: int | None = None
@@ -831,9 +897,11 @@ class ClassroomCollaborationController:
                 "attachment state response is invalid or too large"
             )
         history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
-        # Mutable state is never attachment-discovery authority. Only
-        # immutable server history already proven authoritative locally, or the
-        # authoritative history page being reconciled now, may be targeted.
+        # State updates are not attachment-discovery authority. Only metadata
+        # already proven authoritative locally, or metadata present in this
+        # authoritative history page, may be targeted. In particular, a stranded
+        # local pending/uploading/failed row must never be promoted to stored by
+        # the mutable state stream without its immutable server history record.
         known_attachment_ids = {
             item.attachment_id
             for item in authoritative
@@ -877,6 +945,8 @@ class ClassroomCollaborationController:
                 "attachment history and state could not be reconciled atomically"
             ) from error
 
+        self._drain_file_deletions()
+
         if not persisted:
             return ()
         current_by_id = {
@@ -886,8 +956,38 @@ class ClassroomCollaborationController:
         return tuple(
             current_by_id[item.attachment_id]
             for item in persisted
-            if current_by_id[item.attachment_id].transfer_state == "stored"
+            if (
+                item.attachment_id not in existing_authoritative_ids
+                and current_by_id[item.attachment_id].transfer_state == "stored"
+            )
         )
+
+    def _drain_file_deletions(self) -> None:
+        if self._file_store is None:
+            return
+        try:
+            pending = self._store.pending_attachment_deletions(self.room_id)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "durable file deletion state is invalid"
+            ) from error
+        for object_key in pending:
+            try:
+                self._file_store.delete(object_key=object_key)
+            except Exception:
+                # Deletion intent remains durable. FileStorePort.delete is
+                # idempotent so a crash after remote deletion but before local
+                # acknowledgement is safe to retry.
+                raise CollaborationError("durable file deletion failed") from None
+            try:
+                self._store.acknowledge_attachment_deletion(
+                    room_id=self.room_id,
+                    object_key=object_key,
+                )
+            except CollaborationStorageError as error:
+                raise CollaborationError(
+                    "durable file deletion acknowledgement failed"
+                ) from error
 
     def cancel_file(self, attachment_id: str) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -999,9 +1099,10 @@ class ClassroomCollaborationController:
         self,
         result: AttachmentMetadata,
     ) -> AttachmentMetadata:
-        # Other clients may have claimed earlier authoritative room sequences
-        # while this upload was in flight. Reconcile that immutable history
-        # prefix before publishing our later server-assigned sequence locally.
+        # A successful upload can legitimately receive a later room sequence
+        # when other clients published files concurrently. Never publish that
+        # later row into a locally gapped history: first reconcile the missing
+        # authoritative prefix from the provider.
         authoritative = tuple(
             item
             for item in self._store.room_attachments(self.room_id)
@@ -1064,6 +1165,13 @@ class ClassroomCollaborationController:
             raise CollaborationError("file transport changed immutable attachment identity")
         if result.transfer_state not in {"stored", "failed"}:
             raise CollaborationError("file transport returned non-terminal upload state")
+        if (
+            result.transfer_state == "failed"
+            and result.sequence_no != expected.sequence_no
+        ):
+            raise CollaborationError(
+                "failed file transport result changed provisional sequence"
+            )
 
     def _validate_remote_attachment(
         self,
@@ -1095,6 +1203,24 @@ class ClassroomCollaborationController:
         if attachment.transfer_state not in allowed_states:
             raise CollaborationError(
                 "file history contains non-durable attachment state"
+            )
+
+    @staticmethod
+    def _validate_recovered_message(
+        draft: ChatDraft,
+        message: ChatMessageMetadata,
+    ) -> None:
+        if (
+            type(message) is not ChatMessageMetadata
+            or message.message_id != draft.message_id
+            or message.room_id != draft.room_id
+            or message.sender_id != draft.sender_id
+            or message.body != draft.body
+            or message.retention != draft.retention
+            or message.sent_at_unix_ms is None
+        ):
+            raise CollaborationError(
+                "recovered chat message changed immutable message identity"
             )
 
     def _validate_delivered_message(
