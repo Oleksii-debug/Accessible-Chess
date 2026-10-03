@@ -532,6 +532,49 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
                     self.assertEqual(dispatched, [])
                     self.assertEqual(reader.index, index)
 
+    def test_open_game_action_matches_game_semantics_at_every_cursor(self) -> None:
+        document = self.make_extended_document()
+
+        for index, block in enumerate(document.blocks):
+            with self.subTest(index=index, block_type=type(block).__name__):
+                reader = BookReader(document)
+                reader.go_to(index)
+                dispatched: list[tuple[str, dict[str, object]]] = []
+
+                def dispatch(command: str, payload) -> object:
+                    dispatched.append((command, dict(payload)))
+                    return object()
+
+                projection = BookWebViewProjection(
+                    BookReaderPresenter(reader, language=UILanguage.EN),
+                    dispatch,
+                    language=UILanguage.EN,
+                )
+                bridge = BookWebViewBridge(projection)
+                actions = {
+                    action["command"]: action["enabled"]
+                    for action in projection.snapshot()["actions"]
+                }
+                expected = isinstance(block, Game)
+                self.assertEqual(actions["book.open_game"], expected)
+
+                result = bridge.dispatch("book.open_game", {})
+                if expected:
+                    self.assertEqual(result.kind, "delegated")
+                    self.assertEqual(
+                        result.payload,
+                        {
+                            "action": "book.open_game",
+                            "announcement": "Game opened on the board.",
+                        },
+                    )
+                    self.assertEqual(dispatched, [("book.open_game", {})])
+                    self.assertEqual(reader.index, index)
+                else:
+                    self.assertEqual(result.kind, "error")
+                    self.assertEqual(dispatched, [])
+                    self.assertEqual(reader.index, index)
+
     def test_projection_disables_unreachable_semantic_actions(self) -> None:
         reader = BookReader(self.make_document())
         presenter = BookReaderPresenter(reader, language=UILanguage.EN)
