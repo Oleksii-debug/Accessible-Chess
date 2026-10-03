@@ -74,6 +74,10 @@ def _auditable_rights_uri(label: str, value: object) -> str:
     ):
         raise ValueError(f"sound pack rights {label} contains whitespace or control characters")
     parsed = urlsplit(text)
+    if parsed.query or parsed.fragment:
+        raise ValueError(
+            f"sound pack rights {label} must not contain query or fragment components"
+        )
     if parsed.scheme == "https":
         try:
             hostname = parsed.hostname
