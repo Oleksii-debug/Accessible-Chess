@@ -606,11 +606,31 @@ class LocalSoundCompositionTests(unittest.TestCase):
             )
             before = second.settings.snapshot(language="en")["packs"][0]
             self.assertEqual("different_version", before["state"])
+            self.assertTrue(before["rights_auditable"])
+            self.assertEqual(
+                entry1.rights_evidence.source_uri,
+                before["rights_source_uri"],
+            )
+            self.assertTrue(before["catalog_rights_auditable"])
+            self.assertEqual(
+                entry2.rights_evidence.source_uri,
+                before["catalog_rights_source_uri"],
+            )
             self.assertTrue(before["can_install"])
 
             result = second.settings.install_pack(pack_id, activate=True, language="en")
 
             self.assertTrue(result.ok)
+            updated_pack = result.snapshot["packs"][0]
+            self.assertEqual("current", updated_pack["state"])
+            self.assertEqual(
+                entry2.rights_evidence.source_uri,
+                updated_pack["rights_source_uri"],
+            )
+            self.assertEqual(
+                entry2.rights_evidence,
+                second.pack_store.rights_evidence(pack_id),
+            )
             self.assertEqual(("1.0.0", "2.0.0"), second.pack_store.versions(pack_id))
             self.assertEqual("2.0.0", second.pack_store.active_version(pack_id))
             pref = second.profile_manager.current.preference_for("move")
