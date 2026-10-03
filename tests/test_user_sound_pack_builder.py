@@ -82,21 +82,51 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             archive = Path(td) / "sounds.zip"
             with zipfile.ZipFile(archive, "w") as writer:
                 writer.writestr("library/Board/MOVE.WAV", b"not-used")
+            destination = Path(td) / "pack"
             with self.assertRaisesRegex(Exception, "SHA-256 mismatch"):
                 build_sound_pack(
                     archive,
-                    Path(td) / "pack",
+                    destination,
                     expected_source_archive_sha256="0" * 64,
                 )
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(Path(td).glob(".pack.building-*")), [])
 
     def test_zip_source_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as td:
             archive = Path(td) / "sounds.zip"
             with zipfile.ZipFile(archive, "w") as writer:
                 writer.writestr("../escape.wav", b"x")
+            destination = Path(td) / "pack"
             with self.assertRaisesRegex(Exception, "unsafe ZIP member path"):
-                build_sound_pack(archive, Path(td) / "pack")
+                build_sound_pack(archive, destination)
             self.assertFalse((Path(td).parent / "escape.wav").exists())
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(Path(td).glob(".pack.building-*")), [])
+
+    def test_zip_source_rejects_symlink_members(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "sounds.zip"
+            info = zipfile.ZipInfo("library/Board/MOVE.WAV")
+            info.create_system = 3
+            info.external_attr = (0o120777 << 16)
+            with zipfile.ZipFile(archive, "w") as writer:
+                writer.writestr(info, b"target")
+            destination = Path(td) / "pack"
+            with self.assertRaisesRegex(Exception, "cannot contain symlinks"):
+                build_sound_pack(archive, destination)
+            self.assertFalse(destination.exists())
+
+    def test_zip_source_rejects_case_insensitive_duplicate_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "sounds.zip"
+            with zipfile.ZipFile(archive, "w") as writer:
+                writer.writestr("library/Board/MOVE.WAV", b"a")
+                writer.writestr("library/board/move.wav", b"b")
+            destination = Path(td) / "pack"
+            with self.assertRaisesRegex(Exception, "duplicate paths"):
+                build_sound_pack(archive, destination)
+            self.assertFalse(destination.exists())
 
     def test_failed_build_removes_partial_destination(self):
         with tempfile.TemporaryDirectory() as td:
@@ -108,6 +138,7 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 build_sound_pack(Path(td) / "source", destination)
 
             self.assertFalse(destination.exists())
+            self.assertEqual(list(Path(td).glob(".pack.building-*")), [])
 
     def test_legacy_procedural_sound_generator_cannot_return(self):
         root = Path(__file__).resolve().parents[1]
