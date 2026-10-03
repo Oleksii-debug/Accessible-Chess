@@ -1297,6 +1297,158 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_first_save_rechecks_orphan_backup_after_final_target_read(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        backup_bytes = b'{"entries":{},"generation":17,"schema_version":2}'
+        real_read = self.store._read_raw_file_unlocked
+        injected = False
+
+        def backup_appears_during_final_target_read(path, *, missing_ok):
+            nonlocal injected
+            raw = real_read(path, missing_ok=missing_ok)
+            primary_temp_exists = any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+            if (
+                not injected
+                and os.fspath(path) == os.fspath(self.path)
+                and primary_temp_exists
+            ):
+                self.store.backup_path.write_bytes(backup_bytes)
+                injected = True
+            return raw
+
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=backup_appears_during_final_target_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:final-target-orphan",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
+    def test_primary_publish_rechecks_backup_guard_after_final_target_read(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:final-guard-race", reader)
+        reader.go_to(2)
+        self.store.save("book:final-guard-race", reader)
+
+        primary_before = self.path.read_bytes()
+        external_backup = b'{"entries":{},"generation":117,"schema_version":2}'
+        real_read = self.store._read_raw_file_unlocked
+        injected = False
+
+        def backup_changes_during_final_primary_target_read(path, *, missing_ok):
+            nonlocal injected
+            raw = real_read(path, missing_ok=missing_ok)
+            primary_temp_exists = any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+            if (
+                not injected
+                and os.fspath(path) == os.fspath(self.path)
+                and primary_temp_exists
+            ):
+                self.store.backup_path.write_bytes(external_backup)
+                injected = True
+            return raw
+
+        reader.go_to(3)
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=backup_changes_during_final_primary_target_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:final-guard-race", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), external_backup)
+        self.assertFalse(
+            any(
+                item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+                for item in self.path.parent.iterdir()
+            )
+        )
+
+    def test_publish_rechecks_temp_identity_after_final_target_read(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        substitute_bytes = b"late-user-owned-temp-substitute"
+        substituted_path: Path | None = None
+        real_read = self.store._read_raw_file_unlocked
+        injected = False
+
+        def substitute_temp_during_final_target_read(path, *, missing_ok):
+            nonlocal injected, substituted_path
+            raw = real_read(path, missing_ok=missing_ok)
+            candidates = tuple(
+                item
+                for item in self.path.parent.iterdir()
+                if item.name.startswith(f".{self.path.name}.")
+                and item.name.endswith(".tmp")
+            )
+            if (
+                not injected
+                and os.fspath(path) == os.fspath(self.path)
+                and len(candidates) == 1
+            ):
+                substituted_path = candidates[0]
+                replacement = self.path.parent / "late-user-owned-temp.bin"
+                replacement.write_bytes(substitute_bytes)
+                os.replace(replacement, substituted_path)
+                injected = True
+            return raw
+
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=substitute_temp_during_final_target_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:late-temp-substitute",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertIsNotNone(substituted_path)
+        assert substituted_path is not None
+        self.assertTrue(substituted_path.exists())
+        self.assertEqual(substituted_path.read_bytes(), substitute_bytes)
+
     def test_save_preserves_newer_backup_when_primary_advances_before_backup_publish(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
