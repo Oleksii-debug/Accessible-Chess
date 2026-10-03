@@ -933,6 +933,11 @@ class Version2Application:
                 or len(command) > self._MAX_BROWSER_COMMAND_CHARS
             ):
                 raise ValueError("invalid browser command")
+            # PyWebView JSON objects arrive as exact built-in dictionaries.
+            # Reject Mapping/dict subclasses before truthiness, len(), hashing,
+            # iteration or per-surface routing can invoke attacker-controlled hooks.
+            if payload is not None and type(payload) is not dict:
+                raise ValueError("invalid browser command payload")
             if area == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
