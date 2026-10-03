@@ -364,6 +364,41 @@ async function run() {
   check(!dialog.open, "reset dialog did not close on cancel");
   check(document.activeElement === reset, "reset cancel did not restore opener focus");
 
+  const malformedTrainingRoot = new FakeElement("div");
+  const malformedTrainingInvoke = () => ({
+    kind: "render",
+    payload: {
+      snapshot: trainingSnapshot(),
+      focus_target: "training-answer",
+      announcement: "Forged training announcement",
+      clear_answer: false,
+      solution: "e4"
+    }
+  });
+  window.AccessibleChessTrainingSurface.render(
+    malformedTrainingRoot,
+    trainingSnapshot(),
+    malformedTrainingInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const malformedTrainingReplaceCount = malformedTrainingRoot.replaceChildrenCalls;
+  const malformedTrainingFocus = document.activeElement;
+  find(malformedTrainingRoot, "BUTTON", "Hint").listeners.click();
+  await flushPromises();
+  check(
+    malformedTrainingRoot.replaceChildrenCalls === malformedTrainingReplaceCount,
+    "malformed Training event must not replace readable DOM"
+  );
+  check(document.activeElement === malformedTrainingFocus,
+    "malformed Training event must preserve focus");
+  check(!announcements.includes("Forged training announcement"),
+    "malformed Training event must not publish its announcement");
+  check(announcements[announcements.length - 1] === "Action failed",
+    "malformed Training event must use the safe fallback announcement");
+
   const bookRoot = new FakeElement("div");
   const bookInvoke = (command) => {
     check(command === "book.next", "unexpected book command");
