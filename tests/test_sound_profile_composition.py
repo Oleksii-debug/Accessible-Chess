@@ -418,6 +418,17 @@ class LocalSoundCompositionTests(unittest.TestCase):
                 asset_playback=_Playback(),
             )
             self.assertTrue(composition.profile_manager.writes_blocked)
+            self.assertFalse(
+                composition.profile_manager.current.master_enabled,
+                "unknown future sound schema must fail closed for runtime playback",
+            )
+            preview = composition.settings.preview("move", language="en")
+            self.assertTrue(preview.ok)
+            self.assertIn("muted", preview.announcement.lower())
+            self.assertEqual(
+                [],
+                composition.profiled_runtime._asset_playback.requests,
+            )
             with self.assertRaises(SoundProfileWriteBlockedError):
                 composition.settings.set_master(enabled=False)
             self.assertEqual(future, json.loads(path.read_text(encoding="utf-8")))
