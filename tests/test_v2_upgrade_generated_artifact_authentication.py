@@ -445,6 +445,150 @@ class V2UpgradeGeneratedArtifactAuthenticationTests(unittest.TestCase):
             finally:
                 restored.close()
 
+    def test_sqlite_backup_holds_writer_lock_through_atomic_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "library.acsdb"
+            destination = root / "backup" / "library.acsdb"
+            connection = sqlite3.connect(source)
+            try:
+                connection.execute("PRAGMA user_version=23")
+                connection.execute("CREATE TABLE sample(value TEXT NOT NULL)")
+                connection.execute(
+                    "INSERT INTO sample(value) VALUES ('canonical')"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            from acs import version2_upgrade_base as upgrade_base
+
+            real_atomic_bytes = upgrade_base._atomic_bytes
+            writer_attempted = False
+            writer_blocked = False
+            writer_committed = False
+
+            def validate(connection):
+                row = connection.execute("PRAGMA user_version").fetchone()
+                return int(row[0])
+
+            def racing_atomic_bytes(path, payload):
+                nonlocal writer_attempted, writer_blocked, writer_committed
+                writer_attempted = True
+                writer = sqlite3.connect(source, timeout=0.0)
+                try:
+                    writer.execute("PRAGMA busy_timeout=0")
+                    try:
+                        writer.execute(
+                            "INSERT INTO sample(value) VALUES ('racing-writer')"
+                        )
+                        writer.commit()
+                        writer_committed = True
+                    except sqlite3.OperationalError as exc:
+                        writer.rollback()
+                        if "locked" not in str(exc).lower():
+                            raise
+                        writer_blocked = True
+                finally:
+                    writer.close()
+                real_atomic_bytes(path, payload)
+
+            with mock.patch(
+                "acs.version2_upgrade_base._atomic_bytes",
+                side_effect=racing_atomic_bytes,
+            ):
+                _sqlite_backup(
+                    source,
+                    destination,
+                    schema_validator=validate,
+                )
+
+            self.assertTrue(writer_attempted)
+            self.assertTrue(
+                writer_blocked,
+                "cooperative SQLite writer was not fenced through backup publication",
+            )
+            self.assertFalse(writer_committed)
+
+            visible_source = sqlite3.connect(source)
+            visible_backup = sqlite3.connect(destination)
+            try:
+                expected = [("canonical",)]
+                self.assertEqual(
+                    expected,
+                    visible_source.execute("SELECT value FROM sample").fetchall(),
+                )
+                self.assertEqual(
+                    expected,
+                    visible_backup.execute("SELECT value FROM sample").fetchall(),
+                )
+            finally:
+                visible_backup.close()
+                visible_source.close()
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open SQLite source pathname is not portable on Windows",
+    )
+    def test_sqlite_backup_rejects_source_path_replacement_during_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "library.acsdb"
+            replacement = root / "replacement.acsdb"
+            destination = root / "backup" / "library.acsdb"
+
+            for path, value in ((source, "original"), (replacement, "replacement")):
+                connection = sqlite3.connect(path)
+                try:
+                    connection.execute("PRAGMA user_version=29")
+                    connection.execute("CREATE TABLE sample(value TEXT NOT NULL)")
+                    connection.execute(
+                        "INSERT INTO sample(value) VALUES (?)",
+                        (value,),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+
+            from acs import version2_upgrade_base as upgrade_base
+
+            real_atomic_bytes = upgrade_base._atomic_bytes
+            injected = False
+
+            def validate(connection):
+                row = connection.execute("PRAGMA user_version").fetchone()
+                return int(row[0])
+
+            def publishing_then_replacing_source(path, payload):
+                nonlocal injected
+                real_atomic_bytes(path, payload)
+                os.replace(replacement, source)
+                injected = True
+
+            with mock.patch(
+                "acs.version2_upgrade_base._atomic_bytes",
+                side_effect=publishing_then_replacing_source,
+            ):
+                with self.assertRaisesRegex(
+                    Version2UpgradeError,
+                    "library source changed during backup",
+                ):
+                    _sqlite_backup(
+                        source,
+                        destination,
+                        schema_validator=validate,
+                    )
+
+            self.assertTrue(injected)
+            visible = sqlite3.connect(source)
+            try:
+                self.assertEqual(
+                    [("replacement",)],
+                    visible.execute("SELECT value FROM sample").fetchall(),
+                )
+            finally:
+                visible.close()
+
     @unittest.skipIf(
         os.name == "nt",
         "replacing an open SQLite source pathname is not portable on Windows",
