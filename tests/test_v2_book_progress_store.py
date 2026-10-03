@@ -565,6 +565,42 @@ class BookProgressStoreTests(unittest.TestCase):
                 self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_post_commit_lock_close_failure_does_not_report_save_failure(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(2)
+
+        real_open_lock = self.store._open_lock_descriptor
+        real_close = os.close
+        lock_descriptor = None
+
+        def capture_lock_descriptor() -> int:
+            nonlocal lock_descriptor
+            lock_descriptor = real_open_lock()
+            return lock_descriptor
+
+        def close_then_report_failure(descriptor: int) -> None:
+            real_close(descriptor)
+            if descriptor == lock_descriptor:
+                raise OSError("late lock close failure")
+
+        with mock.patch.object(
+            self.store,
+            "_open_lock_descriptor",
+            side_effect=capture_lock_descriptor,
+        ), mock.patch(
+            "acs.book_progress_store.os.close",
+            side_effect=close_then_report_failure,
+        ):
+            saved = self.store.save("book:post-commit-close", reader)
+
+        self.assertEqual(saved["current_target"], "block:diagram")
+        self.assertTrue(self.path.exists())
+        restored = self.store.restore(
+            "book:post-commit-close",
+            self.original_document(),
+        )
+        self.assertEqual(restored.location().block_id, "diagram")
+
     def test_storage_errors_do_not_put_local_path_in_exception_message(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_bytes(b"not json")
