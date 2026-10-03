@@ -39,6 +39,7 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(collaboration_messages)")}
             self.assertIn("sent_at_unix_ms", columns)
+            self.assertIn("redacted", columns)
             index_row = db.execute(
                 "SELECT sql FROM sqlite_master "
                 "WHERE type='index' AND name='uq_collaboration_attachments_authoritative_sequence'"
@@ -227,6 +228,152 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 (SCHEMA_VERSION,),
             )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
+
+    def test_v10_converges_file_v9_schema_without_losing_watermark_authority(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata(
+                "file-v9-message",
+                "room",
+                "teacher",
+                0,
+                "Keep across convergence",
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "ALTER TABLE collaboration_messages "
+                "RENAME TO collaboration_messages_v10"
+            )
+            db.execute(
+                """
+                CREATE TABLE collaboration_messages(
+                    message_id TEXT PRIMARY KEY,
+                    room_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL CHECK(sequence_no >= 0),
+                    body TEXT NOT NULL,
+                    retention TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    sent_at_unix_ms INTEGER
+                        CHECK(sent_at_unix_ms IS NULL OR sent_at_unix_ms >= 0),
+                    UNIQUE(room_id, sequence_no)
+                )
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                )
+                SELECT
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                FROM collaboration_messages_v10
+                """
+            )
+            db.execute("DROP TABLE collaboration_messages_v10")
+            db.execute(
+                "CREATE INDEX idx_collaboration_messages_room "
+                "ON collaboration_messages(room_id, sequence_no)"
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=9 "
+                "WHERE key='schema_version'"
+            )
+            self.assertIsNotNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table'
+                      AND name='collaboration_attachment_snapshot_watermarks'
+                    """
+                ).fetchone()
+            )
+
+        migrated = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(
+            "Keep across convergence",
+            migrated.room_messages("room", include_hidden=True)[0].body,
+        )
+        self.assertFalse(
+            migrated.room_messages("room", include_hidden=True)[0].redacted
+        )
+        with closing(sqlite3.connect(self.db_path)) as db:
+            columns = {
+                row[1]
+                for row in db.execute(
+                    "PRAGMA table_info(collaboration_messages)"
+                )
+            }
+            self.assertIn("redacted", columns)
+            self.assertEqual(
+                10,
+                db.execute(
+                    "SELECT value FROM collaboration_schema_meta "
+                    "WHERE key='schema_version'"
+                ).fetchone()[0],
+            )
+
+    def test_v10_converges_chat_redaction_v9_schema_without_losing_redacted_message(self) -> None:
+        original = ChatMessageMetadata(
+            "chat-v9-redacted",
+            "room",
+            "teacher",
+            0,
+            "Expire me",
+            "session",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(
+                ChatMessageStateUpdate(
+                    "room",
+                    original.message_id,
+                    0,
+                    hidden=False,
+                    redacted=True,
+                ),
+            ),
+        )
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "DROP INDEX "
+                "IF EXISTS idx_collaboration_attachment_snapshot_watermarks_room"
+            )
+            db.execute(
+                "DROP TABLE collaboration_attachment_snapshot_watermarks"
+            )
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=9 "
+                "WHERE key='schema_version'"
+            )
+
+        migrated = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        redacted = migrated.room_messages("room", include_hidden=True)[0]
+        self.assertTrue(redacted.redacted)
+        self.assertEqual("", redacted.body)
+        self.assertEqual(0, migrated.chat_state_revision("room"))
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertIsNotNone(
+                db.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='table'
+                      AND name='collaboration_attachment_snapshot_watermarks'
+                    """
+                ).fetchone()
+            )
+            self.assertEqual(
+                10,
+                db.execute(
+                    "SELECT value FROM collaboration_schema_meta "
+                    "WHERE key='schema_version'"
+                ).fetchone()[0],
+            )
 
     def test_corrupt_attachment_cleanup_intent_fails_closed(self) -> None:
         tombstone = AttachmentMetadata(
@@ -916,12 +1063,12 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             CollaborationStorageError,
-            "stored state revision must be a bounded non-negative integer",
+            "stored chat state revision must be a bounded non-negative integer",
         ):
             self.store.chat_state_revision("room-chat-real")
         with self.assertRaisesRegex(
             CollaborationStorageError,
-            "stored state revision must be a bounded non-negative integer",
+            "stored attachment state revision must be a bounded non-negative integer",
         ):
             self.store.attachment_state_revision("room-attachment-real")
         with self.assertRaisesRegex(
@@ -1355,6 +1502,119 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Changed"))
         with self.assertRaises(CollaborationConflictError):
             self.store.append_message(ChatMessageMetadata("m2", "room", "student", 0, "Collision"))
+
+    def test_retention_redaction_clears_body_without_breaking_room_sequence(self) -> None:
+        original = ChatMessageMetadata(
+            "m-redact",
+            "room",
+            "teacher",
+            0,
+            "Private session text",
+            "session",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(
+                ChatMessageStateUpdate(
+                    "room",
+                    original.message_id,
+                    0,
+                    hidden=False,
+                    redacted=True,
+                ),
+            ),
+        )
+        redacted = self.store.room_messages("room", include_hidden=True)[0]
+        self.assertEqual("", redacted.body)
+        self.assertTrue(redacted.redacted)
+        self.assertFalse(redacted.hidden)
+        self.assertEqual(0, redacted.sequence_no)
+        self.assertEqual(1700000000000, redacted.sent_at_unix_ms)
+        self.assertEqual(0, self.store.chat_state_revision("room"))
+
+        replayed = self.store.append_message(original)
+        self.assertEqual("", replayed.body)
+        self.assertTrue(replayed.redacted)
+
+    def test_retention_redaction_erases_payload_bytes_from_local_sqlite(self) -> None:
+        secret = (
+            "CONVERGED-LOCAL-RETENTION-SECRET-"
+            + "nvda-private-classroom-chat-" * 16
+        )
+        secret_bytes = secret.encode("utf-8")
+        original = ChatMessageMetadata(
+            "m-physical-redact",
+            "room",
+            "teacher",
+            0,
+            secret,
+            "session",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(original)
+        self.assertIn(secret_bytes, self.db_path.read_bytes())
+        self.store.apply_message_state_updates(
+            room_id="room",
+            updates=(
+                ChatMessageStateUpdate(
+                    "room",
+                    original.message_id,
+                    0,
+                    hidden=False,
+                    redacted=True,
+                ),
+            ),
+        )
+        self.assertNotIn(secret_bytes, self.db_path.read_bytes())
+
+    def test_persistent_message_rejects_retention_redaction_atomically(self) -> None:
+        persistent = ChatMessageMetadata(
+            "m-persistent",
+            "room",
+            "teacher",
+            0,
+            "Persistent classroom record",
+            "persistent",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(persistent)
+        update = ChatMessageStateUpdate(
+            "room",
+            persistent.message_id,
+            0,
+            hidden=False,
+            redacted=True,
+        )
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "persistent chat content cannot be retention-redacted",
+        ):
+            self.store.apply_message_state_updates(
+                room_id="room",
+                updates=(update,),
+            )
+        self.assertEqual(
+            (persistent,),
+            self.store.room_messages("room", include_hidden=True),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room"))
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "persistent chat content cannot be retention-redacted",
+        ):
+            self.store.reconcile_message_sync_atomic(
+                room_id="room",
+                messages=(),
+                updates=(update,),
+            )
+        self.assertEqual(
+            (persistent,),
+            self.store.room_messages("room", include_hidden=True),
+        )
+        self.assertIsNone(self.store.chat_state_revision("room"))
 
     def test_hidden_message_is_retained_but_removed_from_default_active_view(self) -> None:
         self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated"))
