@@ -38,16 +38,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base=3e15dc2e844cb825e482317fd024795130147011
+          base=3a00ff766ccec869a2cb761f26739fe1c85dc9ef
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD
           git diff --name-only "$base" HEAD | sort > /tmp/actual.txt
           cat > /tmp/expected.txt <<'EOF'
           .github/workflows/chessbase-libcbh-external-backend-focused.yml
-          acs/chessbase_decoder.py
-          tests/test_chessbase_decoder.py
           tests/test_chessbase_libcbh_external_fixture.py
-          tools/optional/LIBCBH_BACKEND.md
           tools/optional/libcbh_json_bridge.cpp
           EOF
           sort -o /tmp/expected.txt /tmp/expected.txt
