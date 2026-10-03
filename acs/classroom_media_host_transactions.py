@@ -53,6 +53,39 @@ class MediaHostRecoveryRequired(MediaHostTransactionError):
     """Provider may have changed while canonical state could not be committed."""
 
 
+class MediaHostSingleFlightGate:
+    """Cross-coordinator single-flight authority for one classroom media provider."""
+
+    __slots__ = ("_lock", "_owner")
+
+    def __init__(self) -> None:
+        self._lock = RLock()
+        self._owner: object | None = None
+
+    @property
+    def occupied(self) -> bool:
+        with self._lock:
+            return self._owner is not None
+
+    def claim(self, owner: object) -> None:
+        if owner is None:
+            raise MediaHostTransactionError("media activity owner is required")
+        with self._lock:
+            if self._owner is not None:
+                raise MediaHostTransactionError(
+                    "another classroom media provider transaction is already active"
+                )
+            self._owner = owner
+
+    def release(self, owner: object) -> None:
+        with self._lock:
+            if self._owner is not owner:
+                raise MediaHostTransactionError(
+                    "classroom media provider transaction ownership mismatch"
+                )
+            self._owner = None
+
+
 class MediaProviderEffectKind(str, Enum):
     LOCAL_SOURCE = "set_local_source"
     MODERATION = "apply_moderation"
@@ -403,6 +436,7 @@ class ClassroomMediaHostTransactions:
         port: ClassroomMediaHostTransactionPort,
         *,
         transaction_id_factory: TransactionIdFactory | None = None,
+        activity_gate: MediaHostSingleFlightGate | None = None,
     ) -> None:
         if not isinstance(controller, ClassroomMediaController):
             raise TypeError("controller must be ClassroomMediaController")
@@ -412,6 +446,10 @@ class ClassroomMediaHostTransactions:
             raise ValueError("controller must use the supplied media transaction port")
         if transaction_id_factory is not None and not callable(transaction_id_factory):
             raise TypeError("transaction id factory must be callable")
+        if activity_gate is not None and not isinstance(
+            activity_gate, MediaHostSingleFlightGate
+        ):
+            raise TypeError("activity gate must be MediaHostSingleFlightGate")
 
         # Complete every fallible local initialization before claiming exclusive
         # ownership of the shared transaction port. A constructor failure must
@@ -439,7 +477,14 @@ class ClassroomMediaHostTransactions:
         self._pending: _PendingTransaction | None = None
         self._recovery: _PendingTransaction | None = None
         self._recovery_provider_outcome_unknown = False
+        self._activity_gate = activity_gate or MediaHostSingleFlightGate()
         port._bind_coordinator()
+
+    @property
+    def activity_gate(self) -> MediaHostSingleFlightGate:
+        """Return the gate that a secret-bearing session successor must share."""
+
+        return self._activity_gate
 
     @property
     def pending_effect(self) -> MediaProviderEffect | None:
@@ -537,29 +582,32 @@ class ClassroomMediaHostTransactions:
                 raise MediaHostRecoveryRequired(
                     "media provider state requires recovery before another effect"
                 )
-            transaction_id = self._transaction_id()
-            base_revision = self._controller.state.revision
+            self._activity_gate.claim(self)
+            transaction_id: str | None = None
             try:
+                transaction_id = self._transaction_id()
+                base_revision = self._controller.state.revision
                 effect, _result = self._port._prepare(transaction_id, replay)
+                if effect is None:
+                    # A controller no-op never exposes this identity to the browser
+                    # or provider, so an injected deterministic id may be retried.
+                    self._release_unexposed_transaction_id(transaction_id)
+                    self._activity_gate.release(self)
+                    return None
+                self._pending = _PendingTransaction(
+                    effect=effect,
+                    base_revision=base_revision,
+                    replay=replay,
+                )
+                return effect
             except Exception:
-                # Nothing crossed the provider boundary: _port._prepare raises its
-                # private sentinel at the first provider effect and converts that
-                # sentinel into a returned effect. Validation/no-op failures before
-                # that point therefore do not need a permanently retired identity.
-                self._release_unexposed_transaction_id(transaction_id)
+                # Validation/local failures occur before a provider effect is
+                # published. They must release both the injected id and the shared
+                # provider activity claim.
+                if transaction_id is not None:
+                    self._release_unexposed_transaction_id(transaction_id)
+                self._activity_gate.release(self)
                 raise
-            if effect is None:
-                # A controller no-op never exposes this identity to the browser or
-                # provider, so it is safe to reuse and avoids unbounded identity
-                # retention under repeated already-satisfied UI commands.
-                self._release_unexposed_transaction_id(transaction_id)
-                return None
-            self._pending = _PendingTransaction(
-                effect=effect,
-                base_revision=base_revision,
-                replay=replay,
-            )
-            return effect
 
     def prepare_local_source(
         self,
@@ -676,6 +724,7 @@ class ClassroomMediaHostTransactions:
                     "media provider transaction is already partially applied"
                 )
             self._pending = None
+            self._activity_gate.release(self)
 
     def provider_failed(self, transaction_id: str) -> None:
         """Latch recovery after a provider failure with potentially partial effects."""
@@ -746,6 +795,7 @@ class ClassroomMediaHostTransactions:
                     "provider succeeded but canonical media commit requires recovery"
                 ) from exc
             self._pending = None
+            self._activity_gate.release(self)
             return result
 
     def commit_provider_success(self, transaction_id: str) -> Any:
@@ -772,6 +822,7 @@ class ClassroomMediaHostTransactions:
                 raise MediaHostTransactionError("media recovery transaction is unknown")
             self._recovery = None
             self._recovery_provider_outcome_unknown = False
+            self._activity_gate.release(self)
 
     def _require_pending(self, transaction_id: str) -> _PendingTransaction:
         if type(transaction_id) is not str or _TRANSACTION_RE.fullmatch(transaction_id) is None:
@@ -786,6 +837,7 @@ __all__ = [
     "ClassroomMediaHostTransactions",
     "MediaHostRecoveryRequired",
     "MediaHostRecoveryStatus",
+    "MediaHostSingleFlightGate",
     "MediaHostTransactionError",
     "MediaProviderEffect",
     "MAX_BROWSER_MODERATION_COMMANDS_PER_CHUNK",
