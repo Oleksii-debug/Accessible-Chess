@@ -12,7 +12,10 @@ from acs.classroom_collaboration_storage import (
     ChatMessageMetadata,
     ClassroomCollaborationSQLiteStore,
 )
-from acs.classroom_collaboration_webview import ClassroomCollaborationWebView
+from acs.classroom_collaboration_webview import (
+    ClassroomCollaborationWebView,
+    ClassroomCollaborationWebViewEvent,
+)
 from acs.full_product_ui_shell import UILanguage
 from acs.version2_final_product_application import Version2FinalProductApplication
 from tests.test_classroom_collaboration import FakeChat, FakeFiles, FakeFileStore, FakeRoster
@@ -95,6 +98,39 @@ class ClassroomCollaborationFinalProductTests(unittest.TestCase):
         self.assertNotIn("Draft", repr(self.collaboration._pending_chat))
         self.assertEqual(set(), self.collaboration._unread_message_ids)
         self.assertEqual((), self.store.room_messages("room-1"))
+
+    def test_binding_can_bridge_file_progress_events_to_the_trusted_host(self) -> None:
+        app = self.bare_app()
+        bridged = []
+        with (
+            mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
+            mock.patch.object(
+                self.collaboration,
+                "set_file_progress_event_sink",
+            ) as set_sink,
+        ):
+            app.bind_classroom_collaboration(
+                self.collaboration,
+                file_progress_event_sink=bridged.append,
+            )
+
+        set_sink.assert_called_once()
+        sink = set_sink.call_args.args[0]
+        sink(
+            ClassroomCollaborationWebViewEvent(
+                "collaboration.file.progress",
+                {
+                    "file_progress": {
+                        "session_key": "session",
+                        "transferred_bytes": 1,
+                        "total_bytes": 2,
+                        "complete": False,
+                    }
+                },
+            )
+        )
+        self.assertEqual("collaboration.file.progress", bridged[0]["kind"])
+        self.assertEqual(1, bridged[0]["payload"]["file_progress"]["transferred_bytes"])
 
     def test_trusted_host_can_project_live_chat_and_file_without_browser_authority(self) -> None:
         app = self.bare_app()
