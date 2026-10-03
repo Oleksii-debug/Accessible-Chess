@@ -231,7 +231,13 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
 
         service.search = fail_search
         failed = projection.search(GameSearchQuery(player="Changed", limit=25))
-        self.assertEqual("error", failed.payload["snapshot"]["status"])
+        failed_snapshot = failed.payload["snapshot"]
+        self.assertEqual("error", failed_snapshot["status"])
+        self.assertEqual(1, failed_snapshot["export_selection_count"])
+        failed_selected = next(
+            row for row in failed_snapshot["rows"] if row["game_id"] == 2
+        )
+        self.assertTrue(failed_selected["export_selected"])
         self.assertEqual((2,), projection.export_game_ids)
         self.assertEqual(committed_query, projection.query)
         committed = projection.snapshot()
