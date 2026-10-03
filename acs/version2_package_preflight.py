@@ -126,6 +126,9 @@ _LIVEKIT_CLIENT_SOURCE = (
 _LIVEKIT_CLIENT_INTEGRITY = (
     "sha512-jw9zBKXY5Gtr5MZ7vEON3QhMNccuDvYHck1PFSyG1aaateQPqgKZFBMgZkFZaXHIf9RV4MDW5xpTK2b/+qbwOg=="
 )
+_LIVEKIT_CLIENT_BUNDLE_SHA256 = (
+    "7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d"
+)
 _REQUIRED_LIVEKIT_BUNDLE = "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
 _REQUIRED_LIVEKIT_LICENSE = "AccessibleChess/web/vendor/livekit/LICENSE"
 _REQUIRED_LIVEKIT_NOTICE = "AccessibleChess/web/vendor/livekit/NOTICE"
