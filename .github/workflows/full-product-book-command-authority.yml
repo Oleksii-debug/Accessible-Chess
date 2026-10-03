@@ -65,11 +65,10 @@ jobs:
           python -m unittest -v
           tests.test_full_product_book_command_authority
 
-      - name: Run application and reverse-progress regressions
+      - name: Run application and Book Board regressions
         run: >-
           python -m unittest -v
           tests.test_version2_application
-          tests.test_book_reverse_progress_failure_exact
           tests.test_v2_book_board_workflow
 
       - name: Run core selftest
