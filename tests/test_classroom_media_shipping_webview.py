@@ -485,6 +485,66 @@ class ClassroomMediaShippingWebViewTests(unittest.TestCase):
         self.assertEqual(retired.kind, "error")
         self.assertIsNone(binder.active_lease)
 
+    def test_transport_loss_retires_pre_dispatch_mutation_then_marks_canonical_lost(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+
+        pending = bridge.dispatch(
+            "media.local_source",
+            {"source": "camera", "enabled": True},
+        )
+        transaction_id = pending.payload["transaction_id"]
+        self.assertIsNotNone(binder.active_lease)
+        self.assertFalse(binder.active_lease.provider_boundary_crossed)
+        self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
+
+        lost = transactions.dispatch_provider(
+            "media.provider_transport_lost",
+            {"snapshot": snapshot(None, connected=False)},
+        )
+
+        self.assertEqual(lost.kind, "media-updated")
+        self.assertFalse(controller.state.connected)
+        self.assertEqual(controller.state.room_id, "room-1")
+        self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNone(binder.recovery_status)
+        self.assertNotIn(transaction_id, transactions._focus_by_transaction)
+
+    def test_transport_loss_after_provider_dispatch_latches_recovery_without_commit(self):
+        controller, roster, _host, _sessions, binder, _projection, transactions, bridge = composition()
+        connect(controller, roster, transactions)
+
+        pending = bridge.dispatch(
+            "media.local_source",
+            {"source": "camera", "enabled": True},
+        )
+        transaction_id = pending.payload["transaction_id"]
+        transactions.dispatch_provider(
+            "media.provider_dispatched",
+            {"transaction_id": transaction_id},
+        )
+        self.assertTrue(binder.active_lease.provider_boundary_crossed)
+
+        lost = transactions.dispatch_provider(
+            "media.provider_transport_lost",
+            {"snapshot": snapshot(None, connected=False)},
+        )
+
+        self.assertEqual(lost.kind, "error")
+        self.assertTrue(lost.payload["recovery_required"])
+        self.assertIsNone(lost.payload["snapshot"])
+        self.assertEqual(lost.payload["transaction_id"], transaction_id)
+        self.assertIsNone(binder.active_lease)
+        self.assertIsNotNone(binder.recovery_status)
+        self.assertTrue(binder.recovery_status.provider_outcome_unknown)
+        self.assertEqual(
+            binder.recovery_status.lease.transaction_id,
+            transaction_id,
+        )
+        self.assertTrue(controller.state.connected)
+        self.assertNotIn(MediaSource.CAMERA, controller.state.desired_sources)
+
     def test_provider_transport_loss_rejects_nonclean_snapshot(self):
         controller, roster, _host, _sessions, binder, _projection, transactions, _bridge = composition()
         connect(controller, roster, transactions)
