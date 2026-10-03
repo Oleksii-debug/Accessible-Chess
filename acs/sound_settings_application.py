@@ -34,6 +34,8 @@ _EVENT_LABELS = {
     "move": ("Звичайний хід", "Move"),
     "capture": ("Взяття", "Capture"),
     "check": ("Шах", "Check"),
+    "mate": ("Мат", "Checkmate"),
+    "draw": ("Нічия", "Draw"),
     "castle": ("Рокіровка", "Castling"),
     "promotion": ("Перетворення пішака", "Promotion"),
     "illegal": ("Нелегальний хід", "Illegal move"),
