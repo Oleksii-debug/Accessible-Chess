@@ -622,10 +622,11 @@ def _validate_sound_provenance(
         _REQUIRED_SOUND_PROVENANCE,
         label="sound provenance notice",
     )
-    try:
-        text = provenance_path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
-        _fail(f"sound provenance notice is unreadable: {type(exc).__name__}")
+    text = _read_stable_text_file(
+        provenance_path,
+        label="sound provenance notice",
+        max_bytes=1024 * 1024,
+    )
     provenance = _json_no_duplicates(text, label="sound provenance notice")
     if set(provenance) != {"schema_version", "events"}:
         _fail("sound provenance root contract is invalid")
@@ -877,6 +878,28 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
         _fail("WinForms accessibility app-config must disable all legacy accessibility switches")
 
 
+def _read_stable_text_file(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+    encoding: str = "utf-8-sig",
+) -> str:
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    with snapshot:
+        payload = snapshot.read(max_bytes + 1)
+    if not payload or len(payload) > max_bytes:
+        _fail(f"{label} size is invalid")
+    try:
+        return payload.decode(encoding)
+    except UnicodeError as exc:
+        _fail(f"{label} is unreadable: {type(exc).__name__}")
+
+
 def _read_bounded_livekit_file(
     path: Path,
     *,
@@ -1086,10 +1109,11 @@ def _validate_required_runtime_resources(
         _REQUIRED_SOUND_MANIFEST,
         label="packaged sound manifest",
     )
-    try:
-        manifest_text = manifest_path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
-        _fail(f"packaged sound manifest is unreadable: {type(exc).__name__}")
+    manifest_text = _read_stable_text_file(
+        manifest_path,
+        label="packaged sound manifest",
+        max_bytes=256 * 1024,
+    )
     manifest = _json_no_duplicates(manifest_text, label="packaged sound manifest")
     schema = manifest.get("schema_version")
     if type(schema) is not int or schema != SOUND_MANIFEST_SCHEMA_VERSION:
@@ -1150,10 +1174,11 @@ def _validate_required_runtime_resources(
         _REQUIRED_STOCKFISH_NOTICE,
         label="Stockfish GPL notice",
     )
-    try:
-        notice = notice_path.read_text(encoding="utf-8-sig").casefold()
-    except (OSError, UnicodeError) as exc:
-        _fail(f"Stockfish GPL notice is unreadable: {type(exc).__name__}")
+    notice = _read_stable_text_file(
+        notice_path,
+        label="Stockfish GPL notice",
+        max_bytes=256 * 1024,
+    ).casefold()
     if (
         "stockfish 18" not in notice
         or "gpl" not in notice
