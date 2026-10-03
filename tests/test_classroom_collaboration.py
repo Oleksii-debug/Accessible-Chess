@@ -2208,8 +2208,8 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.files.progress_samples = (
             FileTransferProgress("progress-a1", 0, len(payload)),
             FileTransferProgress("progress-a1", 2, len(payload)),
-            FileTransferProgress("progress-a1", 4, len(payload)),
-            FileTransferProgress("progress-a1", 4, len(payload)),
+            FileTransferProgress("progress-a1", len(payload), len(payload)),
+            FileTransferProgress("progress-a1", len(payload), len(payload)),
         )
         observed = []
 
@@ -2220,8 +2220,16 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(stored.transfer_state, "stored")
         self.assertEqual(
-            tuple(item.transferred_bytes for item in observed),
-            (0, 2, 4, len(payload)),
+            tuple(
+                (item.transferred_bytes, item.complete)
+                for item in observed
+            ),
+            (
+                (0, False),
+                (2, False),
+                (len(payload), False),
+                (len(payload), True),
+            ),
         )
         self.assertTrue(
             all(item.attachment_id == "progress-a1" for item in observed)
@@ -2229,6 +2237,55 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertTrue(
             all(item.total_bytes == len(payload) for item in observed)
         )
+
+    def test_zero_byte_upload_still_emits_distinct_authoritative_completion(self):
+        controller = self.controller()
+        prepared = controller.prepare_file(
+            attachment_id="progress-empty",
+            local_path=self.make_file("progress-empty.bin", b""),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress("progress-empty", 0, 0),
+        )
+        observed = []
+
+        stored = controller.upload_file(
+            prepared,
+            on_progress=observed.append,
+        )
+
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(
+            tuple((item.transferred_bytes, item.complete) for item in observed),
+            ((0, False), (0, True)),
+        )
+
+    def test_provider_cannot_forge_authoritative_progress_completion(self):
+        controller = self.controller()
+        payload = b"done"
+        prepared = controller.prepare_file(
+            attachment_id="progress-forged-complete",
+            local_path=self.make_file("progress-forged-complete.bin", payload),
+            sequence_no=0,
+        )
+        self.files.progress_samples = (
+            FileTransferProgress(
+                "progress-forged-complete",
+                len(payload),
+                len(payload),
+                complete=True,
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "cannot claim authoritative completion",
+        ):
+            controller.upload_file(prepared)
+
+        failed = self.store.room_attachments("room-1")[0]
+        self.assertEqual(failed.transfer_state, "failed")
 
     def test_upload_progress_rejects_provider_identity_size_and_regression(self):
         controller = self.controller()
@@ -2286,6 +2343,16 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                         transferred,
                         total,
                     )
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "completion marker must be boolean",
+        ):
+            FileTransferProgress("bounded-progress", 4, 4, complete=1)
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "must equal total bytes",
+        ):
+            FileTransferProgress("bounded-progress", 3, 4, complete=True)
 
         controller = self.controller()
         payload = b"consumer-safe"
@@ -2389,8 +2456,12 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
 
         self.assertEqual(stored.transfer_state, "stored")
         self.assertEqual(
-            tuple(item.transferred_bytes for item in observed),
-            (0, 5, len(payload)),
+            tuple((item.transferred_bytes, item.complete) for item in observed),
+            (
+                (0, False),
+                (5, False),
+                (len(payload), True),
+            ),
         )
 
     def test_retry_resets_failed_scan_to_pending_before_clean_rescan(self):
