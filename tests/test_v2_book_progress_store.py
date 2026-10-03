@@ -1409,6 +1409,25 @@ class BookProgressStoreTests(unittest.TestCase):
         ):
             self.assertTrue(self.store.has("book:read-close"))
 
+    def test_lock_descriptor_fstat_failure_is_stable_storage_error(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.store._lock_path.write_bytes(b"\0")
+
+        with mock.patch(
+            "acs.book_progress_store.os.fstat",
+            side_effect=OSError("simulated lock descriptor metadata failure"),
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+        self.assertFalse(self.path.exists())
+
     def test_lock_validation_error_survives_cleanup_close_failure(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"\0")
