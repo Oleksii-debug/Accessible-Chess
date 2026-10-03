@@ -403,7 +403,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 title="Deep variation game",
                 blocks=[
                     Game(
-                        pgn='[Result "*"]\\n\\n1. e4 (1. d4 d5) e5 *',
+                        pgn='[Result "*"]\n\n1. e4 (1. d4 d5) e5 *',
                         title="Depth-bounded game",
                         block_id="depth-bounded-game",
                     )
@@ -478,7 +478,7 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 title="Large annotated game",
                 blocks=[
                     Game(
-                        pgn='[Result "*"]\\n\\n1. e4 {Long semantic comment} e5 *',
+                        pgn='[Result "*"]\n\n1. e4 {Long semantic comment} e5 *',
                         title="Large game",
                         block_id="large-game",
                     )
