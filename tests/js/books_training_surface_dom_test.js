@@ -2521,6 +2521,28 @@ async function run() {
     "Training reveal did not focus the solution target"
   );
 
+  const directSparseSolutionRoot = new FakeElement("div");
+  const directSparseSolution = new Array(1);
+  let directSparseRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      directSparseSolutionRoot,
+      trainingSnapshot(),
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      function () {},
+      "training-solution",
+      "Direct sparse solution failed",
+      directSparseSolution
+    );
+  } catch (_) {
+    directSparseRejected = true;
+  }
+  check(directSparseRejected, "direct sparse Training solution was accepted");
+  check(
+    directSparseSolutionRoot.replaceChildrenCalls === 0,
+    "direct sparse Training solution reached DOM replacement before rejection"
+  );
+
   const sparseSolutionRoot = new FakeElement("div");
   const sparseSolutionAnnouncements = [];
   const sparseSolution = new Array(1);
