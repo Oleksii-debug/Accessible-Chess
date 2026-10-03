@@ -2061,6 +2061,76 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertIsNone(caught.exception.__cause__)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an actively locked pathname is a POSIX continuity probe",
+    )
+    def test_active_lock_path_split_before_publication_fails_without_primary_write(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        displaced = self.path.parent / "book-progress.lock.displaced"
+        replacement = self.path.parent / "replacement-active.lock"
+        replacement.write_bytes(b"\0")
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            with self.store._exclusive_access():
+                os.replace(self.store._lock_path, displaced)
+                os.replace(replacement, self.store._lock_path)
+                self.store._atomic_publish_bytes_unlocked(
+                    self.path,
+                    b"must-not-publish",
+                    expected_target_raw=None,
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an actively locked pathname is a POSIX continuity probe",
+    )
+    def test_active_lock_split_after_replace_reports_durability_unknown(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        displaced = self.path.parent / "book-progress.lock.displaced"
+        replacement = self.path.parent / "replacement-active.lock"
+        replacement.write_bytes(b"\0")
+        real_publish = __import__(
+            "acs.book_progress_store",
+            fromlist=["_replace_published_path"],
+        )._replace_published_path
+        injected = False
+
+        def publish_then_split_lock(source: Path, destination: Path) -> None:
+            nonlocal injected
+            real_publish(source, destination)
+            if not injected:
+                os.replace(self.store._lock_path, displaced)
+                os.replace(replacement, self.store._lock_path)
+                injected = True
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            with self.store._exclusive_access():
+                with mock.patch(
+                    "acs.book_progress_store._replace_published_path",
+                    side_effect=publish_then_split_lock,
+                ):
+                    self.store._atomic_publish_bytes_unlocked(
+                        self.path,
+                        b"published-before-lock-loss",
+                        expected_target_raw=None,
+                    )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(self.path.read_bytes(), b"published-before-lock-loss")
+        self.assertEqual(self.store._lock_path.read_bytes(), b"\0")
+
     def test_lock_marker_is_rechecked_after_os_lock_acquisition(self) -> None:
         real_lock = self.store._lock_file_descriptor
 
