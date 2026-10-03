@@ -961,10 +961,9 @@ def serialize_pgn_bytes(games: Iterable[PgnGame]) -> bytes:
     return data
 
 
-def canonical_round_trip_text(text: object) -> PgnRoundTripResult:
-    """Strict parse -> canonical write -> strict reparse -> equivalence proof."""
-
-    games = parse_pgn_text(text, strict=True)
+def _canonicalize_parsed_games(
+    games: tuple[PgnGame, ...],
+) -> PgnRoundTripResult:
     serialized = serialize_pgn_text(games)
     reparsed = parse_pgn_text(serialized, strict=True)
     if reparsed != games:
@@ -975,8 +974,14 @@ def canonical_round_trip_text(text: object) -> PgnRoundTripResult:
     return PgnRoundTripResult(text=serialized, games=reparsed)
 
 
+def canonical_round_trip_text(text: object) -> PgnRoundTripResult:
+    """Strict parse -> canonical write -> strict reparse -> equivalence proof."""
+
+    return _canonicalize_parsed_games(parse_pgn_text(text, strict=True))
+
+
 def canonical_round_trip_bytes(data: object) -> tuple[bytes, tuple[PgnGame, ...]]:
-    result = canonical_round_trip_text(decode_pgn_bytes(data))
+    result = _canonicalize_parsed_games(parse_pgn_bytes(data, strict=True))
     if _utf8_size_exceeds_limit(result.text, MAX_PGN_SOURCE_BYTES):
         _raise_limit(
             "PGN serialization exceeds the byte safety limit",
