@@ -629,6 +629,8 @@ async function run() {
     "pending Training submit must be serialized");
   check(deferredSubmitRoot.attributes["aria-busy"] === "true",
     "pending Training submit must expose aria-busy");
+  check(document.activeElement === deferredSubmitAnswer,
+    "pending Training submit must preserve answer focus");
   const pendingSubmitReset = find(deferredSubmitRoot, "BUTTON", "Reset");
   pendingSubmitReset.focus();
   pendingSubmitReset.listeners.click();
@@ -639,8 +641,6 @@ async function run() {
     "blocked stale reset dialog must preserve the reset control focus");
   check(deferredSubmitRoot.replaceChildrenCalls === deferredSubmitReplaceCount,
     "pending Training submit must not mutate readable DOM");
-  check(document.activeElement === deferredSubmitAnswer,
-    "pending Training submit must preserve answer focus");
   deferredSubmitResolve({
     kind: "render",
     payload: {
