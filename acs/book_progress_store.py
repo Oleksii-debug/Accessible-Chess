@@ -521,6 +521,8 @@ class BookProgressStore:
                 or final_metadata.st_size != opened.st_size
                 or getattr(final_metadata, "st_mtime_ns", None)
                 != getattr(opened, "st_mtime_ns", None)
+                or getattr(final_metadata, "st_ctime_ns", None)
+                != getattr(opened, "st_ctime_ns", None)
             ):
                 raise BookProgressStoreError(
                     "book progress storage changed while being read",
@@ -534,12 +536,26 @@ class BookProgressStore:
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
             self._require_private_data_metadata(after_read)
-            if not self._same_file_identity(opened, after_read):
+            if (
+                not self._same_file_identity(opened, after_read)
+                or after_read.st_size != final_metadata.st_size
+                or getattr(after_read, "st_mtime_ns", None)
+                != getattr(final_metadata, "st_mtime_ns", None)
+                or getattr(after_read, "st_ctime_ns", None)
+                != getattr(final_metadata, "st_ctime_ns", None)
+            ):
                 raise BookProgressStoreError(
                     "book progress storage changed while being read",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 )
             return raw
+        except BookProgressStoreError:
+            raise
+        except OSError:
+            raise BookProgressStoreError(
+                "book progress storage could not be read",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
         finally:
             # Reading/identity validation is the operation authority. A late
             # close failure on this read-only descriptor cannot invalidate
