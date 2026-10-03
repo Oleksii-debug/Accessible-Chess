@@ -2425,6 +2425,198 @@ async function run() {
     "oversized starter catalogue did not fail closed accessibly"
   );
 
+  const completedTrainingRoot = new FakeElement("div");
+  const completedSnapshot = trainingSnapshot();
+  completedSnapshot.status = "completed";
+  completedSnapshot.progress.step = completedSnapshot.progress.total;
+  completedSnapshot.progress.completed = true;
+  completedSnapshot.answer.disabled = true;
+  completedSnapshot.actions[0].enabled = false;
+  completedSnapshot.actions[1].enabled = false;
+  completedSnapshot.actions[2].enabled = false;
+  completedSnapshot.actions[3].enabled = false;
+  window.AccessibleChessTrainingSurface.render(
+    completedTrainingRoot,
+    completedSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    function () {},
+    "training-answer",
+    "Completed focus failed",
+    []
+  );
+  const resetFocusTarget = completedTrainingRoot.querySelector("#training-action-reset");
+  check(resetFocusTarget !== null, "Training Reset action id missing");
+  check(
+    document.activeElement === resetFocusTarget,
+    "completed Training did not replace disabled answer focus with Reset"
+  );
+
+  const continueTrainingRoot = new FakeElement("div");
+  const continueSnapshot = trainingSnapshot();
+  continueSnapshot.status = "completed";
+  continueSnapshot.progress.step = continueSnapshot.progress.total;
+  continueSnapshot.progress.completed = true;
+  continueSnapshot.answer.disabled = true;
+  continueSnapshot.actions[0].enabled = false;
+  continueSnapshot.actions[1].enabled = false;
+  continueSnapshot.actions[2].enabled = false;
+  continueSnapshot.actions[3].enabled = true;
+  window.AccessibleChessTrainingSurface.render(
+    continueTrainingRoot,
+    continueSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    function () {},
+    "training-answer",
+    "Completed continue focus failed",
+    []
+  );
+  const continueFocusTarget =
+    continueTrainingRoot.querySelector("#training-action-continue");
+  check(continueFocusTarget !== null, "Training Continue action id missing");
+  check(
+    document.activeElement === continueFocusTarget,
+    "completed Training did not prefer enabled Continue focus"
+  );
+
+  const revealedTrainingRoot = new FakeElement("div");
+  window.AccessibleChessTrainingSurface.render(
+    revealedTrainingRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: "training-solution",
+        clear_answer: false,
+        solution: ["e4"]
+      }
+    }),
+    function () {},
+    "training-answer",
+    "Reveal focus failed",
+    []
+  );
+  const revealButton =
+    revealedTrainingRoot.querySelector("#training-action-reveal");
+  check(revealButton !== null, "Training Reveal action id missing");
+  revealButton.listeners.click();
+  await flushPromises();
+  await flushPromises();
+  const solutionTarget = revealedTrainingRoot.querySelector("#training-solution");
+  check(solutionTarget !== null, "Training solution focus target was not materialized");
+  check(
+    solutionTarget.tabIndex === -1,
+    "Training solution target is not programmatically focusable"
+  );
+  check(
+    solutionTarget.getAttribute("aria-labelledby") === "training-solution-heading",
+    "Training solution focus target has no accessible name"
+  );
+  check(
+    revealedTrainingRoot.querySelector("#training-solution-heading") !== null,
+    "Training solution heading id missing"
+  );
+  check(
+    document.activeElement === solutionTarget,
+    "Training reveal did not focus the solution target"
+  );
+
+  const directSparseSolutionRoot = new FakeElement("div");
+  const directSparseSolution = new Array(1);
+  let directSparseRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      directSparseSolutionRoot,
+      trainingSnapshot(),
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      function () {},
+      "training-solution",
+      "Direct sparse solution failed",
+      directSparseSolution
+    );
+  } catch (_) {
+    directSparseRejected = true;
+  }
+  check(directSparseRejected, "direct sparse Training solution was accepted");
+  check(
+    directSparseSolutionRoot.replaceChildrenCalls === 0,
+    "direct sparse Training solution reached DOM replacement before rejection"
+  );
+
+  const sparseSolutionRoot = new FakeElement("div");
+  const sparseSolutionAnnouncements = [];
+  const sparseSolution = new Array(1);
+  window.AccessibleChessTrainingSurface.render(
+    sparseSolutionRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: "training-solution",
+        clear_answer: false,
+        solution: sparseSolution
+      }
+    }),
+    (message) => sparseSolutionAnnouncements.push(String(message)),
+    "training-answer",
+    "Sparse solution failed",
+    []
+  );
+  const sparseSolutionBefore = sparseSolutionRoot.querySelector("#training-answer");
+  sparseSolutionBefore.value = "d4";
+  find(sparseSolutionRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    sparseSolutionRoot.querySelector("#training-answer") === sparseSolutionBefore &&
+      sparseSolutionBefore.value === "d4" &&
+      sparseSolutionRoot.querySelector("#training-solution") === null,
+    "sparse Training solution mutated the stable render"
+  );
+  check(
+    sparseSolutionAnnouncements.length === 1 &&
+      sparseSolutionAnnouncements[0] === "Sparse solution failed",
+    "sparse Training solution did not fail closed accessibly"
+  );
+
+  const invalidTrainingFocusRoot = new FakeElement("div");
+  const invalidTrainingFocusAnnouncements = [];
+  window.AccessibleChessTrainingSurface.render(
+    invalidTrainingFocusRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: "training-action-continue",
+        clear_answer: false,
+        solution: []
+      }
+    }),
+    (message) => invalidTrainingFocusAnnouncements.push(String(message)),
+    "training-answer",
+    "Training focus failed",
+    []
+  );
+  const stableTrainingAnswer =
+    invalidTrainingFocusRoot.querySelector("#training-answer");
+  stableTrainingAnswer.value = "Nf3";
+  find(invalidTrainingFocusRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  await flushPromises();
+  check(
+    invalidTrainingFocusRoot.querySelector("#training-answer") ===
+      stableTrainingAnswer &&
+      stableTrainingAnswer.value === "Nf3",
+    "disabled Training action focus replaced the stable answer render"
+  );
+  check(
+    invalidTrainingFocusAnnouncements.length === 1 &&
+      invalidTrainingFocusAnnouncements[0] === "Training focus failed",
+    "invalid Training focus did not fail closed accessibly"
+  );
+
   const oversizedSolutionRoot = new FakeElement("div");
   const oversizedSolutionAnnouncements = [];
   window.AccessibleChessTrainingSurface.render(
