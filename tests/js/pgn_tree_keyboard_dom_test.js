@@ -470,6 +470,36 @@ async function runPresentationLeaseRegression() {
     afterItems[3].getAttribute("aria-selected") === "true",
     "malformed lease changed the stable PGN selection"
   );
+
+  const lateMalformed = snapshot();
+  lateMalformed.presentation_token = "d".repeat(64);
+  lateMalformed.game.tags = [null];
+  rejected = false;
+  try {
+    window.AccessibleChessPgnSurface.render(
+      root,
+      lateMalformed,
+      invoke,
+      (message) => announcements.push(String(message)),
+      "pgn-root"
+    );
+  } catch (_error) {
+    rejected = true;
+  }
+  check(rejected, "late malformed PGN snapshot was accepted");
+  const stableItems = root.querySelectorAll('[role="treeitem"]');
+  check(
+    stableItems[3].getAttribute("aria-selected") === "true",
+    "late malformed snapshot replaced stable PGN DOM"
+  );
+  check(press(stableItems[3], "ArrowUp"), "stable PGN DOM did not remain operable");
+  await flush();
+  await flush();
+  check(calls.length === 3, "stable DOM command did not dispatch after rejected render");
+  check(
+    calls[2][1].presentation_token === secondToken,
+    "rejected late render rebound the old DOM to an uncommitted lease"
+  );
   check(announcements.length === 0, "presentation lease regression produced live-region noise");
 }
 
