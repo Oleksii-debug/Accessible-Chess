@@ -562,6 +562,49 @@ async function run() {
   check(document.activeElement === focusBeforeMalformed,
     "malformed root result must not steal reading focus");
 
+  const malformedSemanticTreeShape = semanticGameSnapshot();
+  malformedSemanticTreeShape.block.semantic_tree = "not-an-object";
+  let malformedSemanticTreeShapeRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedSemanticTreeShape,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedSemanticTreeShapeRejected = true;
+  }
+  check(malformedSemanticTreeShapeRejected,
+    "non-object semantic tree must fail closed instead of downgrading to a plain block");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed semantic tree must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed semantic tree must not steal reading focus");
+
+  const coercedDepth = semanticGameSnapshot();
+  coercedDepth.block.semantic_tree.items[0].depth = "0";
+  let coercedDepthRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      coercedDepth,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    coercedDepthRejected = true;
+  }
+  check(coercedDepthRejected, "text semantic depth must not be number-coerced");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "coerced semantic depth must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "coerced semantic depth must not steal reading focus");
+
   const malformedSemanticTextFields = [
     ["players", false],
     ["players_label", { text: "Players" }],
