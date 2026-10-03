@@ -10,6 +10,7 @@ from unittest.mock import patch
 import wave
 import zipfile
 
+from acs import version2_package_preflight as package_preflight
 from acs.acsdb import ACSDB_SCHEMA_VERSION
 from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 from acs.sound_events import SoundEvent
@@ -441,6 +442,36 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
                 "LiveKit client provenance digest mismatch",
+            ):
+                _validate_tree(root)
+
+    def test_oversized_livekit_bundle_is_rejected_before_memory_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            bundle = root / "AccessibleChess/web/vendor/livekit/livekit-client.umd.js"
+            with bundle.open("r+b") as handle:
+                handle.truncate(package_preflight._MAX_LIVEKIT_BUNDLE_BYTES + 1)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "packaged LiveKit browser SDK exceeds archive byte limit",
+            ):
+                _validate_tree(root)
+
+    def test_oversized_livekit_provenance_is_rejected_before_json_decode(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            provenance = root / "AccessibleChess/web/vendor/livekit/provenance.json"
+            with provenance.open("r+b") as handle:
+                handle.truncate(package_preflight._MAX_LIVEKIT_PROVENANCE_BYTES + 1)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "packaged LiveKit provenance exceeds archive byte limit",
             ):
                 _validate_tree(root)
 
