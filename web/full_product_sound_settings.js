@@ -417,7 +417,13 @@
     if (item.active === true) {
       const active = documentRef.createElement("p");
       active.id = "sound-pack-" + safeId + "-active";
-      active.textContent = text("Активний набір.", "Active pack.");
+      active.textContent =
+        item.installed_version != null && installedCompatible
+          ? text("Активний набір.", "Active pack.")
+          : text(
+              "Вибраний набір недоступний для відтворення.",
+              "Selected pack is unavailable for playback."
+            );
       group.appendChild(active);
     }
 
