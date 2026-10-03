@@ -46,6 +46,39 @@ class PositionTextAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Потрібно рівно по одному королю"):
             parse_position_text(text)
 
+    def test_coordinate_text_token_budget_fails_closed_without_board_mutation(self):
+        squares = [
+            f"{file_name}{rank}"
+            for rank in range(1, 9)
+            for file_name in "abcdefgh"
+        ]
+        # Sixty-four complete piece/square pairs consume the representation
+        # maximum (128 tokens). One extra token must stop lexical materialization
+        # before duplicate-square, king-cardinality, or Board validation.
+        white = " ".join(f"P {square}" for square in squares) + " Q"
+        text = f"W: {white} B: K e8"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^position text contains too many piece-square tokens$",
+        ):
+            parse_piece_coordinate_position(text)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^Текст позиції містить забагато описів фігур$",
+        ):
+            parse_position_text(text)
+
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        result = api.set_position_text(text, "w")
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(
+            result["announcement"],
+            "Текст позиції містить забагато описів фігур",
+        )
+
     def test_legacy_unknown_piece_diagnostic_remains_localized(self):
         with self.assertRaisesRegex(ValueError, "Невідома фігура: X"):
             parse_position_text("W: K e1 X d1 B: K e8")
