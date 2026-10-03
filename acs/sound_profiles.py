@@ -45,7 +45,9 @@ _MAX_SOUND_PACK_LICENSE_CHARS = 256
 _MAX_SOUND_PACK_PROVENANCE_CHARS = 4096
 _MAX_SOUND_PACK_SOUND_IDS = 2048
 _MAX_SOUND_AUDIO_PATH_CHARS = 4096
+_MAX_SOUND_AUDIO_PATH_UTF16_UNITS = 4096
 _MAX_SOUND_AUDIO_PATH_COMPONENT_CHARS = 255
+_MAX_SOUND_AUDIO_PATH_COMPONENT_UTF16_UNITS = 255
 _MAX_SOUND_AUDIO_PATH_COMPONENTS = 64
 _VERSION_RE = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -423,7 +425,10 @@ def _safe_audio_path(value: object) -> str:
     text = value.strip().replace("\\", "/")
     if not text or "\x00" in text:
         raise ValueError("sound file path must stay below pack root")
-    if len(text) > _MAX_SOUND_AUDIO_PATH_CHARS:
+    if (
+        len(text) > _MAX_SOUND_AUDIO_PATH_CHARS
+        or len(text.encode("utf-16-le")) // 2 > _MAX_SOUND_AUDIO_PATH_UTF16_UNITS
+    ):
         raise ValueError("sound file path exceeds the resource limit")
     posix = PurePosixPath(text)
     windows = PureWindowsPath(text)
@@ -438,7 +443,11 @@ def _safe_audio_path(value: object) -> str:
     ):
         raise ValueError("sound file path must stay below pack root")
     for part in posix.parts:
-        if len(part) > _MAX_SOUND_AUDIO_PATH_COMPONENT_CHARS:
+        if (
+            len(part) > _MAX_SOUND_AUDIO_PATH_COMPONENT_CHARS
+            or len(part.encode("utf-16-le")) // 2
+            > _MAX_SOUND_AUDIO_PATH_COMPONENT_UTF16_UNITS
+        ):
             raise ValueError("sound file path exceeds the resource limit")
         if part.endswith((" ", ".")):
             raise ValueError("sound file path is not stable on Windows")
