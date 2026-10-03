@@ -362,6 +362,18 @@ class BookProgressStore:
         if stat.S_ISLNK(metadata.st_mode) or _is_reparse_point(metadata) or not stat.S_ISREG(metadata.st_mode):
             raise BookProgressStoreError(message, code=BookProgressStoreErrorCode.IO_FAILURE)
 
+    @classmethod
+    def _require_private_lock_metadata(cls, metadata: os.stat_result) -> None:
+        cls._require_regular_metadata(
+            metadata,
+            message="book progress storage lock is not a regular file",
+        )
+        if int(getattr(metadata, "st_nlink", 1)) != 1:
+            raise BookProgressStoreError(
+                "book progress storage lock is not private",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+
     @staticmethod
     def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         """Return whether two metadata snapshots identify the same file object."""
@@ -605,14 +617,8 @@ class BookProgressStore:
                 "book progress storage lock changed while being acquired",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             ) from None
-        self._require_regular_metadata(
-            metadata,
-            message="book progress storage lock is not a regular file",
-        )
-        self._require_regular_metadata(
-            current_path,
-            message="book progress storage lock is not a regular file",
-        )
+        self._require_private_lock_metadata(metadata)
+        self._require_private_lock_metadata(current_path)
         if not self._same_file_identity(metadata, current_path):
             raise BookProgressStoreError(
                 "book progress storage lock changed while being acquired",
@@ -630,10 +636,7 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.IO_FAILURE,
             ) from None
         if existing is not None:
-            self._require_regular_metadata(
-                existing,
-                message="book progress storage lock is not a regular file",
-            )
+            self._require_private_lock_metadata(existing)
 
         flags = os.O_RDWR | os.O_CREAT
         flags |= getattr(os, "O_BINARY", 0)
@@ -649,10 +652,7 @@ class BookProgressStore:
             ) from None
         try:
             metadata = os.fstat(descriptor)
-            self._require_regular_metadata(
-                metadata,
-                message="book progress storage lock is not a regular file",
-            )
+            self._require_private_lock_metadata(metadata)
             if existing is not None and not self._same_file_identity(existing, metadata):
                 raise BookProgressStoreError(
                     "book progress storage lock changed while being opened",
@@ -665,10 +665,7 @@ class BookProgressStore:
                     "book progress storage lock changed while being opened",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
-            self._require_regular_metadata(
-                current_path,
-                message="book progress storage lock is not a regular file",
-            )
+            self._require_private_lock_metadata(current_path)
             if not self._same_file_identity(metadata, current_path):
                 raise BookProgressStoreError(
                     "book progress storage lock changed while being opened",
@@ -684,10 +681,7 @@ class BookProgressStore:
                     "book progress storage lock changed while being initialized",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
                 ) from None
-            self._require_regular_metadata(
-                final_path,
-                message="book progress storage lock is not a regular file",
-            )
+            self._require_private_lock_metadata(final_path)
             if not self._same_file_identity(metadata, final_path):
                 raise BookProgressStoreError(
                     "book progress storage lock changed while being initialized",
