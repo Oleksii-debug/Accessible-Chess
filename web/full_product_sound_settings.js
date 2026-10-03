@@ -376,9 +376,9 @@
     }
     const rightsMetadata = item.rights_auditable === true
       ? " " +
-        text("Джерело прав: ", "Rights source: ") +
+        text("Джерело прав каталогу: ", "Catalog rights source: ") +
         String(item.rights_source_uri || "") + ". " +
-        text("Доказ ліцензії: ", "License evidence: ") +
+        text("Доказ ліцензії каталогу: ", "Catalog license evidence: ") +
         String(item.license_uri || "") + "."
       : " " + text(
           "Аудитований доказ прав каталогу відсутній.",
