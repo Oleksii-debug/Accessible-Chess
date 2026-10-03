@@ -626,10 +626,13 @@
         });
         entry.appendChild(nested);
       }
-      appendSemanticComments(entry, item.trailing_comments);
       if (item.result) {
         entry.appendChild(node("p", tree.result_label + ": " + item.result));
       }
+      // Variation-line trailing comments are semantically after the line
+      // termination marker. Keep that canonical order in document reading so
+      // NVDA does not hear an after-result comment before the result itself.
+      appendSemanticComments(entry, item.trailing_comments);
       return entry;
     }
 
