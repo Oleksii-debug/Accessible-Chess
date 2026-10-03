@@ -25,6 +25,7 @@ from pathlib import Path
 import stat
 import tempfile
 import threading
+import time
 from typing import Any
 
 from .bookdocument import BookDocument
@@ -729,42 +730,67 @@ class BookProgressStore:
     ) -> int:
         if expected_directory_identity is not None:
             self._require_storage_directory_unlocked(expected_directory_identity)
-        try:
-            existing = os.lstat(self._lock_path)
-        except FileNotFoundError:
-            existing = None
-        except OSError:
-            raise BookProgressStoreError(
-                "book progress storage lock is unavailable",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from None
-        if existing is not None:
-            self._require_private_lock_metadata(existing)
+        # A first-use race between two cooperating processes is expected:
+        # both may observe a missing pathname, while exactly one wins O_EXCL.
+        # Never initialize the raced-in file. Instead, briefly wait for the
+        # exclusive creator to finish writing the canonical marker, then reopen
+        # it through the same private-inode validation used for pre-existing
+        # locks. A noncanonical raced-in file still fails closed unchanged.
+        raced_creator = False
+        descriptor = -1
+        existing: os.stat_result | None = None
+        for attempt in range(64):
+            try:
+                existing = os.lstat(self._lock_path)
+            except FileNotFoundError:
+                existing = None
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress storage lock is unavailable",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
+            if existing is not None:
+                self._require_private_lock_metadata(existing)
+                if raced_creator and existing.st_size == 0:
+                    if attempt == 63:
+                        raise BookProgressStoreError(
+                            "book progress storage lock was not initialized by its creator",
+                            code=BookProgressStoreErrorCode.IO_FAILURE,
+                        )
+                    time.sleep(0.002)
+                    continue
 
-        flags = os.O_RDWR
-        flags |= getattr(os, "O_BINARY", 0)
-        flags |= getattr(os, "O_NOINHERIT", 0)
-        flags |= getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        if existing is None:
-            # A missing lock path must be created by this store, not merely
-            # opened after a non-cooperating file appears in the lstat→open
-            # window. Failing this race closed avoids adopting and initializing
-            # an unknown user-owned file as the coordination object.
-            flags |= os.O_CREAT | os.O_EXCL
-        created_lock_identity: os.stat_result | None = None
-        try:
-            descriptor = os.open(self._lock_path, flags, 0o600)
-        except FileExistsError:
-            raise BookProgressStoreError(
-                "book progress storage lock changed while being opened",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from None
-        except OSError:
+            flags = os.O_RDWR
+            flags |= getattr(os, "O_BINARY", 0)
+            flags |= getattr(os, "O_NOINHERIT", 0)
+            flags |= getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            if existing is None:
+                # Only an exclusive creator may initialize a missing lock.
+                flags |= os.O_CREAT | os.O_EXCL
+            try:
+                descriptor = os.open(self._lock_path, flags, 0o600)
+                break
+            except FileExistsError:
+                raced_creator = True
+                if attempt == 63:
+                    raise BookProgressStoreError(
+                        "book progress storage lock changed while being opened",
+                        code=BookProgressStoreErrorCode.IO_FAILURE,
+                    ) from None
+                time.sleep(0.002)
+                continue
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress storage lock is unavailable",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
+        if descriptor < 0:
             raise BookProgressStoreError(
                 "book progress storage lock is unavailable",
                 code=BookProgressStoreErrorCode.IO_FAILURE,
-            ) from None
+            )
+        created_lock_identity: os.stat_result | None = None
         try:
             metadata = os.fstat(descriptor)
             self._require_private_lock_metadata(metadata)
