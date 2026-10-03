@@ -73,6 +73,9 @@ originalMain.appendChild(moveInput);
 const boardLauncher = new FakeElement("button");
 boardLauncher.id = "board-launcher";
 originalMain.appendChild(boardLauncher);
+const malformedFocusTarget = new FakeElement("button");
+malformedFocusTarget.id = "malformed.focus";
+originalMain.appendChild(malformedFocusTarget);
 const live = new FakeElement("div");
 live.id = "live";
 container.appendChild(originalMain);
@@ -413,6 +416,36 @@ async function clickRoute(routeId) {
   check(originalMain.hidden === false, "queued Board transition did not restore the Stage 1 main");
   check(workspace.hidden === true, "queued Board transition left the V2 product main exposed");
   check(documentRef.activeElement === boardLauncher, "trailing delegated event erased the Book-to-Board focus target");
+
+  const beforeMalformedFocusSnapshots = snapshotCalls;
+  currentRoute = "board";
+  eventQueue = [
+    { kind: "book-board", payload: { focus_target: "malformed.focus" } }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    snapshotCalls === beforeMalformedFocusSnapshots + 1,
+    "malformed native focus event did not complete its canonical refresh"
+  );
+  check(
+    documentRef.activeElement === moveInput,
+    "malformed native focus target overrode the canonical Board focus"
+  );
+  check(
+    documentRef.activeElement !== malformedFocusTarget,
+    "malformed native focus target reached the DOM focus boundary"
+  );
+
+  const beforeMalformedFocusRecords = recordedFocus.length;
+  malformedFocusTarget.focus();
+  documentListeners.focusin({ target: malformedFocusTarget });
+  await flush();
+  check(
+    recordedFocus.length === beforeMalformedFocusRecords,
+    "malformed DOM focus id escaped into Python focus history"
+  );
 
   booksAvailable = true;
   const beforeNativeBookReturnSnapshots = snapshotCalls;
