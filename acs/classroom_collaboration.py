@@ -164,10 +164,21 @@ class ChatTransportPort(Protocol):
 
 
 class FileTransferPort(Protocol):
-    """Server-authoritative file metadata plus opaque-byte transfer boundary."""
+    """Server-authoritative file metadata plus opaque-byte transfer boundary.
+
+    The transport owns authoritative room-quota enforcement. It must atomically
+    reject a new upload with CollaborationQuotaError when accepting that
+    attachment would exceed its server-configured room quota. Client-side quota
+    checks are advisory safety only and must not be trusted as room authority.
+    Retry of the same attachment must not double-count already stored bytes.
+
+    attachment_id is a server idempotency key: immutable identity (room, sender,
+    display name, media type, size, hash, object key and retention) must never be
+    replaced by a different payload under the same ID.
+    """
 
     def upload(self, prepared: PreparedFile) -> AttachmentMetadata:
-        """Upload bytes and return authoritative metadata, including room sequence."""
+        """Upload bytes, enforce server policy, and return authoritative metadata."""
         ...
 
     def cancel(self, *, attachment_id: str) -> None:
@@ -610,13 +621,26 @@ class ClassroomCollaborationController:
         try:
             result = self._files.upload(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                uploading.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 uploading.attachment_id,
                 transfer_state="failed",
             )
             raise
-        return self._adopt_authoritative_upload(result)
+        try:
+            return self._store.adopt_authoritative_attachment(result)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "file transport authority could not be reconciled"
+            ) from error
 
     def retry_file(self, prepared: PreparedFile) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -646,13 +670,26 @@ class ClassroomCollaborationController:
         try:
             result = self._files.retry(candidate)
             self._validate_uploaded_result(uploading, result)
+        except CollaborationQuotaError as error:
+            self._store.update_attachment_state(
+                current.attachment_id,
+                transfer_state="failed",
+            )
+            raise CollaborationError(
+                "server room file quota would be exceeded"
+            ) from error
         except Exception:
             self._store.update_attachment_state(
                 current.attachment_id,
                 transfer_state="failed",
             )
             raise
-        return self._adopt_authoritative_upload(result)
+        try:
+            return self._store.adopt_authoritative_attachment(result)
+        except CollaborationStorageError as error:
+            raise CollaborationError(
+                "file transport authority could not be reconciled"
+            ) from error
 
     def receive_file(self, attachment: AttachmentMetadata) -> AttachmentMetadata:
         self._require_member(self.local_participant_id)
@@ -800,11 +837,9 @@ class ClassroomCollaborationController:
                 "attachment state response is invalid or too large"
             )
         history_complete = len(incoming) < MAX_SYNC_ATTACHMENTS
-        # State updates are not attachment-discovery authority. Only metadata
-        # already proven authoritative locally, or metadata present in this
-        # authoritative history page, may be targeted. In particular, a stranded
-        # local pending/uploading/failed row must never be promoted to stored by
-        # the mutable state stream without its immutable server history record.
+        # Mutable state is never attachment-discovery authority. Only
+        # immutable server history already proven authoritative locally, or the
+        # authoritative history page being reconciled now, may be targeted.
         known_attachment_ids = {
             item.attachment_id
             for item in authoritative
@@ -965,51 +1000,6 @@ class ClassroomCollaborationController:
             raise CollaborationError("prepared file size changed before upload")
         if _sha256_path(path) != metadata.sha256:
             raise CollaborationError("prepared file content changed before upload")
-
-    def _adopt_authoritative_upload(
-        self,
-        result: AttachmentMetadata,
-    ) -> AttachmentMetadata:
-        # A successful upload can legitimately receive a later room sequence
-        # when other clients published files concurrently. Never publish that
-        # later row into a locally gapped history: first reconcile the missing
-        # authoritative prefix from the provider.
-        authoritative = tuple(
-            item
-            for item in self._store.room_attachments(self.room_id)
-            if item.transfer_state in {"stored", "deleted"}
-        )
-        after: int | None = None
-        for current in authoritative:
-            expected = 0 if after is None else after + 1
-            if current.sequence_no != expected:
-                break
-            after = current.sequence_no
-        expected_sequence = 0 if after is None else after + 1
-        if result.sequence_no > expected_sequence:
-            self.sync_files()
-            authoritative = tuple(
-                item
-                for item in self._store.room_attachments(self.room_id)
-                if item.transfer_state in {"stored", "deleted"}
-            )
-            after = None
-            for current in authoritative:
-                expected = 0 if after is None else after + 1
-                if current.sequence_no != expected:
-                    break
-                after = current.sequence_no
-            expected_sequence = 0 if after is None else after + 1
-            if result.sequence_no > expected_sequence:
-                raise CollaborationError(
-                    "file authority sequence prefix remains incomplete after recovery"
-                )
-        try:
-            return self._store.adopt_authoritative_attachment(result)
-        except CollaborationStorageError as error:
-            raise CollaborationError(
-                "file transport authority could not be reconciled"
-            ) from error
 
     @staticmethod
     def _validate_uploaded_result(
