@@ -1104,6 +1104,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             first_transfer_key,
             uploaded.payload["collaboration"]["files"]["transfer_progress"]["transfer_key"],
         )
+        for command in ("collaboration.file.save", "collaboration.file.open"):
+            rejected = view.dispatch(command, {"file_key": first_transfer_key})
+            self.assertEqual("error", rejected.kind)
+        self.assertEqual([], self.save_calls)
+        self.assertEqual([], self.open_calls)
         for event in progress_events:
             self.assertEqual("collaboration.file.progress", event.kind)
             progress = event.payload["file_progress"]
