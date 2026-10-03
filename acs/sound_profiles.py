@@ -35,6 +35,13 @@ OPTIONAL_CLASSROOM_SOUND_EVENTS = (
 _ALLOWED_AUDIO_SUFFIXES = {".wav", ".ogg", ".mp3"}
 _WINDOWS_FORBIDDEN_PATH_CHARS = frozenset('<>:"|?*')
 _WINDOWS_RESERVED_BASENAMES = frozenset({"con", "prn", "aux", "nul", "conin$", "conout$"})
+_MAX_STABLE_ID_CHARS = 128
+_MAX_SOUND_PACK_VERSION_CHARS = 128
+_MAX_SOUND_PACK_TITLE_CHARS = 256
+_MAX_SOUND_PACK_AUTHOR_CHARS = 256
+_MAX_SOUND_PACK_LICENSE_CHARS = 256
+_MAX_SOUND_PACK_PROVENANCE_CHARS = 4096
+_MAX_SOUND_PACK_SOUND_IDS = 2048
 _VERSION_RE = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-([0-9a-z-]+(?:\.[0-9a-z-]+)*))?$"
@@ -102,16 +109,30 @@ class SoundPackManifest:
             if not isinstance(value, str):
                 raise TypeError(f"sound pack {name} must be text")
         version = _stable_version(self.version)
-        title = self.title.strip()
-        license_id = self.license_id.strip()
-        author = self.author.strip()
-        provenance = self.provenance.strip()
-        if not version or not title or not license_id or not author or not provenance:
-            raise ValueError(
-                "sound pack version, title, author, license_id and provenance are required"
-            )
+        title = _bounded_manifest_text(
+            "title",
+            self.title,
+            _MAX_SOUND_PACK_TITLE_CHARS,
+        )
+        license_id = _bounded_manifest_text(
+            "license_id",
+            self.license_id,
+            _MAX_SOUND_PACK_LICENSE_CHARS,
+        )
+        author = _bounded_manifest_text(
+            "author",
+            self.author,
+            _MAX_SOUND_PACK_AUTHOR_CHARS,
+        )
+        provenance = _bounded_manifest_text(
+            "provenance",
+            self.provenance,
+            _MAX_SOUND_PACK_PROVENANCE_CHARS,
+        )
         if not isinstance(self.files, Mapping):
             raise TypeError("sound pack files must be a mapping")
+        if len(self.files) > _MAX_SOUND_PACK_SOUND_IDS:
+            raise ValueError("sound pack declares too many sound ids")
         files: dict[str, str] = {}
         path_spellings: dict[str, str] = {}
         for sound_id, value in self.files.items():
@@ -312,10 +333,28 @@ class SoundProfile:
         )
 
 
+def _bounded_manifest_text(label: str, value: str, max_chars: int) -> str:
+    text = value.strip()
+    if not text:
+        raise ValueError(f"sound pack {label} is required")
+    if len(text) > max_chars:
+        raise ValueError(f"sound pack {label} exceeds the resource limit")
+    if any(
+        ord(ch) < 32
+        or ord(ch) == 127
+        or ch in {"\u2028", "\u2029"}
+        for ch in text
+    ):
+        raise ValueError(f"sound pack {label} contains control characters")
+    return text
+
+
 def _stable_id(value: object, *, allow_dot: bool = False) -> str:
     if not isinstance(value, str):
         raise TypeError("id must be text")
     text = value.strip().lower()
+    if len(text) > _MAX_STABLE_ID_CHARS:
+        raise ValueError("id exceeds the resource limit")
     allowed = "abcdefghijklmnopqrstuvwxyz0123456789_-" + ("." if allow_dot else "")
     if not text or any(ch not in allowed for ch in text):
         raise ValueError("id must use lowercase ascii letters, digits, dot, dash or underscore")
@@ -326,6 +365,8 @@ def _stable_version(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("sound pack version must be text")
     text = value.strip().lower()
+    if len(text) > _MAX_SOUND_PACK_VERSION_CHARS:
+        raise ValueError("sound pack version exceeds the resource limit")
     match = _VERSION_RE.fullmatch(text)
     if match is None:
         raise ValueError("sound pack version must be canonical semantic version text")
