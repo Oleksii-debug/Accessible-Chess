@@ -52,7 +52,7 @@ jobs:
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          SOURCE_HEAD_SHA: e5d85289ba00f1c54a2bdb7826800d37697b2593
+          SOURCE_HEAD_SHA: a7217e56cc2c4575ede0be0c46238afc4dcbe7bc
         run: |
           set -euo pipefail
           event_base="${EVENT_BASE_SHA:-}"
@@ -85,7 +85,7 @@ jobs:
           done
 
       - name: Compile converged PGN modules
-        run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py
+        run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py tests/test_d06_pgn_roundtrip.py
 
       - name: Focused bounded-materialization and canonical PGN regression
         run: python -m unittest -v tests.test_w1_d06_bounded_model_materialization tests.test_d06_pgn_roundtrip
