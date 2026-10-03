@@ -361,6 +361,9 @@ class D07LibraryImportServiceTests(unittest.TestCase):
             ((1, -1, 1), ValueError),
             ((1, 2, 1), ValueError),
             ((1, 0, 0), ValueError),
+            ((2**63, 0, 1), ValueError),
+            ((1, 2**63, 2**63), ValueError),
+            ((1, 0, 2**63), ValueError),
         ):
             with self.subTest(args=args):
                 with self.assertRaises(error_type):
