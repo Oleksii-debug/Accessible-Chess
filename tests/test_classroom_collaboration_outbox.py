@@ -209,6 +209,109 @@ class DurableChatOutboxTests(unittest.TestCase):
         self.assertEqual(delivered.retention, "session")
         self.assertEqual(second_chat.message_ids, ["message-original-retention"])
 
+    def test_redacted_durable_identity_recovers_without_network_resend(self) -> None:
+        outbox = self.outbox()
+        original = ChatDraft(
+            message_id="message-redacted-after-commit",
+            room_id="room-1",
+            sender_id="student-1",
+            body="Retention-sensitive classroom text",
+            retention="session",
+        )
+        outbox.prepare(original)
+        redacted = ChatMessageMetadata(
+            message_id=original.message_id,
+            room_id=original.room_id,
+            sender_id=original.sender_id,
+            sequence_no=0,
+            body="",
+            retention=original.retention,
+            redacted=True,
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(redacted)
+
+        network = ExplodingChat()
+        controller = self.controller(network, self.outbox())
+        recovered = controller.send_chat(
+            message_id="new-process-id-must-not-be-used",
+            body=original.body,
+            retention=original.retention,
+        )
+
+        self.assertEqual(redacted, recovered)
+        self.assertEqual(network.message_ids, [])
+        self.assertEqual(self.secrets.values, {})
+
+    def test_durable_identity_without_authoritative_timestamp_fails_closed(self) -> None:
+        outbox = self.outbox()
+        original = ChatDraft(
+            message_id="message-no-authoritative-time",
+            room_id="room-1",
+            sender_id="student-1",
+            body="Legacy local row",
+        )
+        outbox.prepare(original)
+        self.store.append_message(
+            ChatMessageMetadata(
+                message_id=original.message_id,
+                room_id=original.room_id,
+                sender_id=original.sender_id,
+                sequence_no=0,
+                body=original.body,
+                retention=original.retention,
+            )
+        )
+
+        network = ExplodingChat()
+        controller = self.controller(network, self.outbox())
+        with self.assertRaisesRegex(
+            DurableChatOutboxError,
+            "identity conflicts",
+        ):
+            controller.send_chat(
+                message_id="new-process-id",
+                body=original.body,
+            )
+        self.assertEqual(network.message_ids, [])
+        self.assertEqual(len(self.secrets.values), 1)
+
+    def test_redacted_durable_identity_still_requires_exact_retention(self) -> None:
+        outbox = self.outbox()
+        original = ChatDraft(
+            message_id="message-redacted-retention",
+            room_id="room-1",
+            sender_id="student-1",
+            body="Original retention must survive",
+            retention="session",
+        )
+        outbox.prepare(original)
+        self.store.append_message(
+            ChatMessageMetadata(
+                message_id=original.message_id,
+                room_id=original.room_id,
+                sender_id=original.sender_id,
+                sequence_no=0,
+                body="",
+                retention="transient",
+                redacted=True,
+                sent_at_unix_ms=1700000000000,
+            )
+        )
+
+        network = ExplodingChat()
+        controller = self.controller(network, self.outbox())
+        with self.assertRaisesRegex(
+            DurableChatOutboxError,
+            "identity conflicts",
+        ):
+            controller.send_chat(
+                message_id="new-process-id",
+                body=original.body,
+                retention=original.retention,
+            )
+        self.assertEqual(network.message_ids, [])
+
     def test_persisted_message_with_failed_outbox_cleanup_never_resends(self) -> None:
         self.secrets.fail_delete = True
         first_chat = SuccessfulChat()
