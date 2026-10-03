@@ -380,7 +380,7 @@ async function run() {
   assert.deepStrictEqual(calls[4], ["select_pack", {pack_id: "local.wood"}]);
   assert.strictEqual(document.activeElement.id, "sound-pack-local.wood");
   const moveChoice = elements.get("sound-event-move-choice");
-  const classroomVolume = elements.get("sound-event-classroom-join-volume");
+  const classroomVolume = elements.get("sound-event-classroom.join-volume");
   assert.ok(moveChoice, "custom pack with alternate ids must expose a native sound selector");
   assert.ok(classroomVolume,
     "manifest-declared classroom event must expose the same per-event controls");
