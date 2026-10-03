@@ -345,6 +345,23 @@ class ClassroomChatServerSQLiteStore:
                 raise ClassroomChatServerError(
                     "stored chat message state is inconsistent"
                 )
+            duplicate_transition = db.execute(
+                """
+                SELECT 1
+                FROM classroom_chat_server_state_updates
+                WHERE room_id=?
+                GROUP BY message_id
+                HAVING
+                    SUM(CASE WHEN hidden=1 THEN 1 ELSE 0 END) > 1
+                    OR SUM(CASE WHEN redacted=1 THEN 1 ELSE 0 END) > 1
+                LIMIT 1
+                """,
+                (room_id,),
+            ).fetchone()
+            if duplicate_transition is not None:
+                raise ClassroomChatServerError(
+                    "stored chat message state transition is duplicated"
+                )
         else:
             hidden_mismatch = db.execute(
                 """
@@ -1392,7 +1409,6 @@ class ClassroomChatServerSQLiteStore:
                         )
 
                 expected_revision: dict[str, int] = {}
-                state_message_keys: set[tuple[str, str]] = set()
                 for stored in db.execute(
                     """
                     SELECT room_id, revision, message_id, hidden, redacted
@@ -1435,9 +1451,20 @@ class ClassroomChatServerSQLiteStore:
                         raise ClassroomChatServerError(
                             "chat state references unknown message"
                         )
-                    state_message_keys.add(key)
 
-                self._validate_room_hidden_state(db, room)
+                rooms = {
+                    stored["room_id"]
+                    for stored in db.execute(
+                        """
+                        SELECT room_id FROM classroom_chat_server_messages
+                        UNION
+                        SELECT room_id FROM classroom_chat_server_state_updates
+                        """
+                    )
+                }
+                for room_id in rooms:
+                    room = _identifier(room_id, "stored chat state room id")
+                    self._validate_room_hidden_state(db, room)
         except ClassroomChatServerError:
             raise
         except sqlite3.Error:
