@@ -60,13 +60,24 @@ class Version2Application:
             "book.next",
             "book.previous_heading",
             "book.next_heading",
+            "book.previous_position",
             "book.next_position",
+            "book.previous_game",
             "book.next_game",
             "book.bookmark.save",
             "book.bookmark.restore",
         }
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
+    _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
+        {
+            "book.board_next_move",
+            "book.board_previous_move",
+            "book.board_enter_variation",
+            "book.board_leave_variation",
+            "book.board_analyze",
+        }
+    )
     _BOOK_PROGRESS_RELOAD_CODES = frozenset(
         {
             BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
