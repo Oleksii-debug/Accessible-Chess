@@ -359,6 +359,15 @@ class SoundSettingsApplication:
             local = installed_local.get(current.pack_id)
             if local is not None and not self._local_pack_compatible(local):
                 return self._save_pack_profile("classic", None)
+            if (
+                self._installed_audit_provider is not None
+                or self._installed_pack_provider is not None
+            ):
+                # A coherent/supplied installed snapshot is authoritative for
+                # this operation. If the selected custom pack is absent from it,
+                # do not retain a stale profile that playback can no longer
+                # resolve. Fall back without performing a second storage read.
+                return self._save_pack_profile("classic", None)
             return current
         return self._save_pack_profile(current.pack_id, manifest)
 
