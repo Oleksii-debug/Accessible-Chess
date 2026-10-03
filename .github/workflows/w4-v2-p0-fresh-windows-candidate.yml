@@ -352,10 +352,36 @@ jobs:
           Expand-Archive -LiteralPath (Join-Path 'candidate-output' $env:CANDIDATE_FILE) -DestinationPath fresh-extraction
           @'
           import os
+          import json
           from pathlib import Path
           from acs.version2_package_preflight import validate_version2_package_tree
-          report = validate_version2_package_tree(Path('fresh-extraction'), expected_integration_sha=os.environ['PRODUCT_SHA'])
+          from scripts.build_user_sound_pack import (
+              EXPECTED_SOURCE_INVENTORY_SHA256,
+              EXPECTED_SOURCE_WAV_COUNT,
+          )
+
+          extraction = Path('fresh-extraction')
+          report = validate_version2_package_tree(
+              extraction,
+              expected_integration_sha=os.environ['PRODUCT_SHA'],
+          )
+          sound_root = extraction / 'AccessibleChess' / 'assets' / 'sounds'
+          inventory = json.loads(
+              (sound_root / 'inventory.json').read_text(encoding='utf-8')
+          )
+          if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH')
+          if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DIGEST_MISMATCH')
+          wavs = [
+              path for path in (sound_root / 'library').rglob('*')
+              if path.is_file() and path.suffix.lower() == '.wav'
+          ]
+          if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH')
           print(f'FRESH_EXTRACTION_PREFLIGHT_FILES={len(report.inventory)}')
+          print(f'FRESH_EXTRACTION_USER_SOUND_WAV_COUNT={len(wavs)}')
+          print('FRESH_EXTRACTION_USER_SOUND_PACK=PASS')
           print('FRESH_EXTRACTION_PREFLIGHT=PASS')
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Fresh extraction canonical preflight failed'}
