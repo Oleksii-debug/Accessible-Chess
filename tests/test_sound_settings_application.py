@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import hashlib
 import unittest
 from unittest import mock
 
 from acs.sound_events import SoundEvent
 from acs.sound_pack_catalog import (
+    MAX_SOUND_PACK_CATALOG_ENTRIES,
     DownloadedSoundPack,
     SoundAssetDigest,
     SoundPackCatalogEntry,
@@ -23,6 +25,17 @@ from acs.sound_profiles import (
 )
 from acs.sound_runtime import ProfiledSoundRuntime, SoundAssetRequest
 from acs.sound_settings_application import SoundSettingsApplication
+
+
+class _OversizedCatalog(Mapping):
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __iter__(self):
+        raise AssertionError("oversized catalog must be rejected before iteration")
+
+    def __len__(self):
+        return MAX_SOUND_PACK_CATALOG_ENTRIES + 1
 
 
 class _ProfileStorage:
@@ -133,6 +146,16 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         playback = _AssetPlayback()
         runtime = ProfiledSoundRuntime(playback, manager.profile_provider)
         return storage, manager, playback, runtime
+
+    def test_oversized_catalog_is_rejected_before_application_projection_iteration(self) -> None:
+        _storage, manager, _playback, runtime = self._profile_runtime()
+
+        with self.assertRaisesRegex(ValueError, "catalog exceeds"):
+            SoundSettingsApplication(
+                manager,
+                runtime,
+                catalog=_OversizedCatalog(),
+            )
 
     def test_snapshot_exposes_all_events_without_paths_or_payload_refs(self) -> None:
         _storage, manager, _playback, runtime = self._profile_runtime()
