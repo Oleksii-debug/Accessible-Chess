@@ -406,7 +406,15 @@ def save_pgn_atomic(
     destination.parent.mkdir(parents=True, exist_ok=True)
     _reject_export_indirection(destination)
 
+    # Resolve public provenance and hash the exact unpublished inode before the
+    # commit point. Nothing after a successful publication may turn that commit
+    # into a caller-visible failure merely because a second destination readback
+    # could not be completed.
+    public_parent = destination.parent.resolve(strict=True)
+    public_destination = public_parent / destination.name
+
     tmp_path: Path | None = None
+    published: SourceFingerprint | None = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
@@ -421,6 +429,14 @@ def save_pgn_atomic(
             _write_games_incrementally(handle, games)
             handle.flush()
             os.fsync(handle.fileno())
+
+        temporary_fingerprint = fingerprint(tmp_path)
+        published = SourceFingerprint(
+            path=str(public_destination),
+            size=temporary_fingerprint.size,
+            sha256=temporary_fingerprint.sha256,
+            suffix=destination.suffix.lower(),
+        )
 
         _reject_export_indirection(destination)
         if not overwrite:
@@ -439,7 +455,8 @@ def save_pgn_atomic(
             except FileNotFoundError:
                 pass
 
-    return fingerprint(destination)
+    assert published is not None
+    return published
 
 
 def export_game_atomic(
