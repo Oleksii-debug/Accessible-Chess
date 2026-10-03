@@ -1364,6 +1364,77 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertEqual(self.path.read_bytes(), external)
 
+    def test_primary_publication_rejects_same_bytes_temp_inode_substitution(self) -> None:
+        injected = False
+
+        def substitute_same_bytes_temp(source: Path, destination: Path) -> None:
+            nonlocal injected
+            source = Path(source)
+            destination = Path(destination)
+            if destination == self.path:
+                foreign = source.with_name(source.name + ".foreign")
+                foreign.write_bytes(source.read_bytes())
+                os.replace(foreign, source)
+                injected = True
+            os.replace(source, destination)
+
+        with mock.patch(
+            "acs.book_progress_store._replace_published_path",
+            side_effect=substitute_same_bytes_temp,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:same-bytes-primary-substitution",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertTrue(self.path.exists())
+        self.assertTrue(self.store.has("book:same-bytes-primary-substitution"))
+
+    def test_backup_publication_rejects_same_bytes_temp_inode_substitution(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:same-bytes-backup-substitution", reader)
+        primary_before = self.path.read_bytes()
+        reader.go_to(2)
+        injected = False
+
+        def substitute_same_bytes_temp(source: Path, destination: Path) -> None:
+            nonlocal injected
+            source = Path(source)
+            destination = Path(destination)
+            if destination == self.store.backup_path:
+                foreign = source.with_name(source.name + ".foreign")
+                foreign.write_bytes(source.read_bytes())
+                os.replace(foreign, source)
+                injected = True
+            os.replace(source, destination)
+
+        with mock.patch(
+            "acs.book_progress_store._replace_published_path",
+            side_effect=substitute_same_bytes_temp,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:same-bytes-backup-substitution", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
+        restored = self.store.restore_primary(
+            "book:same-bytes-backup-substitution",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+
     def test_restore_primary_never_falls_back_to_corrupt_primary_backup(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
