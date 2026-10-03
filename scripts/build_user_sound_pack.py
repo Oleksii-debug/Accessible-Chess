@@ -103,6 +103,7 @@ def _locate_sounds(source: Path) -> Path:
         source,
         source / "Sounds",
         source / "звуки" / "Sounds",
+        source / "library",
     )
     for candidate in candidates:
         if (candidate / "Board").is_dir() and (candidate / "Server").is_dir():
