@@ -1,0 +1,88 @@
+name: Owner Delivery Ukrainian Docs
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt'
+      - 'web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt'
+      - 'tests/test_owner_delivery_uk_docs.py'
+      - '.github/workflows/owner-delivery-uk-docs.yml'
+      - 'web/keybindings.json'
+      - 'web/index.html'
+      - 'web/full_product_pgn.js'
+      - 'web/full_product_library.js'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_assembler.py'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+  push:
+    branches:
+      - work/owner-delivery-uk-docs-20261004
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-delivery-uk-docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove live Full Product ancestry and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+          product_branch='work/full-product-teacher-education-reachability-20260911'
+          git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+          product="$(git rev-parse "refs/remotes/origin/$product_branch")"
+          git merge-base --is-ancestor "$product" HEAD
+          test "$(git merge-base "$product" HEAD)" = "$product"
+          git diff --check "$product" HEAD
+
+          mapfile -t changed < <(git diff --name-only "$product" HEAD | sort)
+          expected_paths=(
+            '.github/workflows/owner-delivery-uk-docs.yml'
+            'tests/test_owner_delivery_uk_docs.py'
+            'web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt'
+            'web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt'
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected_paths[@]}" | sort)
+          test "${#changed[@]}" -eq "${#expected_sorted[@]}"
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected_sorted[@]}")"
+          echo 'OWNER_DELIVERY_DOCS_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile documentation contract
+        run: python -m py_compile tests/test_owner_delivery_uk_docs.py
+
+      - name: Run documentation, keyboard and accessibility regressions
+        run: >-
+          python -m unittest -v
+          tests.test_owner_delivery_uk_docs
+          tests.test_accessible_webui
+          tests.test_v2_board_analysis_hotkey_feedback
+
+      - name: Exact repository selftest
+        run: python -m acs.selftest
+
+      - name: Exact whitespace check
+        shell: bash
+        run: git diff --check
