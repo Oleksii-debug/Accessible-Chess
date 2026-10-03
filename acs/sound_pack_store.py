@@ -916,10 +916,6 @@ class FilesystemSoundPackStore:
                     pass
 
     def install_atomically(self, downloaded: DownloadedSoundPack) -> None:
-        with self._exclusive_mutation():
-            self._install_atomically_locked(downloaded)
-
-    def _install_atomically_locked(self, downloaded: DownloadedSoundPack) -> None:
         digests = self._validate_downloaded(downloaded)
         if downloaded.total_bytes > self.max_bytes:
             raise SoundPackStoreError(
@@ -928,8 +924,17 @@ class FilesystemSoundPackStore:
         manifest = downloaded.manifest
         if manifest.pack_id in self._built_in:
             raise SoundPackStoreError("built-in sound pack id is immutable")
-
         source = self._source_root(downloaded, digests)
+        with self._exclusive_mutation():
+            self._install_atomically_locked(downloaded, digests, source)
+
+    def _install_atomically_locked(
+        self,
+        downloaded: DownloadedSoundPack,
+        digests: Mapping[str, SoundAssetDigest],
+        source: Path,
+    ) -> None:
+        manifest = downloaded.manifest
         pack_dir, versions_dir = self._ensure_pack_parent(manifest.pack_id)
         destination = versions_dir / manifest.version
 
@@ -1234,13 +1239,17 @@ class FilesystemSoundPackStore:
             ) from exc
 
     def uninstall(self, pack_id: str) -> None:
-        with self._exclusive_mutation():
-            self._uninstall_locked(pack_id)
-
-    def _uninstall_locked(self, pack_id: str) -> None:
         identity = _stable_id(pack_id, allow_dot=True)
         if identity in self._built_in:
             raise SoundPackStoreError("built-in sound pack id is immutable")
+        pack_dir = self._pack_dir(identity)
+        if not pack_dir.exists():
+            return
+        with self._exclusive_mutation():
+            self._uninstall_locked(identity)
+
+    def _uninstall_locked(self, pack_id: str) -> None:
+        identity = _stable_id(pack_id, allow_dot=True)
         pack_dir = self._pack_dir(identity)
         if not pack_dir.exists():
             return
