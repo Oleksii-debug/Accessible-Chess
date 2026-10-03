@@ -1139,6 +1139,86 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
 
         self.assertEqual(self.store.room_attachments("room"), (occupied,))
 
+    def test_authoritative_file_storage_rejects_sequence_gaps(self) -> None:
+        later = AttachmentMetadata(
+            "gap-a1",
+            "room",
+            "teacher",
+            1,
+            "gap.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/gap-a1",
+            "stored",
+            "persistent",
+            "clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationSequenceGapError,
+            "attachment sequence has an unresolved gap",
+        ):
+            self.store.register_attachments_atomic((later,))
+        self.assertEqual(self.store.room_attachments("room"), ())
+
+        with self.assertRaisesRegex(
+            CollaborationSequenceGapError,
+            "attachment sequence has an unresolved gap",
+        ):
+            self.store.reconcile_attachment_sync_atomic(
+                room_id="room",
+                attachments=(later,),
+                updates=(),
+            )
+        self.assertEqual(self.store.room_attachments("room"), ())
+
+    def test_direct_upload_adoption_rejects_missing_authoritative_prefix(self) -> None:
+        provisional = AttachmentMetadata(
+            "gap-own",
+            "room",
+            "teacher",
+            77,
+            "own.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/gap-own",
+            "pending",
+            "persistent",
+            "pending",
+        )
+        self.store.register_attachment(provisional)
+        uploading = self.store.update_attachment_state(
+            provisional.attachment_id,
+            transfer_state="uploading",
+        )
+        authoritative = AttachmentMetadata(
+            provisional.attachment_id,
+            provisional.room_id,
+            provisional.sender_id,
+            2,
+            provisional.display_name,
+            provisional.mime_type,
+            provisional.size_bytes,
+            provisional.sha256,
+            provisional.object_key,
+            "stored",
+            provisional.retention,
+            "clean",
+        )
+
+        with self.assertRaisesRegex(
+            CollaborationSequenceGapError,
+            "attachment sequence has an unresolved gap",
+        ):
+            self.store.adopt_authoritative_attachment(authoritative)
+
+        self.assertEqual(
+            self.store.room_attachments("room"),
+            (uploading,),
+        )
+
     def test_attachment_sync_adopts_authority_over_uncertain_local_transfer(self) -> None:
         for local_state in ("uploading", "failed"):
             with self.subTest(local_state=local_state):
