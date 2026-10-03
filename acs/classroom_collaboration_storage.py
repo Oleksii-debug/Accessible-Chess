@@ -290,6 +290,28 @@ def content_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _next_authoritative_attachment_sequence(
+    db: sqlite3.Connection,
+    room_id: str,
+) -> int:
+    rows = db.execute(
+        """
+        SELECT sequence_no
+        FROM collaboration_attachments
+        WHERE room_id=? AND transfer_state IN ('stored', 'deleted')
+        ORDER BY sequence_no
+        """,
+        (room_id,),
+    ).fetchall()
+    expected = 0
+    for row in rows:
+        sequence = int(row["sequence_no"])
+        if sequence != expected:
+            break
+        expected += 1
+    return expected
+
+
 class ClassroomCollaborationSQLiteStore:
     """Durable provider-neutral chat/file metadata store.
 
@@ -957,7 +979,18 @@ class ClassroomCollaborationSQLiteStore:
         persisted: list[AttachmentMetadata] = []
         with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            expected_by_room: dict[str, int] = {}
             for attachment in attachments:
+                expected_sequence = expected_by_room.get(attachment.room_id)
+                if expected_sequence is None:
+                    expected_sequence = _next_authoritative_attachment_sequence(
+                        db,
+                        attachment.room_id,
+                    )
+                if attachment.sequence_no > expected_sequence:
+                    raise CollaborationSequenceGapError(
+                        "attachment sequence has an unresolved gap"
+                    )
                 existing = db.execute(
                     "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
                     (attachment.attachment_id,),
@@ -969,6 +1002,9 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment identity reused with different payload"
                         )
                     persisted.append(loaded)
+                    if attachment.sequence_no == expected_sequence:
+                        expected_sequence += 1
+                    expected_by_room[attachment.room_id] = expected_sequence
                     continue
                 try:
                     db.execute(
@@ -993,6 +1029,9 @@ class ClassroomCollaborationSQLiteStore:
                         "attachment batch conflicts with ordering or storage identity"
                     ) from exc
                 persisted.append(attachment)
+                if attachment.sequence_no == expected_sequence:
+                    expected_sequence += 1
+                expected_by_room[attachment.room_id] = expected_sequence
         return tuple(persisted)
 
     def reconcile_attachment_sync_atomic(
@@ -1026,7 +1065,15 @@ class ClassroomCollaborationSQLiteStore:
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
+                expected_sequence = _next_authoritative_attachment_sequence(
+                    db,
+                    room_id,
+                )
                 for attachment in attachments:
+                    if attachment.sequence_no > expected_sequence:
+                        raise CollaborationSequenceGapError(
+                            "attachment sequence has an unresolved gap"
+                        )
                     existing = db.execute(
                         "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
                         (attachment.attachment_id,),
@@ -1035,6 +1082,8 @@ class ClassroomCollaborationSQLiteStore:
                         loaded = self._attachment_from_row(existing)
                         if loaded == attachment:
                             persisted.append(loaded)
+                            if attachment.sequence_no == expected_sequence:
+                                expected_sequence += 1
                             continue
                         immutable = (
                             "attachment_id",
@@ -1099,6 +1148,8 @@ class ClassroomCollaborationSQLiteStore:
                                 "authoritative attachment conflicts with room ordering"
                             ) from exc
                         persisted.append(attachment)
+                        if attachment.sequence_no == expected_sequence:
+                            expected_sequence += 1
                         continue
                     try:
                         db.execute(
@@ -1123,6 +1174,8 @@ class ClassroomCollaborationSQLiteStore:
                             "attachment batch conflicts with ordering or storage identity"
                         ) from exc
                     persisted.append(attachment)
+                    if attachment.sequence_no == expected_sequence:
+                        expected_sequence += 1
 
                 cursor = db.execute(
                     "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
@@ -1227,6 +1280,14 @@ class ClassroomCollaborationSQLiteStore:
             if current.transfer_state != "uploading":
                 raise CollaborationConflictError(
                     "file authority arrived outside active upload transition"
+                )
+            expected_sequence = _next_authoritative_attachment_sequence(
+                db,
+                current.room_id,
+            )
+            if attachment.sequence_no > expected_sequence:
+                raise CollaborationSequenceGapError(
+                    "attachment sequence has an unresolved gap"
                 )
             _validate_transfer_transition(
                 current.transfer_state,
