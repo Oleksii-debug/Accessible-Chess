@@ -180,6 +180,7 @@ const VISUAL_PIECE_NAMES = Object.freeze([
 let newGameVisualPending = false;
 let newGameAnimationGeneration = 0;
 let newGameAnimationEndTimer = null;
+let newGameVisualSeenSerial = 0;
 
 function visualPieceGlyph(cell) {
     const label = String(cell && cell.getAttribute('aria-label') || '').toLowerCase();
@@ -345,8 +346,23 @@ function startNewGameVisualSequence() {
     return true;
 }
 
+function syncNewGameVisualFromState() {
+    const currentState = typeof state !== 'undefined' ? state : null;
+    const serial = Number(currentState && currentState.newGameVisualSerial || 0);
+    if (!Number.isInteger(serial) || serial <= 0 || serial <= newGameVisualSeenSerial) {
+        return false;
+    }
+    // Do not consume the cue until sound settings are available: the selected
+    // NEWGAME variant owns the 32-impact timing table.
+    if (!currentSoundState) return false;
+    newGameVisualSeenSerial = serial;
+    newGameVisualPending = true;
+    return startNewGameVisualSequence();
+}
+
 window.startNewGameVisualSequence = startNewGameVisualSequence;
 window.finishNewGameVisualSequence = finishNewGameVisualSequence;
+window.syncNewGameVisualFromState = syncNewGameVisualFromState;
 
 function installNewGameVisualSequence() {
     if (document.body.dataset.stage1NewGameVisualReady === 'true') return;
@@ -565,7 +581,11 @@ function installBoardFocusContinuity() {
         // on every render before focus recovery.
         queueMicrotask(() => {
             stabilizeBoardUiaSemantics(grid);
-            if (newGameVisualPending) startNewGameVisualSequence();
+            // Primary trigger: monotonic backend cue works regardless of whether
+            // New Game originated in WebView, native menus or native shortcuts.
+            if (!syncNewGameVisualFromState() && newGameVisualPending) {
+                startNewGameVisualSequence();
+            }
         });
         if (!focusState.boardNode || board.hidden) return;
         const focusedCellWasReplaced = records.some(record =>
@@ -699,6 +719,9 @@ async function loadSoundState() {
     try {
         const state = await a.get_sound_settings();
         currentSoundState = state;
+        // A state render may have arrived before the sound settings bridge.
+        // Retry the unconsumed monotonic NEWGAME cue now that the variant is known.
+        syncNewGameVisualFromState();
         if (enabled) enabled.checked = !!state.enabled;
         if (newGameAnimation) newGameAnimation.checked = state.newGameAnimation !== false;
         if (volume) volume.value = String(state.volume ?? 80);
