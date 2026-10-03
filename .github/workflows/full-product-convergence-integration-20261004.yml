@@ -98,6 +98,13 @@ jobs:
           tests.test_p0_semantic_document_copy
           tests.test_p0_final_product_resource_order
 
+      - name: Owner delivery guide and keyboard contract regressions
+        run: >-
+          python -m unittest -v
+          tests.test_owner_delivery_uk_docs
+          tests.test_accessible_webui
+          tests.test_v2_board_analysis_hotkey_feedback
+
       - name: Books Training semantic and accessibility regressions
         run: >-
           python -m unittest -v
