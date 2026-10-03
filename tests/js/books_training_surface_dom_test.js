@@ -548,10 +548,26 @@ async function run() {
   pendingResetOpener.listeners.click();
   const pendingResetDialog = pendingResetRoot.querySelector("#training-reset-dialog");
   const pendingResetConfirm = find(pendingResetDialog, "BUTTON", "Confirm");
+  const pendingResetCancel = find(pendingResetDialog, "BUTTON", "Cancel");
   pendingResetConfirm.listeners.click();
   pendingResetConfirm.listeners.click();
   check(pendingResetCalls === 1, "pending reset dispatched more than one canonical command");
   check(pendingResetConfirm.disabled, "pending reset did not disable its confirm control");
+  check(pendingResetCancel.disabled, "pending reset did not disable its cancel control");
+  pendingResetCancel.listeners.click();
+  check(
+    pendingResetDialog.open,
+    "pending reset allowed Cancel to imply cancellation after commit started"
+  );
+  let pendingEscapePrevented = false;
+  pendingResetDialog.listeners.cancel({
+    preventDefault: () => { pendingEscapePrevented = true; }
+  });
+  check(pendingEscapePrevented, "pending reset Escape did not suppress native dialog cancellation");
+  check(
+    pendingResetDialog.open,
+    "pending reset allowed Escape to imply cancellation after commit started"
+  );
   check(
     pendingResetRoot.getAttribute("aria-busy") === "true",
     "pending reset did not expose the Training surface as busy"
@@ -561,12 +577,17 @@ async function run() {
   await flushPromises();
   check(pendingResetDialog.open, "reset host error unexpectedly closed the dialog");
   check(!pendingResetConfirm.disabled, "reset host error did not restore confirm");
+  check(!pendingResetCancel.disabled, "reset host error did not restore cancel");
   check(
     document.activeElement === pendingResetConfirm,
     "reset host error did not return focus to confirm"
   );
-  const pendingResetCancel = find(pendingResetDialog, "BUTTON", "Cancel");
   pendingResetCancel.listeners.click();
+  check(!pendingResetDialog.open, "retryable reset error did not restore real cancellation");
+  check(
+    document.activeElement === pendingResetOpener,
+    "reset cancellation after retryable error did not restore opener focus"
+  );
 
 
   const bookRoot = new FakeElement("div");
