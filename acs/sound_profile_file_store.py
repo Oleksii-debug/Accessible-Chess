@@ -216,6 +216,7 @@ class JsonSoundProfileStorage:
         flags |= getattr(os, "O_NOINHERIT", 0)
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0)
         try:
             descriptor = os.open(self._lock_path, flags, 0o600)
         except OSError as exc:
@@ -228,6 +229,13 @@ class JsonSoundProfileStorage:
                 metadata,
                 message="sound profile storage lock is not a regular file",
             )
+            if (
+                existing is not None
+                and self._file_identity(metadata) != self._file_identity(existing)
+            ):
+                raise SoundProfileFileError(
+                    "sound profile storage lock changed before secure open"
+                )
             if metadata.st_size == 0:
                 os.write(descriptor, b"\0")
                 os.fsync(descriptor)
