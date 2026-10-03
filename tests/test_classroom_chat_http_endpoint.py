@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from acs.classroom_chat_http_endpoint import (
     CHAT_RPC_PATH,
+    ClassroomChatHttpClientError,
     ClassroomChatHttpEndpoint,
+    ClassroomChatHttpRpcCall,
 )
-from acs.classroom_chat_rpc import ClassroomChatRpcService
+from acs.classroom_chat_rpc import ClassroomChatRpcClient, ClassroomChatRpcService
 from acs.classroom_collaboration import (
     ChatDraft,
     ChatModerationAction,
@@ -24,7 +27,7 @@ ROOM = "room-1"
 STUDENT = "student-1"
 TEACHER = "teacher-1"
 CHAT_HTTP_WORKFLOW = (
-    __import__("pathlib").Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[1]
     / ".github"
     / "workflows"
     / "classroom-chat-http-endpoint.yml"
@@ -42,6 +45,66 @@ class Authenticator:
         if self.fail:
             raise RuntimeError("supersecret bearer verifier detail")
         return self.identity
+
+
+class FakeHttpResponse:
+    def __init__(
+        self,
+        payload=None,
+        *,
+        status=200,
+        raw_body=None,
+        headers=None,
+    ) -> None:
+        if raw_body is None:
+            raw_body = json.dumps(
+                {"v": 1, "ok": True} if payload is None else payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        self.status = status
+        self.body = raw_body
+        self.read_limits = []
+        self.headers = (
+            [
+                ("Content-Type", "application/json; charset=utf-8"),
+                ("Content-Length", str(len(raw_body))),
+            ]
+            if headers is None
+            else headers
+        )
+
+    def getheaders(self):
+        return list(self.headers)
+
+    def read(self, limit):
+        self.read_limits.append(limit)
+        return self.body
+
+
+class FakeHttpConnection:
+    response = FakeHttpResponse()
+    instances = []
+    fail_request = None
+
+    def __init__(self, host, port, timeout):
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.requests = []
+        self.closed = False
+        type(self).instances.append(self)
+
+    def request(self, method, target, *, body, headers):
+        if type(self).fail_request is not None:
+            raise type(self).fail_request
+        self.requests.append((method, target, body, dict(headers)))
+
+    def getresponse(self):
+        return type(self).response
+
+    def close(self):
+        self.closed = True
 
 
 class Backend:
@@ -293,6 +356,232 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             "tests.test_classroom_collaboration_chat_server",
             workflow,
         )
+
+    def test_desktop_transport_requires_exact_secure_endpoint(self) -> None:
+        invalid = (
+            "http://203.0.113.5/v1/classroom/chat",
+            "https://user:pass@example.com/v1/classroom/chat",
+            "https://example.com/v1/classroom/chat?x=1",
+            "https://example.com/v1/classroom/chat#frag",
+            "https://example.com/v1/classroom/chat/",
+            "ftp://example.com/v1/classroom/chat",
+        )
+        for endpoint_url in invalid:
+            with self.subTest(endpoint_url=endpoint_url):
+                with self.assertRaises(ValueError):
+                    ClassroomChatHttpRpcCall(
+                        endpoint_url=endpoint_url,
+                        bearer_token_provider=lambda: "token",
+                    )
+
+        with self.assertRaises(ValueError):
+            ClassroomChatHttpRpcCall(
+                endpoint_url="http://127.0.0.1:8080/v1/classroom/chat",
+                bearer_token_provider=lambda: "token",
+            )
+        with self.assertRaises(ValueError):
+            ClassroomChatHttpRpcCall(
+                endpoint_url="http://localhost:8080/v1/classroom/chat",
+                bearer_token_provider=lambda: "token",
+                allow_insecure_loopback=True,
+            )
+        transport = ClassroomChatHttpRpcCall(
+            endpoint_url="http://127.0.0.1:8080/v1/classroom/chat",
+            bearer_token_provider=lambda: "token",
+            allow_insecure_loopback=True,
+        )
+        self.assertIn("scheme='http'", repr(transport))
+        self.assertNotIn("token", repr(transport))
+
+    def test_desktop_transport_uses_fresh_bearer_and_strict_bounded_response(self) -> None:
+        tokens = iter(("token-one", "token-two"))
+        FakeHttpConnection.instances = []
+        FakeHttpConnection.fail_request = None
+        FakeHttpConnection.response = FakeHttpResponse({"v": 1, "ok": True})
+        transport = ClassroomChatHttpRpcCall(
+            endpoint_url="https://chat.example.test/v1/classroom/chat",
+            bearer_token_provider=lambda: next(tokens),
+            timeout_seconds=7,
+        )
+
+        with patch(
+            "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+            FakeHttpConnection,
+        ):
+            first = transport.call({"v": 1, "op": "one"})
+            second = transport.call({"v": 1, "op": "two"})
+
+        self.assertEqual({"v": 1, "ok": True}, first)
+        self.assertEqual(first, second)
+        self.assertEqual(2, len(FakeHttpConnection.instances))
+        self.assertTrue(all(item.closed for item in FakeHttpConnection.instances))
+        self.assertEqual(
+            ["Bearer token-one", "Bearer token-two"],
+            [
+                item.requests[0][3]["Authorization"]
+                for item in FakeHttpConnection.instances
+            ],
+        )
+        self.assertEqual(
+            [("chat.example.test", 443, 7.0)] * 2,
+            [
+                (item.host, item.port, item.timeout)
+                for item in FakeHttpConnection.instances
+            ],
+        )
+        method, target, raw_body, headers = FakeHttpConnection.instances[0].requests[0]
+        self.assertEqual("POST", method)
+        self.assertEqual(CHAT_RPC_PATH, target)
+        self.assertEqual(
+            {"v": 1, "op": "one"},
+            json.loads(raw_body.decode("utf-8")),
+        )
+        self.assertEqual("application/json; charset=utf-8", headers["Content-Type"])
+        self.assertEqual("application/json", headers["Accept"])
+        self.assertEqual(str(len(raw_body)), headers["Content-Length"])
+        self.assertEqual(
+            [192 * 1024 * 1024 + 1, 192 * 1024 * 1024 + 1],
+            FakeHttpConnection.response.read_limits,
+        )
+
+    def test_desktop_transport_integrates_with_canonical_rpc_client(self) -> None:
+        delivered = {
+            "v": 1,
+            "ok": True,
+            "message": {
+                "message_id": "http-client-message",
+                "room_id": ROOM,
+                "sender_id": STUDENT,
+                "sequence_no": 0,
+                "body": "Through HTTP",
+                "retention": "session",
+                "hidden": False,
+                "sent_at_unix_ms": 1700000000000,
+            },
+        }
+        FakeHttpConnection.instances = []
+        FakeHttpConnection.fail_request = None
+        FakeHttpConnection.response = FakeHttpResponse(delivered)
+        transport = ClassroomChatHttpRpcCall(
+            endpoint_url="https://chat.example.test/v1/classroom/chat",
+            bearer_token_provider=lambda: "ephemeral-token",
+        )
+        client = ClassroomChatRpcClient(
+            room_id=ROOM,
+            participant_id=STUDENT,
+            transport=transport,
+        )
+
+        with patch(
+            "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+            FakeHttpConnection,
+        ):
+            message = client.send_message(
+                ChatDraft(
+                    "http-client-message",
+                    ROOM,
+                    STUDENT,
+                    "Through HTTP",
+                )
+            )
+
+        self.assertEqual("http-client-message", message.message_id)
+        request = json.loads(
+            FakeHttpConnection.instances[0].requests[0][2].decode("utf-8")
+        )
+        self.assertEqual("send", request["op"])
+        self.assertEqual(ROOM, request["room_id"])
+        self.assertEqual(STUDENT, request["participant_id"])
+        self.assertNotIn("ephemeral-token", repr(request))
+
+    def test_desktop_transport_rejects_bad_credentials_without_network(self) -> None:
+        for token in (
+            "",
+            "has space",
+            " trailing ",
+            "nonascii-\N{LATIN SMALL LETTER E WITH ACUTE}",
+            "x" * 9000,
+        ):
+            FakeHttpConnection.instances = []
+            transport = ClassroomChatHttpRpcCall(
+                endpoint_url="https://chat.example.test/v1/classroom/chat",
+                bearer_token_provider=lambda token=token: token,
+            )
+            with patch(
+                "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+                FakeHttpConnection,
+            ):
+                with self.assertRaises(ClassroomChatHttpClientError):
+                    transport.call({"v": 1})
+            self.assertEqual([], FakeHttpConnection.instances)
+
+    def test_desktop_transport_rejects_untrusted_response_shapes_and_closes(self) -> None:
+        cases = (
+            FakeHttpResponse(status=401),
+            FakeHttpResponse(headers=[
+                ("Content-Type", "text/plain"),
+                ("Content-Length", "2"),
+            ], raw_body=b"{}"),
+            FakeHttpResponse(headers=[
+                ("Content-Type", "application/json; charset=utf-8"),
+                ("Content-Length", "2"),
+                ("Content-Encoding", "gzip"),
+            ], raw_body=b"{}"),
+            FakeHttpResponse(headers=[
+                ("Content-Type", "application/json; charset=utf-8"),
+                ("Content-Length", "2"),
+                ("Content-Length", "2"),
+            ], raw_body=b"{}"),
+            FakeHttpResponse(
+                headers=[
+                    ("Content-Type", "application/json; charset=utf-8"),
+                    ("Content-Length", "3"),
+                ],
+                raw_body=b"{}",
+            ),
+            FakeHttpResponse(raw_body=b'{"v":1,"v":1}'),
+            FakeHttpResponse(raw_body=b"[]"),
+            FakeHttpResponse(raw_body=b'{"v":NaN}'),
+            FakeHttpResponse(raw_body=b"\xff"),
+        )
+        for response in cases:
+            with self.subTest(response=response):
+                FakeHttpConnection.instances = []
+                FakeHttpConnection.fail_request = None
+                FakeHttpConnection.response = response
+                transport = ClassroomChatHttpRpcCall(
+                    endpoint_url="https://chat.example.test/v1/classroom/chat",
+                    bearer_token_provider=lambda: "token",
+                )
+                with patch(
+                    "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+                    FakeHttpConnection,
+                ):
+                    with self.assertRaises(ClassroomChatHttpClientError):
+                        transport.call({"v": 1})
+                self.assertEqual(1, len(FakeHttpConnection.instances))
+                self.assertTrue(FakeHttpConnection.instances[0].closed)
+
+    def test_desktop_transport_sanitizes_network_failure_and_closes(self) -> None:
+        FakeHttpConnection.instances = []
+        FakeHttpConnection.fail_request = RuntimeError("socket secret")
+        transport = ClassroomChatHttpRpcCall(
+            endpoint_url="https://chat.example.test/v1/classroom/chat",
+            bearer_token_provider=lambda: "token",
+        )
+        with patch(
+            "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
+            FakeHttpConnection,
+        ):
+            with self.assertRaisesRegex(
+                ClassroomChatHttpClientError,
+                "transport failed",
+            ) as raised:
+                transport.call({"v": 1})
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertNotIn("socket secret", str(raised.exception))
+        self.assertTrue(FakeHttpConnection.instances[0].closed)
+        FakeHttpConnection.fail_request = None
 
     async def test_https_send_binds_bearer_identity_and_sets_private_headers(self) -> None:
         sent = await self.invoke()
