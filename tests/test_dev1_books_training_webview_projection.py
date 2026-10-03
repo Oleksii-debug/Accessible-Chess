@@ -92,6 +92,51 @@ class BookProjectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "contains NUL"):
             self.projection._snapshot_from_block(block)
 
+    def test_projection_rejects_role_coercion_and_malformed_position_token(self) -> None:
+        class CoercibleRole:
+            def __str__(self) -> str:
+                return "paragraph"
+
+        before_index = self.presenter.current().index
+        before_calls = tuple(self.calls)
+        current = self.presenter.current()
+
+        with self.assertRaisesRegex(TypeError, "role must be text"):
+            self.projection._snapshot_from_block(
+                replace(
+                    current,
+                    role=CoercibleRole(),
+                    heading_level=None,
+                    title="",
+                    text="Looks readable only after coercion.",
+                )
+            )
+
+        malformed_positions = (
+            object(),
+            "",
+            "   ",
+            "8/8/8/8/8/8/8/8 w - - 0 1\x00hidden",
+            "x" * 4097,
+        )
+        for value in malformed_positions:
+            with self.subTest(value_type=type(value).__name__, size=getattr(value, "__len__", lambda: -1)()):
+                with self.assertRaisesRegex(ValueError, "board-position token is invalid"):
+                    self.projection._snapshot_from_block(
+                        replace(current, position_fen=value)
+                    )
+
+        self.assertEqual(before_index, self.presenter.current().index)
+        self.assertEqual(before_calls, tuple(self.calls))
+
+    def test_projection_rejects_excessive_heading_path_depth(self) -> None:
+        current = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "heading path is invalid"):
+            self.projection._snapshot_from_block(
+                replace(current, heading_path=tuple("Chapter" for _ in range(257)))
+            )
+        self.assertEqual(0, self.presenter.current().index)
+
     def test_projection_rejects_heading_level_role_mismatch(self) -> None:
         heading = self.presenter.current()
         with self.assertRaisesRegex(ValueError, "inconsistent with its role"):
