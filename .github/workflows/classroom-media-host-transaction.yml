@@ -39,9 +39,13 @@ jobs:
         shell: bash
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          test -n "$PR_BASE_REF"
+          test "$PR_BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+          test -n "$EVENT_BASE_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
           git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
           base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
           git merge-base --is-ancestor "$base" HEAD
