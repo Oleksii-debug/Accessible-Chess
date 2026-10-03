@@ -2461,6 +2461,46 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         send_chat.assert_not_called()
         self.assertEqual(view._pending_chat, {})
 
+    def test_durable_chat_outbox_sync_clears_recovered_identity_after_recreation(self) -> None:
+        secrets_store = MemorySecretStore()
+        outbox = SecretStoreChatOutbox(
+            secrets_store,
+            CHAT_OUTBOX_SCOPE,
+            "room-1",
+            "student-1",
+        )
+        outbox.reserve(
+            message_id="message-recovered-after-restart",
+            body="Already committed before crash",
+            retention="session",
+        )
+        view = self.webview(
+            chat_outbox=SecretStoreChatOutbox(
+                secrets_store,
+                CHAT_OUTBOX_SCOPE,
+                "room-1",
+                "student-1",
+            )
+        )
+        accepted = ChatMessageMetadata(
+            "message-recovered-after-restart",
+            "room-1",
+            "student-1",
+            0,
+            "Already committed before crash",
+            retention="session",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.chat.messages[accepted.message_id] = accepted
+        self.chat.ordered = [accepted]
+
+        synced = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual("collaboration.chat.synced", synced.kind)
+        self.assertEqual("Message sent.", synced.payload["announcement"])
+        self.assertEqual(view._pending_chat, {})
+        self.assertEqual(outbox.entries(), ())
+
     def test_durable_chat_outbox_cleanup_failure_keeps_exact_retry_identity(self) -> None:
         class DeleteFailsOnceSecretStore(MemorySecretStore):
             def __init__(self) -> None:
