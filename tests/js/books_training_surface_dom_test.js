@@ -160,6 +160,11 @@ function semanticGameSnapshot() {
     players: "Alpha — Beta",
     result_label: "Result",
     result: "*",
+    metadata_label: "Game metadata",
+    metadata: [
+      { name: "Event", value: "Accessible test" },
+      { name: "Date", value: "2026.10.03" }
+    ],
     comments_label: "Comments",
     intro_comments_label: "Comments before moves",
     intro_comments: ["Opening <script>bad()</script>"],
@@ -387,6 +392,18 @@ async function run() {
     "semantic Game focus target lacks an accessible name");
   check(find(semanticBlock, "P", "Players: Alpha — Beta") !== null,
     "semantic Game player identity is missing");
+  const metadataHeading = find(semanticBlock, "H4", "Game metadata");
+  check(metadataHeading !== null, "semantic Game metadata heading is missing");
+  const metadataList = find(semanticBlock, "DL");
+  check(metadataList !== null, "semantic Game metadata must use a definition list");
+  check(metadataList.attributes["aria-labelledby"] === metadataHeading.id,
+    "semantic Game metadata list lacks an accessible heading");
+  check(find(metadataList, "DT", "Event") !== null,
+    "semantic Game metadata tag name is missing");
+  check(find(metadataList, "DD", "Accessible test") !== null,
+    "semantic Game metadata tag value is missing");
+  check(find(metadataList, "DT", "Date") !== null,
+    "semantic Game Date metadata is missing");
   check(find(semanticBlock, "H4", "Moves and variations") !== null,
     "semantic move heading is missing");
   check(find(semanticBlock, "SPAN", "1. e4") !== null,
@@ -510,6 +527,71 @@ async function run() {
     "malformed trailing comments must not replace the prior readable DOM");
   check(document.activeElement === focusBeforeMalformed,
     "malformed trailing comments must not steal reading focus");
+
+  const malformedMetadata = semanticGameSnapshot();
+  malformedMetadata.block.semantic_tree.metadata = { Event: "bad" };
+  let malformedMetadataRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedMetadata,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedMetadataRejected = true;
+  }
+  check(malformedMetadataRejected, "non-array semantic metadata must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed metadata must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed metadata must not steal reading focus");
+
+  const malformedMetadataValue = semanticGameSnapshot();
+  malformedMetadataValue.block.semantic_tree.metadata[0].value = { text: "bad" };
+  let malformedMetadataValueRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      malformedMetadataValue,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    malformedMetadataValueRejected = true;
+  }
+  check(malformedMetadataValueRejected, "non-text semantic metadata value must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "malformed metadata value must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "malformed metadata value must not steal reading focus");
+
+  const excessiveMetadata = semanticGameSnapshot();
+  excessiveMetadata.block.semantic_tree.metadata = new Array(4097).fill(
+    { name: "Event", value: "bounded" }
+  );
+  let excessiveMetadataRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      bookRoot,
+      excessiveMetadata,
+      bookInvoke,
+      announce,
+      "book-block-5",
+      "Action failed"
+    );
+  } catch (error) {
+    excessiveMetadataRejected = true;
+  }
+  check(excessiveMetadataRejected, "excessive semantic metadata must fail closed");
+  check(bookRoot.replaceChildrenCalls === replaceCountBeforeMalformed,
+    "excessive metadata must not replace the prior readable DOM");
+  check(document.activeElement === focusBeforeMalformed,
+    "excessive metadata must not steal reading focus");
 
   const malformedResultType = semanticGameSnapshot();
   malformedResultType.block.semantic_tree.items[1].result = { value: "*" };
