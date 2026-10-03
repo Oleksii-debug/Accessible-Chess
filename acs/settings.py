@@ -25,6 +25,8 @@ DEFAULTS: dict[str, Any] = {
     "sound_illegal_variant": "1",
     "sound_start_variant": "1",
     "sound_end_variant": "1",
+    "sound_mate_variant": "1",
+    "sound_draw_variant": "1",
     "sound_tick_variant": "1",
 }
 
@@ -41,6 +43,8 @@ _SOUND_VARIANT_KEYS = frozenset(
         "sound_illegal_variant",
         "sound_start_variant",
         "sound_end_variant",
+        "sound_mate_variant",
+        "sound_draw_variant",
         "sound_tick_variant",
     }
 )
