@@ -514,15 +514,16 @@
         const mediaStatus = snapshot.product_status && typeof snapshot.product_status === "object"
           ? snapshot.product_status
           : {};
+        const mediaRecoveryRequired = mediaStatus.media_recovery_required === true;
         global.AccessibleChessClassroomMediaSurface.mount(
           workspace,
-          snapshot.media || null,
+          mediaRecoveryRequired ? null : (snapshot.media || null),
           mediaInvoke,
           announce,
           currentLanguage,
           {
             binding_active: mediaStatus.media_binding_active === true,
-            recovery_required: mediaStatus.media_recovery_required === true
+            recovery_required: mediaRecoveryRequired
           }
         );
       }
