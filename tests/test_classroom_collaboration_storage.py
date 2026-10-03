@@ -56,6 +56,166 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
                 ).fetchone()
             )
         ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertIsNotNone(
+                db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='table' AND name='collaboration_attachment_deletions'"
+                ).fetchone()
+            )
+
+    def test_v6_upgrade_backfills_deleted_attachment_cleanup(self) -> None:
+        tombstone = AttachmentMetadata(
+            "legacy-deleted",
+            "room",
+            "teacher",
+            0,
+            "legacy.bin",
+            None,
+            1,
+            "a" * 64,
+            "rooms/room/legacy-deleted",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute("DROP TABLE collaboration_attachment_deletions")
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=6 "
+                "WHERE key='schema_version'"
+            )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(
+            reopened.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+        reopened.integrity_check()
+
+    def test_deleted_attachment_cleanup_intent_is_durable_and_acknowledged(self) -> None:
+        tombstone = AttachmentMetadata(
+            "cleanup-a0",
+            "room",
+            "teacher",
+            0,
+            "cleanup.bin",
+            None,
+            1,
+            "b" * 64,
+            "rooms/room/cleanup-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+
+        reopened = ClassroomCollaborationSQLiteStore(str(self.db_path))
+        self.assertEqual(
+            reopened.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
+        reopened.acknowledge_attachment_deletion(
+            room_id="room",
+            object_key=tombstone.object_key,
+        )
+        self.assertEqual(reopened.pending_attachment_deletions("room"), ())
+        self.assertEqual(reopened.register_attachment(tombstone), tombstone)
+        self.assertEqual(reopened.pending_attachment_deletions("room"), ())
+
+    def test_schema_version_rejects_noncanonical_sqlite_real(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=6.5 "
+                "WHERE key='schema_version'"
+            )
+            stored = db.execute(
+                "SELECT value, typeof(value) FROM collaboration_schema_meta "
+                "WHERE key='schema_version'"
+            ).fetchone()
+        self.assertEqual(stored[1], "real")
+
+        with self.assertRaises(CollaborationStorageError):
+            ClassroomCollaborationSQLiteStore(str(self.db_path))
+
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_schema_meta SET value=? "
+                "WHERE key='schema_version'",
+                (SCHEMA_VERSION,),
+            )
+        ClassroomCollaborationSQLiteStore(str(self.db_path)).integrity_check()
+
+    def test_corrupt_attachment_cleanup_intent_fails_closed(self) -> None:
+        tombstone = AttachmentMetadata(
+            "corrupt-cleanup-a0",
+            "room",
+            "teacher",
+            0,
+            "corrupt.bin",
+            None,
+            1,
+            "c" * 64,
+            "rooms/room/corrupt-cleanup-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_attachment_deletions "
+                "SET attachment_id='invalid attachment id' "
+                "WHERE object_key=?",
+                (tombstone.object_key,),
+            )
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "stored attachment deletion intent is invalid",
+        ):
+            self.store.pending_attachment_deletions("room")
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "stored attachment deletion intent is invalid",
+        ):
+            self.store.integrity_check()
+
+    def test_cleanup_acknowledgement_cannot_cross_room_boundary(self) -> None:
+        tombstone = AttachmentMetadata(
+            "room-bound-cleanup",
+            "room",
+            "teacher",
+            0,
+            "room-bound.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room/room-bound-cleanup",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(tombstone)
+
+        with self.assertRaisesRegex(
+            CollaborationStorageError,
+            "crossed room boundary",
+        ):
+            self.store.acknowledge_attachment_deletion(
+                room_id="other-room",
+                object_key=tombstone.object_key,
+            )
+
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room"),
+            (tombstone.object_key,),
+        )
 
     def test_v5_sequence_index_upgrades_without_leaving_legacy_index(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -535,6 +695,64 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
             (first, second, third),
         )
 
+    def test_live_append_rejects_sequence_after_existing_local_gap(self) -> None:
+        first = ChatMessageMetadata("m0", "room", "teacher", 0, "First")
+        self.store.append_message(first)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    "m2-corrupt",
+                    "room",
+                    "teacher",
+                    2,
+                    "Corrupt tail",
+                    "session",
+                    0,
+                    1700000000002,
+                ),
+            )
+
+        with self.assertRaises(CollaborationSequenceGapError):
+            self.store.append_message(
+                ChatMessageMetadata(
+                    "m3",
+                    "room",
+                    "teacher",
+                    3,
+                    "Must wait for recovery",
+                    sent_at_unix_ms=1700000000003,
+                )
+            )
+
+        second = ChatMessageMetadata(
+            "m1",
+            "room",
+            "student",
+            1,
+            "Recovered gap",
+            sent_at_unix_ms=1700000000001,
+        )
+        self.store.append_message(second)
+        third = ChatMessageMetadata(
+            "m3",
+            "room",
+            "teacher",
+            3,
+            "Now contiguous",
+            sent_at_unix_ms=1700000000003,
+        )
+        self.store.append_message(third)
+        self.assertEqual(
+            tuple(message.sequence_no for message in self.store.room_messages("room")),
+            (0, 1, 2, 3),
+        )
+
     def test_message_identity_and_room_sequence_cannot_overwrite(self) -> None:
         self.store.append_message(ChatMessageMetadata("m1", "room", "teacher", 0, "Hello"))
         with self.assertRaises(CollaborationConflictError):
@@ -548,6 +766,110 @@ class ClassroomCollaborationSQLiteStoreTests(unittest.TestCase):
         self.assertTrue(hidden.hidden)
         self.assertEqual(self.store.room_messages("room"), ())
         self.assertEqual(self.store.room_messages("room", include_hidden=True), (hidden,))
+
+    def test_hidden_message_cannot_be_unhidden_outside_moderation_stream(self) -> None:
+        self.store.append_message(
+            ChatMessageMetadata("m1", "room", "teacher", 0, "Moderated")
+        )
+        hidden = self.store.set_message_hidden("m1", True)
+        self.assertTrue(hidden.hidden)
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.set_message_hidden("m1", False)
+
+        self.assertEqual(
+            self.store.room_messages("room", include_hidden=True),
+            (hidden,),
+        )
+
+    def test_durable_message_readback_rejects_noncanonical_sqlite_values(self) -> None:
+        message = ChatMessageMetadata(
+            "m-corrupt",
+            "room",
+            "teacher",
+            0,
+            "Stored strictly",
+            sent_at_unix_ms=1700000000000,
+        )
+        self.store.append_message(message)
+
+        corruptions = (
+            ("hidden", 2, "integer", 0),
+            ("sequence_no", 0.5, "real", 0),
+            ("sent_at_unix_ms", 1700000000000.5, "real", 1700000000000),
+        )
+        for column, corrupt, storage_type, restore in corruptions:
+            with self.subTest(column=column):
+                with closing(sqlite3.connect(self.db_path)) as db, db:
+                    db.execute(
+                        f"UPDATE collaboration_messages SET {column}=? "
+                        "WHERE message_id='m-corrupt'",
+                        (corrupt,),
+                    )
+                    stored_type = db.execute(
+                        f"SELECT typeof({column}) FROM collaboration_messages "
+                        "WHERE message_id='m-corrupt'"
+                    ).fetchone()[0]
+                self.assertEqual(stored_type, storage_type)
+                with self.assertRaises(CollaborationStorageError):
+                    self.store.room_messages("room")
+                with closing(sqlite3.connect(self.db_path)) as db, db:
+                    db.execute(
+                        f"UPDATE collaboration_messages SET {column}=? "
+                        "WHERE message_id='m-corrupt'",
+                        (restore,),
+                    )
+
+        self.assertEqual(self.store.room_messages("room"), (message,))
+
+    def test_durable_attachment_and_revision_readback_rejects_sqlite_real(self) -> None:
+        attachment = AttachmentMetadata(
+            "a-corrupt",
+            "room",
+            "teacher",
+            0,
+            "strict.bin",
+            None,
+            8,
+            "a" * 64,
+            "rooms/room/a-corrupt",
+            "stored",
+            "persistent",
+            "clean",
+        )
+        self.store.register_attachment(attachment)
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_attachments SET size_bytes=8.5 "
+                "WHERE attachment_id='a-corrupt'"
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT typeof(size_bytes) FROM collaboration_attachments "
+                    "WHERE attachment_id='a-corrupt'"
+                ).fetchone()[0],
+                "real",
+            )
+        with self.assertRaises(CollaborationStorageError):
+            self.store.room_attachments("room")
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            db.execute(
+                "UPDATE collaboration_attachments SET size_bytes=8 "
+                "WHERE attachment_id='a-corrupt'"
+            )
+            db.execute(
+                "INSERT INTO collaboration_chat_state_cursors(room_id, revision) "
+                "VALUES('room', 0.5)"
+            )
+            db.execute(
+                "INSERT INTO collaboration_attachment_state_cursors(room_id, revision) "
+                "VALUES('room', 0.5)"
+            )
+
+        with self.assertRaises(CollaborationStorageError):
+            self.store.chat_state_revision("room")
+        with self.assertRaises(CollaborationStorageError):
+            self.store.attachment_state_revision("room")
 
     def test_hidden_state_requires_strict_boolean(self) -> None:
         self.store.append_message(

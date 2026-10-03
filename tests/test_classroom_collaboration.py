@@ -269,6 +269,8 @@ class FakeFiles:
 class FakeFileStore:
     def __init__(self):
         self.read_calls = []
+        self.delete_calls = []
+        self.delete_failures = 0
         self.token = "short-lived-read-token"
 
     def put(self, *, object_key, content, expected_sha256):
@@ -279,7 +281,10 @@ class FakeFileStore:
         return self.token
 
     def delete(self, *, object_key):
-        pass
+        self.delete_calls.append(object_key)
+        if self.delete_failures:
+            self.delete_failures -= 1
+            raise RuntimeError("simulated durable delete failure")
 
 
 class ClassroomCollaborationContractTests(unittest.TestCase):
@@ -420,6 +425,48 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             (),
         )
 
+    def test_ambiguous_chat_recovery_validates_entire_history_page(self):
+        controller = self.controller()
+        accepted = ChatMessageMetadata(
+            "ambiguous-page",
+            "room-1",
+            "student-1",
+            0,
+            "Accepted",
+            sent_at_unix_ms=1700000000000,
+        )
+        crossed_room = ChatMessageMetadata(
+            "cross-room-neighbor",
+            "room-2",
+            "teacher-1",
+            1,
+            "Must invalidate the page",
+            sent_at_unix_ms=1700000000001,
+        )
+
+        with patch.object(
+            self.chat,
+            "send_message",
+            side_effect=RuntimeError("ambiguous transport failure"),
+        ), patch.object(
+            self.chat,
+            "history_after",
+            return_value=(accepted, crossed_room),
+        ):
+            with self.assertRaisesRegex(
+                CollaborationError,
+                "chat history crossed room boundary",
+            ):
+                controller.send_chat(
+                    message_id=accepted.message_id,
+                    body=accepted.body,
+                )
+
+        self.assertEqual(
+            self.store.room_messages("room-1", include_hidden=True),
+            (),
+        )
+
     def test_transport_cannot_mutate_message_identity_or_body(self):
         controller = self.controller()
         self.chat.mutate_delivery = True
@@ -486,6 +533,51 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             history,
         )
         self.assertEqual(controller.sync_chat(), ())
+
+    def test_live_receive_repairs_preexisting_local_sequence_gap_before_append(self):
+        controller = self.controller()
+        messages = tuple(
+            ChatMessageMetadata(
+                f"m{sequence}",
+                "room-1",
+                "teacher-1",
+                sequence,
+                f"Message {sequence}",
+                sent_at_unix_ms=1700000000000 + sequence,
+            )
+            for sequence in range(4)
+        )
+        self.chat.ordered = list(messages)
+        self.chat.messages = {message.message_id: message for message in messages}
+        self.store.append_message(messages[0])
+        with sqlite3.connect(self.root / "collaboration.sqlite3") as db:
+            db.execute(
+                """
+                INSERT INTO collaboration_messages(
+                    message_id, room_id, sender_id, sequence_no, body,
+                    retention, hidden, sent_at_unix_ms
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    messages[2].message_id,
+                    messages[2].room_id,
+                    messages[2].sender_id,
+                    messages[2].sequence_no,
+                    messages[2].body,
+                    messages[2].retention,
+                    int(messages[2].hidden),
+                    messages[2].sent_at_unix_ms,
+                ),
+            )
+            db.commit()
+
+        received = controller.receive_chat(messages[3])
+
+        self.assertEqual(received, messages[3])
+        self.assertEqual(
+            self.store.room_messages("room-1"),
+            messages,
+        )
 
     def test_sync_reconnect_persists_only_new_strictly_ordered_messages(self):
         controller = self.controller()
@@ -1364,6 +1456,70 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
             ),
         )
 
+    def test_failed_upload_result_cannot_reassign_provisional_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="provider-failed-resequenced",
+            local_path=self.make_file("provider-failed-resequenced.bin", b"opaque"),
+            sequence_no=93,
+            retention="persistent",
+        )
+        failed_result = replace(
+            prepared.metadata,
+            sequence_no=7,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        with patch.object(self.files, "upload", return_value=failed_result):
+            with self.assertRaises(CollaborationError):
+                controller.upload_file(prepared)
+
+        failed = self.store.room_attachments("room-1")
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(
+            (failed[0].sequence_no, failed[0].transfer_state),
+            (93, "failed"),
+        )
+
+    def test_failed_retry_result_cannot_reassign_provisional_sequence(self):
+        controller = self.controller("teacher-1")
+        prepared = controller.prepare_file(
+            attachment_id="provider-retry-failed-resequenced",
+            local_path=self.make_file(
+                "provider-retry-failed-resequenced.bin",
+                b"opaque",
+            ),
+            sequence_no=41,
+            retention="persistent",
+        )
+        self.store.register_attachment(prepared.metadata)
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="uploading",
+        )
+        self.store.update_attachment_state(
+            prepared.metadata.attachment_id,
+            transfer_state="failed",
+        )
+        failed_result = replace(
+            prepared.metadata,
+            sequence_no=2,
+            transfer_state="failed",
+            scan_state="failed",
+        )
+
+        with patch.object(self.files, "retry", return_value=failed_result):
+            with self.assertRaises(CollaborationError):
+                controller.retry_file(prepared)
+
+        failed = self.store.room_attachments("room-1")
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(
+            (failed[0].sequence_no, failed[0].transfer_state),
+            (41, "failed"),
+        )
+
     def test_failed_provisional_sequence_does_not_block_remote_authoritative_sequence(self):
         controller = self.controller("teacher-1")
         prepared = controller.prepare_file(
@@ -1747,6 +1903,91 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(
             tuple((item.sequence_no, item.transfer_state) for item in persisted),
             ((0, "deleted"), (1, "stored")),
+        )
+
+    def test_file_tombstone_deletes_durable_bytes_once(self):
+        controller = self.controller("teacher-1")
+        tombstone = AttachmentMetadata(
+            "cleanup-remote-a0",
+            "room-1",
+            "student-1",
+            0,
+            "cleanup.bin",
+            None,
+            1,
+            "c" * 64,
+            "rooms/room-1/cleanup-remote-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (tombstone,)
+
+        self.assertEqual(controller.sync_files(), ())
+        self.assertEqual(self.file_store.delete_calls, [tombstone.object_key])
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room-1"),
+            (),
+        )
+
+        self.files.history_override = ()
+        self.assertEqual(controller.sync_files(), ())
+        self.assertEqual(self.file_store.delete_calls, [tombstone.object_key])
+
+    def test_file_delete_failure_survives_reopen_and_retries_without_new_history(self):
+        controller = self.controller("teacher-1")
+        tombstone = AttachmentMetadata(
+            "cleanup-retry-a0",
+            "room-1",
+            "student-1",
+            0,
+            "cleanup-retry.bin",
+            None,
+            1,
+            "d" * 64,
+            "rooms/room-1/cleanup-retry-a0",
+            "deleted",
+            "persistent",
+            "clean",
+        )
+        self.files.history_override = (tombstone,)
+        self.file_store.delete_failures = 1
+
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "durable file deletion failed",
+        ):
+            controller.sync_files()
+
+        self.assertEqual(self.store.room_attachments("room-1"), (tombstone,))
+        self.assertEqual(
+            self.store.pending_attachment_deletions("room-1"),
+            (tombstone.object_key,),
+        )
+        self.assertEqual(self.file_store.delete_calls, [tombstone.object_key])
+
+        reopened_store = ClassroomCollaborationSQLiteStore(
+            str(self.root / "collaboration.sqlite3")
+        )
+        reopened = ClassroomCollaborationController(
+            room_id="room-1",
+            local_participant_id="teacher-1",
+            roster=self.roster,
+            chat=self.chat,
+            files=self.files,
+            store=reopened_store,
+            file_store=self.file_store,
+        )
+        self.files.history_override = ()
+
+        self.assertEqual(reopened.sync_files(), ())
+        self.assertEqual(
+            self.file_store.delete_calls,
+            [tombstone.object_key, tombstone.object_key],
+        )
+        self.assertEqual(
+            reopened_store.pending_attachment_deletions("room-1"),
+            (),
         )
 
     def test_file_state_for_next_history_page_is_deferred(self):

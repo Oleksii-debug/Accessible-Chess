@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from .classroom_domain import MAX_WIRE_INTEGER
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 MAX_CHAT_TIMESTAMP_UNIX_MS = 253402300799999
 MAX_CHAT_BODY_CHARS = 4000
 MAX_ID_CHARS = 128
@@ -198,13 +198,36 @@ class FileStorePort(Protocol):
 
     def put(self, *, object_key: str, content: bytes, expected_sha256: str) -> None: ...
     def issue_read_token(self, *, object_key: str, participant_id: str, ttl_seconds: int) -> str: ...
-    def delete(self, *, object_key: str) -> None: ...
+    def delete(self, *, object_key: str) -> None:
+        """Idempotently delete durable bytes for crash-safe tombstone recovery."""
+        ...
 
 
 def _canonical_id(value: object, label: str) -> str:
     if type(value) is not str or len(value) > MAX_ID_CHARS or _ID_RE.fullmatch(value) is None:
         raise ValueError(f"{label} must be a canonical opaque identifier")
     return value
+
+
+def _stored_integer(
+    value: object,
+    label: str,
+    *,
+    maximum: int = MAX_WIRE_INTEGER,
+) -> int:
+    if type(value) is not int or not 0 <= value <= maximum:
+        raise CollaborationStorageError(
+            f"stored {label} must be a bounded non-negative integer"
+        )
+    return value
+
+
+def _stored_boolean(value: object, label: str) -> bool:
+    if type(value) is not int or value not in {0, 1}:
+        raise CollaborationStorageError(
+            f"stored {label} must be canonical SQLite boolean 0 or 1"
+        )
+    return bool(value)
 
 
 def _safe_object_key(value: object) -> str:
@@ -307,11 +330,51 @@ def _next_authoritative_attachment_sequence(
     ).fetchall()
     expected = 0
     for row in rows:
-        sequence = int(row["sequence_no"])
+        sequence = _stored_integer(
+            row["sequence_no"],
+            "attachment sequence",
+        )
         if sequence != expected:
             break
         expected += 1
     return expected
+
+
+def _queue_attachment_deletion(
+    db: sqlite3.Connection,
+    attachment: AttachmentMetadata,
+) -> None:
+    if attachment.transfer_state != "deleted":
+        return
+    db.execute(
+        """
+        INSERT OR IGNORE INTO collaboration_attachment_deletions(
+            room_id, attachment_id, object_key
+        ) VALUES(?,?,?)
+        """,
+        (
+            attachment.room_id,
+            attachment.attachment_id,
+            attachment.object_key,
+        ),
+    )
+    rows = db.execute(
+        """
+        SELECT room_id, attachment_id, object_key
+        FROM collaboration_attachment_deletions
+        WHERE attachment_id=? OR object_key=?
+        """,
+        (attachment.attachment_id, attachment.object_key),
+    ).fetchall()
+    if (
+        len(rows) != 1
+        or rows[0]["room_id"] != attachment.room_id
+        or rows[0]["attachment_id"] != attachment.attachment_id
+        or rows[0]["object_key"] != attachment.object_key
+    ):
+        raise CollaborationConflictError(
+            "attachment deletion intent conflicts with durable storage identity"
+        )
 
 
 class ClassroomCollaborationSQLiteStore:
@@ -338,7 +401,11 @@ class ClassroomCollaborationSQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             db.execute("CREATE TABLE IF NOT EXISTS collaboration_schema_meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
             row = db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()
-            version = int(row[0]) if row else 0
+            version = (
+                _stored_integer(row[0], "schema version")
+                if row
+                else 0
+            )
             if version > SCHEMA_VERSION:
                 raise CollaborationStorageError(f"unsupported collaboration schema {version}")
             if version < 1:
@@ -508,6 +575,33 @@ class ClassroomCollaborationSQLiteStore:
                     "UPDATE collaboration_schema_meta SET value=6 WHERE key='schema_version'"
                 )
                 version = 6
+            if version < 7:
+                # Tombstone metadata and durable byte cleanup intent must advance
+                # atomically. The external delete is acknowledged separately so
+                # provider failures and process crashes remain retryable.
+                db.execute(
+                    """
+                    CREATE TABLE collaboration_attachment_deletions(
+                        room_id TEXT NOT NULL,
+                        attachment_id TEXT NOT NULL UNIQUE,
+                        object_key TEXT PRIMARY KEY
+                    )
+                    """
+                )
+                db.execute(
+                    """
+                    INSERT INTO collaboration_attachment_deletions(
+                        room_id, attachment_id, object_key
+                    )
+                    SELECT room_id, attachment_id, object_key
+                    FROM collaboration_attachments
+                    WHERE transfer_state='deleted'
+                    """
+                )
+                db.execute(
+                    "UPDATE collaboration_schema_meta SET value=7 WHERE key='schema_version'"
+                )
+                version = 7
 
     def append_message(self, message: ChatMessageMetadata) -> ChatMessageMetadata:
         with closing(self._connect()) as db, db:
@@ -562,21 +656,25 @@ class ClassroomCollaborationSQLiteStore:
                     ).fetchone()
                     loaded = self._message_from_row(existing)
                 return loaded
-            latest = db.execute(
+            sequence_rows = db.execute(
                 """
-                SELECT MAX(sequence_no)
+                SELECT sequence_no
                 FROM collaboration_messages
                 WHERE room_id=?
+                ORDER BY sequence_no
                 """,
                 (message.room_id,),
-            ).fetchone()[0]
-            if (
-                latest is None
-                and message.sequence_no != 0
-            ) or (
-                latest is not None
-                and message.sequence_no > int(latest) + 1
-            ):
+            ).fetchall()
+            expected_sequence = 0
+            for row in sequence_rows:
+                sequence = _stored_integer(
+                    row["sequence_no"],
+                    "message sequence",
+                )
+                if sequence != expected_sequence:
+                    break
+                expected_sequence += 1
+            if message.sequence_no > expected_sequence:
                 raise CollaborationSequenceGapError(
                     "message sequence has an unresolved gap"
                 )
@@ -629,7 +727,10 @@ class ClassroomCollaborationSQLiteStore:
                 ).fetchall()
                 expected_sequence = 0
                 for row in sequence_rows:
-                    sequence = int(row["sequence_no"])
+                    sequence = _stored_integer(
+                        row["sequence_no"],
+                        "message sequence",
+                    )
                     if sequence != expected_sequence:
                         break
                     expected_sequence += 1
@@ -731,7 +832,14 @@ class ClassroomCollaborationSQLiteStore:
                     "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
                     (room_id,),
                 ).fetchone()
-                previous = None if cursor is None else int(cursor["revision"])
+                previous = (
+                    None
+                    if cursor is None
+                    else _stored_integer(
+                        cursor["revision"],
+                        "chat state revision",
+                    )
+                )
                 for update in updates:
                     if update.room_id != room_id:
                         raise CollaborationStorageError(
@@ -750,7 +858,10 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationStorageError(
                             "message state update references unknown room message"
                         )
-                    if not bool(message_row["hidden"]):
+                    if not _stored_boolean(
+                        message_row["hidden"],
+                        "message hidden flag",
+                    ):
                         db.execute(
                             "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
                             (update.message_id,),
@@ -771,17 +882,26 @@ class ClassroomCollaborationSQLiteStore:
         return tuple(persisted)
 
     def room_messages(self, room_id: str, *, include_hidden: bool = False) -> tuple[ChatMessageMetadata, ...]:
-        query = "SELECT * FROM collaboration_messages WHERE room_id=?"
-        args: tuple[object, ...] = (room_id,)
-        if not include_hidden:
-            query += " AND hidden=0"
-        query += " ORDER BY sequence_no"
         with closing(self._connect()) as db, db:
-            return tuple(self._message_from_row(row) for row in db.execute(query, args))
+            messages = tuple(
+                self._message_from_row(row)
+                for row in db.execute(
+                    "SELECT * FROM collaboration_messages "
+                    "WHERE room_id=? ORDER BY sequence_no",
+                    (room_id,),
+                )
+            )
+        if include_hidden:
+            return messages
+        return tuple(message for message in messages if not message.hidden)
 
     def set_message_hidden(self, message_id: str, hidden: bool) -> ChatMessageMetadata:
         if type(hidden) is not bool:
             raise ValueError("hidden flag must be boolean")
+        if hidden is not True:
+            raise CollaborationStorageError(
+                "message visibility cannot be restored through monotonic hide state"
+            )
         with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM collaboration_messages WHERE message_id=?", (message_id,)).fetchone()
@@ -798,7 +918,14 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-        return None if row is None else int(row["revision"])
+        return (
+            None
+            if row is None
+            else _stored_integer(
+                row["revision"],
+                "chat state revision",
+            )
+        )
 
     def apply_message_state_updates(
         self,
@@ -819,7 +946,14 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_chat_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-            previous = None if row is None else int(row["revision"])
+            previous = (
+                None
+                if row is None
+                else _stored_integer(
+                    row["revision"],
+                    "chat state revision",
+                )
+            )
             try:
                 for update in updates:
                     if update.room_id != room_id:
@@ -842,7 +976,10 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationStorageError(
                             "message state update references unknown room message"
                         )
-                    if not bool(message["hidden"]):
+                    if not _stored_boolean(
+                        message["hidden"],
+                        "message hidden flag",
+                    ):
                         db.execute(
                             "UPDATE collaboration_messages SET hidden=1 WHERE message_id=?",
                             (update.message_id,),
@@ -891,7 +1028,7 @@ class ClassroomCollaborationSQLiteStore:
                     )
                 return loaded
             if max_room_bytes is not None:
-                used = int(
+                used = _stored_integer(
                     db.execute(
                         """
                         SELECT COALESCE(SUM(size_bytes), 0)
@@ -899,7 +1036,8 @@ class ClassroomCollaborationSQLiteStore:
                         WHERE room_id=? AND transfer_state!='deleted'
                         """,
                         (attachment.room_id,),
-                    ).fetchone()[0]
+                    ).fetchone()[0],
+                    "room attachment byte usage",
                 )
                 if used + attachment.size_bytes > max_room_bytes:
                     raise CollaborationQuotaError(
@@ -927,6 +1065,8 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationConflictError(
                     "attachment conflicts with ordering or storage identity"
                 ) from exc
+            if attachment.transfer_state == "deleted":
+                _queue_attachment_deletion(db, attachment)
         return attachment
 
     def discard_provisional_attachment(
@@ -1046,6 +1186,8 @@ class ClassroomCollaborationSQLiteStore:
                     raise CollaborationConflictError(
                         "attachment batch conflicts with ordering or storage identity"
                     ) from exc
+                if attachment.transfer_state == "deleted":
+                    _queue_attachment_deletion(db, attachment)
                 persisted.append(attachment)
                 if attachment.sequence_no == expected_sequence:
                     expected_sequence += 1
@@ -1165,6 +1307,11 @@ class ClassroomCollaborationSQLiteStore:
                             raise CollaborationConflictError(
                                 "authoritative attachment conflicts with room ordering"
                             ) from exc
+                        if (
+                            loaded.transfer_state != "deleted"
+                            and attachment.transfer_state == "deleted"
+                        ):
+                            _queue_attachment_deletion(db, attachment)
                         persisted.append(attachment)
                         if attachment.sequence_no == expected_sequence:
                             expected_sequence += 1
@@ -1191,6 +1338,8 @@ class ClassroomCollaborationSQLiteStore:
                         raise CollaborationConflictError(
                             "attachment batch conflicts with ordering or storage identity"
                         ) from exc
+                    if attachment.transfer_state == "deleted":
+                        _queue_attachment_deletion(db, attachment)
                     persisted.append(attachment)
                     if attachment.sequence_no == expected_sequence:
                         expected_sequence += 1
@@ -1199,7 +1348,14 @@ class ClassroomCollaborationSQLiteStore:
                     "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                     (room_id,),
                 ).fetchone()
-                previous = None if cursor is None else int(cursor["revision"])
+                previous = (
+                    None
+                    if cursor is None
+                    else _stored_integer(
+                        cursor["revision"],
+                        "attachment state revision",
+                    )
+                )
                 for update in updates:
                     if update.room_id != room_id:
                         raise CollaborationStorageError(
@@ -1243,6 +1399,27 @@ class ClassroomCollaborationSQLiteStore:
                             update.attachment_id,
                         ),
                     )
+                    if (
+                        current.transfer_state != "deleted"
+                        and update.transfer_state == "deleted"
+                    ):
+                        _queue_attachment_deletion(
+                            db,
+                            AttachmentMetadata(
+                                current.attachment_id,
+                                current.room_id,
+                                current.sender_id,
+                                current.sequence_no,
+                                current.display_name,
+                                current.mime_type,
+                                current.size_bytes,
+                                current.sha256,
+                                current.object_key,
+                                "deleted",
+                                current.retention,
+                                update.scan_state,
+                            ),
+                        )
                     db.execute(
                         """
                         INSERT INTO collaboration_attachment_state_cursors(room_id, revision)
@@ -1331,6 +1508,8 @@ class ClassroomCollaborationSQLiteStore:
                 raise CollaborationConflictError(
                     "authoritative attachment conflicts with room ordering"
                 ) from exc
+            if attachment.transfer_state == "deleted":
+                _queue_attachment_deletion(db, attachment)
             updated = db.execute(
                 "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
                 (attachment.attachment_id,),
@@ -1358,6 +1537,11 @@ class ClassroomCollaborationSQLiteStore:
                 "UPDATE collaboration_attachments SET transfer_state=?, scan_state=? WHERE attachment_id=?",
                 (candidate.transfer_state, candidate.scan_state, attachment_id),
             )
+            if (
+                current.transfer_state != "deleted"
+                and candidate.transfer_state == "deleted"
+            ):
+                _queue_attachment_deletion(db, candidate)
         return candidate
 
     def room_attachments(self, room_id: str) -> tuple[AttachmentMetadata, ...]:
@@ -1371,6 +1555,86 @@ class ClassroomCollaborationSQLiteStore:
                 )
             )
 
+    def pending_attachment_deletions(self, room_id: str) -> tuple[str, ...]:
+        room = _canonical_id(room_id, "room id")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                """
+                SELECT d.room_id, d.attachment_id, d.object_key,
+                       a.room_id AS attachment_room_id,
+                       a.object_key AS attachment_object_key,
+                       a.transfer_state AS attachment_transfer_state
+                FROM collaboration_attachment_deletions AS d
+                LEFT JOIN collaboration_attachments AS a
+                  ON a.attachment_id=d.attachment_id
+                WHERE d.room_id=?
+                ORDER BY d.attachment_id
+                """,
+                (room,),
+            ).fetchall()
+        pending: list[str] = []
+        for row in rows:
+            deletion_room, _attachment_id, deletion_key = (
+                self._deletion_intent_from_row(row)
+            )
+            if (
+                deletion_room != room
+                or row["attachment_room_id"] != deletion_room
+                or row["attachment_object_key"] != deletion_key
+                or row["attachment_transfer_state"] != "deleted"
+            ):
+                raise CollaborationStorageError(
+                    "attachment deletion intent is inconsistent with tombstone metadata"
+                )
+            pending.append(deletion_key)
+        return tuple(pending)
+
+    def acknowledge_attachment_deletion(
+        self,
+        *,
+        room_id: str,
+        object_key: str,
+    ) -> None:
+        room = _canonical_id(room_id, "room id")
+        key = _safe_object_key(object_key)
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                """
+                SELECT room_id, attachment_id
+                FROM collaboration_attachment_deletions
+                WHERE object_key=?
+                """,
+                (key,),
+            ).fetchone()
+            if row is None:
+                return
+            if row["room_id"] != room:
+                raise CollaborationStorageError(
+                    "attachment deletion acknowledgement crossed room boundary"
+                )
+            attachment_row = db.execute(
+                "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                (row["attachment_id"],),
+            ).fetchone()
+            if attachment_row is None:
+                raise CollaborationStorageError(
+                    "attachment deletion acknowledgement lost tombstone metadata"
+                )
+            attachment = self._attachment_from_row(attachment_row)
+            if (
+                attachment.room_id != room
+                or attachment.object_key != key
+                or attachment.transfer_state != "deleted"
+            ):
+                raise CollaborationStorageError(
+                    "attachment deletion acknowledgement does not match tombstone"
+                )
+            db.execute(
+                "DELETE FROM collaboration_attachment_deletions WHERE object_key=?",
+                (key,),
+            )
+
     def attachment_state_revision(self, room_id: str) -> int | None:
         _canonical_id(room_id, "room id")
         with closing(self._connect()) as db:
@@ -1378,7 +1642,14 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-        return None if row is None else int(row["revision"])
+        return (
+            None
+            if row is None
+            else _stored_integer(
+                row["revision"],
+                "attachment state revision",
+            )
+        )
 
     def apply_attachment_state_updates(
         self,
@@ -1401,7 +1672,14 @@ class ClassroomCollaborationSQLiteStore:
                 "SELECT revision FROM collaboration_attachment_state_cursors WHERE room_id=?",
                 (room_id,),
             ).fetchone()
-            previous = None if row is None else int(row["revision"])
+            previous = (
+                None
+                if row is None
+                else _stored_integer(
+                    row["revision"],
+                    "attachment state revision",
+                )
+            )
             try:
                 for update in updates:
                     if update.room_id != room_id:
@@ -1460,6 +1738,11 @@ class ClassroomCollaborationSQLiteStore:
                             candidate.attachment_id,
                         ),
                     )
+                    if (
+                        current.transfer_state != "deleted"
+                        and candidate.transfer_state == "deleted"
+                    ):
+                        _queue_attachment_deletion(db, candidate)
                     db.execute(
                         """
                         INSERT INTO collaboration_attachment_state_cursors(room_id, revision)
@@ -1481,19 +1764,96 @@ class ClassroomCollaborationSQLiteStore:
             result = db.execute("PRAGMA integrity_check").fetchone()[0]
             if result != "ok":
                 raise CollaborationStorageError(f"sqlite integrity check failed: {result}")
+            for deletion in db.execute(
+                """
+                SELECT room_id, attachment_id, object_key
+                FROM collaboration_attachment_deletions
+                """
+            ):
+                room, attachment_id, object_key = self._deletion_intent_from_row(
+                    deletion
+                )
+                row = db.execute(
+                    "SELECT * FROM collaboration_attachments WHERE attachment_id=?",
+                    (attachment_id,),
+                ).fetchone()
+                if row is None:
+                    raise CollaborationStorageError(
+                        "attachment deletion intent references missing tombstone"
+                    )
+                attachment = self._attachment_from_row(row)
+                if (
+                    attachment.room_id != room
+                    or attachment.object_key != object_key
+                    or attachment.transfer_state != "deleted"
+                ):
+                    raise CollaborationStorageError(
+                        "attachment deletion intent is inconsistent with tombstone"
+                    )
+
+    @staticmethod
+    def _deletion_intent_from_row(
+        row: sqlite3.Row,
+    ) -> tuple[str, str, str]:
+        try:
+            return (
+                _canonical_id(row["room_id"], "deletion room id"),
+                _canonical_id(row["attachment_id"], "deletion attachment id"),
+                _safe_object_key(row["object_key"]),
+            )
+        except (TypeError, ValueError, KeyError, IndexError, OverflowError) as error:
+            raise CollaborationStorageError(
+                "stored attachment deletion intent is invalid"
+            ) from error
 
     @staticmethod
     def _message_from_row(row: sqlite3.Row) -> ChatMessageMetadata:
-        return ChatMessageMetadata(
-            row["message_id"], row["room_id"], row["sender_id"], int(row["sequence_no"]),
-            row["body"], row["retention"], bool(row["hidden"]),
-            int(row["sent_at_unix_ms"]) if row["sent_at_unix_ms"] is not None else None,
-        )
+        try:
+            return ChatMessageMetadata(
+                row["message_id"],
+                row["room_id"],
+                row["sender_id"],
+                _stored_integer(row["sequence_no"], "message sequence"),
+                row["body"],
+                row["retention"],
+                _stored_boolean(row["hidden"], "message hidden flag"),
+                (
+                    _stored_integer(
+                        row["sent_at_unix_ms"],
+                        "message timestamp",
+                        maximum=MAX_CHAT_TIMESTAMP_UNIX_MS,
+                    )
+                    if row["sent_at_unix_ms"] is not None
+                    else None
+                ),
+            )
+        except CollaborationStorageError:
+            raise
+        except (TypeError, ValueError, KeyError, IndexError, OverflowError) as error:
+            raise CollaborationStorageError(
+                "stored chat message metadata is invalid"
+            ) from error
 
     @staticmethod
     def _attachment_from_row(row: sqlite3.Row) -> AttachmentMetadata:
-        return AttachmentMetadata(
-            row["attachment_id"], row["room_id"], row["sender_id"], int(row["sequence_no"]),
-            row["display_name"], row["mime_type"], int(row["size_bytes"]), row["sha256"],
-            row["object_key"], row["transfer_state"], row["retention"], row["scan_state"],
-        )
+        try:
+            return AttachmentMetadata(
+                row["attachment_id"],
+                row["room_id"],
+                row["sender_id"],
+                _stored_integer(row["sequence_no"], "attachment sequence"),
+                row["display_name"],
+                row["mime_type"],
+                _stored_integer(row["size_bytes"], "attachment size"),
+                row["sha256"],
+                row["object_key"],
+                row["transfer_state"],
+                row["retention"],
+                row["scan_state"],
+            )
+        except CollaborationStorageError:
+            raise
+        except (TypeError, ValueError, KeyError, IndexError, OverflowError) as error:
+            raise CollaborationStorageError(
+                "stored attachment metadata is invalid"
+            ) from error
