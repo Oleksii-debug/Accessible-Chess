@@ -3,12 +3,18 @@ from __future__ import annotations
 """Reachability composition for Teacher/Classroom/Education in the one V2 app."""
 
 from collections.abc import Callable, Mapping
-from dataclasses import asdict
-from datetime import datetime
+from concurrent.futures import CancelledError, Future
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+import threading
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_join_http_client import (
+    ClassroomJoinHttpClient,
+    ClassroomJoinHttpClientError,
+)
 from .classroom_media_provider_binder import ClassroomMediaProviderBinder
 from .classroom_media_webview_bridge import ClassroomMediaWebViewBridge
 from .classroom_media_webview_projection import (
@@ -19,7 +25,11 @@ from .classroom_media_webview_transactions import (
     ClassroomMediaBrowserProviderConfig,
     ClassroomMediaTransactionalWebView,
 )
-from .classroom_realtime_media import ClassroomMediaController, JoinCredential
+from .classroom_realtime_media import (
+    ClassroomMediaController,
+    ClassroomMediaError,
+    JoinCredential,
+)
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -42,6 +52,67 @@ from .version2_final_product_profile import (
     build_final_product_shell,
     build_final_product_webview_adapter,
 )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingClassroomMediaJoinHttp:
+    request_id: int
+    generation: int
+    reconnect: bool
+    room_id: str
+    participant_id: str
+    client: ClassroomJoinHttpClient
+    retired: threading.Event
+    publish_lock: threading.Lock
+    future: Future[JoinCredential]
+
+
+def _issue_classroom_media_join_http(
+    future: Future[JoinCredential],
+    client: ClassroomJoinHttpClient,
+    *,
+    room_id: str,
+    participant_id: str,
+    retired: threading.Event,
+    publish_lock: threading.Lock,
+) -> None:
+    """Run only the credential HTTP effect off the native/UI owner thread."""
+
+    if not future.set_running_or_notify_cancel():
+        return
+    value: JoinCredential | None = None
+    error: ClassroomJoinHttpClientError | None = None
+    try:
+        value = client.issue(
+            room_id=room_id,
+            participant_id=participant_id,
+        )
+    except ClassroomJoinHttpClientError as exc:
+        error = ClassroomJoinHttpClientError(str(exc))
+    except Exception:
+        error = ClassroomJoinHttpClientError(
+            "classroom join HTTP worker failed"
+        )
+
+    with publish_lock:
+        if retired.is_set():
+            future.set_exception(
+                ClassroomJoinHttpClientError(
+                    "classroom join HTTP request was retired"
+                )
+            )
+        elif error is not None:
+            future.set_exception(error)
+        elif value is not None:
+            future.set_result(value)
+        else:
+            future.set_exception(
+                ClassroomJoinHttpClientError("classroom join HTTP worker failed")
+            )
 
 
 class Version2FinalProductApplication(Version2Application):
@@ -93,6 +164,12 @@ class Version2FinalProductApplication(Version2Application):
         self.teacher: TeacherWebViewBridge | None = None
         self.media: ClassroomMediaWebViewBridge | None = None
         self.media_transactions: ClassroomMediaTransactionalWebView | None = None
+        self._media_join_http: ClassroomJoinHttpClient | None = None
+        self._media_join_now_provider: Callable[[], datetime] | None = None
+        self._media_join_http_generation = 0
+        self._media_join_http_request_serial = 0
+        self._media_join_http_pending: _PendingClassroomMediaJoinHttp | None = None
+        self._media_join_http_inflight: Future[JoinCredential] | None = None
         self._teacher_state_provider: Callable[[], TeachingSessionState] | None = None
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
@@ -352,8 +429,277 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError(
                 "Classroom media cannot be unbound while provider session is connected"
             )
+        self._invalidate_classroom_media_join_http_pending()
         self.media = None
         self.media_transactions = None
+        self._media_join_http = None
+        self._media_join_now_provider = None
+
+    def _invalidate_classroom_media_join_http_pending(self) -> None:
+        """Retire owner-visible request state without waiting on network I/O."""
+
+        self._media_join_http_generation = (
+            int(getattr(self, "_media_join_http_generation", 0)) + 1
+        )
+        pending = getattr(self, "_media_join_http_pending", None)
+        self._media_join_http_pending = None
+        if pending is not None:
+            with pending.publish_lock:
+                pending.retired.set()
+                pending.future.cancel()
+                if pending.future.done() and (
+                    getattr(self, "_media_join_http_inflight", None) is pending.future
+                ):
+                    self._media_join_http_inflight = None
+
+    def configure_classroom_media_join_http(
+        self,
+        *,
+        endpoint_url: str,
+        bearer_token_provider: Callable[[], str],
+        timeout_seconds: float = 15.0,
+        allow_insecure_loopback: bool = False,
+        now_provider: Callable[[], datetime] | None = None,
+    ) -> None:
+        """Bind trusted desktop join-credential transport to transactional media.
+
+        The bearer supplier remains host-only and is invoked only for an actual
+        join/reconnect credential request. Browser surfaces never receive this
+        client, account bearer, HTTP endpoint, or server-issued provider token.
+        """
+
+        self._assert_thread()
+        if self.media is None or self.media_transactions is None:
+            raise RuntimeError(
+                "Transactional classroom media must be bound before join HTTP"
+            )
+        if getattr(self, "_media_join_http", None) is not None:
+            raise RuntimeError("Classroom media join HTTP is already configured")
+        if now_provider is not None and not callable(now_provider):
+            raise TypeError("classroom media join clock must be callable")
+        client = ClassroomJoinHttpClient(
+            endpoint_url=endpoint_url,
+            bearer_token_provider=bearer_token_provider,
+            timeout_seconds=timeout_seconds,
+            allow_insecure_loopback=allow_insecure_loopback,
+        )
+        self._invalidate_classroom_media_join_http_pending()
+        self._media_join_http = client
+        self._media_join_now_provider = (
+            _utc_now if now_provider is None else now_provider
+        )
+
+    def _classroom_media_join_http_context(
+        self,
+        *,
+        reconnect: bool,
+    ) -> tuple[
+        ClassroomJoinHttpClient,
+        ClassroomMediaController,
+        str | None,
+        str,
+        Callable[[], datetime],
+    ]:
+        transactions = self.media_transactions
+        media = self.media
+        client = getattr(self, "_media_join_http", None)
+        now_provider = getattr(self, "_media_join_now_provider", None)
+        if transactions is None or media is None:
+            raise RuntimeError("Transactional classroom media is not bound")
+        if client is None or now_provider is None:
+            raise RuntimeError("Classroom media join HTTP is not configured")
+        if (
+            transactions.binder.active_lease is not None
+            or transactions.binder.recovery_status is not None
+        ):
+            raise RuntimeError("Classroom media provider is not quiescent")
+
+        controller = media.projection.controller
+        state = controller.state
+        if reconnect:
+            if state.room_id is None:
+                raise RuntimeError("Classroom media has no room to reconnect")
+            if state.connected:
+                raise RuntimeError("Classroom media is already connected")
+        elif state.room_id is not None:
+            raise RuntimeError("Classroom media already has room identity")
+
+        policy = controller.participant_policy(state.participant_id)
+        if policy.removed or policy.blocked:
+            raise RuntimeError("Participant is not allowed to join classroom media")
+        return (
+            client,
+            controller,
+            state.room_id,
+            state.participant_id,
+            now_provider,
+        )
+
+    def _begin_classroom_media_join_http(
+        self,
+        *,
+        room_id: str,
+        reconnect: bool,
+    ) -> int:
+        self._assert_thread()
+        if getattr(self, "_media_join_http_pending", None) is not None:
+            raise RuntimeError("Classroom media join HTTP request is already pending")
+        inflight = getattr(self, "_media_join_http_inflight", None)
+        if inflight is not None and not inflight.done():
+            raise RuntimeError(
+                "Previous classroom media join HTTP request is still retiring"
+            )
+
+        client, _controller, current_room, participant_id, _now_provider = (
+            self._classroom_media_join_http_context(reconnect=reconnect)
+        )
+        target_room = current_room if reconnect else room_id
+        if target_room is None:
+            raise RuntimeError("Classroom media has no room to reconnect")
+
+        self._media_join_http_request_serial = (
+            int(getattr(self, "_media_join_http_request_serial", 0)) + 1
+        )
+        request_id = self._media_join_http_request_serial
+        generation = int(getattr(self, "_media_join_http_generation", 0))
+        future: Future[JoinCredential] = Future()
+        retired = threading.Event()
+        publish_lock = threading.Lock()
+        pending = _PendingClassroomMediaJoinHttp(
+            request_id=request_id,
+            generation=generation,
+            reconnect=reconnect,
+            room_id=target_room,
+            participant_id=participant_id,
+            client=client,
+            retired=retired,
+            publish_lock=publish_lock,
+            future=future,
+        )
+        self._media_join_http_pending = pending
+        self._media_join_http_inflight = future
+        worker = threading.Thread(
+            target=_issue_classroom_media_join_http,
+            kwargs={
+                "future": future,
+                "client": client,
+                "room_id": target_room,
+                "participant_id": participant_id,
+                "retired": retired,
+                "publish_lock": publish_lock,
+            },
+            name="AccessibleChess-ClassroomJoinHttp",
+            daemon=True,
+        )
+        try:
+            worker.start()
+        except Exception:
+            self._media_join_http_pending = None
+            self._media_join_http_inflight = None
+            future.cancel()
+            raise RuntimeError(
+                "Classroom media join HTTP worker could not start"
+            ) from None
+        return request_id
+
+    def prepare_classroom_media_join_http(
+        self,
+        room_id: str,
+    ) -> int:
+        """Start one credential fetch without blocking the native/UI owner thread."""
+
+        return self._begin_classroom_media_join_http(
+            room_id=room_id,
+            reconnect=False,
+        )
+
+    def prepare_classroom_media_reconnect_http(self) -> int:
+        """Start one retained-room credential refresh without blocking the UI."""
+
+        self._assert_thread()
+        _client, _controller, room_id, _participant_id, _now_provider = (
+            self._classroom_media_join_http_context(reconnect=True)
+        )
+        if room_id is None:
+            raise RuntimeError("Classroom media has no room to reconnect")
+        return self._begin_classroom_media_join_http(
+            room_id=room_id,
+            reconnect=True,
+        )
+
+    def finish_classroom_media_join_http(
+        self,
+        request_id: int,
+    ) -> dict[str, object] | None:
+        """Consume one completed fetch exactly once on the owner thread.
+
+        None means the bounded background HTTP effect is still in flight.
+        No provider lease is created until this method validates current
+        generation/session state and commits through the canonical transaction.
+        """
+
+        self._assert_thread()
+        if type(request_id) is not int or request_id <= 0:
+            raise ValueError("classroom media join HTTP request id is invalid")
+        pending = getattr(self, "_media_join_http_pending", None)
+        if pending is None or pending.request_id != request_id:
+            raise RuntimeError(
+                "Matching classroom media join HTTP request is not pending"
+            )
+        if not pending.future.done():
+            return None
+
+        self._media_join_http_pending = None
+        if getattr(self, "_media_join_http_inflight", None) is pending.future:
+            self._media_join_http_inflight = None
+        if pending.generation != int(
+            getattr(self, "_media_join_http_generation", 0)
+        ):
+            raise RuntimeError("Classroom media join HTTP request was retired")
+
+        try:
+            credential = pending.future.result()
+        except CancelledError:
+            raise RuntimeError("Classroom media join HTTP request was retired") from None
+        except ClassroomJoinHttpClientError:
+            raise
+        except Exception:
+            raise ClassroomJoinHttpClientError(
+                "classroom join HTTP worker failed"
+            ) from None
+
+        client, _controller, current_room, participant_id, now_provider = (
+            self._classroom_media_join_http_context(
+                reconnect=pending.reconnect,
+            )
+        )
+        if client is not pending.client or participant_id != pending.participant_id:
+            raise RuntimeError("Classroom media join HTTP authority changed")
+        if pending.reconnect:
+            if current_room != pending.room_id:
+                raise RuntimeError(
+                    "Classroom media room identity changed during credential fetch"
+                )
+        elif current_room is not None:
+            raise RuntimeError(
+                "Classroom media room state changed during credential fetch"
+            )
+
+        try:
+            now = now_provider()
+        except Exception:
+            raise ClassroomJoinHttpClientError(
+                "classroom join clock failed"
+            ) from None
+        if pending.reconnect:
+            return self.prepare_classroom_media_reconnect(
+                credential,
+                now=now,
+            )
+        return self.prepare_classroom_media_join(
+            credential,
+            now=now,
+        )
 
     def prepare_classroom_media_join(
         self,
@@ -422,6 +768,45 @@ class Version2FinalProductApplication(Version2Application):
         rendered = asdict(event)
         self._events.append(rendered)
         return rendered
+
+    def _classroom_media_join_http_failure_event(self) -> dict[str, object]:
+        announcement = (
+            "Не вдалося отримати облікові дані для медіасеансу класу."
+            if self.shell.language is UILanguage.UA
+            else "Could not obtain classroom media credentials."
+        )
+        return {
+            "kind": "status",
+            "payload": {"announcement": announcement},
+        }
+
+    def drain_events(self):
+        """Settle ready join HTTP work on the existing native/UI event pump."""
+
+        self._assert_thread()
+        pending = getattr(self, "_media_join_http_pending", None)
+        if pending is not None and pending.future.done():
+            try:
+                self.finish_classroom_media_join_http(pending.request_id)
+            except (
+                ClassroomJoinHttpClientError,
+                ClassroomMediaError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ):
+                # Network/auth/session drift is intentionally secret-free here.
+                # Core chess and classroom presentation remain usable; the
+                # trusted host may start a fresh credential request afterwards.
+                self._events.append(self._classroom_media_join_http_failure_event())
+        return super().drain_events()
+
+    def shutdown(self, timeout: float | None = None):
+        """Retire any join HTTP completion before shared application shutdown."""
+
+        self._assert_thread()
+        self._invalidate_classroom_media_join_http_pending()
+        return super().shutdown(timeout=timeout)
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
