@@ -454,6 +454,62 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         _validate_tree(root)
                 self.assertTrue(swapped)
 
+    def test_pe_structure_check_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            target = base / "AccessibleChess.exe"
+            target.write_bytes(_minimal_windows_pe())
+            replacement = base / "replacement.exe"
+            replacement.write_bytes(_minimal_windows_pe())
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "Windows PE candidate changed while being opened",
+                ):
+                    package_preflight._has_windows_pe_structure(target)
+            self.assertTrue(swapped)
+
+    def test_hygiene_scan_rejects_pathname_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            target = root / "payload.txt"
+            target.write_bytes(b"clean package text")
+            replacement = base / "replacement.txt"
+            replacement.write_bytes(b"replacement package text")
+            original_open = Path.open
+            swapped = False
+
+            def replacing_open(path_self, *args, **kwargs):
+                nonlocal swapped
+                if path_self == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return original_open(path_self, *args, **kwargs)
+
+            with patch.object(Path, "open", new=replacing_open):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being opened: payload.txt",
+                ):
+                    package_preflight._scan_text_hygiene(
+                        root,
+                        ("payload.txt",),
+                        PackageLimits(),
+                    )
+            self.assertTrue(swapped)
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
