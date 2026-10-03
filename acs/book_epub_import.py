@@ -43,6 +43,7 @@ _CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
 _CONTAINER_TAG = f"{{{_CONTAINER_NAMESPACE}}}container"
 _ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
 _ROOTFILE_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfile"
+_LINKS_TAG = f"{{{_CONTAINER_NAMESPACE}}}links"
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
@@ -330,11 +331,6 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
 
-    # Raw byte sentinels are encoding-dependent: UTF-16 encodes XML markup
-    # letters with interleaved NUL bytes, while ElementTree still auto-detects
-    # and expands internal entities. Run a bounded structural preflight through
-    # Expat's own XML encoding detection and reject declaration/entity callbacks
-    # before constructing the semantic ElementTree.
     parser = expat.ParserCreate()
 
     def reject_declaration(*_args: object) -> None:
@@ -413,6 +409,10 @@ def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
     return values
 
 
+def _is_container_namespace_tag(tag: object) -> bool:
+    return type(tag) is str and tag.startswith(f"{{{_CONTAINER_NAMESPACE}}}")
+
+
 def _resolve_package_href(
     base_dir: str,
     href: object,
@@ -447,10 +447,6 @@ def _resolve_package_href(
             "EPUB package href contains malformed percent encoding",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    # RFC 3986 treats percent-encoded reserved characters as non-equivalent
-    # to their literal delimiters. Decoding %2F before package lookup would
-    # turn path-segment data into archive hierarchy and could alias a
-    # different resource (for example Text%2Fchapter.xhtml -> Text/chapter.xhtml).
     if _ENCODED_PATH_SEPARATOR_RE.search(parts.path):
         raise _error(
             "EPUB package href percent-encodes a path separator",
@@ -487,26 +483,54 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    rootfiles_sections = [
-        child for child in container if child.tag == _ROOTFILES_TAG
+    # OCF validates container.xml after removing foreign-namespace elements and
+    # their contents. Enforce the remaining canonical child order exactly:
+    # rootfiles first, followed by at most one optional links section.
+    structural_children = [
+        child for child in container if _is_container_namespace_tag(child.tag)
     ]
-    if len(rootfiles_sections) != 1:
+    if (
+        not structural_children
+        or structural_children[0].tag != _ROOTFILES_TAG
+        or len(structural_children) > 2
+        or (
+            len(structural_children) == 2
+            and structural_children[1].tag != _LINKS_TAG
+        )
+    ):
         raise _error(
-            "EPUB container must contain exactly one rootfiles section",
+            "EPUB container has invalid canonical child structure",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    rootfiles = structural_children[0]
+    if (rootfiles.text or "").strip():
+        raise _error(
+            "EPUB rootfiles section contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
     candidates: list[ET.Element] = []
-    for element in rootfiles_sections[0]:
-        # Foreign-namespace extension elements are ignored. Only a direct
-        # rootfile in the canonical OCF container namespace can identify an OPF.
-        if element.tag != _ROOTFILE_TAG:
+    for element in rootfiles:
+        if not _is_container_namespace_tag(element.tag):
+            # Foreign extension element and all its contents are ignored by OCF.
             continue
-        if len(element) or (element.text or "").strip():
+        if element.tag != _ROOTFILE_TAG:
+            raise _error(
+                "EPUB rootfiles section contains an invalid container element",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if (element.text or "").strip():
             raise _error(
                 "EPUB rootfile element must be empty",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        for child in element:
+            if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
+                raise _error(
+                    "EPUB rootfile element must be empty",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
         media_type = element.attrib.get("media-type")
         if media_type != _OPF_MEDIA_TYPE:
             raise _error(
@@ -514,6 +538,11 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         candidates.append(element)
+        if (element.tail or "").strip():
+            raise _error(
+                "EPUB rootfiles section contains invalid text content",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
     if not candidates:
         raise _error(
