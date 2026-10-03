@@ -106,10 +106,29 @@ jobs:
             'web/livekit_classroom_media_runtime.js'
             'web/version2_final_product_bootstrap.js'
           )
+          device_recovery_expected=(
+            '.github/workflows/classroom-media-device-recovery-webview.yml'
+            '.github/workflows/classroom-media-shipping-webview.yml'
+            'acs/classroom_media_webview_bridge.py'
+            'acs/classroom_media_webview_projection.py'
+            'acs/classroom_media_webview_transactions.py'
+            'tests/js/full_product_classroom_media_test.js'
+            'tests/test_classroom_media_shipping_webview.py'
+            'tests/test_classroom_media_webview.py'
+            'web/full_product_classroom_media.js'
+          )
           if [[ "$PR_BASE_REF" = "integrate/classroom-livekit-presentation-20261003" ]]; then
             if [[ "${actual[*]}" != "${expected[*]}" ]]; then
               printf 'Unexpected classroom media shipping WebView composition scope.\nExpected:\n'
               printf '  %s\n' "${expected[@]}"
+              printf 'Actual:\n'
+              printf '  %s\n' "${actual[@]}"
+              exit 1
+            fi
+          elif [[ " ${actual[*]} " == *" .github/workflows/classroom-media-device-recovery-webview.yml "* ]]; then
+            if [[ "${actual[*]}" != "${device_recovery_expected[*]}" ]]; then
+              printf 'Unexpected classroom media device-recovery successor scope.\nExpected:\n'
+              printf '  %s\n' "${device_recovery_expected[@]}"
               printf 'Actual:\n'
               printf '  %s\n' "${actual[@]}"
               exit 1

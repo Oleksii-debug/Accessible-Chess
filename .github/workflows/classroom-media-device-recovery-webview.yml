@@ -54,6 +54,7 @@ jobs:
           mapfile -t actual < <(git diff --name-only "$BASE_SHA" HEAD | LC_ALL=C sort)
           expected=(
             '.github/workflows/classroom-media-device-recovery-webview.yml'
+            '.github/workflows/classroom-media-shipping-webview.yml'
             'acs/classroom_media_webview_bridge.py'
             'acs/classroom_media_webview_projection.py'
             'acs/classroom_media_webview_transactions.py'
