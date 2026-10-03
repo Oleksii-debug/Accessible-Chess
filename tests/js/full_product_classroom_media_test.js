@@ -124,6 +124,30 @@ function loadSurface(documentRef) {
 }
 
 function mediaSnapshot(actions) {
+  const activeKey = "c".repeat(64);
+  const activeButtonId = "media-participant-" + activeKey + "-camera";
+  surface.mount(
+    root,
+    mediaSnapshot([
+      {
+        id: activeButtonId,
+        command: "media.publish_permission",
+        label: "Lock camera publishing",
+        payload: { participant_key: activeKey, source: "camera", allowed: false }
+      }
+    ]),
+    () => Promise.reject(new Error("must not invoke active-transaction control")),
+    () => {},
+    "en",
+    {
+      binding_active: true,
+      transaction_active: true,
+      recovery_required: false
+    }
+  );
+  assert.equal(root.querySelector("#" + activeButtonId), null);
+  assert.match(root.textContent, /media update is in progress/i);
+
   const key = "a".repeat(64);
   return {
     document: { heading: "Lesson audio and video" },
