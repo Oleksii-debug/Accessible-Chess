@@ -73,7 +73,7 @@ class BookIndex:
         # the validate-then-reread TOCTOU window without introducing a second
         # Book parser or chess-rules authority.
         snapshot = BookDocument.from_dict(document.as_dict())
-        self.document = document
+        self._document_snapshot = snapshot
         self._entries = tuple(self._build_entries(snapshot))
         # A flat ListBlock has one navigation target and a concise first-item
         # label. Retain search-only projections of its remaining items from
@@ -92,6 +92,11 @@ class BookIndex:
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
         self._by_key = {key: tuple(entries) for key, entries in by_key.items()}
+
+    @property
+    def document(self) -> BookDocument:
+        """Return a detached copy of the exact snapshot owned by this index."""
+        return BookDocument.from_dict(self._document_snapshot.as_dict())
 
     @property
     def entries(self) -> tuple[BookIndexEntry, ...]:
