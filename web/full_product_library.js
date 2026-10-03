@@ -13,22 +13,38 @@
   }
 
   function focusRequestedOption(root, focusTarget) {
-    if (!focusTarget) return;
+    if (!focusTarget) return false;
+    const importTarget = focusTarget === "library-import-file" ||
+      focusTarget === "library-import-cancel";
     if (focusTarget === "library-search-player" ||
-        focusTarget === "library-import-file" ||
-        focusTarget === "library-import-cancel" ||
+        importTarget ||
         (focusTarget.indexOf("library-game-") === 0 && focusTarget.endsWith("-export"))) {
       const control = root.querySelector("#" + focusTarget);
-      if (control && typeof control.focus === "function") control.focus({ preventScroll: true });
-      return;
+      if (control && !control.disabled && typeof control.focus === "function") {
+        control.focus({ preventScroll: true });
+        return true;
+      }
+      // Import progress updates replace only their region. During CANCELLING
+      // both import controls are intentionally disabled, so restoring the old
+      // Cancel button cannot succeed in a real browser. Keep keyboard/NVDA
+      // focus on a stable enabled Library control instead of losing it to body.
+      if (importTarget) {
+        const search = root.querySelector("#library-search-player");
+        if (search && !search.disabled && typeof search.focus === "function") {
+          search.focus({ preventScroll: true });
+          return true;
+        }
+      }
+      return false;
     }
     const options = root.querySelectorAll('[role="option"]');
     for (let index = 0; index < options.length; index += 1) {
       if (options[index].id === focusTarget && typeof options[index].focus === "function") {
         options[index].focus({ preventScroll: true });
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   function applyEvent(root, result, invoke, announce) {
