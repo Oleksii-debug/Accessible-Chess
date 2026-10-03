@@ -238,6 +238,7 @@ def build_classroom_collaboration_http_runtime(
         if chat_secret_store is None
         else SecretStoreChatOutbox(
             chat_secret_store,
+            chat_endpoint_url,
             room_id,
             participant_id,
         )
