@@ -532,6 +532,7 @@
       if (delegatedHasOwnPresentationEvent(actionId)) return false;
       if (actionId && !isVersion2DomainAction(actionId)) {
         refreshStage1Surface();
+        if (payload.announcement) announce(payload.announcement);
         return false;
       }
     }
