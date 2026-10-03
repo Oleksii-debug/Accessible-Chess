@@ -118,7 +118,7 @@
     return root._pgnCommandFlight === token && root._pgnRenderEpoch === epoch;
   }
 
-  function invokeCommand(root, invoke, announce, command, payload) {
+  function invokeCommand(root, invoke, announce, command, payload, onResult) {
     if (root._pgnCommandFlight) return false;
     const focusBefore = document.activeElement;
     const epoch = root._pgnRenderEpoch;
@@ -133,6 +133,7 @@
         function (result) {
           if (!commandFlightIsCurrent(root, token, epoch)) return;
           root._pgnCommandFlight = null;
+          if (typeof onResult === "function") onResult(result);
           applyEvent(root, result, invoke, announce);
         },
         function () {
@@ -268,15 +269,16 @@
     }
 
     save.addEventListener("click", function () {
-      Promise.resolve()
-        .then(function () { return invoke("pgn.comment_edit", { text: textarea.value }); })
-        .then(
-          function (result) {
-            applyEvent(root, result, invoke, announce);
-            if (!result || result.kind !== "error") closeAndRestore();
-          },
-          function () { announceRejected(root, announce, textarea); }
-        );
+      invokeCommand(
+        root,
+        invoke,
+        announce,
+        "pgn.comment_edit",
+        { text: textarea.value },
+        function (result) {
+          if (!result || result.kind !== "error") closeAndRestore();
+        }
+      );
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {

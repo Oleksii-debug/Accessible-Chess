@@ -215,6 +215,84 @@ async function runFlightRaceRegression() {
   check(announcements.length === 0, "stale async result announced into the newer NVDA context");
 }
 
+function editableSnapshot(index) {
+  const view = selectIndex(snapshot(), index);
+  view.actions = [
+    { action: "pgn.comment_edit", label: "Add or edit comment", enabled: true }
+  ];
+  view.comment_editor = {
+    enabled: true,
+    value: "",
+    title: "PGN comment",
+    label: "Comment text",
+    save_label: "Save",
+    cancel_label: "Cancel",
+    message: ""
+  };
+  return view;
+}
+
+async function runCommentFlightRaceRegression() {
+  const calls = [];
+  const announcements = [];
+  const root = new FakeElement("div");
+  let rejectFirst = null;
+  let firstPending = true;
+  const firstPromise = new Promise((resolve, reject) => { rejectFirst = reject; });
+  const invoke = (command, payload) => {
+    calls.push([command, payload || {}]);
+    if (firstPending) {
+      firstPending = false;
+      return firstPromise;
+    }
+    return { kind: "delegated", payload: {} };
+  };
+
+  window.AccessibleChessPgnSurface.render(
+    root,
+    editableSnapshot(0),
+    invoke,
+    (message) => announcements.push(String(message)),
+    "pgn-root"
+  );
+  const edit = root.descendants().find((item) => item.dataset.action === "pgn.comment_edit");
+  const textarea = root.descendants().find((item) => item.tagName === "TEXTAREA");
+  check(edit && textarea, "comment flight fixture did not render editor controls");
+  edit.listeners.click();
+  textarea.value = "race-safe note";
+  const dialog = textarea.parentNode;
+  const save = dialog.descendants().find((item) => item.tagName === "BUTTON" && item.textContent === "Save");
+  check(save, "comment flight fixture did not render Save");
+  save.listeners.click();
+  await flush();
+  check(calls.length === 1 && calls[0][0] === "pgn.comment_edit", "comment save did not start exactly one command flight");
+  save.listeners.click();
+  await flush();
+  check(calls.length === 1, "repeated comment Save bypassed the shared PGN command-flight gate");
+
+  window.AccessibleChessPgnSurface.render(
+    root,
+    editableSnapshot(3),
+    invoke,
+    (message) => announcements.push(String(message)),
+    "pgn-last"
+  );
+  const newerItems = root.querySelectorAll('[role="treeitem"]');
+  check(newerItems[3].getAttribute("aria-selected") === "true", "newer render did not supersede pending comment save");
+  check(press(newerItems[3], "ArrowUp"), "newer render did not accept navigation after pending comment save was superseded");
+  await flush();
+  check(calls.length === 2, "superseded comment flight blocked the newer render");
+  check(calls[1][0] === "pgn.move" && calls[1][1].delta === -1, "newer render navigation changed canonical move semantics");
+
+  rejectFirst(new Error("stale private backend rejection"));
+  await flush();
+  await flush();
+  const finalItems = root.querySelectorAll('[role="treeitem"]');
+  check(finalItems[3].getAttribute("aria-selected") === "true", "stale comment rejection changed the newer PGN surface");
+  check(announcements.length === 0, "stale comment rejection announced into the newer NVDA context");
+  check(document.activeElement === finalItems[3], "stale comment rejection stole focus from the newer PGN context");
+}
+
 async function run() {
   const calls = [];
   const announcements = [];
@@ -306,6 +384,7 @@ async function run() {
   check(announcements.length === 0, "tree keyboard contract produced live-region noise");
 
   await runFlightRaceRegression();
+  await runCommentFlightRaceRegression();
   console.log("PGN tree keyboard contract PASS");
 }
 
