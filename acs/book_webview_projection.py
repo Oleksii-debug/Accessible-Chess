@@ -159,6 +159,8 @@ def _safe_visible_list_items(
     total = 0
     for value in values:
         item = _safe_visible_block_text(value, language=language)
+        if not item:
+            raise ValueError("book presentation list contains an empty visible item")
         total += _utf16_units(item)
         if total > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
             raise ValueError("book presentation list exceeds the visible-text budget")
@@ -294,6 +296,12 @@ class BookWebViewProjection:
                 raise ValueError("book list must contain items")
         elif block.list_items or block.list_ordered or block.list_start is not None:
             raise ValueError("non-list book block contains list metadata")
+        safe_heading_path = tuple(
+            _safe_text(part, language=self._language, limit=360)
+            for part in block.heading_path
+        )
+        if any(not part for part in safe_heading_path):
+            raise ValueError("book heading path contains an empty visible part")
         labels = _LABELS[self._language]
         navigation = self._presenter.navigation_availability()
         if not isinstance(navigation, Mapping) or set(navigation) != _NAVIGATION_KEYS:
@@ -329,10 +337,7 @@ class BookWebViewProjection:
                 "heading_level": block.heading_level,
                 # Raw FEN stays in Python/presenter and is never serialized to browser.
                 "has_position": block.position_fen is not None,
-                "heading_path": tuple(
-                    _safe_text(part, language=self._language, limit=360)
-                    for part in block.heading_path
-                ),
+                "heading_path": safe_heading_path,
                 "heading_path_label": labels["heading_path"],
                 "source_anchor": _safe_text(block.source_anchor, language=self._language, limit=160),
                 "source_label": labels["source"],
