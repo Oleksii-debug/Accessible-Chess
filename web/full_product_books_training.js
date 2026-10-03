@@ -117,9 +117,15 @@
   ) {
     if (PENDING_WEBVIEW_ROOTS.has(root)) return false;
     PENDING_WEBVIEW_ROOTS.add(root);
+    if (typeof root.setAttribute === "function") {
+      root.setAttribute("aria-busy", "true");
+    }
 
     function release() {
       PENDING_WEBVIEW_ROOTS.delete(root);
+      if (typeof root.setAttribute === "function") {
+        root.setAttribute("aria-busy", "false");
+      }
     }
 
     safeInvoke(
@@ -1239,6 +1245,7 @@
     return {
       dialog: dialog,
       open: function (button) {
+        if (PENDING_WEBVIEW_ROOTS.has(root)) return;
         opener = button;
         dialog.showModal();
         confirm.focus();
