@@ -804,6 +804,7 @@ class AcsDatabase:
 
     def store_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
                    import_status: str | None = None) -> int:
+        source_id = self._row_id(source_id, name="source_id")
         with self.conn:
             return self._insert_game(game, source_id, raw_pgn=raw_pgn, import_status=import_status)
 
