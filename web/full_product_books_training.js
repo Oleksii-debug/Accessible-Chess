@@ -637,6 +637,8 @@
 
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", snapshot.heading);
+    toolbar.setAttribute("aria-orientation", "horizontal");
     const actions = Array.isArray(snapshot.actions) ? snapshot.actions : [];
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
@@ -849,6 +851,8 @@
     const resetDialog = buildResetDialog(root, snapshot.reset_dialog || {}, invoke, announce, fallbackMessage);
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", snapshot.heading);
+    toolbar.setAttribute("aria-orientation", "horizontal");
     const actions = Array.isArray(snapshot.actions) ? snapshot.actions : [];
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
