@@ -323,10 +323,12 @@ class Version2BookTrainingWorkspace:
             # just restored the authoritative pre-command projection, so never
             # return an error localized from the rejected transient state.
             return self.bridge.projection.generic_error()
-        if command_id in {"training.language", "training.reveal", "training.retry"}:
-            # Language, solution reveal and retry feedback are presentation-only.
-            # They do not change the canonical ExerciseSession snapshot and must
-            # remain usable when durable progress storage is busy/unavailable.
+        after = self.session.snapshot()
+        if after == before:
+            # Presentation-only or semantically no-op commands must not depend on
+            # durable storage. This also remains correct if future Book Training
+            # content gains real hints: a changed hints_used counter will make the
+            # snapshots differ and therefore take the durable write path below.
             if command_id == "training.language":
                 self.language = self.bridge.projection.language
             return event
@@ -346,8 +348,6 @@ class Version2BookTrainingWorkspace:
                 )
             self._revision = revision
             raise
-        if command_id == "training.language":
-            self.language = self.bridge.projection.language
         return event
 
     def snapshot(self) -> dict[str, object] | None:
