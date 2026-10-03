@@ -410,8 +410,10 @@ def _looks_like_windows_1251_pgn(
                 if current_cyrillic and previous_cyrillic:
                     saw_cyrillic_run = True
                 previous_cyrillic = current_cyrillic
-            if saw_header and saw_cyrillic_run:
-                return True
+
+            # Do not return early after positive evidence. The fallback contract
+            # also requires the *entire* source to be NUL-free, so later chunks
+            # must still be scanned before legacy decoding is admitted.
         return saw_header and saw_cyrillic_run
     finally:
         os.close(fd)
