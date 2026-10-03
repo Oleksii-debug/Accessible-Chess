@@ -1017,6 +1017,16 @@ async function run() {
     variationMove.parentNode.parentNode.parentNode === variationLabel.parentNode,
     "variation move is not nested under its variation wrapper"
   );
+  const variationEntry = variationLabel.parentNode;
+  const variationResult = find(variationEntry, "P", "Result: *");
+  const variationTail = find(variationEntry, "P", "Variation tail");
+  check(variationResult !== null && variationTail !== null,
+    "variation result/trailing-comment semantics missing");
+  check(
+    variationEntry.children.indexOf(variationResult) <
+      variationEntry.children.indexOf(variationTail),
+    "variation trailing comment was read before its canonical result terminator"
+  );
 
   const malformedSemanticRoot = new FakeElement("div");
   const malformedSemanticAnnouncements = [];
