@@ -630,6 +630,8 @@ class Version2ApplicationTests(unittest.TestCase):
 
     def test_book_board_durability_unknown_rebind_returns_to_books_route(self):
         _book, _origin = self._open_book_game()
+        expected_focus = f"book-block-{self.app.reader.index}"
+        self.app.record_focus(expected_focus)
         opened = self.app.browser_command("books", "book.open_position")
         self.assertEqual(opened["kind"], "delegated")
         self.assertTrue(self.app.book_workflow.active)
@@ -658,6 +660,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIsNotNone(self.app.book_workflow)
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.assertEqual(self.app.shell.restore_focus_target(), expected_focus)
         route_events = [
             event for event in self.app.drain_events()
             if event.get("kind") == "route"
