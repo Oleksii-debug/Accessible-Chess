@@ -45,6 +45,8 @@ _RIGHTS_NAME = "rights.json"
 _ACTIVE_NAME = "active.json"
 _MAX_METADATA_BYTES = 128 * 1024
 _MAX_SOUND_PACK_TREE_DIRECTORIES = 8192
+_MAX_SOUND_PACK_INVENTORY_ENTRIES = 512
+_MAX_SOUND_PACK_VERSION_ENTRIES = 256
 
 _PROCESS_MUTATION_LOCKS_GUARD = threading.Lock()
 _PROCESS_MUTATION_LOCKS: dict[str, threading.RLock] = {}
@@ -1384,34 +1386,40 @@ class FilesystemSoundPackStore:
             return result
         _require_real_dir_chain(self.root, "sound pack root")
         try:
-            children = list(self.root.iterdir())
+            with os.scandir(self.root) as children:
+                for index, entry in enumerate(children, start=1):
+                    if index > _MAX_SOUND_PACK_INVENTORY_ENTRIES:
+                        raise SoundPackStoreError(
+                            "sound pack inventory exceeds the resource limit"
+                        )
+                    child = Path(entry.path)
+                    try:
+                        metadata = os.lstat(child)
+                    except OSError:
+                        continue
+                    if (
+                        stat.S_ISLNK(metadata.st_mode)
+                        or _is_reparse_point(metadata)
+                        or not stat.S_ISDIR(metadata.st_mode)
+                    ):
+                        continue
+                    try:
+                        identity = _stable_id(child.name, allow_dot=True)
+                    except (TypeError, ValueError):
+                        continue
+                    if identity != child.name or identity in result:
+                        continue
+                    try:
+                        installed = self._installed_disk_pack(identity)
+                    except (TypeError, ValueError, SoundPackStoreError):
+                        continue
+                    result[identity] = installed.manifest
+        except SoundPackStoreError:
+            raise
         except OSError as exc:
             raise SoundPackStoreError(
                 "sound pack root could not be listed"
             ) from exc
-
-        for child in children:
-            try:
-                metadata = os.lstat(child)
-            except OSError:
-                continue
-            if (
-                stat.S_ISLNK(metadata.st_mode)
-                or _is_reparse_point(metadata)
-                or not stat.S_ISDIR(metadata.st_mode)
-            ):
-                continue
-            try:
-                identity = _stable_id(child.name, allow_dot=True)
-            except (TypeError, ValueError):
-                continue
-            if identity != child.name or identity in result:
-                continue
-            try:
-                installed = self._installed_disk_pack(identity)
-            except (TypeError, ValueError, SoundPackStoreError):
-                continue
-            result[identity] = installed.manifest
         return result
 
     def active_version(self, pack_id: str) -> str | None:
@@ -1454,24 +1462,28 @@ class FilesystemSoundPackStore:
         versions_dir = self._pack_dir(identity) / "versions"
         if not versions_dir.exists():
             return ()
+        valid: list[str] = []
         try:
             _require_real_dir(versions_dir, "sound pack versions directory")
-            candidates = list(versions_dir.iterdir())
-        except (OSError, SoundPackStoreError):
+            with os.scandir(versions_dir) as candidates:
+                for index, entry in enumerate(candidates, start=1):
+                    if index > _MAX_SOUND_PACK_VERSION_ENTRIES:
+                        raise SoundPackStoreError(
+                            "sound pack version inventory exceeds the resource limit"
+                        )
+                    candidate = Path(entry.path)
+                    try:
+                        version = _stable_version(candidate.name)
+                        self._verify_version(
+                            candidate,
+                            expected_pack_id=identity,
+                            expected_version=version,
+                        )
+                    except (TypeError, ValueError, SoundPackStoreError):
+                        continue
+                    valid.append(version)
+        except OSError:
             return ()
-        valid: list[str] = []
-        for candidate in candidates:
-            try:
-                version = _stable_version(candidate.name)
-                self._verify_version(
-                    candidate,
-                    expected_pack_id=identity,
-                    expected_version=version,
-                )
-            except (TypeError, ValueError, SoundPackStoreError):
-                continue
-            valid.append(version)
-
         return tuple(sorted(valid, key=_semantic_version_key))
 
     def read_asset_snapshot(
