@@ -95,7 +95,7 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            'b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|"$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB"',
+            'if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then',
             self.workflow,
         )
         self.assertNotIn(
@@ -104,6 +104,10 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn(
             "github.event.pull_request.head.ref",
+            self.workflow,
+        )
+        self.assertNotIn(
+            "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|",
             self.workflow,
         )
 
