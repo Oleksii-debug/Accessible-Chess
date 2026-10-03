@@ -473,6 +473,7 @@
     if (typeof block.role !== "string" || roles.indexOf(block.role) < 0) {
       throw new TypeError("Book snapshot block role is invalid");
     }
+    requireBoundedText(block.kind, "Book snapshot block kind", false, 80);
     const roleByKind = {
       Heading: "heading",
       Paragraph: "paragraph",
@@ -488,7 +489,6 @@
         roleByKind[block.kind] !== block.role) {
       throw new TypeError("Book snapshot block kind/role is inconsistent");
     }
-    requireBoundedText(block.kind, "Book snapshot block kind", true, 80);
     requireBoundedText(block.title, "Book snapshot block title", true, 360);
     requireBoundedText(
       block.text,
@@ -641,7 +641,9 @@
       throw new TypeError("Training completion state is inconsistent");
     }
     ["step_label", "of_label", "attempts_label", "mistakes_label", "hints_label"].forEach(
-      function (field) { requireText(progress[field], "Training progress label", false); }
+      function (field) {
+        requireBoundedText(progress[field], "Training progress label", false, 120);
+      }
     );
     requireBoundedText(answer.label, "Training answer label", false, 120);
     requireBoundedText(answer.submit_label, "Training submit label", false, 120);
