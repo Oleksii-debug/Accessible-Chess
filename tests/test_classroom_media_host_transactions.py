@@ -267,6 +267,31 @@ class ClassroomMediaHostTransactionTests(unittest.TestCase):
             host.prepare_local_source(MediaSource.CAMERA, True)
         self.assertEqual(host.pending_effect, effect)
 
+    def test_constructor_failure_before_binding_does_not_poison_port(self):
+        roster = FakeRoster()
+        session = FakeSessionPort()
+        port = ClassroomMediaHostTransactionPort(session_port=session)
+        controller = ClassroomMediaController(
+            local_participant_id="student-1",
+            roster=roster,
+            media=port,
+        )
+
+        with mock.patch(
+            "acs.classroom_media_host_transactions.secrets.token_hex",
+            side_effect=RuntimeError("entropy unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "entropy unavailable"):
+                ClassroomMediaHostTransactions(controller, port)
+
+        host = ClassroomMediaHostTransactions(
+            controller,
+            port,
+            transaction_id_factory=lambda: "host-" + "e" * 32,
+        )
+        self.assertIsNone(host.pending_effect)
+        self.assertIsNone(host.recovery_effect)
+
     def test_transaction_port_rejects_second_coordinator_without_poisoning_first(self):
         controller, _roster, _session, port, host = self.make_host()
 
