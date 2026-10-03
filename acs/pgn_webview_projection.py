@@ -19,6 +19,15 @@ from .full_product_ui_shell import UILanguage, concise_user_error
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 GameCountProvider = Callable[[], int]
 
+_MAX_PGN_RAW_TEXT = 12 * 1024 * 1024
+_MAX_PGN_TREE_ITEMS = 10_000
+_MAX_PGN_TAGS = 256
+_MAX_PGN_WARNINGS = 256
+_MAX_PGN_COMMENTS_PER_ITEM = 256
+_MAX_PGN_NAGS_PER_ITEM = 64
+_MAX_PGN_DEPTH = 256
+_MAX_PGN_NODE_ID = 4096
+
 _WINDOWS_LOCAL_PATH = re.compile(
     r"(?i)(?<![A-Za-z0-9])(?:"
     r"[a-z]:(?:[\\/]|(?=[^:\s]{1,160}(?:[\\/]|$)))[^\r\n\t]*"
@@ -94,13 +103,22 @@ def _scrub_local_paths(text: str, language: UILanguage) -> str:
 def _bounded_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise TypeError("PGN presentation text must be text")
+    if len(value) > _MAX_PGN_RAW_TEXT:
+        raise ValueError("PGN presentation text exceeds the raw text budget")
     text = value.replace("\x00", "").strip()
     return _scrub_local_paths(text, language)[:limit]
 
 
-def _dom_token(node_id: str) -> str:
+def _dom_token(node_id: object) -> str:
+    if (
+        type(node_id) is not str
+        or not node_id
+        or len(node_id) > _MAX_PGN_NODE_ID
+        or "\x00" in node_id
+    ):
+        raise ValueError("invalid PGN node id")
     return "pgn-node-" + sha256(node_id.encode("utf-8")).hexdigest()[:20]
 
 
@@ -162,18 +180,71 @@ class PgnWebViewProjection:
         return value
 
     def set_language(self, language: UILanguage | str) -> PgnWebViewEvent:
-        if isinstance(language, str):
+        if isinstance(language, UILanguage):
+            pass
+        elif type(language) is str:
+            if len(language) > 16 or "\x00" in language:
+                raise ValueError("unsupported UI language")
             try:
                 language = UILanguage(language.strip().lower())
             except ValueError:
                 raise ValueError("unsupported UI language") from None
-        if not isinstance(language, UILanguage):
+        else:
             raise TypeError("language must be UILanguage")
         self._language = language
         self._presenter.set_language(language)
         return PgnWebViewEvent("render", self.snapshot())
 
-    def _tree_item(self, item: PgnTreeItem, selected_node_id: str | None) -> dict[str, object]:
+    def _tree_item(
+        self,
+        item: PgnTreeItem,
+        selected_node_id: str | None,
+    ) -> dict[str, object]:
+        if type(item) is not PgnTreeItem:
+            raise TypeError("PGN presenter tree item is invalid")
+        if (
+            type(item.node_id) is not str
+            or not item.node_id
+            or len(item.node_id) > _MAX_PGN_NODE_ID
+            or "\x00" in item.node_id
+        ):
+            raise ValueError("PGN presenter node id is invalid")
+        if item.kind not in {"move", "variation"}:
+            raise ValueError("PGN presenter item kind is invalid")
+        if type(item.depth) is not int or not 0 <= item.depth < _MAX_PGN_DEPTH:
+            raise ValueError("PGN presenter item depth is invalid")
+        if item.parent_id is not None and (
+            type(item.parent_id) is not str
+            or not item.parent_id
+            or len(item.parent_id) > _MAX_PGN_NODE_ID
+            or "\x00" in item.parent_id
+        ):
+            raise ValueError("PGN presenter parent id is invalid")
+        if len(item.comments) > _MAX_PGN_COMMENTS_PER_ITEM:
+            raise ValueError("PGN presenter item has too many comments")
+        if len(item.nags) > _MAX_PGN_NAGS_PER_ITEM:
+            raise ValueError("PGN presenter item has too many annotations")
+
+        comments: list[str] = []
+        for comment in item.comments:
+            safe = _bounded_text(
+                comment,
+                language=self._language,
+                limit=1200,
+            )
+            if safe:
+                comments.append(safe)
+
+        nags: list[str] = []
+        for nag in item.nags:
+            safe = _bounded_text(
+                nag,
+                language=self._language,
+                limit=40,
+            )
+            if safe:
+                nags.append(safe)
+
         return {
             "dom_id": _dom_token(item.node_id),
             "node_id": item.node_id,
@@ -182,16 +253,8 @@ class PgnWebViewProjection:
             "selected": item.node_id == selected_node_id,
             "label": _bounded_text(item.label, language=self._language, limit=240),
             "san": _bounded_text(item.san, language=self._language, limit=80),
-            "comments": tuple(
-                _bounded_text(comment, language=self._language, limit=1200)
-                for comment in item.comments
-                if comment.strip()
-            ),
-            "nags": tuple(
-                _bounded_text(nag, language=self._language, limit=40)
-                for nag in item.nags
-                if nag.strip()
-            ),
+            "comments": tuple(comments),
+            "nags": tuple(nags),
             "has_parent": item.parent_id is not None,
         }
 
@@ -221,6 +284,22 @@ class PgnWebViewProjection:
         return selected
 
     def _safe_view(self, view: PgnGameView, count: int) -> dict[str, object]:
+        if type(view) is not PgnGameView:
+            raise TypeError("PGN presenter view is invalid")
+        if len(view.items) > _MAX_PGN_TREE_ITEMS:
+            raise ValueError("PGN presenter tree exceeds the item-count budget")
+        if len(view.tags) > _MAX_PGN_TAGS:
+            raise ValueError("PGN presenter tags exceed the item-count budget")
+        if len(view.warnings) > _MAX_PGN_WARNINGS:
+            raise ValueError("PGN presenter warnings exceed the item-count budget")
+        if view.selected_node_id is not None and (
+            type(view.selected_node_id) is not str
+            or not view.selected_node_id
+            or len(view.selected_node_id) > _MAX_PGN_NODE_ID
+            or "\x00" in view.selected_node_id
+        ):
+            raise ValueError("PGN presenter selection id is invalid")
+
         labels = _LABELS[self._language]
         if view.game_index < 0:
             if view.items or view.selected_node_id is not None:
@@ -240,10 +319,23 @@ class PgnWebViewProjection:
             self._tree_item(item, view.selected_node_id)
             for item in view.items
         )
+        node_ids = [item["node_id"] for item in tree]
+        dom_ids = [item["dom_id"] for item in tree]
+        if len(set(node_ids)) != len(node_ids):
+            raise ValueError("PGN presenter tree contains duplicate node ids")
+        if len(set(dom_ids)) != len(dom_ids):
+            raise ValueError("PGN browser tree contains duplicate DOM ids")
+        selected_count = sum(1 for item in tree if item["selected"])
+        if selected is None:
+            if selected_count != 0:
+                raise ValueError("PGN presenter selection is inconsistent")
+        elif selected_count != 1:
+            raise ValueError("PGN presenter selection is inconsistent")
+
         selected_comments = tuple(selected.comments) if selected is not None else ()
         ambiguous_comments = len(selected_comments) > 1
         focus_target = next(
-            (str(item["dom_id"]) for item in tree if item["selected"]),
+            (item["dom_id"] for item in tree if item["selected"]),
             "",
         )
         if selected is not None and not focus_target:
@@ -255,11 +347,16 @@ class PgnWebViewProjection:
             }
             for name, value in view.tags
         )
-        warnings = tuple(
-            _bounded_text(warning, language=self._language, limit=720)
-            for warning in view.warnings
-            if warning.strip()
-        )
+        safe_warnings: list[str] = []
+        for warning in view.warnings:
+            safe = _bounded_text(
+                warning,
+                language=self._language,
+                limit=720,
+            )
+            if safe:
+                safe_warnings.append(safe)
+        warnings = tuple(safe_warnings)
         has_selection = selected is not None
         selected_is_variation = bool(selected and selected.kind == "variation")
         single_comment = len(selected_comments) == 1
@@ -327,9 +424,14 @@ class PgnWebViewProjection:
         )
 
     def select(self, node_id: str) -> PgnWebViewEvent:
-        if not isinstance(node_id, str) or not node_id.strip() or len(node_id) > 4096:
+        if type(node_id) is not str:
+            raise TypeError("PGN node id must be text")
+        if len(node_id) > _MAX_PGN_NODE_ID or "\x00" in node_id:
             raise ValueError("invalid PGN node id")
-        self._presenter.select(node_id.strip())
+        normalized = node_id.strip()
+        if not normalized:
+            raise ValueError("invalid PGN node id")
+        self._presenter.select(normalized)
         return self._render_event()
 
     def move_selection(self, delta: int) -> PgnWebViewEvent:
@@ -370,9 +472,9 @@ class PgnWebViewProjection:
         return PgnWebViewEvent("delegated", {"action": action_id})
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
-        if not isinstance(text, str):
+        if type(text) is not str:
             raise TypeError("PGN comment text must be text")
-        if "\x00" in text or len(text) > 8000:
+        if len(text) > 8000 or "\x00" in text:
             raise ValueError("PGN comment text is invalid")
         return self._dispatch_selected("pgn.comment_edit", extra={"text": text})
 
