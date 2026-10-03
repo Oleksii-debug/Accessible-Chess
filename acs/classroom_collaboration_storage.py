@@ -332,13 +332,17 @@ class ClassroomCollaborationSQLiteStore:
 
     def _migrate(self) -> None:
         with closing(self._connect()) as db, db:
+            # SQLite DDL is transactional only when we explicitly start the
+            # transaction. Keep schema changes and the version marker atomic so
+            # a crash cannot leave a half-applied migration that bricks reopen.
+            db.execute("BEGIN IMMEDIATE")
             db.execute("CREATE TABLE IF NOT EXISTS collaboration_schema_meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
             row = db.execute("SELECT value FROM collaboration_schema_meta WHERE key='schema_version'").fetchone()
             version = int(row[0]) if row else 0
             if version > SCHEMA_VERSION:
                 raise CollaborationStorageError(f"unsupported collaboration schema {version}")
             if version < 1:
-                db.executescript(
+                db.execute(
                     """
                     CREATE TABLE collaboration_messages(
                         message_id TEXT PRIMARY KEY,
@@ -349,9 +353,17 @@ class ClassroomCollaborationSQLiteStore:
                         retention TEXT NOT NULL,
                         hidden INTEGER NOT NULL DEFAULT 0,
                         UNIQUE(room_id, sequence_no)
-                    );
+                    )
+                    """
+                )
+                db.execute(
+                    """
                     CREATE INDEX idx_collaboration_messages_room
-                        ON collaboration_messages(room_id, sequence_no);
+                    ON collaboration_messages(room_id, sequence_no)
+                    """
+                )
+                db.execute(
+                    """
                     CREATE TABLE collaboration_attachments(
                         attachment_id TEXT PRIMARY KEY,
                         room_id TEXT NOT NULL,
@@ -366,9 +378,13 @@ class ClassroomCollaborationSQLiteStore:
                         retention TEXT NOT NULL,
                         scan_state TEXT NOT NULL,
                         UNIQUE(room_id, sequence_no)
-                    );
+                    )
+                    """
+                )
+                db.execute(
+                    """
                     CREATE INDEX idx_collaboration_attachments_room
-                        ON collaboration_attachments(room_id, sequence_no);
+                    ON collaboration_attachments(room_id, sequence_no)
                     """
                 )
                 db.execute(
