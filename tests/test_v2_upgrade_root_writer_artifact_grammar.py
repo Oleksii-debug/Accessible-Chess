@@ -35,9 +35,9 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
 
             generated = (
                 "gametree-resume.json.abcd_123.tmp",
-                "gametree-resume.json.cas-xy_987.bak",
+                "gametree-resume.json.cas-xy_98765.bak",
                 ".book-progress.json.abcd_123.tmp",
-                ".book-progress.json.bak.xy_987.tmp",
+                ".book-progress.json.bak.xy_98765.tmp",
             )
             for name in generated:
                 (root / name).write_bytes(b"generated-runtime-residue")
@@ -48,11 +48,19 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
                 "gametree-resume.json..tmp",
                 "gametree-resume.json.cas-.bak",
                 "gametree-resume.json.bad-token!.tmp",
+                "gametree-resume.json.abc1234.tmp",
+                "gametree-resume.json.abc123456.tmp",
+                "gametree-resume.json.cas-abc1234.bak",
+                "gametree-resume.json.cas-abc123456.bak",
                 ".book-progress.json.bad.token.tmp",
                 ".book-progress.json.bak.bad.token.tmp",
                 ".book-progress.json..tmp",
                 ".book-progress.json.bak..tmp",
                 ".book-progress.json.bad-token!.tmp",
+                ".book-progress.json.abc1234.tmp",
+                ".book-progress.json.abc123456.tmp",
+                ".book-progress.json.bak.abc1234.tmp",
+                ".book-progress.json.bak.abc123456.tmp",
             )
             for name in near_misses:
                 (root / name).write_bytes(b"user-data")
@@ -105,15 +113,38 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
                 b"directory-user-data",
             )
 
+    @unittest.skipIf(
+        __import__("os").name == "nt",
+        "Windows symlink creation requires environment-specific privileges",
+    )
+    def test_exact_generated_name_symlink_fails_closed_before_classification(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "AccessibleChess"
+            root.mkdir()
+            target = Path(td) / "outside.bin"
+            target.write_bytes(b"user-owned-target")
+            link = root / ".book-progress.json.abcd_123.tmp"
+            link.symlink_to(target)
+
+            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))
+            with self.assertRaisesRegex(
+                Version2UpgradeError,
+                "must not be a symlink or reparse point",
+            ):
+                coordinator._files()
+
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(target.read_bytes(), b"user-owned-target")
+
     def test_casefolded_exact_generated_shapes_still_match_writer_grammar(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "AccessibleChess"
             root.mkdir()
             generated = (
                 "GAMETREE-RESUME.JSON.ABCD_123.TMP",
-                "GAMETREE-RESUME.JSON.CAS-XY_987.BAK",
+                "GAMETREE-RESUME.JSON.CAS-XY_98765.BAK",
                 ".BOOK-PROGRESS.JSON.ABCD_123.TMP",
-                ".BOOK-PROGRESS.JSON.BAK.XY_987.TMP",
+                ".BOOK-PROGRESS.JSON.BAK.XY_98765.TMP",
             )
             for name in generated:
                 (root / name).write_bytes(b"generated-runtime-residue")
@@ -132,9 +163,9 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             durable.write_bytes(b"x")
             for name in (
                 "gametree-resume.json.abcd_123.tmp",
-                "gametree-resume.json.cas-xy_987.bak",
+                "gametree-resume.json.cas-xy_98765.bak",
                 ".book-progress.json.abcd_123.tmp",
-                ".book-progress.json.bak.xy_987.tmp",
+                ".book-progress.json.bak.xy_98765.tmp",
             ):
                 (root / name).write_bytes(b"z" * 4096)
 
@@ -164,9 +195,9 @@ class V2UpgradeRootWriterArtifactGrammarTests(unittest.TestCase):
             )
             generated = (
                 root / "gametree-resume.json.abcd_123.tmp",
-                root / "gametree-resume.json.cas-xy_987.bak",
+                root / "gametree-resume.json.cas-xy_98765.bak",
                 root / ".book-progress.json.abcd_123.tmp",
-                root / ".book-progress.json.bak.xy_987.tmp",
+                root / ".book-progress.json.bak.xy_98765.tmp",
             )
             for path in generated:
                 path.write_bytes(b"legacy-residue")
