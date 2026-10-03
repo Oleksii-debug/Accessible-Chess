@@ -364,18 +364,27 @@ class SoundSettingsApplication:
         for event_id in self._visible_event_ids(profile, active_manifest):
             pref = profile.preference_for(event_id)
             labels = _EVENT_LABELS[event_id]
+            selected_sound_id = profile.selected_sound_id(event_id)
+            uses_classic_fallback = (
+                profile.pack_id != "classic"
+                and active_manifest is not None
+                and event_id in OPTIONAL_OWNER_SOUND_EVENTS
+                and selected_sound_id == event_id
+                and event_id not in active_manifest.files
+            )
             events.append(
                 {
                     "event_id": event_id,
                     "label": labels[1] if lang == "en" else labels[0],
                     "enabled": pref.enabled,
                     "volume_percent": pref.volume_percent,
-                    "sound_id": profile.selected_sound_id(event_id),
+                    "sound_id": selected_sound_id,
                     "sound_choices": self._sound_choices(
                         profile,
                         event_id,
                         active_manifest,
                     ),
+                    "uses_classic_fallback": uses_classic_fallback,
                     "effective_volume": profile.effective_volume(event_id),
                 }
             )
