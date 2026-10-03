@@ -1103,6 +1103,41 @@ class ClassroomFileHttpClientTests(unittest.TestCase):
                 self.assertEqual(1, len(FakeHttpConnection.instances))
                 self.assertTrue(FakeHttpConnection.instances[0].closed)
 
+    def test_client_partial_send_reports_only_confirmed_progress(self):
+        content = b"abcdef"
+        observed = []
+        FakeHttpConnection.fail_send_at = 3
+        transport = ClassroomFileHttpRpcCall(
+            endpoint_url="https://files.example.test/v1/classroom/files",
+            bearer_token_provider=lambda: "token",
+        )
+
+        with (
+            patch(
+                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
+                FakeHttpConnection,
+            ),
+            patch(
+                "acs.classroom_file_http_transport._UPLOAD_SEND_CHUNK_BYTES",
+                2,
+            ),
+            self.assertRaisesRegex(
+                ClassroomFileHttpClientError,
+                "transport failed",
+            ),
+        ):
+            transport.call(
+                upload_request(content),
+                on_upload_progress=observed.append,
+            )
+
+        self.assertEqual([0, 2], observed)
+        self.assertEqual(
+            content[:2],
+            b"".join(FakeHttpConnection.instances[0].sent_parts[2:]),
+        )
+        self.assertTrue(FakeHttpConnection.instances[0].closed)
+
     def test_client_network_failure_is_sanitized_and_connection_closes(self):
         FakeHttpConnection.fail_send_at = 1
         transport = ClassroomFileHttpRpcCall(
