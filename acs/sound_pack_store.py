@@ -39,6 +39,7 @@ from .sound_profiles import (
 
 
 SOUND_PACK_STORE_SCHEMA_VERSION = 1
+SOUND_PACK_INTEGRITY_SCHEMA_VERSION = 2
 _MANIFEST_NAME = "manifest.json"
 _INTEGRITY_NAME = "integrity.json"
 _RIGHTS_NAME = "rights.json"
@@ -351,11 +352,19 @@ def _validate_audio_header(path: str, prefix: bytes) -> None:
     raise SoundPackStoreError("unsupported sound asset type")
 
 
+def _rights_sha256(rights: SoundPackRightsEvidence) -> str:
+    if not isinstance(rights, SoundPackRightsEvidence):
+        raise TypeError("rights must be SoundPackRightsEvidence")
+    return hashlib.sha256(_canonical_json(rights.to_mapping())).hexdigest()
+
+
 def _integrity_mapping(
     digests: Mapping[str, SoundAssetDigest],
+    *,
+    rights_sha256: str | None,
 ) -> dict[str, object]:
     return {
-        "schema_version": SOUND_PACK_STORE_SCHEMA_VERSION,
+        "schema_version": SOUND_PACK_INTEGRITY_SCHEMA_VERSION,
         "assets": {
             path: {
                 "size_bytes": digest.size_bytes,
@@ -363,16 +372,34 @@ def _integrity_mapping(
             }
             for path, digest in sorted(digests.items())
         },
+        "rights_sha256": rights_sha256,
     }
 
 
 def _integrity_from_mapping(
     raw: Mapping[str, object],
-) -> dict[str, SoundAssetDigest]:
-    if set(raw) != {"schema_version", "assets"}:
-        raise SoundPackStoreError("sound pack integrity fields are invalid")
-    schema = raw["schema_version"]
-    if type(schema) is not int or schema != SOUND_PACK_STORE_SCHEMA_VERSION:
+) -> tuple[dict[str, SoundAssetDigest], str | None]:
+    schema = raw.get("schema_version")
+    if type(schema) is not int:
+        raise SoundPackStoreError("sound pack integrity schema is invalid")
+    if schema == 1:
+        if set(raw) != {"schema_version", "assets"}:
+            raise SoundPackStoreError("sound pack integrity fields are invalid")
+        rights_sha256 = None
+    elif schema == SOUND_PACK_INTEGRITY_SCHEMA_VERSION:
+        if set(raw) != {"schema_version", "assets", "rights_sha256"}:
+            raise SoundPackStoreError("sound pack integrity fields are invalid")
+        rights_sha256 = raw["rights_sha256"]
+        if rights_sha256 is not None:
+            if (
+                type(rights_sha256) is not str
+                or len(rights_sha256) != 64
+                or any(ch not in "0123456789abcdef" for ch in rights_sha256)
+            ):
+                raise SoundPackStoreError(
+                    "sound pack rights digest is invalid"
+                )
+    else:
         raise SoundPackStoreError(
             f"unsupported sound pack integrity schema: {schema}"
         )
@@ -392,7 +419,7 @@ def _integrity_from_mapping(
         except (TypeError, ValueError) as exc:
             raise SoundPackStoreError("sound pack integrity asset is invalid") from exc
         result[path] = digest
-    return result
+    return result, rights_sha256
 
 
 class FilesystemSoundPackStore:
@@ -738,7 +765,7 @@ class FilesystemSoundPackStore:
     @staticmethod
     def _read_integrity(
         version_dir: Path,
-    ) -> dict[str, SoundAssetDigest]:
+    ) -> tuple[dict[str, SoundAssetDigest], str | None]:
         path = version_dir / _INTEGRITY_NAME
         metadata = _require_regular_file(
             path, "sound pack integrity metadata"
@@ -804,8 +831,17 @@ class FilesystemSoundPackStore:
                 "installed sound pack version does not match its directory"
             )
 
-        digests = self._read_integrity(version_dir)
+        digests, rights_sha256 = self._read_integrity(version_dir)
         rights_evidence = self._read_rights(version_dir)
+        if rights_sha256 is not None:
+            if rights_evidence is None:
+                raise SoundPackStoreError(
+                    "sound pack rights digest has no rights metadata"
+                )
+            if _rights_sha256(rights_evidence) != rights_sha256:
+                raise SoundPackStoreError(
+                    "sound pack rights evidence checksum mismatch"
+                )
         if (
             rights_evidence is not None
             and rights_evidence.license_id != manifest.license_id
@@ -1036,7 +1072,16 @@ class FilesystemSoundPackStore:
             )
             self._write_new(
                 staging / _INTEGRITY_NAME,
-                _canonical_json(_integrity_mapping(digests)),
+                _canonical_json(
+                    _integrity_mapping(
+                        digests,
+                        rights_sha256=(
+                            None
+                            if downloaded.rights_evidence is None
+                            else _rights_sha256(downloaded.rights_evidence)
+                        ),
+                    )
+                ),
             )
             if downloaded.rights_evidence is not None:
                 self._write_new(
