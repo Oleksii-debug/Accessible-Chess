@@ -1571,6 +1571,7 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         view.retire_browser_session()
 
         self.assertIsNone(view._file_progress_event_sink)
+        self.assertIsNone(view._file_progress_attempt_token)
         self.assertEqual(pending_before_retire, view._pending_chat)
         self.assertEqual({}, view._prepared)
         self.assertIsNone(view._chat_page_bucket)
@@ -1660,6 +1661,15 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         item = failed.payload["collaboration"]["files"]["items"][0]
         self.assertTrue(item["can_retry"])
+        self.assertIsNone(
+            failed.payload["collaboration"]["files"]["transfer_progress"]
+        )
+        failed_attempt_keys = {
+            event.payload["file_progress"]["transfer_key"]
+            for event in progress_events
+        }
+        self.assertEqual(1, len(failed_attempt_keys))
+        failed_attempt_key = next(iter(failed_attempt_keys))
         self.assertNotIn(str(self.selected_file), repr(failed.payload))
 
         self.files.fail_upload = False
@@ -1678,6 +1688,20 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             ],
         )
         self.assertTrue(progress_events[-1].payload["file_progress"]["complete"])
+        retry_attempt_keys = {
+            event.payload["file_progress"]["transfer_key"]
+            for event in progress_events
+        }
+        self.assertEqual(1, len(retry_attempt_keys))
+        retry_attempt_key = next(iter(retry_attempt_keys))
+        self.assertNotEqual(failed_attempt_key, retry_attempt_key)
+        self.assertEqual(
+            retry_attempt_key,
+            retried.payload["collaboration"]["files"]["transfer_progress"]["transfer_key"],
+        )
+        self.assertTrue(
+            retried.payload["collaboration"]["files"]["transfer_progress"]["complete"]
+        )
         self.assertEqual(
             "File retry completed: retry.pgn.",
             retried.payload["announcement"],
