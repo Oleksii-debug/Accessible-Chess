@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/classroom_media_policy_authority.py'
       - 'tests/test_classroom_media_policy_authority.py'
+      - 'tests/test_classroom_effect_lock_cross_process.py'
       - '.github/workflows/classroom-distinct-moderation-serialization.yml'
   workflow_dispatch:
 
@@ -58,6 +59,7 @@ jobs:
           allowed="$(printf '%s\n' \
             '.github/workflows/classroom-distinct-moderation-serialization.yml' \
             'acs/classroom_media_policy_authority.py' \
+            'tests/test_classroom_effect_lock_cross_process.py' \
             'tests/test_classroom_media_policy_authority.py' | sort)"
           test "$changed" = "$allowed"
 
@@ -71,11 +73,13 @@ jobs:
           python -m py_compile
           acs/classroom_media_policy_authority.py
           tests/test_classroom_media_policy_authority.py
+          tests/test_classroom_effect_lock_cross_process.py
 
       - name: Run durable policy and join contracts
         run: >-
           python -m unittest -v
           tests.test_classroom_media_policy_authority
+          tests.test_classroom_effect_lock_cross_process
           tests.test_classroom_join_credentials
           tests.test_classroom_realtime_media
 
@@ -92,6 +96,9 @@ jobs:
           grep -Fq 'op-lock-microphone-distinct' tests/test_classroom_media_policy_authority.py
           grep -Fq 'self.assertEqual(provider.sources, set())' tests/test_classroom_media_policy_authority.py
           grep -Fq 'CancelledError' tests/test_classroom_media_policy_authority.py
+          grep -Fq 'multiprocessing.get_context("spawn")' tests/test_classroom_effect_lock_cross_process.py
+          grep -Fq '("blocked", None)' tests/test_classroom_effect_lock_cross_process.py
+          grep -Fq '("acquired", None)' tests/test_classroom_effect_lock_cross_process.py
 
       - name: Core selftest
         run: python -m acs.selftest
