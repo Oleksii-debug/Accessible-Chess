@@ -435,10 +435,15 @@ async function run() {
       {
         pack_id: "old.playable",
         title: "Old Playable",
-        version: "2.0.0",
-        author: "Provider author",
-        license_id: "CC0-1.0",
-        provenance: "provider catalog",
+        version: "1.0.0",
+        author: "Installed author",
+        license_id: "MIT",
+        provenance: "installed verified metadata",
+        catalog_version: "2.0.0",
+        catalog_title: "Old Playable Update",
+        catalog_author: "Provider author",
+        catalog_license_id: "CC0-1.0",
+        catalog_provenance: "provider catalog",
         compatible: false,
         installed_compatible: true,
         installed_version: "1.0.0",
@@ -450,10 +455,15 @@ async function run() {
       {
         pack_id: "newer.installed",
         title: "Newer Installed",
-        version: "1.5.0",
-        author: "Provider author",
-        license_id: "CC0-1.0",
-        provenance: "stale provider catalog",
+        version: "2.0.0",
+        author: "Installed newer author",
+        license_id: "MIT",
+        provenance: "installed newer verified metadata",
+        catalog_version: "1.5.0",
+        catalog_title: "Newer Installed (stale catalog)",
+        catalog_author: "Provider author",
+        catalog_license_id: "CC0-1.0",
+        catalog_provenance: "stale provider catalog",
         compatible: true,
         installed_compatible: true,
         installed_version: "2.0.0",
@@ -466,9 +476,14 @@ async function run() {
         pack_id: "conflicted.installed",
         title: "Conflicted Installed",
         version: "2.0.0",
-        author: "Provider author",
-        license_id: "CC0-1.0",
-        provenance: "conflicting provider catalog",
+        author: "Installed conflict author",
+        license_id: "MIT",
+        provenance: "installed conflict verified metadata",
+        catalog_version: "2.0.0",
+        catalog_title: "Conflicting Catalog Title",
+        catalog_author: "Provider author",
+        catalog_license_id: "CC0-1.0",
+        catalog_provenance: "conflicting provider catalog",
         compatible: true,
         installed_compatible: true,
         installed_version: "2.0.0",
@@ -500,6 +515,18 @@ async function run() {
     "catalog-update incompatibility must be visible without mislabeling the installed version"
   );
   assert.ok(
+    elements.get("sound-pack-old.playable-metadata").textContent.includes(
+      "installed verified metadata"
+    ),
+    "installed pack provenance must come from the verified local manifest"
+  );
+  assert.ok(
+    elements.get("sound-pack-old.playable-metadata").textContent.includes(
+      "Catalog provenance: provider catalog"
+    ),
+    "available update provenance must be shown separately from installed provenance"
+  );
+  assert.ok(
     elements.get("sound-pack-newer.installed-select"),
     "newer installed pack must remain selectable when catalog is stale"
   );
@@ -511,6 +538,18 @@ async function run() {
     ),
     "stale-catalog rollback protection must be visible/selectable text"
   );
+  assert.ok(
+    elements.get("sound-pack-newer.installed-metadata").textContent.includes(
+      "installed newer verified metadata"
+    ),
+    "stale catalog must not replace installed provenance in the primary metadata"
+  );
+  assert.ok(
+    elements.get("sound-pack-newer.installed-metadata").textContent.includes(
+      "Catalog version: 1.5.0"
+    ),
+    "stale catalog version must remain visible as a distinct candidate identity"
+  );
   assert.ok(elements.get("sound-pack-conflicted.installed-select"),
     "verified installed pack must remain selectable despite catalog metadata conflict");
   assert.strictEqual(elements.get("sound-pack-conflicted.installed-install"), undefined,
@@ -520,6 +559,18 @@ async function run() {
       "catalog metadata conflicts with the installed version"
     ),
     "catalog metadata conflict must remain visible/selectable text"
+  );
+  assert.ok(
+    elements.get("sound-pack-conflicted.installed-metadata").textContent.includes(
+      "installed conflict verified metadata"
+    ),
+    "conflict row must retain installed provenance as the primary identity"
+  );
+  assert.ok(
+    elements.get("sound-pack-conflicted.installed-metadata").textContent.includes(
+      "Catalog provenance: conflicting provider catalog"
+    ),
+    "conflicting catalog provenance must be rendered separately"
   );
 
   const savedCommandBridge = api.sound_settings_command;
