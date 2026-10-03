@@ -137,11 +137,26 @@ def _require_sha256(value: object, name: str) -> str:
 
 
 def _require_exact_fields(
-    payload: Mapping[str, object],
+    payload: object,
     expected: frozenset[str],
     name: str,
 ) -> None:
-    fields = set(payload)
+    # JSON objects arrive as built-in dicts. Reject Mapping/dict subclasses
+    # before len(), iteration, hashing or equality can execute custom hooks.
+    if type(payload) is not dict:
+        raise BookTrainingError(
+            f"{name} must be an exact dictionary",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    field_names: list[str] = []
+    for field in payload:
+        if type(field) is not str:
+            raise BookTrainingError(
+                f"{name} field names must be exact text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        field_names.append(field)
+    fields = set(field_names)
     if fields == expected:
         return
     missing = sorted(expected - fields)
@@ -231,11 +246,6 @@ class BookTrainingOrigin:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> "BookTrainingOrigin":
-        if not isinstance(payload, Mapping):
-            raise BookTrainingError(
-                "book training origin must be a mapping",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
         _require_exact_fields(payload, _ORIGIN_FIELDS, "book training origin")
         heading_path = payload["heading_path"]
         if (
@@ -322,11 +332,6 @@ def _definition_to_dict(definition: ExerciseDefinition) -> dict[str, object]:
 
 
 def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
-    if not isinstance(payload, Mapping):
-        raise BookTrainingError(
-            "book training definition must be a mapping",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
     _require_exact_fields(payload, _DEFINITION_FIELDS, "book training definition")
     steps_value = payload["steps"]
     if type(steps_value) is not list or len(steps_value) > _MAX_EXERCISE_STEPS:
@@ -336,11 +341,6 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
         )
     steps: list[ExerciseStep] = []
     for raw_step in steps_value:
-        if not isinstance(raw_step, Mapping):
-            raise BookTrainingError(
-                "book training step must be a mapping",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
         _require_exact_fields(raw_step, _STEP_FIELDS, "book training step")
         accepted = raw_step["accepted_moves"]
         if (
@@ -402,18 +402,12 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
                 "book training tags must contain bounded text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
-    if not isinstance(metadata, Mapping):
+    if type(metadata) is not dict:
         raise BookTrainingError(
-            "book training metadata must be a mapping",
+            "book training metadata must be an exact dictionary",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    try:
-        metadata_count = len(metadata)
-    except TypeError as exc:
-        raise BookTrainingError(
-            "book training metadata must be finite",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        ) from exc
+    metadata_count = len(metadata)
     if metadata_count > _MAX_DEFINITION_METADATA_ITEMS:
         raise BookTrainingError(
             "book training metadata exceeds the item limit",
@@ -783,11 +777,6 @@ def restore_book_training_material(
     resolved back to BookDocument and the canonical definition is regenerated;
     any stale/tampered definition fails closed.
     """
-    if not isinstance(payload, Mapping):
-        raise BookTrainingError(
-            "book training material must be a mapping",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
     _require_exact_fields(payload, _MATERIAL_FIELDS, "book training material")
     version = payload["schema_version"]
     if type(version) is not int:
@@ -802,9 +791,9 @@ def restore_book_training_material(
         )
     origin_value = payload["origin"]
     definition_value = payload["definition"]
-    if not isinstance(origin_value, Mapping) or not isinstance(definition_value, Mapping):
+    if type(origin_value) is not dict or type(definition_value) is not dict:
         raise BookTrainingError(
-            "book training origin and definition must be mappings",
+            "book training origin and definition must be exact dictionaries",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     origin = BookTrainingOrigin.from_dict(origin_value)
