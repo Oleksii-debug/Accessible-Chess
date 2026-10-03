@@ -954,6 +954,93 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
         reopened.integrity_check()
 
+    def test_cancel_racing_slow_put_cleans_late_object_without_orphan(self):
+        prepared = self.prepared(
+            attachment_id="cancel-races-put-a0",
+            content=b"late durable bytes",
+        )
+        put_started = threading.Event()
+        release_put = threading.Event()
+        original_put = self.objects.put
+
+        def delayed_put(**kwargs):
+            put_started.set()
+            if not release_put.wait(5):
+                raise AssertionError("test did not release delayed PUT")
+            return original_put(**kwargs)
+
+        with patch.object(self.objects, "put", side_effect=delayed_put):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(self.student1.upload, prepared)
+                self.assertTrue(put_started.wait(5))
+                self.student1.cancel(
+                    attachment_id=prepared.metadata.attachment_id,
+                )
+                release_put.set()
+                with self.assertRaisesRegex(
+                    ClassroomFileServerError,
+                    "cancelled before finalization",
+                ):
+                    future.result(timeout=5)
+
+        self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
+        self.assertEqual(self.store.pending_deletions(), ())
+        with self.store._connect() as db:
+            self.assertIsNone(
+                db.execute(
+                    "SELECT 1 FROM classroom_file_server_attachments "
+                    "WHERE attachment_id=?",
+                    (prepared.metadata.attachment_id,),
+                ).fetchone()
+            )
+        self.service.integrity_check()
+
+        # No authoritative history was published, so exact identity reuse is
+        # safe after the late bytes were conclusively cleaned.
+        stored = self.student1.retry(prepared)
+        self.assertEqual(stored.transfer_state, "stored")
+        self.assertEqual(stored.sequence_no, 0)
+
+    def test_cancel_racing_slow_put_persists_late_cleanup_failure(self):
+        prepared = self.prepared(
+            attachment_id="cancel-races-put-delete-failure-a0",
+            content=b"late cleanup must survive",
+        )
+        put_started = threading.Event()
+        release_put = threading.Event()
+        original_put = self.objects.put
+
+        def delayed_put(**kwargs):
+            put_started.set()
+            if not release_put.wait(5):
+                raise AssertionError("test did not release delayed PUT")
+            return original_put(**kwargs)
+
+        with patch.object(self.objects, "put", side_effect=delayed_put):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(self.student1.upload, prepared)
+                self.assertTrue(put_started.wait(5))
+                self.student1.cancel(
+                    attachment_id=prepared.metadata.attachment_id,
+                )
+                self.objects.delete_failures = 1
+                release_put.set()
+                with self.assertRaisesRegex(
+                    ClassroomFileServerError,
+                    "cleanup is pending",
+                ):
+                    future.result(timeout=5)
+
+        self.assertIn(prepared.metadata.object_key, self.objects.objects)
+        self.assertEqual(
+            self.store.pending_deletions(),
+            ((prepared.metadata.attachment_id, prepared.metadata.object_key),),
+        )
+        self.assertEqual(self.service.drain_pending_deletions(), 1)
+        self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
+        self.assertEqual(self.store.pending_deletions(), ())
+        self.service.integrity_check()
+
     def test_ambiguous_put_then_cancel_delete_failure_recovers_after_restart(self):
         prepared = self.prepared(attachment_id="provisional-cancel-recovery")
         self.objects.raise_after_put_once = True
