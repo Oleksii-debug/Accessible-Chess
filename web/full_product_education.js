@@ -429,6 +429,13 @@
     chatHeading.id = "collaboration-chat-heading";
     chatSection.appendChild(chatHeading);
 
+    if (chat.retention_policy_label) {
+      const retentionPolicy = node("p", chat.retention_policy_label);
+      retentionPolicy.id = "collaboration-chat-retention-policy";
+      retentionPolicy.setAttribute("aria-live", "off");
+      chatSection.appendChild(retentionPolicy);
+    }
+
     const unread = node("p", chat.unread_label || "");
     unread.id = "collaboration-unread-status";
     unread.setAttribute("aria-live", "off");
@@ -580,6 +587,19 @@
           timestampDetails.appendChild(timestamp);
           item.appendChild(timestampDetails);
         }
+        if (message.retention_label) {
+          const retentionDetails = node("details");
+          retentionDetails.setAttribute("data-message-retention", "true");
+          const retentionSummary = node(
+            "summary",
+            chat.retention_label || "Retention"
+          );
+          retentionDetails.appendChild(retentionSummary);
+          const retention = node("span", String(message.retention_label));
+          retention.setAttribute("aria-live", "off");
+          retentionDetails.appendChild(retention);
+          item.appendChild(retentionDetails);
+        }
         if (message.can_hide && message.message_key) {
           const hide = node("button", chat.hide_label || "Hide message");
           hide.id = item.id + "-hide";
@@ -698,6 +718,12 @@
     const fileHeading = node("h3", files.heading || "");
     fileHeading.id = "collaboration-files-heading";
     fileSection.appendChild(fileHeading);
+    if (files.retention_policy_label) {
+      const retentionPolicy = node("p", files.retention_policy_label);
+      retentionPolicy.id = "collaboration-file-retention-policy";
+      retentionPolicy.setAttribute("aria-live", "off");
+      fileSection.appendChild(retentionPolicy);
+    }
     const syncFiles = node("button", files.sync_label || "Refresh files");
     syncFiles.id = "collaboration-file-sync";
     syncFiles.type = "button";
@@ -761,7 +787,13 @@
           fileSender.setAttribute("dir", "auto");
           item.appendChild(fileSender);
         }
-        [file.size_label, file.type_label, file.status_label, file.scan_label].forEach(function (value) {
+        [
+          file.size_label,
+          file.type_label,
+          file.status_label,
+          file.scan_label,
+          file.retention_label
+        ].forEach(function (value) {
           if (!value) return;
           item.appendChild(document.createTextNode(" — "));
           item.appendChild(node("span", value));
