@@ -134,12 +134,13 @@ function trainingSnapshot() {
     },
     message: "",
     answer: { label: "Your move", max_length: 128, submit_label: "Check", disabled: false },
+    focus_target: "training-answer",
     actions: [
-      { command: "training.hint", label: "Hint", enabled: true },
-      { command: "training.reveal", label: "Reveal solution", enabled: true },
-      { command: "training.retry", label: "Retry", enabled: true },
-      { command: "training.continue", label: "Next exercise", enabled: false },
-      { command: "training.reset.request", label: "Reset", enabled: true }
+      { command: "training.hint", focus_target: "training-action-hint", label: "Hint", enabled: true },
+      { command: "training.reveal", focus_target: "training-action-reveal", label: "Reveal solution", enabled: true },
+      { command: "training.retry", focus_target: "training-action-retry", label: "Retry", enabled: true },
+      { command: "training.continue", focus_target: "training-action-continue", label: "Next exercise", enabled: false },
+      { command: "training.reset.request", focus_target: "training-action-reset", label: "Reset", enabled: true }
     ],
     reset_dialog: {
       title: "Reset exercise?",
@@ -425,6 +426,11 @@ async function run() {
   check(
     trainingToolbarButtons[0].tabIndex === 0,
     "first enabled training toolbar action must be tabbable"
+  );
+  check(
+    trainingToolbarButtons.map(function (button) { return button.id; }).join(",") ===
+      "training-action-hint,training-action-reveal,training-action-retry,training-action-continue,training-action-reset",
+    "training toolbar did not materialize canonical action focus ids"
   );
   check(trainingToolbarButtons[3].disabled, "training continue fixture must stay disabled");
   check(
@@ -2424,6 +2430,58 @@ async function run() {
       oversizedStarterAnnouncements[0] === "Starter bound failed",
     "oversized starter catalogue did not fail closed accessibly"
   );
+
+  const completedTrainingRoot = new FakeElement("div");
+  const completedSnapshot = trainingSnapshot();
+  completedSnapshot.status = "completed";
+  completedSnapshot.progress.completed = true;
+  completedSnapshot.answer.disabled = true;
+  completedSnapshot.actions[0].enabled = false;
+  completedSnapshot.actions[1].enabled = false;
+  completedSnapshot.actions[2].enabled = false;
+  completedSnapshot.actions[3].enabled = false;
+  completedSnapshot.focus_target = "training-action-reset";
+  window.AccessibleChessTrainingSurface.render(
+    completedTrainingRoot,
+    completedSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }),
+    function () {},
+    "training-answer",
+    "Completed focus failed",
+    []
+  );
+  check(
+    document.activeElement === completedTrainingRoot.querySelector("#training-action-reset"),
+    "completed Training did not replace disabled answer focus with Reset"
+  );
+
+  const revealedTrainingRoot = new FakeElement("div");
+  window.AccessibleChessTrainingSurface.render(
+    revealedTrainingRoot,
+    trainingSnapshot(),
+    () => ({
+      kind: "render",
+      payload: {
+        snapshot: trainingSnapshot(),
+        focus_target: "training-solution",
+        clear_answer: false,
+        solution: ["e4"]
+      }
+    }),
+    function () {},
+    "training-answer",
+    "Reveal focus failed",
+    []
+  );
+  const revealButton = revealedTrainingRoot.querySelector("#training-action-reveal");
+  check(revealButton !== null, "Training Reveal action id missing");
+  revealButton.listeners.click();
+  await flushPromises();
+  await flushPromises();
+  const solutionTarget = revealedTrainingRoot.querySelector("#training-solution");
+  check(solutionTarget !== null, "Training solution focus target was not materialized");
+  check(solutionTarget.tabIndex === -1, "Training solution target is not programmatically focusable");
+  check(document.activeElement === solutionTarget, "Training reveal did not focus the solution target");
 
   const oversizedSolutionRoot = new FakeElement("div");
   const oversizedSolutionAnnouncements = [];
