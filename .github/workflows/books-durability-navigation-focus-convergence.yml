@@ -7,11 +7,15 @@ on:
     paths:
       - '.github/workflows/books-durability-navigation-focus-convergence.yml'
       - 'acs/full_product_ui_shell.py'
+      - 'acs/training_webview_projection.py'
       - 'acs/version2_application.py'
+      - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/test_v2_book_training_route_rollback.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_version2_release_accessibility_contract.py'
+      - 'web/full_product_books_training.js'
+      - 'web/version2_release_bootstrap.js'
   workflow_dispatch:
 
 permissions:
@@ -67,30 +71,40 @@ jobs:
             '.github/workflows/d01-pgn-workspace-webview.yml' \
             '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/full_product_ui_shell.py' \
+            'acs/training_webview_projection.py' \
             'acs/version2_application.py' \
+            'tests/js/books_training_surface_dom_test.js' \
             'tests/js/version2_release_bootstrap_dom_test.js' \
             'tests/test_v2_book_training_route_rollback.py' \
             'tests/test_version2_application.py' \
-            'tests/test_version2_release_accessibility_contract.py' | sort)"
+            'tests/test_version2_release_accessibility_contract.py' \
+            'web/full_product_books_training.js' \
+            'web/version2_release_bootstrap.js' | sort)"
           test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "e739071cf5d8a40f7622559c0fcd598cf4c7c945"
-          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "bfd2db22df832127f1a82e8ef1c7ad18613df7d8"
+          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "1f7d2f0a80207dcc6d14b361f8dfe4b1cbf07032"
           test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = "7bb116ea0587de51a191560cd39070aac9ead014"
-          test "$(git rev-parse HEAD:acs/version2_application.py)" = "f916c50d3c08a93570a1f70c158c26fab618fbdd"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "9f6fedc62dab8b3154f6e1bec6ad26338e310729"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "66bcf463dea9eb70803462f78dbc5f7a3ef37a22"
           test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = "1e9b0e03c5c81ef187234a748bbd23c2759ad4cb"
-          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "03257330c7b5519683533f33fd57145f395354d7"
-          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "004281d27ee2dbe1c06fad4f578ea5b9839afbd9"
-          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "e11644b5a8c102d8cb172b313d7bb8550eaaada1"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "78c0f464c463cad57c11726db07d8357b0537037"
+          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "e82efbfd6c31c0afa78d54e1ce98e42c79c02fd7"
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "b91ec11dd370f7c1e30d3670f003ac2970c3f540"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "66ee8f2f4f560070fc320079ab7dfdf93a938693"
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "2385b9748995f7dfdc97b10bf42ea916bb8ba46e"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "1b21657a191fa0a76cd5fa5306f75600fed34b58"
 
           echo 'BOOKS_DURABILITY_NAVIGATION_FOCUS_SCOPE=PASS'
 
       - name: Validate release JavaScript and DOM focus contract
         run: |
           node --check web/version2_release_bootstrap.js
+          node --check web/full_product_books_training.js
           node --check tests/js/version2_release_bootstrap_dom_test.js
+          node --check tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -100,6 +114,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/full_product_ui_shell.py
+          acs/training_webview_projection.py
           acs/version2_application.py
           tests/test_v2_book_training_route_rollback.py
           tests/test_version2_application.py
