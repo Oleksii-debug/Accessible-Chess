@@ -704,6 +704,80 @@ check(
   "a delayed progress event older than an authoritative clear must not resurrect the transfer"
 );
 
+const finalizingProgressRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  finalizingProgressRoot,
+  {
+    document: { lang: "en", heading: "Classes" },
+    sections: [],
+    detail: null,
+    collaboration: collaboration([], 0, false, "finalizing-session")
+  },
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+window.AccessibleChessEducationSurface.apply(
+  finalizingProgressRoot,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "finalizing-session",
+        transfer_key: transferKeyA,
+        progress_revision: 1,
+        name: "finalizing.pgn",
+        transferred_bytes: 1024,
+        total_bytes: 1024,
+        complete: false,
+        label: "File transfer progress",
+        text: "All bytes transferred; finalizing transfer: finalizing.pgn."
+      }
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+const finalizingMeter = finalizingProgressRoot.querySelector(
+  "#collaboration-file-transfer-meter"
+);
+check(
+  finalizingMeter.getAttribute("max") === "1024" &&
+  finalizingMeter.getAttribute("value") === null &&
+  finalizingMeter.getAttribute("aria-valuetext") ===
+    "All bytes transferred; finalizing transfer: finalizing.pgn.",
+  "all bytes sent before authoritative completion must remain native indeterminate"
+);
+window.AccessibleChessEducationSurface.apply(
+  finalizingProgressRoot,
+  {
+    kind: "collaboration.file.progress",
+    payload: {
+      file_progress: {
+        session_key: "finalizing-session",
+        transfer_key: transferKeyA,
+        progress_revision: 2,
+        name: "finalizing.pgn",
+        transferred_bytes: 1024,
+        total_bytes: 1024,
+        complete: true,
+        label: "File transfer progress",
+        text: "Transferred 1.0 KB of 1.0 KB: finalizing.pgn."
+      }
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  finalizingProgressRoot.querySelector("#collaboration-file-transfer-meter")
+    .getAttribute("value") === "1024",
+  "authoritative completion must restore determinate terminal progress"
+);
+
 const zeroProgressRoot = new FakeElement("div");
 window.AccessibleChessEducationSurface.render(
   zeroProgressRoot,
