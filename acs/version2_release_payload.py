@@ -384,8 +384,17 @@ def _json_no_duplicates(text: str, *, label: str = "sound manifest") -> object:
             value[key] = item
         return value
 
+    def reject_nonfinite(value: str) -> object:
+        raise Version2ReleasePayloadError(
+            f"{label} contains non-finite JSON number: {value}"
+        )
+
     try:
-        return json.loads(text, object_pairs_hook=hook)
+        return json.loads(
+            text,
+            object_pairs_hook=hook,
+            parse_constant=reject_nonfinite,
+        )
     except Version2ReleasePayloadError:
         raise
     except (json.JSONDecodeError, UnicodeError) as exc:
