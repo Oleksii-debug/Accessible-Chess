@@ -94,12 +94,15 @@ class BookReader:
     def _return_point_name(name: str) -> str:
         if type(name) is not str:
             raise TypeError("Return point name must be a string")
-        if not name.strip():
-            raise ValueError("Return point name must not be empty")
+        # Return-point names are persisted identity keys. Reject an oversized raw
+        # key from O(1) length metadata before strip scans attacker-controlled
+        # snapshot or host input.
         if len(name) > _MAX_RETURN_POINT_NAME_CHARS:
             raise ValueError(
                 f"Return point name exceeds {_MAX_RETURN_POINT_NAME_CHARS} characters"
             )
+        if not name.strip():
+            raise ValueError("Return point name must not be empty")
         return name
 
     @staticmethod
