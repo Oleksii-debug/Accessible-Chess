@@ -151,6 +151,16 @@ def _is_link_like(path: Path) -> bool:
     )
 
 
+def _reject_linked_output_ancestors(output: Path) -> None:
+    for ancestor in (output.parent, *output.parent.parents):
+        if not os.path.lexists(ancestor):
+            continue
+        if _is_link_like(ancestor) or not ancestor.is_dir():
+            raise Version2ReleasePayloadError(
+                "output payload parent must be a real directory"
+            )
+
+
 def _require_clean_source_tree(root: Path, *, label: str) -> None:
     if _is_link_like(root):
         raise Version2ReleasePayloadError(f"{label} contains a symlink or junction")
@@ -762,16 +772,9 @@ def prepare_version2_release_payload(
     _require_standalone_contract(standalone)
 
     parent = output.parent
-    if os.path.lexists(parent):
-        if _is_link_like(parent) or not parent.is_dir():
-            raise Version2ReleasePayloadError(
-                "output payload parent must be a real directory"
-            )
+    _reject_linked_output_ancestors(output)
     parent.mkdir(parents=True, exist_ok=True)
-    if _is_link_like(parent):
-        raise Version2ReleasePayloadError(
-            "output payload parent must be a real directory"
-        )
+    _reject_linked_output_ancestors(output)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.payload-", dir=parent))
     try:
         product = staging / _PREPARED_PRODUCT_DIR
@@ -798,6 +801,11 @@ def prepare_version2_release_payload(
             )
         _reject_raw_source(product)
 
+        if os.path.lexists(output):
+            raise Version2ReleasePayloadError(
+                "output payload root appeared during staging"
+            )
+        _reject_linked_output_ancestors(output)
         staging.replace(output)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
