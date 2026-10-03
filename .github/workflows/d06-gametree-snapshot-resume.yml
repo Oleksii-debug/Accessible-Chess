@@ -6,6 +6,7 @@ on:
       - 'acs/gametree_resume.py'
       - 'tests/test_d06_gametree_snapshot_resume.py'
       - 'tests/test_d06_gametree_resume_descriptor_read.py'
+      - 'tests/test_w1_d06_resume_lock_toctou.py'
       - '.github/workflows/d06-gametree-snapshot-resume.yml'
 
 permissions:
@@ -17,8 +18,9 @@ concurrency:
 
 env:
   D06_RESUME_BASE: a3e52c621210c2dd5251dea4f97b611c12d56a22
-  D06_RESUME_BLOB: f58f5c2d476dda82a0151e7dcab114de7b8579fe
+  D06_RESUME_BLOB: 5f3dfcbf60edab1ccb717ffe9abe0e7b83ba5583
   D06_DESCRIPTOR_READ_BLOB: c940ad72de2a98d9f8705aca87727f4219c49b95
+  D06_LOCK_TOCTOU_BLOB: 1885d191d692251fb2ad8628bd956658fb91f9b8
   D06_REGRESSION_BLOB: 87e54b3d282ba4c2288737d745d2f29f4ae7076b
   D06_SNAPSHOT_BLOB: ac08a89055372c02d3d15744fd4de5a1fd0059d5
   D06_PGN_ROUNDTRIP_BLOB: 13c0db6d44ea9ec769240e9d0087641eb4e4382a
@@ -64,12 +66,14 @@ jobs:
             .github/workflows/d06-gametree-snapshot-resume.yml \
             acs/gametree_resume.py \
             tests/test_d06_gametree_resume_descriptor_read.py \
+            tests/test_w1_d06_resume_lock_toctou.py \
             tests/test_d06_gametree_snapshot_resume.py \
             acs/gametree_snapshot.py \
             acs/pgn_roundtrip.py \
             acs/gametree_navigation.py
           test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "$D06_RESUME_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_gametree_resume_descriptor_read.py)" = "$D06_DESCRIPTOR_READ_BLOB"
+          test "$(git rev-parse HEAD:tests/test_w1_d06_resume_lock_toctou.py)" = "$D06_LOCK_TOCTOU_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_gametree_snapshot_resume.py)" = "$D06_REGRESSION_BLOB"
           test "$(git rev-parse HEAD:acs/gametree_snapshot.py)" = "$D06_SNAPSHOT_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$D06_PGN_ROUNDTRIP_BLOB"
@@ -81,6 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile tests/test_d06_gametree_resume_descriptor_read.py
+          python -m py_compile tests/test_w1_d06_resume_lock_toctou.py
           python -m py_compile tests/test_d06_gametree_snapshot_resume.py
           if test -f acs/gametree_resume.py; then
             python -m py_compile acs/gametree_resume.py
@@ -90,6 +95,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_d06_gametree_resume_descriptor_read
+          tests.test_w1_d06_resume_lock_toctou
           tests.test_d06_gametree_snapshot_resume
 
       - name: Focused D06 snapshot persistence regressions
