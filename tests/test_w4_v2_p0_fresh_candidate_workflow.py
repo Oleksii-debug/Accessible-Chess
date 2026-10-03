@@ -127,6 +127,8 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(sound, diagnostic)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH", self.text)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_DIGEST_MISMATCH", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SHA256_MISMATCH", self.text)
+        self.assertIn("FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SIZE_MISSING", self.text)
         self.assertIn("FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH", self.text)
         self.assertIn("inventory.json", self.text)
         self.assertIn("EXPECTED_SOURCE_INVENTORY_SHA256", self.text)
