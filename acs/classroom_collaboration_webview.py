@@ -21,6 +21,7 @@ import unicodedata
 from .classroom_collaboration import (
     MAX_CHAT_BODY_CHARS,
     ClassroomCollaborationController,
+    FileTransferProgress,
     PreparedFile,
 )
 from .classroom_collaboration_storage import (
@@ -113,6 +114,8 @@ _LABELS = {
         "file_open_failed": "Не вдалося підготувати відкриття файла: {name}.",
         "file_cancel_failed": "Не вдалося скасувати передавання файла: {name}.",
         "file_sync_failed": "Не вдалося оновити файли.",
+        "file_progress": "Передано {done} з {total}: {name}.",
+        "file_progress_label": "Прогрес передавання файла",
         "new_file": "Новий файл: {name}.",
         "new_many_files": "Нових файлів: {count}.",
         "file_state_updated": "Стан файла оновлено: {name}.",
@@ -191,6 +194,8 @@ _LABELS = {
         "file_open_failed": "Could not prepare file open: {name}.",
         "file_cancel_failed": "Could not cancel file transfer: {name}.",
         "file_sync_failed": "File refresh failed.",
+        "file_progress": "Transferred {done} of {total}: {name}.",
+        "file_progress_label": "File transfer progress",
         "new_file": "New file: {name}.",
         "new_many_files": "New files: {count}.",
         "file_state_updated": "File status updated: {name}.",
@@ -272,6 +277,7 @@ class ClassroomCollaborationWebView:
         file_picker: Callable[[], Path | None] | None = None,
         file_saver: Callable[[str, str], object] | None = None,
         file_opener: Callable[[str, str], object] | None = None,
+        file_progress_event_sink: Callable[[ClassroomCollaborationWebViewEvent], object] | None = None,
         moderation_allowed: Callable[[], bool] | None = None,
         participant_moderation: ClassroomMediaController | None = None,
         chat_retention: str = "session",
@@ -292,6 +298,8 @@ class ClassroomCollaborationWebView:
             raise TypeError("file_saver must be callable")
         if file_opener is not None and not callable(file_opener):
             raise TypeError("file_opener must be callable")
+        if file_progress_event_sink is not None and not callable(file_progress_event_sink):
+            raise TypeError("file_progress_event_sink must be callable")
         if moderation_allowed is not None and not callable(moderation_allowed):
             raise TypeError("moderation_allowed must be callable")
         if participant_moderation is not None and not isinstance(
@@ -311,6 +319,7 @@ class ClassroomCollaborationWebView:
         self._file_picker = file_picker
         self._file_saver = file_saver
         self._file_opener = file_opener
+        self._file_progress_event_sink = file_progress_event_sink
         self._moderation_allowed = moderation_allowed
         self._participant_moderation = participant_moderation
         self._chat_retention = chat_retention
@@ -338,6 +347,16 @@ class ClassroomCollaborationWebView:
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
         self._language = language
+
+    def set_file_progress_event_sink(
+        self,
+        sink: Callable[[ClassroomCollaborationWebViewEvent], object] | None,
+    ) -> None:
+        """Bind a trusted-host observer for incremental file-transfer UI events."""
+
+        if sink is not None and not callable(sink):
+            raise TypeError("file progress event sink must be callable")
+        self._file_progress_event_sink = sink
 
     def retire_browser_session(self) -> None:
         """Invalidate browser capabilities and release session-only UI state.
@@ -805,6 +824,7 @@ class ClassroomCollaborationWebView:
                 "open_label": labels["open"],
                 "retry_label": labels["retry"],
                 "cancel_label": labels["cancel"],
+                "progress_label": labels["file_progress_label"],
                 "can_choose_upload": self._file_picker is not None,
                 "items": tuple(self._file_view(item) for item in attachment_page),
             },
@@ -837,6 +857,46 @@ class ClassroomCollaborationWebView:
         if focus_target:
             payload["focus_target"] = focus_target
         return ClassroomCollaborationWebViewEvent("error", payload)
+
+    def _publish_file_progress(self, sample: FileTransferProgress) -> None:
+        """Forward a secret-safe, session-bound progress event to the trusted host."""
+
+        if type(sample) is not FileTransferProgress:
+            raise TypeError("file transfer progress must be FileTransferProgress")
+        sink = self._file_progress_event_sink
+        if sink is None:
+            return
+        attachment = next(
+            (
+                item
+                for item in self._store.room_attachments(self._controller.room_id)
+                if item.attachment_id == sample.attachment_id
+            ),
+            None,
+        )
+        if attachment is None or attachment.size_bytes != sample.total_bytes:
+            raise RuntimeError("file transfer progress no longer matches local metadata")
+        labels = _LABELS[self._language]
+        sink(
+            ClassroomCollaborationWebViewEvent(
+                "collaboration.file.progress",
+                {
+                    "file_progress": {
+                        "session_key": self._browser_session_key,
+                        "name": attachment.display_name,
+                        "transferred_bytes": sample.transferred_bytes,
+                        "total_bytes": sample.total_bytes,
+                        "complete": sample.complete,
+                        "label": labels["file_progress_label"],
+                        "text": labels["file_progress"].format(
+                            done=self._size_label(sample.transferred_bytes),
+                            total=self._size_label(sample.total_bytes),
+                            name=attachment.display_name,
+                        ),
+                    }
+                },
+            )
+        )
 
     def _file_announcement(self, label: str, display_name: str) -> str:
         return _LABELS[self._language][label].format(
@@ -1168,7 +1228,10 @@ class ClassroomCollaborationWebView:
             retention=self._file_retention,
         )
         try:
-            uploaded = self._controller.upload_file(prepared)
+            uploaded = self._controller.upload_file(
+                prepared,
+                on_progress=self._publish_file_progress,
+            )
         except Exception:
             # Keep the local source path only when canonical durable metadata
             # proves there is a failed transfer that the user can retry.
@@ -1279,7 +1342,10 @@ class ClassroomCollaborationWebView:
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
         try:
-            retried = self._controller.retry_file(prepared)
+            retried = self._controller.retry_file(
+                prepared,
+                on_progress=self._publish_file_progress,
+            )
         except Exception:
             return self._error(
                 message=self._file_announcement(
