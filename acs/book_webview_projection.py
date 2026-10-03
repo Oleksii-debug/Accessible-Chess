@@ -41,11 +41,13 @@ _LABELS = {
         "save_bookmark": "Зберегти закладку",
         "restore_bookmark": "Відновити закладку",
         "open_position": "Відкрити позицію на дошці",
+        "open_game": "Відкрити партію на дошці",
         "return_from_board": "Повернутися до книги",
         "saved": "Закладку збережено.",
         "restored": "Закладку відновлено.",
         "returned": "Повернуто до місця читання.",
         "opened": "Позицію відкрито на дошці.",
+        "game_opened": "Партію відкрито на дошці.",
         "hidden_path": "[локальний шлях приховано]",
     },
     UILanguage.EN: {
@@ -65,11 +67,13 @@ _LABELS = {
         "save_bookmark": "Save bookmark",
         "restore_bookmark": "Restore bookmark",
         "open_position": "Open position on board",
+        "open_game": "Open game on board",
         "return_from_board": "Return to book",
         "saved": "Bookmark saved.",
         "restored": "Bookmark restored.",
         "returned": "Returned to the reading location.",
         "opened": "Position opened on the board.",
+        "game_opened": "Game opened on the board.",
         "hidden_path": "[local path hidden]",
     },
 }
@@ -271,6 +275,7 @@ class BookWebViewProjection:
                 {"command": "book.previous_game", "label": labels["previous_game"], "enabled": navigation["previous_game"]},
                 {"command": "book.next_game", "label": labels["next_game"], "enabled": navigation["next_game"]},
                 {"command": "book.open_position", "label": labels["open_position"], "enabled": block.position_fen is not None},
+                {"command": "book.open_game", "label": labels["open_game"], "enabled": block.kind == "Game"},
                 {"command": "book.return_from_board", "label": labels["return_from_board"], "enabled": True},
             ),
             "bookmark": {
@@ -340,6 +345,16 @@ class BookWebViewProjection:
         return BookWebViewEvent(
             "delegated",
             {"action": "book.open_position", "announcement": self._result_announcement("opened")},
+        )
+
+    def open_game(self) -> BookWebViewEvent:
+        current = self._presenter.current()
+        if current.kind != "Game":
+            raise LookupError("Current book block is not a game")
+        self._dispatch("book.open_game", {})
+        return BookWebViewEvent(
+            "delegated",
+            {"action": "book.open_game", "announcement": self._result_announcement("game_opened")},
         )
 
     def return_from_board(self) -> BookWebViewEvent:
