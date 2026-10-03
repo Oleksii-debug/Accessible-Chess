@@ -578,7 +578,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 ),
             }
         try:
-            report = self._sound_runtime.dispatch((event,))
+            preview = getattr(self._sound_runtime, "preview", None)
+            report = (
+                preview(event)
+                if callable(preview)
+                else self._sound_runtime.dispatch((event,))
+            )
         except Exception:
             return {
                 "ok": False,
@@ -593,8 +598,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 "ok": False,
                 **self._sound_state(),
                 "message": self._sound_message(
-                    "Спочатку увімкніть звуки та гучність.",
-                    "Enable sounds and volume first.",
+                    "Збільште загальну або індивідуальну гучність цього звуку.",
+                    "Increase the master or per-sound volume.",
                 ),
             }
         if getattr(report, "failures", ()):
