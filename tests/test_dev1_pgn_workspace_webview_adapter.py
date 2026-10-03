@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_actions import FullProductActionRouter
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
@@ -202,6 +203,58 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
             ["pgn.next_game", "pgn.previous_game"],
             [action for action, _ in self.calls[-2:]],
         )
+
+    def test_committed_navigation_refresh_failure_replaces_stale_view_and_recovers(self) -> None:
+        before = self.projection.snapshot()
+        self.assertEqual(0, before["game"]["index"])
+
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=ValueError("C:/Users/private/refresh-secret.pgn"),
+        ):
+            event = self.bridge.dispatch("pgn.next_game", {})
+
+        self.assertEqual(1, self.workspace.selected_game_index)
+        self.assertEqual("selection", event.kind)
+        unavailable = event.payload["snapshot"]
+        self.assertEqual("unavailable", unavailable["status"])
+        self.assertEqual("pgn-refresh-view", unavailable["focus_target"])
+        self.assertEqual((), unavailable["tree"])
+        self.assertEqual((), unavailable["actions"])
+        self.assertNotIn("refresh-secret", repr(event.payload))
+        self.assertNotIn("C:/Users/private", repr(event.payload))
+
+        recovered = self.bridge.dispatch("pgn.refresh", {})
+        self.assertEqual("selection", recovered.kind)
+        self.assertEqual("ready", recovered.payload["snapshot"]["status"])
+        self.assertEqual(1, recovered.payload["snapshot"]["game"]["index"])
+
+    def test_pre_action_refresh_failure_never_mutates_from_stale_browser_state(self) -> None:
+        before = self.workspace.cursor
+        with patch.object(
+            self.projection,
+            "_capture_presenter",
+            side_effect=ValueError("concurrent presentation drift"),
+        ):
+            event = self.bridge.dispatch("pgn.move", {"delta": 1})
+
+        self.assertEqual("selection", event.kind)
+        self.assertEqual("unavailable", event.payload["snapshot"]["status"])
+        self.assertEqual(before, self.workspace.cursor)
+        self.assertEqual([], self.workspace.set_cursor_calls)
+
+    def test_rejected_domain_navigation_keeps_last_truthful_view(self) -> None:
+        accepted = self.bridge.dispatch("pgn.next_game", {})
+        self.assertEqual("selection", accepted.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+
+        rejected = self.bridge.dispatch("pgn.next_game", {})
+        self.assertEqual("error", rejected.kind)
+        self.assertEqual(1, self.workspace.selected_game_index)
+        current = self.projection.snapshot()
+        self.assertEqual("ready", current["status"])
+        self.assertEqual(1, current["game"]["index"])
 
     def test_forged_browser_node_fails_closed_without_cursor_mutation(self) -> None:
         before = self.workspace.cursor
