@@ -12,10 +12,19 @@ room/participant identity and a fixed numeric slot, never on draft text, so the
 filesystem does not become a dictionary-friendly fingerprint oracle.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
+import os
+from pathlib import Path
+import stat
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from .classroom_collaboration import ChatDraft, ClassroomCollaborationController
 from .classroom_collaboration_storage import ChatMessageMetadata
@@ -29,6 +38,111 @@ _MAX_RECORD_BYTES = 32 * 1024
 
 class DurableChatOutboxError(RuntimeError):
     """Raised when durable draft recovery cannot be proven safely."""
+
+
+class DurableChatOutboxBusyError(DurableChatOutboxError):
+    """Raised when another process owns the outbox mutation transaction."""
+
+
+def _is_reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    left_ino = getattr(left, "st_ino", 0)
+    right_ino = getattr(right, "st_ino", 0)
+    if left_ino and right_ino:
+        return (getattr(left, "st_dev", None), left_ino) == (
+            getattr(right, "st_dev", None),
+            right_ino,
+        )
+    return True
+
+
+def _unsafe_lock_file(info: os.stat_result) -> bool:
+    return (
+        not stat.S_ISREG(info.st_mode)
+        or stat.S_ISLNK(info.st_mode)
+        or _is_reparse(info)
+        or getattr(info, "st_nlink", 1) != 1
+    )
+
+
+def _open_peer_lock_file(path: Path):
+    """Open one stable regular lock inode without following replacement links."""
+
+    try:
+        parent = path.parent.lstat()
+    except OSError as exc:
+        raise DurableChatOutboxError(
+            "chat outbox lock parent cannot be inspected safely"
+        ) from exc
+    if not stat.S_ISDIR(parent.st_mode) or stat.S_ISLNK(parent.st_mode) or _is_reparse(parent):
+        raise DurableChatOutboxError(
+            "chat outbox lock parent must be a regular directory"
+        )
+
+    for _attempt in range(8):
+        try:
+            before = path.lstat()
+        except FileNotFoundError:
+            before = None
+        except OSError as exc:
+            raise DurableChatOutboxError(
+                "chat outbox peer lock cannot be inspected safely"
+            ) from exc
+
+        if before is not None and _unsafe_lock_file(before):
+            raise DurableChatOutboxError(
+                "chat outbox peer lock must be one regular unlinked file"
+            )
+
+        flags = os.O_RDWR
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        if before is None:
+            flags |= os.O_CREAT | os.O_EXCL
+        elif hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        try:
+            fd = os.open(os.fspath(path), flags, 0o600)
+        except (FileExistsError, FileNotFoundError):
+            continue
+        except OSError as exc:
+            raise DurableChatOutboxError(
+                "chat outbox peer lock cannot be opened safely"
+            ) from exc
+
+        try:
+            opened = os.fstat(fd)
+            try:
+                current = path.lstat()
+            except FileNotFoundError as exc:
+                raise DurableChatOutboxError(
+                    "chat outbox peer lock changed while opening"
+                ) from exc
+            if (
+                _unsafe_lock_file(opened)
+                or _unsafe_lock_file(current)
+                or not _same_file_identity(opened, current)
+                or (
+                    before is not None
+                    and not _same_file_identity(before, opened)
+                )
+            ):
+                raise DurableChatOutboxError(
+                    "chat outbox peer lock changed while opening"
+                )
+            return os.fdopen(fd, "r+b")
+        except Exception:
+            os.close(fd)
+            raise
+
+    raise DurableChatOutboxBusyError(
+        "chat outbox peer lock changed while acquiring"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +167,7 @@ class DurableChatDraftOutbox:
         room_id: str,
         participant_id: str,
         storage_scope: str,
+        lock_path: str | Path,
         message_lookup: Callable[[str], ChatMessageMetadata | None],
     ) -> None:
         for method in ("read", "write", "delete"):
@@ -64,6 +179,11 @@ class DurableChatDraftOutbox:
             raise TypeError("participant_id must be non-empty text")
         if type(storage_scope) is not str or not storage_scope:
             raise TypeError("storage_scope must be non-empty text")
+        if not isinstance(lock_path, (str, Path)):
+            raise TypeError("lock_path must be a filesystem path")
+        lock = Path(lock_path)
+        if not lock.is_absolute() or not lock.name:
+            raise ValueError("lock_path must be an absolute file path")
         if not callable(message_lookup):
             raise TypeError("message_lookup must be callable")
         # Reuse ChatDraft's canonical opaque-ID validation without inventing a
@@ -78,6 +198,7 @@ class DurableChatDraftOutbox:
         self._room_id = room_id
         self._participant_id = participant_id
         self._message_lookup = message_lookup
+        self._lock_path = lock
         identity = hashlib.sha256(
             (
                 storage_scope
@@ -93,6 +214,48 @@ class DurableChatDraftOutbox:
         if type(index) is not int or not 0 <= index < _MAX_PENDING_DRAFTS:
             raise DurableChatOutboxError("chat outbox slot index is invalid")
         return f"{self._slot_prefix}-{index:02d}"
+
+    @contextmanager
+    def _peer_lock(self) -> Iterator[None]:
+        """Serialize one read/reconcile/slot-mutation transaction across processes."""
+
+        handle = _open_peer_lock_file(self._lock_path)
+        acquired = False
+        try:
+            if os.name == "nt":
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"\0")
+                    handle.flush()
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError as exc:
+                    raise DurableChatOutboxBusyError(
+                        "chat outbox is busy in another process"
+                    ) from exc
+            else:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    raise DurableChatOutboxBusyError(
+                        "chat outbox is busy in another process"
+                    ) from exc
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                try:
+                    if os.name == "nt":
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    # Closing the descriptor releases the process-owned lock
+                    # even if explicit cleanup reports an error.
+                    pass
+            handle.close()
 
     @staticmethod
     def _loads_no_duplicates(raw: str) -> object:
@@ -209,6 +372,10 @@ class DurableChatDraftOutbox:
         return message
 
     def prepare(self, candidate: ChatDraft) -> ChatOutboxResolution:
+        with self._peer_lock():
+            return self._prepare_locked(candidate)
+
+    def _prepare_locked(self, candidate: ChatDraft) -> ChatOutboxResolution:
         if type(candidate) is not ChatDraft:
             raise TypeError("candidate must be ChatDraft")
         if (
@@ -281,6 +448,10 @@ class DurableChatDraftOutbox:
         return ChatOutboxResolution(candidate, None)
 
     def acknowledge(self, draft: ChatDraft) -> None:
+        with self._peer_lock():
+            self._acknowledge_locked(draft)
+
+    def _acknowledge_locked(self, draft: ChatDraft) -> None:
         if type(draft) is not ChatDraft:
             raise TypeError("draft must be ChatDraft")
         for index in range(_MAX_PENDING_DRAFTS):
@@ -367,6 +538,7 @@ class DurableOutboxClassroomCollaborationController(
 __all__ = [
     "ChatOutboxResolution",
     "DurableChatDraftOutbox",
+    "DurableChatOutboxBusyError",
     "DurableChatOutboxError",
     "DurableOutboxClassroomCollaborationController",
 ]
