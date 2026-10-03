@@ -179,6 +179,34 @@ class ClassroomMediaJoinHttpCompositionTests(unittest.TestCase):
         )
         self.assertEqual(rendered["kind"], "provider-dispatch")
 
+    def test_join_rejects_credential_expired_during_http_round_trip(self):
+        application, _controller, transactions = self.application()
+        issued = JoinCredential(
+            room_id="room-1",
+            participant_id="student-1",
+            token=TOKEN,
+            issued_at=NOW,
+            expires_at=NOW + timedelta(seconds=2),
+        )
+        self.configure(
+            application,
+            lambda: "account-token",
+            now_provider=lambda: NOW + timedelta(seconds=3),
+        )
+
+        with mock.patch.object(
+            ClassroomJoinHttpClient,
+            "issue",
+            autospec=True,
+            return_value=issued,
+        ):
+            with self.assertRaises(Exception) as error:
+                application.prepare_classroom_media_join_http("room-1")
+
+        self.assertNotIn(TOKEN, repr(error.exception))
+        self.assertEqual(transactions.join_calls, [])
+        self.assertEqual(list(application._events), [])
+
     def test_invalid_room_fails_before_bearer_or_network(self):
         bearer_calls = []
         application, _controller, _transactions = self.application()
