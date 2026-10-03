@@ -193,6 +193,9 @@ class GameSoundRuntime:
     def tick(self) -> SoundPlaybackReport:
         return self._runtime.dispatch(SoundEventPolicy.clock_tick())
 
+    def low_time(self) -> SoundPlaybackReport:
+        return self._runtime.dispatch(SoundEventPolicy.low_time())
+
     def checkmate(self) -> SoundPlaybackReport:
         if self._ended:
             return SoundPlaybackReport((), (), ())
