@@ -40,6 +40,9 @@ _MAX_MEMBER_BYTES = 16 * 1024 * 1024
 _MIN_BUNDLE_BYTES = 100_000
 _MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 _MIN_LICENSE_BYTES = 5_000
+_MAX_LICENSE_BYTES = 128 * 1024
+_MAX_NOTICE_BYTES = 256 * 1024
+_MAX_PROVENANCE_BYTES = 64 * 1024
 _WINDOWS_RESERVED_NAMES = {
     "con",
     "prn",
@@ -391,6 +394,82 @@ def _validated_payload(
     return bundle, license_bytes, notice_bytes
 
 
+def _provenance_bytes(
+    bundle: bytes,
+    license_bytes: bytes,
+    notice_bytes: bytes,
+    *,
+    expected_integrity: str,
+) -> bytes:
+    provenance = {
+        "schema_version": 1,
+        "component": "livekit-client",
+        "version": LIVEKIT_CLIENT_VERSION,
+        "license_id": LIVEKIT_CLIENT_LICENSE_ID,
+        "source": LIVEKIT_CLIENT_NPM_TARBALL_URL,
+        "upstream_tag": LIVEKIT_CLIENT_UPSTREAM_TAG,
+        "npm_integrity": expected_integrity,
+        "bundle_sha256": _sha256_bytes(bundle),
+        "license_sha256": _sha256_bytes(license_bytes),
+        "notice_sha256": _sha256_bytes(notice_bytes),
+    }
+    return (
+        json.dumps(provenance, sort_keys=True, indent=2) + "\n"
+    ).encode("utf-8")
+
+
+def _read_staged_file_snapshot(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> bytes:
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise LiveKitClientSdkStageError(f"{label} is missing or unreadable") from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or _is_reparse(before)
+        or not stat.S_ISREG(before.st_mode)
+    ):
+        raise LiveKitClientSdkStageError(
+            f"{label} must be a regular non-reparse file"
+        )
+    if before.st_size <= 0 or before.st_size > max_bytes:
+        raise LiveKitClientSdkStageError(f"{label} has an unsafe size")
+
+    try:
+        source = path.open("rb")
+    except OSError as exc:
+        raise LiveKitClientSdkStageError(f"{label} is missing or unreadable") from exc
+    with source:
+        opened = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _is_reparse(opened)
+            or not _same_file_snapshot(before, opened)
+        ):
+            raise LiveKitClientSdkStageError(f"{label} changed while being opened")
+        data = source.read(max_bytes + 1)
+        after_read = os.fstat(source.fileno())
+        try:
+            after_path = path.lstat()
+        except OSError as exc:
+            raise LiveKitClientSdkStageError(f"{label} changed while being read") from exc
+        if (
+            len(data) > max_bytes
+            or len(data) != int(after_read.st_size)
+            or stat.S_ISLNK(after_path.st_mode)
+            or _is_reparse(after_path)
+            or not stat.S_ISREG(after_path.st_mode)
+            or not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+        ):
+            raise LiveKitClientSdkStageError(f"{label} changed while being read")
+    return data
+
+
 def _reject_linked_output_ancestors(output: Path) -> None:
     for ancestor in (output.parent, *output.parent.parents):
         if not os.path.lexists(ancestor):
@@ -434,21 +513,13 @@ def stage_livekit_client_sdk(
         (staging / "livekit-client.umd.js").write_bytes(bundle)
         (staging / "LICENSE").write_bytes(license_bytes)
         (staging / "NOTICE").write_bytes(notice_bytes)
-        provenance = {
-            "schema_version": 1,
-            "component": "livekit-client",
-            "version": LIVEKIT_CLIENT_VERSION,
-            "license_id": LIVEKIT_CLIENT_LICENSE_ID,
-            "source": LIVEKIT_CLIENT_NPM_TARBALL_URL,
-            "upstream_tag": LIVEKIT_CLIENT_UPSTREAM_TAG,
-            "npm_integrity": expected_integrity,
-            "bundle_sha256": _sha256_bytes(bundle),
-            "license_sha256": _sha256_bytes(license_bytes),
-            "notice_sha256": _sha256_bytes(notice_bytes),
-        }
-        (staging / "provenance.json").write_text(
-            json.dumps(provenance, sort_keys=True, indent=2) + "\n",
-            encoding="utf-8",
+        (staging / "provenance.json").write_bytes(
+            _provenance_bytes(
+                bundle,
+                license_bytes,
+                notice_bytes,
+                expected_integrity=expected_integrity,
+            )
         )
         if os.path.lexists(output):
             raise LiveKitClientSdkStageError(
@@ -462,19 +533,128 @@ def stage_livekit_client_sdk(
     return output
 
 
+def verify_staged_livekit_client_sdk(
+    archive_path: str | Path,
+    staged_dir: str | Path,
+    *,
+    expected_integrity: str = LIVEKIT_CLIENT_NPM_INTEGRITY,
+) -> Path:
+    """Prove an existing staged SDK tree is byte-derived from the pinned npm archive."""
+
+    archive = Path(archive_path)
+    staged = Path(staged_dir)
+    if not os.path.lexists(staged):
+        raise LiveKitClientSdkStageError("staged LiveKit SDK directory is missing")
+    _reject_linked_output_ancestors(staged / ".verification-probe")
+    try:
+        before = staged.lstat()
+    except OSError as exc:
+        raise LiveKitClientSdkStageError(
+            "staged LiveKit SDK directory cannot be inspected"
+        ) from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or _is_reparse(before)
+        or not stat.S_ISDIR(before.st_mode)
+    ):
+        raise LiveKitClientSdkStageError(
+            "staged LiveKit SDK root must be a real directory"
+        )
+
+    bundle, license_bytes, notice_bytes = _validated_payload(
+        archive,
+        expected_integrity=expected_integrity,
+    )
+    expected = {
+        "livekit-client.umd.js": (
+            bundle,
+            _MAX_BUNDLE_BYTES,
+            "staged LiveKit browser SDK",
+        ),
+        "LICENSE": (
+            license_bytes,
+            _MAX_LICENSE_BYTES,
+            "staged LiveKit license",
+        ),
+        "NOTICE": (
+            notice_bytes,
+            _MAX_NOTICE_BYTES,
+            "staged LiveKit NOTICE",
+        ),
+        "provenance.json": (
+            _provenance_bytes(
+                bundle,
+                license_bytes,
+                notice_bytes,
+                expected_integrity=expected_integrity,
+            ),
+            _MAX_PROVENANCE_BYTES,
+            "staged LiveKit provenance",
+        ),
+    }
+
+    try:
+        names = {entry.name for entry in staged.iterdir()}
+    except OSError as exc:
+        raise LiveKitClientSdkStageError(
+            "staged LiveKit SDK directory cannot be enumerated"
+        ) from exc
+    if names != set(expected):
+        raise LiveKitClientSdkStageError(
+            "staged LiveKit SDK inventory does not match pinned release"
+        )
+
+    for name, (canonical_bytes, max_bytes, label) in expected.items():
+        actual = _read_staged_file_snapshot(
+            staged / name,
+            label=label,
+            max_bytes=max_bytes,
+        )
+        if actual != canonical_bytes:
+            raise LiveKitClientSdkStageError(
+                f"{label} does not match pinned npm archive"
+            )
+
+    try:
+        after = staged.lstat()
+    except OSError as exc:
+        raise LiveKitClientSdkStageError(
+            "staged LiveKit SDK directory changed during verification"
+        ) from exc
+    if (
+        stat.S_ISLNK(after.st_mode)
+        or _is_reparse(after)
+        or not stat.S_ISDIR(after.st_mode)
+        or not _same_file_snapshot(before, after)
+    ):
+        raise LiveKitClientSdkStageError(
+            "staged LiveKit SDK directory changed during verification"
+        )
+    return staged
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", nargs="?", help="downloaded livekit-client npm .tgz")
-    parser.add_argument("output", nargs="?", help="new output directory")
+    parser.add_argument(
+        "output",
+        nargs="?",
+        help="new output directory, or existing staged directory with --verify-existing",
+    )
     parser.add_argument("--print-tarball-url", action="store_true")
     parser.add_argument("--print-version", action="store_true")
+    parser.add_argument("--verify-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.print_tarball_url or args.print_version:
-        if args.archive is not None or args.output is not None:
+        if (
+            args.archive is not None
+            or args.output is not None
+            or args.verify_existing
+        ):
             raise SystemExit("print mode does not accept archive/output arguments")
         print(
             LIVEKIT_CLIENT_NPM_TARBALL_URL
@@ -484,9 +664,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.archive is None or args.output is None:
         raise SystemExit("archive and output are required")
+    if args.verify_existing:
+        verified = verify_staged_livekit_client_sdk(args.archive, args.output)
+        bundle_sha256 = hashlib.sha256(
+            _read_staged_file_snapshot(
+                verified / "livekit-client.umd.js",
+                label="verified LiveKit browser SDK",
+                max_bytes=_MAX_BUNDLE_BYTES,
+            )
+        ).hexdigest()
+        print(f"LIVEKIT_CLIENT_VERSION={LIVEKIT_CLIENT_VERSION}")
+        print(f"LIVEKIT_CLIENT_BUNDLE_SHA256={bundle_sha256}")
+        print("LIVEKIT_CLIENT_SDK_VERIFY=PASS")
+        return 0
     staged = stage_livekit_client_sdk(args.archive, args.output)
     bundle_sha256 = hashlib.sha256(
-        (staged / "livekit-client.umd.js").read_bytes()
+        _read_staged_file_snapshot(
+            staged / "livekit-client.umd.js",
+            label="staged LiveKit browser SDK",
+            max_bytes=_MAX_BUNDLE_BYTES,
+        )
     ).hexdigest()
     print(f"LIVEKIT_CLIENT_VERSION={LIVEKIT_CLIENT_VERSION}")
     print(f"LIVEKIT_CLIENT_BUNDLE_SHA256={bundle_sha256}")
