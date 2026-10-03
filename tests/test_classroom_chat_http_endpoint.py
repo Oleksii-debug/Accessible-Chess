@@ -300,10 +300,18 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], self.backend.send_calls)
 
         self.auth.fail = False
-        self.auth.identity = (ROOM,)
-        sent = await self.invoke()
-        self.assertEqual(401, self.response(sent)[0])
-        self.assertEqual([], self.backend.send_calls)
+        for identity in (
+            (ROOM,),
+            ("bad room", STUDENT),
+            (ROOM, "bad participant"),
+            ("r" * 129, STUDENT),
+            (ROOM, "p" * 129),
+        ):
+            with self.subTest(identity=identity):
+                self.auth.identity = identity
+                sent = await self.invoke()
+                self.assertEqual(401, self.response(sent)[0])
+                self.assertEqual([], self.backend.send_calls)
 
     async def test_backend_failure_and_contract_failure_are_sanitized_unavailable(self) -> None:
         self.backend.fail = True
@@ -463,6 +471,27 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(413, self.response(sent)[0])
 
+        self.assertEqual([], self.backend.send_calls)
+
+    async def test_request_body_frame_count_is_independently_bounded(self) -> None:
+        body = json.dumps(self.send_payload()).encode("utf-8")
+        events = [
+            {"type": "http.request", "body": body[:1], "more_body": True},
+            {"type": "http.request", "body": body[1:2], "more_body": True},
+            {"type": "http.request", "body": body[2:], "more_body": False},
+        ]
+        with patch(
+            "acs.classroom_chat_http_endpoint.MAX_REQUEST_BODY_EVENTS",
+            2,
+        ):
+            sent = await self.invoke(
+                raw_body=body,
+                receive_events=events,
+            )
+
+        status, _, payload = self.response(sent)
+        self.assertEqual(413, status)
+        self.assertEqual({"error": "request_too_fragmented"}, payload)
         self.assertEqual([], self.backend.send_calls)
 
     async def test_content_length_mismatch_and_invalid_body_events_fail_closed(self) -> None:
