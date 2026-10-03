@@ -121,14 +121,13 @@ jobs:
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui_core.py'; then
             actual_stage1_core_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-            case "$actual_stage1_core_blob" in
-              b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6|"$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB")
-                ;;
-              *)
-                echo "Unexpected Stage 1 core blob: $actual_stage1_core_blob" >&2
-                exit 1
-                ;;
-            esac
+            # The takeback-recovery successor is now canonical Product. If a
+            # candidate changes this path, only that exact current identity is
+            # accepted; no branch-name heuristic and no legacy fallback.
+            if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
+              echo "Unexpected Stage 1 core blob: $actual_stage1_core_blob" >&2
+              exit 1
+            fi
           fi
 
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui.py'; then
