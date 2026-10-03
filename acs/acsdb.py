@@ -782,15 +782,22 @@ class AcsDatabase:
         attempt_id = self._row_id(attempt_id, name="attempt_id")
         if source_id is not None:
             source_id = self._row_id(source_id, name="source_id")
+            if self.conn.execute(
+                "SELECT 1 FROM sources WHERE id=?",
+                (source_id,),
+            ).fetchone() is None:
+                raise ValueError("source_id does not identify an existing source")
         game_count = self._positive_cursor(game_count, name="game_count")
         warning_count = self._positive_cursor(warning_count, name="warning_count")
         assert game_count is not None and warning_count is not None
-        self.conn.execute(
+        cursor = self.conn.execute(
             """UPDATE import_attempts
                SET finished_at=?, status=?, source_id=?, game_count=?, warning_count=?, error_message=?
                WHERE id=?""",
             (self._now(), status, source_id, game_count, warning_count, error_message, attempt_id),
         )
+        if cursor.rowcount != 1:
+            raise ValueError("attempt_id does not identify an existing import attempt")
 
     def _insert_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
                      import_status: str | None = None) -> int:
