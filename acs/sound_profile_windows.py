@@ -399,13 +399,45 @@ class ProfiledWindowsSoundPlaybackAdapter:
         expected_frames: bytes,
     ) -> bool:
         try:
-            with wave.open(str(destination), "rb") as reader:
-                params = reader.getparams()
-                if params != expected_params:
-                    return False
-                frames = reader.readframes(reader.getnframes())
+            before = os.lstat(destination)
+            if (
+                stat.S_ISLNK(before.st_mode)
+                or _is_reparse_point(before)
+                or not stat.S_ISREG(before.st_mode)
+            ):
+                return False
+            flags = os.O_RDONLY
+            flags |= getattr(os, "O_BINARY", 0)
+            flags |= getattr(os, "O_NOINHERIT", 0)
+            flags |= getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            flags |= getattr(os, "O_NONBLOCK", 0)
+            descriptor = os.open(destination, flags)
+        except OSError:
+            return False
+
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                stat.S_ISLNK(opened.st_mode)
+                or _is_reparse_point(opened)
+                or not stat.S_ISREG(opened.st_mode)
+                or _regular_file_identity(opened) != _regular_file_identity(before)
+            ):
+                return False
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                with wave.open(stream, "rb") as reader:
+                    params = reader.getparams()
+                    if params != expected_params:
+                        return False
+                    frames = reader.readframes(reader.getnframes())
+            after = os.fstat(descriptor)
+            if _regular_file_identity(after) != _regular_file_identity(opened):
+                return False
         except (EOFError, OSError, ValueError, struct.error, wave.Error):
             return False
+        finally:
+            os.close(descriptor)
         return frames == expected_frames
 
     def _prune_scaled_variants(
