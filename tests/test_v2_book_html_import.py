@@ -522,6 +522,109 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_hidden_subtree_cannot_publish_reading_or_chess_semantics(self) -> None:
+        source = f"""<html><body>
+<h1>Visible before</h1>
+<section hidden>
+  <p>Secret reading text</p>
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+  <img src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible after</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="hidden-semantics.html",
+            available_assets={"images/hidden.png"},
+        )
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Visible before", rendered)
+        self.assertIn("Visible after", rendered)
+        self.assertNotIn("Secret reading text", rendered)
+        self.assertNotIn('[Event "Accessible book demo"]', rendered)
+
+    def test_hidden_until_found_is_still_non_rendered_at_import_time(self) -> None:
+        source = f"""<html><body>
+<div hidden="until-found">
+  <div data-acs-fen="{Board.START}">Deferred hidden position</div>
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</div>
+<h1>Visible chapter</h1>
+</body></html>"""
+        result = import_html_book(source, source_name="hidden-until-found.html")
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(
+            any(isinstance(block, (Game, Diagram, Position)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Heading)
+                and block.text == "Visible chapter"
+                for block in result.document.blocks
+            )
+        )
+
+    def test_hidden_void_element_does_not_hide_following_visible_content(self) -> None:
+        source = f"""<html><body>
+<img hidden src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+<p>Visible after hidden image</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="hidden-void.html",
+            available_assets={"images/hidden.png"},
+        )
+
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(isinstance(block, (Diagram, Position, Note)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible after hidden image"
+                for block in result.document.blocks
+            )
+        )
+
+    def test_malformed_hidden_nesting_fails_closed_without_resuming_early(self) -> None:
+        source = """<html><body>
+<p>Visible before</p>
+<div hidden><span>Secret text</div>
+<p>Must stay omitted after mismatch</p>
+</body></html>"""
+        result = import_html_book(source, source_name="hidden-mismatch.html")
+
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Visible before", rendered)
+        self.assertNotIn("Secret text", rendered)
+        self.assertNotIn("Must stay omitted", rendered)
+        self.assertTrue(
+            any("mismatched hidden elements" in warning for warning in result.warnings)
+        )
+        self.assertTrue(
+            any("hidden content unclosed" in warning for warning in result.warnings)
+        )
+
     def test_unclosed_head_cannot_recover_hidden_markers_as_readable_games(self) -> None:
         source = f"""<html><head><title>{{PGN 1}}</title><div data-acs-fen="{Board.START}">
 <pre>{PGN}</pre>"""
