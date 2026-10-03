@@ -358,12 +358,19 @@ async function run() {
     }
   };
   const providerButtonId = rowId + "-provider";
+  const providerOtherButtonId = rowId + "-provider-camera";
   const providerInitial = mediaSnapshot([
     {
       id: providerButtonId,
       command: "media.soft_mute",
       label: "Provider-backed soft mute",
       payload: { participant_key: key, muted: true }
+    },
+    {
+      id: providerOtherButtonId,
+      command: "media.publish_permission",
+      label: "Provider-backed camera lock",
+      payload: { participant_key: key, source: "camera", allowed: false }
     }
   ]);
   const providerUpdated = mediaSnapshot([]);
@@ -392,11 +399,15 @@ async function run() {
   );
 
   const providerButton = root.querySelector("#" + providerButtonId);
+  const providerOtherButton = root.querySelector("#" + providerOtherButtonId);
   assert.ok(providerButton);
+  assert.ok(providerOtherButton);
   providerButton.click();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(providerButton.disabled, true);
+  assert.equal(providerOtherButton.disabled, true);
   assert.ok(root.querySelector("#" + providerButtonId));
+  assert.ok(root.querySelector("#" + providerOtherButtonId));
 
   releaseProvider({
     kind: "media-updated",
@@ -408,6 +419,7 @@ async function run() {
   });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(root.querySelector("#" + providerButtonId), null);
+  assert.equal(root.querySelector("#" + providerOtherButtonId), null);
   assert.match(root.textContent, /provider mutation committed/);
   assert.deepEqual(providerAnnouncements, ["Media state updated."]);
 
