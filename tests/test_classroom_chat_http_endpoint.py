@@ -389,11 +389,11 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
             )
         transport = ClassroomChatHttpRpcCall(
             endpoint_url="http://127.0.0.1:8080/v1/classroom/chat",
-            bearer_token_provider=lambda: "token",
+            bearer_token_provider=lambda: "transport-secret",
             allow_insecure_loopback=True,
         )
         self.assertIn("scheme='http'", repr(transport))
-        self.assertNotIn("token", repr(transport))
+        self.assertNotIn("transport-secret", repr(transport))
 
     def test_desktop_transport_canonicalizes_idna_host_without_credentials(self) -> None:
         transport = ClassroomChatHttpRpcCall(
@@ -829,7 +829,12 @@ class ClassroomChatHttpEndpointTests(unittest.IsolatedAsyncioTestCase):
                 )
                 status, _, payload = self.response(sent)
                 self.assertEqual(401, status)
-                self.assertNotIn(auth_value.decode("latin1"), json.dumps(payload))
+                self.assertEqual({"error": "unauthorized"}, payload)
+                if auth_value:
+                    self.assertNotIn(
+                        auth_value.decode("latin1"),
+                        json.dumps(payload),
+                    )
 
         self.assertNotIn("test-token", repr(self.endpoint))
 
