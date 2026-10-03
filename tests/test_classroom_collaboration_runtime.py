@@ -1052,8 +1052,8 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
         self.assertIn("file-student-1", file_auth.calls)
         self.assertIn("file-student-2", file_auth.calls)
         self.assertNotEqual(
-            first_runtime.store._path,
-            second_runtime.store._path,
+            first_runtime.store.path,
+            second_runtime.store.path,
         )
 
     def test_process_restart_recovers_ambiguous_file_from_authoritative_history(self) -> None:
