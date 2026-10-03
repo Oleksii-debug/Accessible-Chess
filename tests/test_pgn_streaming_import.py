@@ -6,6 +6,7 @@ import unittest
 
 from acs.acsdb import AcsDatabase
 from acs.gametree import CanonicalPgnGameFramer, _split_games, serialize_game
+from acs.import_contract import fingerprint
 from acs.library_import_service import LibraryImportService
 from acs.pgn_roundtrip import PgnRoundTripError, PgnRoundTripErrorCode, parse_pgn_text
 from acs.pgn_streaming_import import (
@@ -16,6 +17,7 @@ from acs.pgn_streaming_import import (
     StreamingPgnLimits,
     StreamingPgnPhase,
     StreamingPgnLibraryImporter,
+    _looks_like_windows_1251_pgn,
 )
 
 
@@ -337,6 +339,67 @@ class StreamingPgnImportTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, StreamingPgnErrorCode.INVALID_ENCODING)
             self.assertEqual(database.search_games(limit=100), [])
 
+    def test_cp1251_fallback_scans_late_nul_and_stays_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "legacy-looking-with-late-nul.pgn"
+            prefix = (
+                '[Event "Русский тест"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {текст} '
+            ).encode("cp1251")
+            source.write_bytes(prefix + b"e5 {later}" + bytes((0,)) + b" *\n")
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                self._new_importer(database).import_file(
+                    source,
+                    failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                    limits=tiny_chunks(),
+                )
+
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.INVALID_ENCODING)
+            self.assertEqual(database.search_games(limit=100), [])
+
+    def test_windows_1251_cyrillic_pgn_is_losslessly_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
+            source = Path(directory) / "legacy-russian-book.pgn"
+            source_text = (
+                '[Event "Русская шахматная книга"]\n'
+                '[Site "Киев"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {главный план} e5 '
+                '(1... c5 $1 {сицилианская защита} 2. Nf3) '
+                '2. Nf3 *\n'
+            )
+            source.write_bytes(source_text.encode("cp1251"))
+
+            result = self._new_importer(database).import_file(
+                source,
+                failure_policy=StreamingPgnFailurePolicy.SOURCE_ATOMIC,
+                limits=tiny_chunks(),
+            )
+
+            self.assertTrue(result.complete)
+            self.assertEqual(result.accepted_games, 1)
+            self.assertEqual(result.library.game_count, 1)
+            self.assertEqual(result.library.warning_count, 0)
+
+            row = database.get_game(result.library.first_game_id)
+            self.assertIsNotNone(row)
+            assert row is not None
+            reopened = parse_pgn_text(row["pgn_text"], strict=True)[0]
+            self.assertEqual(reopened.tags["Event"], "Русская шахматная книга")
+            self.assertEqual(reopened.tags["Site"], "Киев")
+            self.assertEqual(
+                reopened.line.moves[0].comments_after[0].text,
+                "главный план",
+            )
+            variation = reopened.line.moves[1].variations[0]
+            self.assertEqual(variation.moves[0].san, "c5")
+            self.assertEqual(
+                variation.moves[0].comments_after[0].text,
+                "сицилианская защита",
+            )
+
     def test_cancellation_after_first_accepted_game_never_publishes_spool(self) -> None:
         with tempfile.TemporaryDirectory() as directory, AcsDatabase() as database:
             source = Path(directory) / "cancel.pgn"
@@ -388,6 +451,48 @@ class StreamingPgnImportTests(unittest.TestCase):
 
             self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
             self.assertEqual(database.search_games(limit=100), [])
+
+    def test_cp1251_detector_rejects_same_size_in_place_change_during_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "legacy-race.pgn"
+            payload = (
+                '[Event "Київ"]\n'
+                '[White "Олег"]\n'
+                '[Black "Іван"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 e5 *\n'
+            ).encode("cp1251")
+            source.write_bytes(payload)
+            bound = fingerprint(source, chunk_size=8)
+            stat_result = source.stat()
+            identity = (int(stat_result.st_dev), int(stat_result.st_ino))
+            polls = {"count": 0, "changed": False}
+
+            def mutate_future_byte() -> bool:
+                polls["count"] += 1
+                if polls["count"] == 2 and not polls["changed"]:
+                    polls["changed"] = True
+                    changed = bytearray(source.read_bytes())
+                    index = len(changed) - 2
+                    changed[index] = ord(" ") if changed[index] != ord(" ") else ord(";")
+                    with source.open("r+b") as handle:
+                        handle.seek(0)
+                        handle.write(changed)
+                        handle.flush()
+                return False
+
+            with self.assertRaises(StreamingPgnImportError) as caught:
+                _looks_like_windows_1251_pgn(
+                    bound,
+                    expected_identity=identity,
+                    chunk_size=8,
+                    cancel_check=mutate_future_byte,
+                    accepted_games=0,
+                )
+
+            self.assertTrue(polls["changed"])
+            self.assertEqual(caught.exception.code, StreamingPgnErrorCode.SOURCE_CHANGED)
+            self.assertEqual(source.stat().st_size, len(payload))
 
     def test_source_size_game_count_and_spool_limits_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
