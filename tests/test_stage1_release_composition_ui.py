@@ -112,6 +112,41 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 "label_en": "Move 2",
             }
         )
+
+        for file_name, sample in (
+            ("mate-ru.wav", b"\x02\x00"),
+            ("draw-en.wav", b"\x03\x00"),
+            ("draw-ru.wav", b"\x04\x00"),
+        ):
+            with wave.open(str(sound_root / file_name), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(sample * 8)
+        variants["mate"].append(
+            {
+                "id": "ru",
+                "file": "mate-ru.wav",
+                "label_uk": "Мат — голос (рос.)",
+                "label_en": "Checkmate — Russian voice",
+            }
+        )
+        variants["draw"].extend(
+            [
+                {
+                    "id": "en",
+                    "file": "draw-en.wav",
+                    "label_uk": "Нічия — голос (англ.)",
+                    "label_en": "Draw — English voice",
+                },
+                {
+                    "id": "ru",
+                    "file": "draw-ru.wav",
+                    "label_uk": "Нічия — голос (рос.)",
+                    "label_en": "Draw — Russian voice",
+                },
+            ]
+        )
         (sound_root / "manifest.json").write_text(
             json.dumps({"schema_version": 1, "files": files}),
             encoding="utf-8",
@@ -192,6 +227,18 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 selected = api.set_sound_variant("move", "2")
                 self.assertTrue(selected["ok"], selected)
                 self.assertEqual(selected["selectedVariants"]["move"], "2")
+                mate_selected = api.set_sound_variant("mate", "ru")
+                self.assertTrue(mate_selected["ok"], mate_selected)
+                draw_selected = api.set_sound_variant("draw", "en")
+                self.assertTrue(draw_selected["ok"], draw_selected)
+                self.assertEqual(draw_selected["selectedVariants"]["mate"], "ru")
+                self.assertEqual(draw_selected["selectedVariants"]["draw"], "en")
+                mate_preview = api.preview_sound("mate")
+                self.assertTrue(mate_preview["ok"], mate_preview)
+                self.assertEqual(playback.calls[-1], (SoundEvent.MATE, 35))
+                draw_preview = api.preview_sound("draw")
+                self.assertTrue(draw_preview["ok"], draw_preview)
+                self.assertEqual(playback.calls[-1], (SoundEvent.DRAW, 35))
                 preview = api.preview_sound("capture")
                 self.assertTrue(preview["ok"], preview)
                 self.assertEqual(playback.calls[-1], (SoundEvent.CAPTURE, 35))
@@ -218,6 +265,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 self.assertEqual(restored["tickPolicy"], "both")
                 self.assertEqual(restored["tickLastSeconds"], 25)
                 self.assertEqual(restored["selectedVariants"]["move"], "2")
+                self.assertEqual(restored["selectedVariants"]["mate"], "ru")
+                self.assertEqual(restored["selectedVariants"]["draw"], "en")
             finally:
                 api2.close_analysis()
                 runtime2.close()
