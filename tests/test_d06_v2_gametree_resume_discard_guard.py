@@ -300,6 +300,82 @@ class D06GameTreeResumeDiscardGuardTests(unittest.TestCase):
         self.assertEqual(self.resume_path.read_bytes(), newer_bytes)
         self.assertFalse(self.guard_dir.exists())
 
+    def test_crash_left_reservation_marker_is_removed_only_with_canonical_state(self) -> None:
+        state = GameTreeResumeStore(self.resume_path).save(
+            self.game,
+            GameTreeCursor((), 1),
+        )
+        original = self.resume_path.read_bytes()
+        self.guard_dir.mkdir()
+        guard = self.guard_dir / f"{state.token}.guard"
+        guard.write_bytes(resume_module._DISCARD_GUARD_RESERVATION)
+
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertTrue(coordinator.restore(application))
+        self.assertEqual(coordinator.token, state.token)
+        self.assertEqual(self.resume_path.read_bytes(), original)
+        self.assertFalse(self.guard_dir.exists())
+
+    def test_reservation_marker_without_canonical_state_fails_closed(self) -> None:
+        old_path, old_token, _ = self._state_file(
+            "old.json",
+            GameTreeCursor((), 1),
+        )
+        old_path.unlink()
+        self.guard_dir.mkdir()
+        guard = self.guard_dir / f"{old_token}.guard"
+        guard.write_bytes(resume_module._DISCARD_GUARD_RESERVATION)
+
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        self.assertFalse(coordinator.restore(application))
+        self.assertTrue(coordinator.disabled)
+        self.assertEqual(
+            coordinator.error.code,
+            GameTreeResumeCode.IO_FAILURE,
+        )
+        self.assertEqual(
+            guard.read_bytes(),
+            resume_module._DISCARD_GUARD_RESERVATION,
+        )
+
+    def test_competing_guard_creation_before_reservation_never_clobbers_it(self) -> None:
+        application = _Application()
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+        application.session = self._clean_session(GameTreeCursor((), 1))
+        coordinator.prepare_shutdown(application)
+        claimed = coordinator.token
+        self.assertIsNotNone(claimed)
+        application.session = PgnDocumentSession.from_text(PGN)
+
+        guard = self.guard_dir / f"{claimed}.guard"
+        original_open = resume_module.os.open
+        injected = False
+
+        def create_competitor_then_open(path, flags, mode=0o777):
+            nonlocal injected
+            candidate = Path(path)
+            if not injected and candidate == guard and flags & os.O_EXCL:
+                injected = True
+                candidate.write_bytes(b"competing-control-state")
+            return original_open(path, flags, mode)
+
+        with mock.patch.object(
+            resume_module.os,
+            "open",
+            side_effect=create_competitor_then_open,
+        ):
+            with self.assertRaises(GameTreeResumeError) as caught:
+                coordinator.prepare_shutdown(application)
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, GameTreeResumeCode.STALE_WRITER)
+        self.assertTrue(self.resume_path.exists())
+        self.assertEqual(guard.read_bytes(), b"competing-control-state")
+
     def test_regular_file_at_guard_root_fails_closed_and_is_preserved(self) -> None:
         self.guard_dir.write_bytes(b"not-a-control-directory")
         application = _Application()
