@@ -575,6 +575,56 @@ async function run() {
     "stale Training solution focus"
   );
 
+  const deferredSubmitRoot = new FakeElement("div");
+  let deferredSubmitResolve = null;
+  let deferredSubmitCalls = 0;
+  const deferredSubmitInvoke = (command, payload) => {
+    check(command === "training.submit", "unexpected deferred submit command");
+    check(payload.answer === "e4", "deferred submit answer changed");
+    deferredSubmitCalls += 1;
+    return new Promise(function (resolve) {
+      deferredSubmitResolve = resolve;
+    });
+  };
+  window.AccessibleChessTrainingSurface.render(
+    deferredSubmitRoot,
+    trainingSnapshot(),
+    deferredSubmitInvoke,
+    announce,
+    "training-answer",
+    "Action failed",
+    []
+  );
+  const deferredSubmitReplaceCount = deferredSubmitRoot.replaceChildrenCalls;
+  const deferredSubmitAnswer = deferredSubmitRoot.querySelector("#training-answer");
+  deferredSubmitAnswer.value = "e4";
+  const deferredSubmitForm = find(deferredSubmitRoot, "FORM");
+  deferredSubmitForm.listeners.submit({ preventDefault: () => {} });
+  deferredSubmitForm.listeners.submit({ preventDefault: () => {} });
+  check(deferredSubmitCalls === 1,
+    "pending Training submit must be serialized");
+  check(deferredSubmitRoot.replaceChildrenCalls === deferredSubmitReplaceCount,
+    "pending Training submit must not mutate readable DOM");
+  check(document.activeElement === deferredSubmitAnswer,
+    "pending Training submit must preserve answer focus");
+  deferredSubmitResolve({
+    kind: "render",
+    payload: {
+      snapshot: trainingSnapshot(),
+      focus_target: "training-answer",
+      announcement: "Deferred submit committed",
+      clear_answer: true,
+      solution: []
+    }
+  });
+  await flushPromises();
+  check(deferredSubmitCalls === 1,
+    "resolved Training submit must have exactly one host call");
+  check(deferredSubmitRoot.replaceChildrenCalls === deferredSubmitReplaceCount + 1,
+    "resolved Training submit must publish exactly one new DOM");
+  check(document.activeElement === deferredSubmitRoot.querySelector("#training-answer"),
+    "resolved Training submit must focus the new answer field");
+
   const synchronousTrainingRoot = new FakeElement("div");
   const synchronousTrainingInvoke = () => {
     throw new Error("synchronous Training host failure");
@@ -873,6 +923,55 @@ async function run() {
   await flushPromises();
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
+
+  const deferredBookRoot = new FakeElement("div");
+  let deferredBookResolve = null;
+  let deferredBookCalls = 0;
+  const deferredBookInvoke = (command, payload) => {
+    check(command === "book.next", "unexpected deferred Book command");
+    check(payload && Object.keys(payload).length === 0,
+      "deferred Book command payload changed");
+    deferredBookCalls += 1;
+    return new Promise(function (resolve) {
+      deferredBookResolve = resolve;
+    });
+  };
+  window.AccessibleChessBookSurface.render(
+    deferredBookRoot,
+    bookSnapshot(3, "Deferred Book"),
+    deferredBookInvoke,
+    announce,
+    "book-block-3",
+    "Action failed"
+  );
+  const deferredBookReplaceCount = deferredBookRoot.replaceChildrenCalls;
+  const deferredBookNext = find(deferredBookRoot, "BUTTON", "Next");
+  const deferredBookRestore = find(deferredBookRoot, "BUTTON", "Restore");
+  deferredBookNext.focus();
+  deferredBookNext.listeners.click();
+  deferredBookNext.listeners.click();
+  deferredBookRestore.listeners.click();
+  check(deferredBookCalls === 1,
+    "pending Book navigation must serialize cross-control commands");
+  check(deferredBookRoot.replaceChildrenCalls === deferredBookReplaceCount,
+    "pending Book navigation must not mutate readable DOM");
+  check(document.activeElement === deferredBookNext,
+    "pending Book navigation must preserve control focus");
+  deferredBookResolve({
+    kind: "render",
+    payload: {
+      snapshot: bookSnapshot(4, "Deferred Book committed"),
+      focus_target: "book-block-4",
+      announcement: "Deferred Book committed"
+    }
+  });
+  await flushPromises();
+  check(deferredBookCalls === 1,
+    "resolved Book navigation must have exactly one host call");
+  check(deferredBookRoot.replaceChildrenCalls === deferredBookReplaceCount + 1,
+    "resolved Book navigation must publish exactly one new DOM");
+  check(document.activeElement === deferredBookRoot.querySelector("#book-block-4"),
+    "resolved Book navigation must focus the new reading block");
 
   const malformedBookHeading = bookSnapshot(3, "Malformed heading");
   malformedBookHeading.heading = { text: "Chess book reader" };
