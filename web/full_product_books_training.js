@@ -492,7 +492,8 @@
     requireTrainingSnapshot(snapshot);
 
     const fragment = document.createDocumentFragment();
-    const main = node("main");\n    main.setAttribute("lang", snapshot.document.lang);
+    const main = node("main");
+    main.setAttribute("lang", snapshot.document.lang);
     main.appendChild(node("h2", snapshot.heading || ""));
     main.appendChild(node("h3", snapshot.title || ""));
 
