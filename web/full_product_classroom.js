@@ -91,6 +91,20 @@
           }
           command = "management.move";
           payload = { kind: section.kind, delta: 1 };
+        } else if (event.key === "Home") {
+          if (itemIndex === 0) {
+            event.preventDefault();
+            return;
+          }
+          command = "management.select";
+          payload = { kind: section.kind, record_id: items[0].record_id };
+        } else if (event.key === "End") {
+          if (itemIndex === items.length - 1) {
+            event.preventDefault();
+            return;
+          }
+          command = "management.select";
+          payload = { kind: section.kind, record_id: items[items.length - 1].record_id };
         } else if (event.key === "Enter") {
           command = "management.open";
           payload = { kind: section.kind };
