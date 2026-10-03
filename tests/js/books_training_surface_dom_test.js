@@ -158,7 +158,7 @@ function bookSnapshot(index, text) {
     block: {
       dom_id: "book-block-" + String(index),
       index: index,
-      kind: "paragraph",
+      kind: "Paragraph",
       role: "paragraph",
       title: "",
       text: text,
@@ -376,6 +376,130 @@ async function run() {
       label + " scanned oversized text before its O(1) length bound"
     );
   }
+
+  let fallbackCoercionTouched = false;
+  const hostileFallback = {
+    toString: function () {
+      fallbackCoercionTouched = true;
+      throw new Error("fallback toString must never execute");
+    }
+  };
+  const hostileFallbackRoot = new FakeElement("div");
+  let hostileFallbackRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      hostileFallbackRoot,
+      bookSnapshot(0, "Stable public boundary"),
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      () => {},
+      "book-block-0",
+      hostileFallback
+    );
+  } catch (error) {
+    hostileFallbackRejected = error instanceof TypeError;
+  }
+  check(hostileFallbackRejected, "Book public render accepted object fallback text");
+  check(!fallbackCoercionTouched, "Book fallback object reached toString");
+  check(
+    hostileFallbackRoot.replaceChildrenCalls === 0,
+    "Book public boundary mutated DOM before fallback validation"
+  );
+
+  let focusCoercionTouched = false;
+  const hostileFocus = {
+    toString: function () {
+      focusCoercionTouched = true;
+      throw new Error("focus toString must never execute");
+    }
+  };
+  const hostileFocusRoot = new FakeElement("div");
+  let hostileFocusRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      hostileFocusRoot,
+      bookSnapshot(0, "Stable focus boundary"),
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      () => {},
+      hostileFocus,
+      "Action failed"
+    );
+  } catch (error) {
+    hostileFocusRejected = error instanceof TypeError;
+  }
+  check(hostileFocusRejected, "Book public render accepted object focus target");
+  check(!focusCoercionTouched, "Book focus object reached toString");
+  check(
+    hostileFocusRoot.replaceChildrenCalls === 0,
+    "Book public boundary mutated DOM before focus validation"
+  );
+
+  let solutionCoercionTouched = false;
+  const hostileMove = {
+    toString: function () {
+      solutionCoercionTouched = true;
+      throw new Error("solution toString must never execute");
+    }
+  };
+  const hostileSolutionRoot = new FakeElement("div");
+  let hostileSolutionRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      hostileSolutionRoot,
+      trainingSnapshot(),
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      () => {},
+      "training-answer",
+      "Action failed",
+      [hostileMove]
+    );
+  } catch (error) {
+    hostileSolutionRejected = error instanceof TypeError;
+  }
+  check(hostileSolutionRejected, "Training public render accepted object solution move");
+  check(!solutionCoercionTouched, "Training solution object reached toString");
+  check(
+    hostileSolutionRoot.replaceChildrenCalls === 0,
+    "Training public boundary mutated DOM before solution validation"
+  );
+
+  const sparsePublicSolution = new Array(1);
+  let sparsePublicSolutionRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      new FakeElement("div"),
+      trainingSnapshot(),
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      () => {},
+      "training-answer",
+      "Action failed",
+      sparsePublicSolution
+    );
+  } catch (error) {
+    sparsePublicSolutionRejected = error instanceof TypeError;
+  }
+  check(
+    sparsePublicSolutionRejected,
+    "Training public render accepted sparse solution array"
+  );
+
+  let oversizedPublicSolutionRejected = false;
+  try {
+    window.AccessibleChessTrainingSurface.render(
+      new FakeElement("div"),
+      trainingSnapshot(),
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      () => {},
+      "training-answer",
+      "Action failed",
+      new Array(65).fill("e4")
+    );
+  } catch (error) {
+    oversizedPublicSolutionRejected = error instanceof TypeError;
+  }
+  check(
+    oversizedPublicSolutionRejected,
+    "Training public render accepted oversized solution array"
+  );
 
   const trainingRoot = new FakeElement("div");
   let accepted = false;
