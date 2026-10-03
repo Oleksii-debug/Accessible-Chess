@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT_BASE: 71548195339865cf00243032e4fe128cbfb62001
+  CURRENT_PRODUCT_BASE: 5341c17de8deea201ae78019f19acedf7b865f3f
 
 jobs:
   contract:
