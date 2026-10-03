@@ -468,6 +468,37 @@ class SoundSettingsApplicationTests(unittest.TestCase):
         self.assertEqual("classic", profiles.current.pack_id)
         self.assertEqual(["local.wood"], pack_storage.uninstalled)
 
+    def test_incompatible_verified_local_pack_is_visible_removable_and_not_selectable(self) -> None:
+        classic = _manifest("classic")
+        local = _manifest("legacy.ogg")
+        pack_storage = _PackStorage([classic, local])
+        manager = SoundPackManager(_Downloader(), pack_storage)
+        profile_storage = _ProfileStorage()
+        profiles = SoundProfileManager(profile_storage, manager)
+        profiles.load()
+        runtime = ProfiledSoundRuntime(_AssetPlayback(), profiles.profile_provider)
+        coordinator = SoundPackProfileCoordinator(manager, profiles)
+        app = SoundSettingsApplication(
+            profiles,
+            runtime,
+            pack_coordinator=coordinator,
+            catalog={},
+            installed_pack_provider=lambda: {"legacy.ogg": local},
+            pack_compatibility_provider=lambda _manifest: False,
+        )
+
+        item = app.snapshot(language="en")["packs"][0]
+        self.assertEqual("incompatible", item["state"])
+        self.assertFalse(item["compatible"])
+        self.assertTrue(item["can_uninstall"])
+
+        with self.assertRaisesRegex(ValueError, "incompatible"):
+            app.select_pack("legacy.ogg", language="en")
+
+        removed = app.uninstall_pack("legacy.ogg", language="en")
+        self.assertTrue(removed.ok)
+        self.assertEqual(["legacy.ogg"], pack_storage.uninstalled)
+
     def test_unknown_pack_id_cannot_supply_manifest_or_path(self) -> None:
         classic = _manifest("classic")
         storage = _PackStorage([classic])
