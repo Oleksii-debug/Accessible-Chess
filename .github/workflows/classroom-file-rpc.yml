@@ -2,8 +2,6 @@ name: Classroom File RPC
 
 on:
   pull_request:
-    branches:
-      - feature/classroom-file-server-20261003
     paths:
       - '.github/workflows/classroom-file-rpc.yml'
       - 'acs/classroom_file_rpc.py'
@@ -41,7 +39,6 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          test "$EVENT_BASE_REF" = "feature/classroom-file-server-20261003"
           test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}"
           git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
@@ -55,9 +52,7 @@ jobs:
           allowed=(
             '.github/workflows/classroom-file-rpc.yml'
             'acs/classroom_file_rpc.py'
-            'acs/classroom_file_server.py'
             'tests/test_classroom_file_rpc.py'
-            'tests/test_classroom_file_server.py'
           )
           mandatory=(
             '.github/workflows/classroom-file-rpc.yml'
