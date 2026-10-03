@@ -877,7 +877,13 @@ class Version2UpgradeCoordinator:
                 # user-data filesystem boundary.  Authenticate the actual
                 # directory entry before excluding it so a canonical cache/guard
                 # pathname cannot hide a symlink or reparse alias.
-                _safe_stat(path, "derived runtime entry")
+                info = _safe_stat(path, "derived runtime entry")
+                if not (
+                    stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)
+                ):
+                    raise Version2UpgradeError(
+                        "derived runtime entry must be a regular file or directory"
+                    )
                 continue
             # Atomic GameTree/Book-progress writers may leave these exact-root
             # temporary files behind only after abrupt process death. They are
@@ -898,8 +904,13 @@ class Version2UpgradeCoordinator:
                 # still be an authenticated in-root object; otherwise a symlink
                 # or reparse alias could bypass the same fail-closed boundary
                 # enforced for persistent control files.
-                _safe_stat(path, "generated runtime entry")
-                continue
+                generated_info = _safe_stat(path, "generated runtime entry")
+                if stat.S_ISREG(generated_info.st_mode):
+                    continue
+                # A directory merely happens to have a generated filename; it
+                # is not writer residue.  Let the ordinary path logic below
+                # preserve its descendants.  Other special objects also fall
+                # through and are rejected by the normal non-regular boundary.
             folded = relative.casefold()
             if folded in seen:
                 raise Version2UpgradeError(
