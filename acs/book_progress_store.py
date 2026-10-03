@@ -989,11 +989,41 @@ class BookProgressStore:
         # backup after our primary snapshot; blindly rebasing the backup CAS at
         # publication time could then overwrite that newer recovery snapshot
         # before the later primary stale-write check aborts this save.
-        backup_base_raw = (
-            self._read_raw_file_unlocked(self.backup_path, missing_ok=True)
-            if previous_raw is not None
-            else None
-        )
+        backup_base_raw: bytes | None = None
+        if previous_raw is not None:
+            backup_base_raw = self._read_raw_file_unlocked(
+                self.backup_path,
+                missing_ok=True,
+            )
+            if backup_base_raw is not None:
+                # A valid primary does not authorize destroying recovery data
+                # that belongs to a newer/ambiguous store generation. In
+                # particular, a future-schema backup must survive an older
+                # application's ordinary save instead of being silently
+                # downgraded to the current primary.
+                try:
+                    backup_payload = self._decode_payload(backup_base_raw)
+                except BookProgressStoreError as backup_error:
+                    if backup_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
+                        raise
+                    # A structurally corrupt backup is not usable recovery
+                    # authority while the primary is valid; the rolling backup
+                    # publication below is allowed to repair it from that exact
+                    # current primary.
+                else:
+                    primary_payload = self._decode_payload(previous_raw)
+                    backup_generation = backup_payload["generation"]
+                    primary_generation = primary_payload["generation"]
+                    assert type(backup_generation) is int
+                    assert type(primary_generation) is int
+                    if backup_generation > primary_generation or (
+                        backup_generation == primary_generation
+                        and backup_base_raw != previous_raw
+                    ):
+                        raise BookProgressStoreError(
+                            "book progress recovery data is newer or divergent",
+                            code=BookProgressStoreErrorCode.STALE_WRITE,
+                        )
 
         current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
         if _revision(current_raw) != expected_revision or current_raw != previous_raw:
