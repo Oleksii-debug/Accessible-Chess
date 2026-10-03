@@ -745,12 +745,18 @@ class _UpgradeLock:
         if before is not None:
             self._require_private_regular(before)
 
-        flags = os.O_RDWR | os.O_CREAT
+        flags = os.O_RDWR
         flags |= getattr(os, "O_BINARY", 0)
         flags |= getattr(os, "O_NOINHERIT", 0)
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         flags |= getattr(os, "O_NONBLOCK", 0)
+        if before is None:
+            # A missing lock pathname must be exclusively created by this
+            # upgrader. Otherwise a non-cooperating process can create an
+            # arbitrary file in the lstat -> open window and have it adopted
+            # (and potentially initialized) as our coordination inode.
+            flags |= os.O_CREAT | os.O_EXCL
         try:
             descriptor = os.open(self.path, flags, 0o600)
         except OSError as exc:
