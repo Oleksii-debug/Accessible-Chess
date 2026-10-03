@@ -125,7 +125,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         value = value or credential()
         effect = host.prepare_join(value, now=NOW + timedelta(seconds=1))
         self.assertIsNotNone(effect)
-        payload = host.claim_browser_payload(effect.transaction_id)
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
         state = host.acknowledge_provider_success(effect.transaction_id)
         self.assertTrue(state.connected)
         return payload
@@ -144,7 +147,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         self.assertFalse(effect.credential_exposed)
         self.assertEqual(controller.state, before)
 
-        payload = host.claim_browser_payload(effect.transaction_id)
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
         self.assertEqual(payload["operation"], "connect")
         self.assertEqual(payload["enabled_sources"], [])
         self.assertEqual(
@@ -159,6 +165,48 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         self.assertEqual(committed.desired_sources, frozenset())
         self.assertIsNone(host.pending_effect)
 
+    def test_expired_credential_is_retired_before_browser_disclosure(self):
+        controller, _composite, _session, host = self.make_host()
+        before = controller.state
+        effect = host.prepare_join(
+            credential(),
+            now=NOW + timedelta(seconds=1),
+        )
+
+        with self.assertRaisesRegex(
+            MediaSessionHandoffError,
+            "expired before browser handoff",
+        ):
+            host.claim_browser_payload(
+                effect.transaction_id,
+                now=NOW + timedelta(minutes=3),
+            )
+
+        self.assertEqual(controller.state, before)
+        self.assertIsNone(host.pending_effect)
+        self.assertIsNone(host.recovery_status)
+
+    def test_credential_claim_requires_explicit_current_time(self):
+        _controller, _composite, _session, host = self.make_host()
+        effect = host.prepare_join(
+            credential(),
+            now=NOW + timedelta(seconds=1),
+        )
+
+        with self.assertRaisesRegex(
+            MediaSessionHandoffError,
+            "current time is required",
+        ):
+            host.claim_browser_payload(effect.transaction_id)
+
+        # Caller input error did not expose or consume the credential.
+        self.assertEqual(host.pending_effect.transaction_id, effect.transaction_id)
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertEqual(payload["credential"]["token"], "secret-server-issued-token")
+
     def test_secret_payload_is_claimable_exactly_once(self):
         _controller, _composite, _session, host = self.make_host()
         effect = host.prepare_join(
@@ -166,7 +214,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             now=NOW + timedelta(seconds=1),
         )
 
-        first = host.claim_browser_payload(effect.transaction_id)
+        first = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
         self.assertEqual(
             first["credential"]["token"],
             "secret-server-issued-token",
@@ -191,7 +242,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             MediaSessionHandoffError,
             "already claimed",
         ):
-            host.claim_browser_payload(effect.transaction_id)
+            host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
 
     def test_secret_never_appears_in_pending_or_recovery_metadata_repr(self):
         _controller, _composite, _session, host = self.make_host()
@@ -203,7 +257,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         self.assertNotIn("do-not-log-this-token", repr(host.pending_effect))
         self.assertNotIn("do-not-log-this-token", repr(host._pending))
 
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
         self.assertNotIn("do-not-log-this-token", repr(host._pending))
         host.provider_failed(effect.transaction_id)
 
@@ -237,7 +294,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             effect.enabled_sources,
             (MediaSource.MICROPHONE,),
         )
-        payload = host.claim_browser_payload(effect.transaction_id)
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=6),
+        )
         self.assertEqual(payload["enabled_sources"], ["microphone"])
         self.assertEqual(
             payload["credential"]["token"],
@@ -260,7 +320,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
 
         self.assertEqual(effect.operation, MediaSessionOperation.DISCONNECT)
         self.assertEqual(controller.state, before)
-        payload = host.claim_browser_payload(effect.transaction_id)
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
         self.assertEqual(
             payload,
             {
@@ -300,7 +363,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             credential(),
             now=NOW + timedelta(seconds=1),
         )
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
 
         with self.assertRaisesRegex(
             MediaSessionRecoveryRequired,
@@ -319,7 +385,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         self.complete_join(controller, host)
         before = controller.state
         effect = host.prepare_leave()
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
 
         host.provider_not_started(effect.transaction_id)
 
@@ -334,7 +403,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             credential(),
             now=NOW + timedelta(seconds=1),
         )
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
 
         host.provider_connection_failed_clean(
             effect.transaction_id,
@@ -357,7 +429,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             credential(),
             now=NOW + timedelta(seconds=1),
         )
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
 
         with self.assertRaisesRegex(
             MediaSessionHandoffError,
@@ -385,7 +460,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
         controller, _composite, _session, host = self.make_host()
         self.complete_join(controller, host)
         effect = host.prepare_leave()
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
 
         with self.assertRaisesRegex(
             MediaSessionHandoffError,
@@ -404,7 +482,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             credential(),
             now=NOW + timedelta(seconds=1),
         )
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
 
         host.provider_failed(effect.transaction_id)
 
@@ -441,7 +522,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             ),
             now=NOW + timedelta(seconds=6),
         )
-        host.claim_browser_payload(effect.transaction_id)
+        host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=6),
+        )
 
         # Disconnected leave is a local canonical transition with no provider
         # call, so it deliberately races the pending reconnect for this test.
@@ -631,7 +715,10 @@ class ClassroomMediaSessionHandoffTests(unittest.TestCase):
             credential(),
             now=NOW + timedelta(seconds=1),
         )
-        payload = host.claim_browser_payload(effect.transaction_id)
+        payload = host.claim_browser_payload(
+            effect.transaction_id,
+            now=NOW + timedelta(seconds=1),
+        )
         self.assertEqual(
             set(payload),
             {"transaction_id", "operation", "credential", "enabled_sources"},
