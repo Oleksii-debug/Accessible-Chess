@@ -204,46 +204,111 @@ class ClassroomChatServerSQLiteStore:
         db: sqlite3.Connection,
         room_id: str,
     ) -> None:
-        message_mismatch = db.execute(
+        invalid_message_flag = db.execute(
             """
             SELECT 1
-            FROM classroom_chat_server_messages AS m
-            LEFT JOIN classroom_chat_server_state_updates AS s
-              ON s.room_id=m.room_id AND s.message_id=m.message_id
-            WHERE m.room_id=?
-            GROUP BY m.message_id, m.hidden
-            HAVING typeof(m.hidden) != 'integer'
-                OR m.hidden NOT IN (0,1)
-                OR (m.hidden=1 AND COUNT(s.message_id) != 1)
-                OR (m.hidden=0 AND COUNT(s.message_id) != 0)
-            LIMIT 1
-            """,
-            (room_id,),
-        ).fetchone()
-        if message_mismatch is not None:
-            raise ClassroomChatServerError(
-                "stored hidden message state is inconsistent"
-            )
-
-        state_mismatch = db.execute(
-            """
-            SELECT 1
-            FROM classroom_chat_server_state_updates AS s
-            LEFT JOIN classroom_chat_server_messages AS m
-              ON m.room_id=s.room_id AND m.message_id=s.message_id
-            WHERE s.room_id=?
+            FROM classroom_chat_server_messages
+            WHERE room_id=?
               AND (
-                m.message_id IS NULL
-                OR typeof(s.hidden) != 'integer'
-                OR s.hidden != 1
+                typeof(hidden) != 'integer'
+                OR hidden NOT IN (0,1)
               )
             LIMIT 1
             """,
             (room_id,),
         ).fetchone()
-        if state_mismatch is not None:
+        if invalid_message_flag is not None:
+            raise ClassroomChatServerError(
+                "stored message hidden flag is invalid"
+            )
+
+        invalid_revision = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_state_updates
+            WHERE room_id=?
+              AND (
+                typeof(revision) != 'integer'
+                OR revision < 0
+                OR revision > ?
+              )
+            LIMIT 1
+            """,
+            (room_id, MAX_WIRE_INTEGER),
+        ).fetchone()
+        if invalid_revision is not None:
+            raise ClassroomChatServerError(
+                "stored moderation revision is invalid"
+            )
+
+        invalid_state_flag = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_state_updates
+            WHERE room_id=?
+              AND (
+                typeof(hidden) != 'integer'
+                OR hidden != 1
+              )
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if invalid_state_flag is not None:
+            raise ClassroomChatServerError(
+                "stored moderation hidden flag is invalid"
+            )
+
+        orphan_state = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_state_updates AS s
+            LEFT JOIN classroom_chat_server_messages AS m
+              ON m.room_id=s.room_id AND m.message_id=s.message_id
+            WHERE s.room_id=? AND m.message_id IS NULL
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if orphan_state is not None:
             raise ClassroomChatServerError(
                 "stored moderation state is inconsistent"
+            )
+
+        hidden_mismatch = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_messages AS m
+            LEFT JOIN classroom_chat_server_state_updates AS s
+              ON s.room_id=m.room_id AND s.message_id=m.message_id
+            WHERE m.room_id=? AND m.hidden=1
+            GROUP BY m.message_id
+            HAVING COUNT(s.message_id) != 1
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if hidden_mismatch is not None:
+            raise ClassroomChatServerError(
+                "stored hidden message state is inconsistent"
+            )
+
+        visible_mismatch = db.execute(
+            """
+            SELECT 1
+            FROM classroom_chat_server_messages AS m
+            LEFT JOIN classroom_chat_server_state_updates AS s
+              ON s.room_id=m.room_id AND s.message_id=m.message_id
+            WHERE m.room_id=? AND m.hidden=0
+            GROUP BY m.message_id
+            HAVING COUNT(s.message_id) != 0
+            LIMIT 1
+            """,
+            (room_id,),
+        ).fetchone()
+        if visible_mismatch is not None:
+            raise ClassroomChatServerError(
+                "stored visible message state is inconsistent"
             )
 
     @staticmethod
