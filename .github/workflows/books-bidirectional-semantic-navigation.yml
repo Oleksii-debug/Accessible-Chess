@@ -92,11 +92,11 @@ jobs:
             )
             test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "b182289360743ea137fd5a07f50e1dcd935de86d"
             test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "2998006fde334b216fbdd42d7df6900e8bd38b0e"
-            test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "e090e91b610c19be0d8d52d711b6cef54dbb6056"
+            test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "0a8193a639a0b153e83b5339c4843cb32288fd56"
             test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = "2c0e400d9dbb43a48dc7d33ee313bad2899e7f23"
             test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "c901b7e1db066e71ec4d99874abd11eda473861c"
             test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "71ab21b24f86e2f0cc3ff8cffb4b83bfb0af44f6"
-            test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "5b9369db39126c813e2ca695a175f47424df994a"
+            test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "d8c66f3fd5311b42ad4eaafbeb921c23f2306d60"
             test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = "4f75b336f302374a85bb83a90f53431bb8929e6a"
             test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "48a9f697120654bd029903b554b969eb768984b6"
             test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "f97195b7fb77c78f9490b89cc5eb7a17c0673066"
