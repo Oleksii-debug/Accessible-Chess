@@ -514,6 +514,19 @@
       requiredUiText(reset[name], "Training reset dialog text", 600);
     });
     requiredUiText(snapshot.solution_label, "Training solution label", 160);
+    if (!Array.isArray(solution) || solution.length > 256) {
+      throw new TypeError("Training solution is invalid");
+    }
+    for (let index = 0; index < solution.length; index += 1) {
+      if (
+        !Object.prototype.hasOwnProperty.call(solution, index) ||
+        typeof solution[index] !== "string" ||
+        !solution[index].trim() ||
+        solution[index].length > 128
+      ) {
+        throw new TypeError("Training solution item is invalid");
+      }
+    }
 
     const allowedFocus = Object.create(null);
     allowedFocus[""] = true;
