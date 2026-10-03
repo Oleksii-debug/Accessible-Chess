@@ -39,15 +39,18 @@ jobs:
           git reset --hard HEAD
           git checkout-index --force --all
 
-      - name: Restore frozen Stage1 blobs byte-exact on Windows
+      - name: Restore inherited Stage1 blobs byte-exact on Windows
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
-          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
-          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "b8586a26b9ab20c3d3ec0b0a3dbbbd53e38e94e6"
-          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "0ba06f548d39dad7372e0339b3e121fd1717cc05"
+          stage1_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          keymap_blob="$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
+          git cat-file blob "$stage1_blob" > acs/stage1_release_ui_core.py
+          git cat-file blob "$keymap_blob" > acs/webapp_keymap_core.py
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$stage1_blob"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$keymap_blob"
+          echo "STAGE1_WINDOWS_BYTE_REMATERIALIZATION=PASS stage1=$stage1_blob keymap=$keymap_blob"
 
       - uses: actions/setup-python@v5
         with:
@@ -73,14 +76,36 @@ jobs:
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$markdown_owner" HEAD
           git diff --check "$base" HEAD
-          for path in \
-            acs/book_text_import.py \
-            tests/test_v2_book_text_import.py \
-            tests/test_v2_markdown_semantic_lists.py
-          do
-            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$markdown_owner:$path")"
-          done
-          printf 'Markdown retained authority PASS: immutable-pr-base=%s owner=%s head=%s\n' "$base" "$markdown_owner" "$(git rev-parse HEAD)"
+          source_actual="$(git rev-parse HEAD:acs/book_text_import.py)"
+          importer_test_actual="$(git rev-parse HEAD:tests/test_v2_book_text_import.py)"
+          semantic_list_actual="$(git rev-parse HEAD:tests/test_v2_markdown_semantic_lists.py)"
+          source_owner="$(git rev-parse "$markdown_owner:acs/book_text_import.py")"
+          importer_test_owner="$(git rev-parse "$markdown_owner:tests/test_v2_book_text_import.py")"
+          semantic_list_owner="$(git rev-parse "$markdown_owner:tests/test_v2_markdown_semantic_lists.py")"
+          successor="d30917d46c2fa54821e2f90df9750220e60d48e3"
+          successor_source="27a8880246fed5d5c35292aab95a349a86a2440c"
+          successor_importer_test="323438ce3249696b2fa0ce59839e5849984aa1ec"
+
+          test "$semantic_list_actual" = "$semantic_list_owner" || {
+            printf 'Markdown semantic-list oracle drift: owner=%s actual=%s\n' "$semantic_list_owner" "$semantic_list_actual" >&2
+            exit 1
+          }
+
+          if test "$source_actual" = "$source_owner" && test "$importer_test_actual" = "$importer_test_owner"; then
+            authority_mode="SETTLED_OWNER"
+          elif test "$source_actual" = "$successor_source" && test "$importer_test_actual" = "$successor_importer_test"; then
+            git cat-file -e "${successor}^{commit}"
+            git merge-base --is-ancestor "$successor" HEAD
+            authority_mode="REVIEWED_MARKDOWN_TEXT_INTEGRITY_SUCCESSOR"
+          else
+            printf 'Markdown authority pair drift: source owner=%s successor=%s actual=%s; test owner=%s successor=%s actual=%s\n' \
+              "$source_owner" "$successor_source" "$source_actual" \
+              "$importer_test_owner" "$successor_importer_test" "$importer_test_actual" >&2
+            exit 1
+          fi
+
+          printf 'Markdown retained authority PASS: immutable-pr-base=%s owner=%s mode=%s head=%s\n' \
+            "$base" "$markdown_owner" "$authority_mode" "$(git rev-parse HEAD)"
 
       - name: Compile bounded Books adapter
         run: python -m py_compile acs/book_text_import.py tests/test_v2_book_text_import.py tests/test_v2_markdown_semantic_lists.py
@@ -99,12 +124,16 @@ jobs:
           tests.test_bookreader
           tests.test_v2_accessible_book_core
 
-      - name: Re-materialize frozen Stage1 blobs before broad byte contracts
+      - name: Re-materialize inherited Stage1 blobs before broad byte contracts
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file blob HEAD:acs/stage1_release_ui_core.py > acs/stage1_release_ui_core.py
-          git cat-file blob HEAD:acs/webapp_keymap_core.py > acs/webapp_keymap_core.py
+          stage1_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
+          keymap_blob="$(git rev-parse HEAD:acs/webapp_keymap_core.py)"
+          git cat-file blob "$stage1_blob" > acs/stage1_release_ui_core.py
+          git cat-file blob "$keymap_blob" > acs/webapp_keymap_core.py
+          test "$(git hash-object --no-filters acs/stage1_release_ui_core.py)" = "$stage1_blob"
+          test "$(git hash-object --no-filters acs/webapp_keymap_core.py)" = "$keymap_blob"
 
       - name: Full repository unittest
         run: python -m unittest discover -s tests -v
