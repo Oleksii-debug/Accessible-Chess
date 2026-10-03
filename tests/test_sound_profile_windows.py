@@ -169,6 +169,45 @@ class ProfiledWindowsSoundPlaybackAdapterTests(unittest.TestCase):
             self.assertIn("classic-tick-v100-s1-", played.name)
             self.assertNotIn("low_time", {event.value for event in SoundEvent})
 
+    def test_classic_low_time_uses_canonical_owner_event_when_exposed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="profiled-win-low-time-owner-") as raw:
+            _resolver, _store, adapter = self._adapter(Path(raw))
+
+            class FutureSoundEvent:
+                TICK = SimpleNamespace(value="tick")
+
+                def __new__(cls, value):
+                    if value == "low_time":
+                        return SimpleNamespace(value="low_time")
+                    if value == "tick":
+                        return cls.TICK
+                    raise ValueError(value)
+
+            request = SoundAssetRequest(
+                pack_id="classic",
+                event_id="low_time",
+                sound_id="low_time",
+                volume=100,
+                preview=False,
+            )
+            with mock.patch(
+                "acs.sound_profile_windows.SoundEvent",
+                FutureSoundEvent,
+            ):
+                resolved = adapter._classic_event(request)
+                self.assertEqual("low_time", resolved.value)
+
+                with self.assertRaisesRegex(ValueError, "canonical low_time"):
+                    adapter._classic_event(
+                        SoundAssetRequest(
+                            pack_id="classic",
+                            event_id="low_time",
+                            sound_id="tick",
+                            volume=100,
+                            preview=False,
+                        )
+                    )
+
     def test_classic_source_swap_after_lstat_fails_before_cache_publication(self) -> None:
         with tempfile.TemporaryDirectory(prefix="profiled-win-classic-swap-") as raw:
             root = Path(raw)
