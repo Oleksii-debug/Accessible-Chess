@@ -27,6 +27,12 @@ from .training import ExerciseDefinition, ExerciseStep
 BOOK_TRAINING_SCHEMA_VERSION = 1
 _MAX_SOLUTION_PGN_TEXT = 256_000
 _MAX_ORIGIN_TEXT = 4096
+_MAX_HEADING_PATH_PARTS = 6
+_MAX_EXERCISE_STEPS = 2048
+_MAX_ACCEPTED_MOVES_PER_STEP = 64
+_MAX_WIRE_TAGS = 64
+_MAX_WIRE_METADATA_ENTRIES = 64
+_MAX_WIRE_TEXT_CHARS = 4096
 _MATERIAL_FIELDS = frozenset({"schema_version", "origin", "definition"})
 _ORIGIN_FIELDS = frozenset(
     {
@@ -79,6 +85,26 @@ def _bounded_text(value: object, name: str, *, allow_none: bool = False) -> str 
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     return text
+
+
+def _require_wire_text_limit(
+    value: object,
+    name: str,
+    *,
+    allow_none: bool = False,
+) -> None:
+    if value is None and allow_none:
+        return
+    if type(value) is not str:
+        raise BookTrainingError(
+            f"{name} must be text" if not allow_none else f"{name} must be text or null",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if len(value) > _MAX_WIRE_TEXT_CHARS:
+        raise BookTrainingError(
+            f"{name} exceeds the wire text limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
 
 
 def _sha256_json(value: object) -> str:
@@ -191,6 +217,11 @@ class BookTrainingOrigin:
                 "book training heading_path must be a tuple of bounded non-empty text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
+        if len(self.heading_path) > _MAX_HEADING_PATH_PARTS:
+            raise BookTrainingError(
+                "book training heading_path exceeds the semantic depth limit",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
         object.__setattr__(self, "target_key", target_key)
         object.__setattr__(self, "block_id", block_id)
         object.__setattr__(self, "source_anchor", source_anchor)
@@ -218,6 +249,11 @@ class BookTrainingOrigin:
         if type(heading_path) is not list:
             raise BookTrainingError(
                 "book training heading_path must be a list",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        if len(heading_path) > _MAX_HEADING_PATH_PARTS:
+            raise BookTrainingError(
+                "book training heading_path exceeds the semantic depth limit",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
         return cls(
@@ -308,6 +344,11 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             "book training definition steps must be a list",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
+    if not steps_value or len(steps_value) > _MAX_EXERCISE_STEPS:
+        raise BookTrainingError(
+            "book training definition has an invalid step count",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
     steps: list[ExerciseStep] = []
     for raw_step in steps_value:
         if not isinstance(raw_step, Mapping):
@@ -317,23 +358,30 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
             )
         _require_exact_fields(raw_step, _STEP_FIELDS, "book training step")
         accepted = raw_step["accepted_moves"]
-        if type(accepted) is not list or any(type(move) is not str for move in accepted):
+        if type(accepted) is not list:
             raise BookTrainingError(
                 "book training accepted_moves must be a list of text",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
+        if not accepted or len(accepted) > _MAX_ACCEPTED_MOVES_PER_STEP:
+            raise BookTrainingError(
+                "book training accepted_moves has an invalid item count",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        for move in accepted:
+            _require_wire_text_limit(move, "book training accepted move")
         hint = raw_step["hint"]
         explanation = raw_step["explanation"]
-        if hint is not None and type(hint) is not str:
-            raise BookTrainingError(
-                "book training hint must be text or null",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
-        if explanation is not None and type(explanation) is not str:
-            raise BookTrainingError(
-                "book training explanation must be text or null",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
+        _require_wire_text_limit(
+            hint,
+            "book training hint",
+            allow_none=True,
+        )
+        _require_wire_text_limit(
+            explanation,
+            "book training explanation",
+            allow_none=True,
+        )
         try:
             steps.append(ExerciseStep(frozenset(accepted), hint=hint, explanation=explanation))
         except (TypeError, ValueError) as exc:
@@ -344,34 +392,49 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
 
     tags = payload["tags"]
     metadata = payload["metadata"]
-    if type(tags) is not list or any(type(tag) is not str for tag in tags):
+    if type(tags) is not list:
         raise BookTrainingError(
             "book training tags must be a list of text",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    if not isinstance(metadata, Mapping) or any(
-        type(key) is not str or type(value) is not str for key, value in metadata.items()
-    ):
+    if len(tags) > _MAX_WIRE_TAGS:
+        raise BookTrainingError(
+            "book training tags exceed the wire item limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for tag in tags:
+        _require_wire_text_limit(tag, "book training tag")
+    if not isinstance(metadata, Mapping):
         raise BookTrainingError(
             "book training metadata must map text keys to text values",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
+    if len(metadata) > _MAX_WIRE_METADATA_ENTRIES:
+        raise BookTrainingError(
+            "book training metadata exceeds the wire item limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for key, value in metadata.items():
+        _require_wire_text_limit(key, "book training metadata key")
+        _require_wire_text_limit(value, "book training metadata value")
     source_id = payload["source_id"]
-    if source_id is not None and type(source_id) is not str:
-        raise BookTrainingError(
-            "book training source_id must be text or null",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if type(payload["exercise_id"]) is not str or type(payload["start_fen"]) is not str:
-        raise BookTrainingError(
-            "book training exercise_id and start_fen must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if type(payload["title"]) is not str:
-        raise BookTrainingError(
-            "book training title must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
+    _require_wire_text_limit(
+        source_id,
+        "book training source_id",
+        allow_none=True,
+    )
+    _require_wire_text_limit(
+        payload["exercise_id"],
+        "book training exercise_id",
+    )
+    _require_wire_text_limit(
+        payload["start_fen"],
+        "book training start_fen",
+    )
+    _require_wire_text_limit(
+        payload["title"],
+        "book training title",
+    )
     try:
         return ExerciseDefinition(
             exercise_id=payload["exercise_id"],
@@ -666,6 +729,24 @@ def resolve_book_training_origin(
             "book training origin semantic identity changed",
             code=BookTrainingErrorCode.STALE_ORIGIN,
         )
+    # Heading ancestry is part of the exported semantic origin. Stable
+    # block/source identities may survive unrelated linear reordering, but the
+    # same exercise silently moved under a different chapter is not the same
+    # reading context. Index-only targets are snapshot-bound as well, so their
+    # recorded export index must match the exact index encoded by the target.
+    if entry.heading_path != origin.heading_path:
+        raise BookTrainingError(
+            "book training origin heading context changed",
+            code=BookTrainingErrorCode.STALE_ORIGIN,
+        )
+    if (
+        origin.target_key.startswith("index:")
+        and entry.target.index != origin.index_at_export
+    ):
+        raise BookTrainingError(
+            "book training index origin no longer matches its exported snapshot",
+            code=BookTrainingErrorCode.STALE_ORIGIN,
+        )
     reader = BookReader(document)
     return reader.go_to(entry.target.index)
 
@@ -721,6 +802,22 @@ def restore_book_training_material(
         )
     origin = BookTrainingOrigin.from_dict(origin_value)
     definition = _definition_from_dict(definition_value)
+    # Persisted Book/Training material is a canonical wire contract, not a
+    # permissive authoring surface. Constructors normalize harmless-looking
+    # whitespace, duplicate accepted moves, and tag spelling for in-memory
+    # authoring convenience; accepting those normalizations here would let
+    # modified persisted bytes become an equivalent second representation.
+    # Require the exact canonical representation before source revalidation.
+    if dict(origin_value) != origin.as_dict():
+        raise BookTrainingError(
+            "book training origin is not in canonical wire form",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    if dict(definition_value) != _definition_to_dict(definition):
+        raise BookTrainingError(
+            "book training definition is not in canonical wire form",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
     resolve_book_training_origin(document, origin)
     expected = build_book_training_material(document, origin.target_key)
     if _definition_to_dict(definition) != _definition_to_dict(expected.definition):

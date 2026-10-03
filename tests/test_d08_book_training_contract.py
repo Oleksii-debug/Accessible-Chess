@@ -6,6 +6,7 @@ from acs.book_training import (
     BOOK_TRAINING_SCHEMA_VERSION,
     BookTrainingError,
     BookTrainingErrorCode,
+    BookTrainingOrigin,
     build_book_training_material,
     build_current_book_training_material,
     resolve_book_training_origin,
@@ -171,6 +172,31 @@ class BookTrainingCanonicalConversionTests(unittest.TestCase):
 
 
 class BookTrainingOriginTests(unittest.TestCase):
+    def test_direct_origin_enforces_heading_depth_and_round_trips_at_limit(self):
+        common = {
+            "target_key": "index:0",
+            "block_digest": "0" * 64,
+            "index_at_export": 0,
+            "block_id": None,
+            "source_anchor": None,
+            "book_fingerprint": "1" * 64,
+        }
+        accepted = BookTrainingOrigin(
+            heading_path=tuple(f"Chapter {index}" for index in range(6)),
+            **common,
+        )
+        self.assertEqual(
+            accepted,
+            BookTrainingOrigin.from_dict(accepted.as_dict()),
+        )
+
+        with self.assertRaises(BookTrainingError) as caught:
+            BookTrainingOrigin(
+                heading_path=tuple(f"Chapter {index}" for index in range(7)),
+                **common,
+            )
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
     def test_semantic_origin_survives_surrounding_reorder_and_returns_reader(self):
         exercise = Exercise(
             fen=KING_FEN,
@@ -201,6 +227,45 @@ class BookTrainingOriginTests(unittest.TestCase):
         returned = return_reader_to_book_training_origin(reader, material.origin)
         self.assertEqual(returned.index, 2)
         self.assertEqual(reader.index, 2)
+
+    def test_semantic_origin_rejects_heading_context_drift(self):
+        exercise = Exercise(
+            fen=KING_FEN,
+            prompt="Context-bound exercise.",
+            answer_text="Kf3",
+            block_id="exercise-context",
+            source_anchor="exercise-context-source",
+        )
+        original = make_book(
+            blocks=[
+                Heading(text="Chapter A", level=1, block_id="chapter-a"),
+                exercise,
+            ]
+        )
+        material = build_book_training_material(original, "block:exercise-context")
+        self.assertEqual(material.origin.heading_path, ("Chapter A",))
+
+        moved = make_book(
+            blocks=[
+                Heading(text="Chapter B", level=1, block_id="chapter-b"),
+                Exercise(**{k: v for k, v in exercise.as_dict().items() if k != "kind"}),
+            ]
+        )
+        with self.assertRaises(BookTrainingError) as caught:
+            resolve_book_training_origin(moved, material.origin)
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
+
+    def test_index_origin_rejects_tampered_export_index(self):
+        exercise = Exercise(fen=KING_FEN, prompt="Index bound", answer_text="Kf3")
+        book = make_book(blocks=[exercise])
+        material = build_book_training_material(book, 0)
+        payload = material.origin.as_dict()
+        payload["index_at_export"] = 7
+        forged = type(material.origin).from_dict(payload)
+
+        with self.assertRaises(BookTrainingError) as caught:
+            resolve_book_training_origin(book, forged)
+        self.assertEqual(caught.exception.code, BookTrainingErrorCode.STALE_ORIGIN)
 
     def test_index_fallback_is_snapshot_bound_and_fails_after_reorder(self):
         exercise = Exercise(fen=KING_FEN, prompt="Fallback", answer_text="Kf3")
@@ -311,6 +376,134 @@ class BookTrainingWireContractTests(unittest.TestCase):
         with self.assertRaises(BookTrainingError) as caught:
             restore_book_training_material(self.book, coercive)
         self.assertEqual(caught.exception.code, BookTrainingErrorCode.INVALID_FIELD)
+
+    def test_semantically_equivalent_noncanonical_wire_fails_closed(self):
+        cases = []
+
+        origin_target = copy.deepcopy(self.payload)
+        origin_target["origin"]["target_key"] = (
+            " " + origin_target["origin"]["target_key"] + " "
+        )
+        cases.append(("origin-target-whitespace", origin_target))
+
+        origin_block = copy.deepcopy(self.payload)
+        self.assertIsNotNone(origin_block["origin"]["block_id"])
+        origin_block["origin"]["block_id"] = (
+            " " + origin_block["origin"]["block_id"] + " "
+        )
+        cases.append(("origin-block-whitespace", origin_block))
+
+        exercise_id = copy.deepcopy(self.payload)
+        exercise_id["definition"]["exercise_id"] = (
+            " " + exercise_id["definition"]["exercise_id"] + " "
+        )
+        cases.append(("exercise-id-whitespace", exercise_id))
+
+        start_fen = copy.deepcopy(self.payload)
+        start_fen["definition"]["start_fen"] = (
+            " " + start_fen["definition"]["start_fen"] + " "
+        )
+        cases.append(("start-fen-whitespace", start_fen))
+
+        move_whitespace = copy.deepcopy(self.payload)
+        first_move = move_whitespace["definition"]["steps"][0]["accepted_moves"][0]
+        move_whitespace["definition"]["steps"][0]["accepted_moves"] = [
+            "  " + first_move + "  "
+        ]
+        cases.append(("accepted-move-whitespace", move_whitespace))
+
+        duplicate_move = copy.deepcopy(self.payload)
+        first_move = duplicate_move["definition"]["steps"][0]["accepted_moves"][0]
+        duplicate_move["definition"]["steps"][0]["accepted_moves"].append(first_move)
+        cases.append(("duplicate-accepted-move", duplicate_move))
+
+        for label, payload in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
+
+    def test_oversized_persisted_collections_fail_closed_before_normalization(self):
+        cases = []
+
+        heading_path = copy.deepcopy(self.payload)
+        heading_path["origin"]["heading_path"] = [f"Chapter {index}" for index in range(7)]
+        cases.append(("heading-path", heading_path))
+
+        steps = copy.deepcopy(self.payload)
+        step = copy.deepcopy(steps["definition"]["steps"][0])
+        steps["definition"]["steps"] = [copy.deepcopy(step) for _ in range(2049)]
+        cases.append(("steps", steps))
+
+        accepted_moves = copy.deepcopy(self.payload)
+        accepted_moves["definition"]["steps"][0]["accepted_moves"] = [
+            f"move-{index}" for index in range(65)
+        ]
+        cases.append(("accepted-moves", accepted_moves))
+
+        tags = copy.deepcopy(self.payload)
+        tags["definition"]["tags"] = [f"tag-{index}" for index in range(65)]
+        cases.append(("tags", tags))
+
+        metadata = copy.deepcopy(self.payload)
+        metadata["definition"]["metadata"] = {
+            f"key-{index}": f"value-{index}" for index in range(65)
+        }
+        cases.append(("metadata", metadata))
+
+        for label, payload in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
+
+    def test_oversized_persisted_text_fields_fail_closed_before_domain_parsing(self):
+        oversized = "x" * 4097
+        cases = []
+
+        for field in ("exercise_id", "start_fen", "title", "source_id"):
+            payload = copy.deepcopy(self.payload)
+            payload["definition"][field] = oversized
+            cases.append((field, payload))
+
+        accepted_move = copy.deepcopy(self.payload)
+        accepted_move["definition"]["steps"][0]["accepted_moves"] = [oversized]
+        cases.append(("accepted-move", accepted_move))
+
+        hint = copy.deepcopy(self.payload)
+        hint["definition"]["steps"][0]["hint"] = oversized
+        cases.append(("hint", hint))
+
+        explanation = copy.deepcopy(self.payload)
+        explanation["definition"]["steps"][0]["explanation"] = oversized
+        cases.append(("explanation", explanation))
+
+        tag = copy.deepcopy(self.payload)
+        tag["definition"]["tags"] = [oversized]
+        cases.append(("tag", tag))
+
+        metadata_key = copy.deepcopy(self.payload)
+        metadata_key["definition"]["metadata"] = {oversized: "value"}
+        cases.append(("metadata-key", metadata_key))
+
+        metadata_value = copy.deepcopy(self.payload)
+        metadata_value["definition"]["metadata"] = {"key": oversized}
+        cases.append(("metadata-value", metadata_value))
+
+        for label, payload in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BookTrainingError) as caught:
+                    restore_book_training_material(self.book, payload)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookTrainingErrorCode.INVALID_FIELD,
+                )
 
     def test_tampered_move_and_origin_digest_fail_closed(self):
         tampered_move = copy.deepcopy(self.payload)
