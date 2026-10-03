@@ -401,6 +401,27 @@ jobs:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SHA256_MISMATCH')
           if int(inventory.get('source_archive_bytes', -1)) <= 0:
               raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SIZE_MISSING')
+
+          variants = json.loads((sound_root / 'variants.json').read_text(encoding='utf-8'))
+          layers = json.loads((sound_root / 'layers.json').read_text(encoding='utf-8'))
+          impacts = json.loads((sound_root / 'newgame_impacts.json').read_text(encoding='utf-8'))
+          if variants.get('schema_version') != 1:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_VARIANTS_INVALID')
+          if variants['events']['move'][0].get('id') != '1':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DEFAULT_MOVE_VARIANT_INVALID')
+          if layers.get('schema_version') != 1:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LAYERS_INVALID')
+          if layers['events']['move']['1'][-1] != 'library/Board/MOVEHIT1.WAV':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_MOVE_LAYER_INVALID')
+          if layers['events']['capture']['1'][-1] != 'library/Board/CAPHIT1.WAV':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_CAPTURE_LAYER_INVALID')
+          if impacts.get('schema_version') != 2:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_TIMING_INVALID')
+          if set(impacts.get('variants', {})) != {'1', '3d'}:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_VARIANTS_INVALID')
+          if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_IMPACT_COUNT_INVALID')
+
           wavs = [
               path for path in (sound_root / 'library').rglob('*')
               if path.is_file() and path.suffix.lower() == '.wav'
