@@ -73,6 +73,57 @@ jobs:
           git merge-base --is-ancestor "$recovery" HEAD
           git diff --check "$product" HEAD
 
+          changed="$(git diff --name-only "$product" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/book-progress-cleanup-quarantine.yml' \
+            '.github/workflows/book-progress-lock-continuity.yml' \
+            '.github/workflows/book-progress-stale-write-rebind.yml' \
+            '.github/workflows/books-heading-path-reading-order.yml' \
+            '.github/workflows/library-full-snapshot-product-recovery.yml' \
+            '.github/workflows/library-import-event-product-recovery.yml' \
+            '.github/workflows/product-convergence-recovery-books-nvda.yml' \
+            '.github/workflows/settings-save-lock-and-temp-identity.yml' \
+            '.github/workflows/settings-transactional-runtime-state.yml' \
+            '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
+            '.github/workflows/v2-data-upgrade-v6.yml' \
+            '.github/workflows/v2-release-native-event-schema.yml' \
+            '.github/workflows/v2-upgrade-backup-directory-recovery-identity.yml' \
+            '.github/workflows/v2-upgrade-backup-staging-identity.yml' \
+            '.github/workflows/v2-upgrade-descriptor-bound-recovery-reads.yml' \
+            '.github/workflows/v2-upgrade-exact-file-removal.yml' \
+            '.github/workflows/v2-upgrade-library-prepare-path-identity.yml' \
+            '.github/workflows/v2-upgrade-library-publish-candidate-identity.yml' \
+            '.github/workflows/v2-upgrade-lock-continuity.yml' \
+            '.github/workflows/v2-upgrade-restore-publication-guard.yml' \
+            '.github/workflows/v2-upgrade-settings-guard-preservation.yml' \
+            '.github/workflows/v2-upgrade-sqlite-lock-publication.yml' \
+            '.github/workflows/v2-upgrade-sqlite-state-path-identity.yml' \
+            '.github/workflows/v2-upgrade-verified-restore-copy.yml' \
+            'acs/book_progress_store.py' \
+            'acs/settings.py' \
+            'acs/version2_application.py' \
+            'acs/version2_upgrade_base.py' \
+            'tests/js/books_training_surface_dom_test.js' \
+            'tests/js/library_surface_dom_test.js' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
+            'tests/test_settings.py' \
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_v2_upgrade_book_progress_temp_artifact_control.py' \
+            'tests/test_v2_upgrade_education_workspace_artifact_control.py' \
+            'tests/test_v2_upgrade_generated_artifact_authentication.py' \
+            'tests/test_v2_upgrade_publish_race_audit.py' \
+            'tests/test_v2_upgrade_root_writer_artifact_grammar.py' \
+            'tests/test_v2_upgrade_self_coordination_artifact_control.py' \
+            'tests/test_v2_upgrade_sound_artifact_control.py' \
+            'tests/test_v2_upgrade_tracked_writer_conflict.py' \
+            'tests/test_v2_upgrade_training_progress_artifact_control.py' \
+            'tests/test_version2_application.py' \
+            'web/full_product_books_training.js' \
+            'web/full_product_library.js' \
+            'web/version2_release_bootstrap.js' \
+            | sort)"
+          test "$changed" = "$expected"
+
           test "$(git rev-parse HEAD:acs/settings.py)" = "6a2499739ec2df0483ee58694002392cb6ab8784"
           test "$(git rev-parse HEAD:acs/version2_upgrade_base.py)" = "96af79b1e5e140ee43f9eb679afc0d379efb53be"
           test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "ce56aacd3f83346f72a64a03b2be9323b4aa617b"
