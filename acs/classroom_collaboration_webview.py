@@ -344,6 +344,7 @@ class ClassroomCollaborationWebView:
         # canonical collaboration store/provider; this merely survives DOM redraws.
         self._file_progress: tuple[str, str, int, int, bool] | None = None
         self._file_progress_attempt_token: bytes | None = None
+        self._file_progress_revision = 0
 
     @property
     def language(self) -> UILanguage:
@@ -363,6 +364,14 @@ class ClassroomCollaborationWebView:
         if sink is not None and not callable(sink):
             raise TypeError("file progress event sink must be callable")
         self._file_progress_event_sink = sink
+
+    def _clear_file_progress(self) -> None:
+        """Clear presentation progress and advance its session-local ordering."""
+
+        if self._file_progress is not None:
+            self._file_progress_revision += 1
+        self._file_progress = None
+        self._file_progress_attempt_token = None
 
     def retire_browser_session(self) -> None:
         """Invalidate browser capabilities and release session-only UI state.
@@ -387,6 +396,7 @@ class ClassroomCollaborationWebView:
         self._prepared.clear()
         self._file_progress = None
         self._file_progress_attempt_token = None
+        self._file_progress_revision = 0
 
     def _label(self, participant_id: str) -> str:
         try:
@@ -849,6 +859,7 @@ class ClassroomCollaborationWebView:
                 "retry_label": labels["retry"],
                 "cancel_label": labels["cancel"],
                 "progress_label": labels["file_progress_label"],
+                "progress_revision": self._file_progress_revision,
                 "transfer_progress": self._file_progress_view(),
                 "can_choose_upload": self._file_picker is not None,
                 "items": tuple(self._file_view(item) for item in attachment_page),
@@ -891,6 +902,7 @@ class ClassroomCollaborationWebView:
         labels = _LABELS[self._language]
         return {
             "transfer_key": self._progress_key(_attachment_id),
+            "progress_revision": self._file_progress_revision,
             "name": name,
             "transferred_bytes": transferred_bytes,
             "total_bytes": total_bytes,
@@ -918,6 +930,7 @@ class ClassroomCollaborationWebView:
         )
         if attachment is None or attachment.size_bytes != sample.total_bytes:
             raise RuntimeError("file transfer progress no longer matches local metadata")
+        self._file_progress_revision += 1
         self._file_progress = (
             attachment.attachment_id,
             attachment.display_name,
@@ -1149,8 +1162,7 @@ class ClassroomCollaborationWebView:
             # Durable sync is authoritative over presentation-only terminal
             # progress. Do not keep announcing a completed transfer for an
             # attachment that has since been tombstoned or removed.
-            self._file_progress = None
-            self._file_progress_attempt_token = None
+            self._clear_file_progress()
         retriable_local_ids = {
             item.attachment_id
             for item in after_items
@@ -1284,8 +1296,7 @@ class ClassroomCollaborationWebView:
             )
         if not isinstance(selected, Path):
             raise TypeError("file picker must return pathlib.Path or None")
-        self._file_progress = None
-        self._file_progress_attempt_token = None
+        self._clear_file_progress()
         attachments = self._store.room_attachments(self._controller.room_id)
         sequence = 0 if not attachments else max(item.sequence_no for item in attachments) + 1
         prepared = self._controller.prepare_file(
@@ -1304,8 +1315,7 @@ class ClassroomCollaborationWebView:
             # Progress is presentation-only. The failed command result redraws
             # the collaboration surface and must not preserve a stale partial
             # meter into a later retry sequence.
-            self._file_progress = None
-            self._file_progress_attempt_token = None
+            self._clear_file_progress()
             # Keep the local source path only when canonical durable metadata
             # proves there is a failed transfer that the user can retry.
             try:
@@ -1328,8 +1338,7 @@ class ClassroomCollaborationWebView:
                 )
             )
         if uploaded.transfer_state == "failed":
-            self._file_progress = None
-            self._file_progress_attempt_token = None
+            self._clear_file_progress()
             if uploaded.scan_state != "blocked":
                 self._prepared[uploaded.attachment_id] = prepared
             else:
@@ -1416,7 +1425,7 @@ class ClassroomCollaborationWebView:
         prepared = self._prepared.get(attachment.attachment_id)
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
-        self._file_progress = None
+        self._clear_file_progress()
         self._file_progress_attempt_token = secrets.token_bytes(16)
         try:
             retried = self._controller.retry_file(
@@ -1424,8 +1433,7 @@ class ClassroomCollaborationWebView:
                 on_progress=self._publish_file_progress,
             )
         except Exception:
-            self._file_progress = None
-            self._file_progress_attempt_token = None
+            self._clear_file_progress()
             return self._error(
                 message=self._file_announcement(
                     "file_retry_failed",
@@ -1433,8 +1441,7 @@ class ClassroomCollaborationWebView:
                 )
             )
         if retried.transfer_state == "failed":
-            self._file_progress = None
-            self._file_progress_attempt_token = None
+            self._clear_file_progress()
             if retried.scan_state == "blocked":
                 self._prepared.pop(retried.attachment_id, None)
             return self._error(
@@ -1463,8 +1470,7 @@ class ClassroomCollaborationWebView:
             )
         self._prepared.pop(attachment.attachment_id, None)
         if self._file_progress is not None and self._file_progress[0] == attachment.attachment_id:
-            self._file_progress = None
-            self._file_progress_attempt_token = None
+            self._clear_file_progress()
         return self._event(
             "collaboration.file.cancelled",
             announcement=self._file_announcement("file_cancelled", attachment.display_name),
