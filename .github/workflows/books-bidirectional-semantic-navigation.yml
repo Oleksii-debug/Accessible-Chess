@@ -83,22 +83,26 @@ jobs:
               'acs/book_webview_bridge.py'
               'acs/book_webview_projection.py'
               'acs/full_product_presenters.py'
+              'acs/version2_book_workspace.py'
               'tests/test_book_bidirectional_semantic_navigation.py'
               'tests/test_dev1_books_training_web_asset.py'
               'tests/test_dev1_books_training_webview_projection.py'
               'tests/test_dev1_books_training_webview_bridge.py'
+              'tests/test_version2_book_workspace.py'
               'tests/js/books_training_surface_dom_test.js'
               'web/full_product_books_training.js'
             )
             test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = "b182289360743ea137fd5a07f50e1dcd935de86d"
-            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "2998006fde334b216fbdd42d7df6900e8bd38b0e"
+            test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = "15b95adb6e8d1d077d2c3aea3c248d27b9e445ae"
             test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "4d2f29a5c247c365c3bbce20e91f33af991ad03b"
             test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = "2c0e400d9dbb43a48dc7d33ee313bad2899e7f23"
-            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "c901b7e1db066e71ec4d99874abd11eda473861c"
-            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "71ab21b24f86e2f0cc3ff8cffb4b83bfb0af44f6"
+            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "ec427c08c8bc5981512f640b770aa5058b46b5ab"
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "2532e908b54c612cbadf5543af4ff1a1671e7f77"
             test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "ad119ae34857e03f09c86e8076a1f01c6a86495a"
             test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = "4f75b336f302374a85bb83a90f53431bb8929e6a"
             test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "48a9f697120654bd029903b554b969eb768984b6"
+            test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "0b1d90ba18824df497812045e4c3560945f008b0"
+            test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "4b7248920c0e01108080363803bba8ca197797fd"
             test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "f97195b7fb77c78f9490b89cc5eb7a17c0673066"
             test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "adac7a10ca0f20f50f619fb1adc70b6578a72dc8"
             echo 'BOOKS_SEMANTIC_NAVIGATION_TOPOLOGY=CURRENT_BOOKS'
