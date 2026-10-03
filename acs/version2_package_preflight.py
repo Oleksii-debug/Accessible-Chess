@@ -132,6 +132,10 @@ _REQUIRED_LIVEKIT_PROVENANCE = "AccessibleChess/web/vendor/livekit/provenance.js
 _REQUIRED_LIVEKIT_LICENSE_NOTICE = "THIRD_PARTY_NOTICES/LiveKit-client-LICENSE.txt"
 _REQUIRED_LIVEKIT_TEXT_NOTICE = "THIRD_PARTY_NOTICES/LiveKit-client-NOTICE.txt"
 _REQUIRED_LIVEKIT_PROVENANCE_NOTICE = "THIRD_PARTY_NOTICES/LIVEKIT_CLIENT_PROVENANCE.json"
+_MAX_LIVEKIT_BUNDLE_BYTES = 8 * 1024 * 1024
+_MAX_LIVEKIT_LICENSE_BYTES = 128 * 1024
+_MAX_LIVEKIT_NOTICE_BYTES = 256 * 1024
+_MAX_LIVEKIT_PROVENANCE_BYTES = 64 * 1024
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -831,6 +835,24 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
         _fail("WinForms accessibility app-config must disable all legacy accessibility switches")
 
 
+def _read_bounded_livekit_file(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> tuple[bytes, str]:
+    snapshot, digest = _snapshot_regular_file(
+        path,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    with snapshot:
+        data = snapshot.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        _fail(f"{label} exceeds archive byte limit")
+    return data, digest
+
+
 def _validate_livekit_client_package(
     root: Path,
     inventory: tuple[str, ...],
@@ -884,15 +906,46 @@ def _validate_livekit_client_package(
     )
 
     try:
-        bundle = bundle_path.read_bytes()
-        license_bytes = license_path.read_bytes()
-        notice_bytes = notice_path.read_bytes()
-        provenance_bytes = provenance_path.read_bytes()
-        if central_license.read_bytes() != license_bytes:
+        bundle, bundle_digest = _read_bounded_livekit_file(
+            bundle_path,
+            label="packaged LiveKit browser SDK",
+            max_bytes=_MAX_LIVEKIT_BUNDLE_BYTES,
+        )
+        license_bytes, license_digest = _read_bounded_livekit_file(
+            license_path,
+            label="packaged LiveKit license",
+            max_bytes=_MAX_LIVEKIT_LICENSE_BYTES,
+        )
+        notice_bytes, notice_digest = _read_bounded_livekit_file(
+            notice_path,
+            label="packaged LiveKit NOTICE",
+            max_bytes=_MAX_LIVEKIT_NOTICE_BYTES,
+        )
+        provenance_bytes, _ = _read_bounded_livekit_file(
+            provenance_path,
+            label="packaged LiveKit provenance",
+            max_bytes=_MAX_LIVEKIT_PROVENANCE_BYTES,
+        )
+        central_license_bytes, _ = _read_bounded_livekit_file(
+            central_license,
+            label="central LiveKit license notice",
+            max_bytes=_MAX_LIVEKIT_LICENSE_BYTES,
+        )
+        central_notice_bytes, _ = _read_bounded_livekit_file(
+            central_notice,
+            label="central LiveKit NOTICE",
+            max_bytes=_MAX_LIVEKIT_NOTICE_BYTES,
+        )
+        central_provenance_bytes, _ = _read_bounded_livekit_file(
+            central_provenance,
+            label="central LiveKit provenance notice",
+            max_bytes=_MAX_LIVEKIT_PROVENANCE_BYTES,
+        )
+        if central_license_bytes != license_bytes:
             _fail("central LiveKit license does not match packaged SDK license")
-        if central_notice.read_bytes() != notice_bytes:
+        if central_notice_bytes != notice_bytes:
             _fail("central LiveKit NOTICE does not match packaged SDK NOTICE")
-        if central_provenance.read_bytes() != provenance_bytes:
+        if central_provenance_bytes != provenance_bytes:
             _fail("central LiveKit provenance does not match packaged SDK provenance")
         provenance_text = provenance_bytes.decode("utf-8")
     except (OSError, UnicodeError) as exc:
@@ -936,15 +989,15 @@ def _validate_livekit_client_package(
         if provenance.get(name) != value:
             _fail(f"LiveKit client provenance {name} does not match pinned release")
 
-    for name, payload in (
-        ("bundle_sha256", bundle),
-        ("license_sha256", license_bytes),
-        ("notice_sha256", notice_bytes),
+    for name, actual_digest in (
+        ("bundle_sha256", bundle_digest),
+        ("license_sha256", license_digest),
+        ("notice_sha256", notice_digest),
     ):
         digest = provenance.get(name)
         if type(digest) is not str or _SHA256_RE.fullmatch(digest) is None:
             _fail(f"LiveKit client provenance {name} is invalid")
-        if hashlib.sha256(payload).hexdigest() != digest:
+        if actual_digest != digest:
             _fail(f"LiveKit client provenance digest mismatch: {name}")
 
 
