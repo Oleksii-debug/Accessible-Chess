@@ -63,9 +63,12 @@ class BookWebViewBridge:
                 "book.next": self._projection.next,
                 "book.previous_heading": self._projection.previous_heading,
                 "book.next_heading": self._projection.next_heading,
+                "book.previous_position": self._projection.previous_position,
                 "book.next_position": self._projection.next_position,
+                "book.previous_game": self._projection.previous_game,
                 "book.next_game": self._projection.next_game,
                 "book.open_position": self._projection.open_position,
+                "book.open_game": self._projection.open_game,
                 "book.return_from_board": self._projection.return_from_board,
             }
             callback = no_payload.get(command_id)
