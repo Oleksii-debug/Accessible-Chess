@@ -54,6 +54,17 @@ _EVENT_LABELS = {
 }
 
 
+def _event_label(event_id: str, language: str) -> str:
+    labels = _EVENT_LABELS.get(event_id)
+    if labels is None:
+        # Canonical SoundEvent may grow independently of this presentation map.
+        # Keep the new semantic reachable instead of breaking the whole settings
+        # snapshot; the stable event id remains visible/selectable until a
+        # localized product label is added.
+        return event_id
+    return labels[1] if language == "en" else labels[0]
+
+
 @dataclass(frozen=True)
 class SoundSettingsResult:
     ok: bool
@@ -363,7 +374,6 @@ class SoundSettingsApplication:
         events: list[dict[str, object]] = []
         for event_id in self._visible_event_ids(profile, active_manifest):
             pref = profile.preference_for(event_id)
-            labels = _EVENT_LABELS[event_id]
             selected_sound_id = profile.selected_sound_id(event_id)
             uses_classic_fallback = (
                 profile.pack_id != "classic"
@@ -375,7 +385,7 @@ class SoundSettingsApplication:
             events.append(
                 {
                     "event_id": event_id,
-                    "label": labels[1] if lang == "en" else labels[0],
+                    "label": _event_label(event_id, lang),
                     "enabled": pref.enabled,
                     "volume_percent": pref.volume_percent,
                     "sound_id": selected_sound_id,
