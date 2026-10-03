@@ -12,6 +12,11 @@
   let currentRouteId = "board";
   let eventDrainInFlight = false;
   let eventDrainPending = false;
+  const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+
+  function validFocusId(value) {
+    return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
+  }
 
   function uiText(uk, en) {
     return currentLanguage === "en" ? en : uk;
@@ -68,7 +73,7 @@
   }
 
   function focusById(id) {
-    if (!id) return false;
+    if (!validFocusId(id)) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
@@ -343,8 +348,8 @@
         if (!refreshRequired) return;
         needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
-        if (candidate) queuedFocusTarget = candidate;
+        const candidate = payload.focus_target;
+        if (validFocusId(candidate)) queuedFocusTarget = candidate;
       });
       if (!needsRefresh && !orderedStage1Refreshes.length) return;
       const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {
@@ -360,7 +365,7 @@
 
   documentRef.addEventListener("focusin", function (event) {
     const target = event.target;
-    if (!target || !target.id || !/^[A-Za-z0-9_-]{1,160}$/.test(target.id)) return;
+    if (!target || !validFocusId(target.id)) return;
     if (target.id.indexOf("v2-nav-") === 0) return;
     const bridge = api();
     if (bridge && typeof bridge.v2_record_focus === "function") {
