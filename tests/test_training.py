@@ -707,6 +707,20 @@ class ExerciseSessionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid exercise counters"):
                     ExerciseSession.restore(definition, forged)
 
+    def test_snapshot_identity_and_position_fen_are_bounded_before_semantic_comparison(self):
+        definition = self.make_definition()
+        oversized = "x" * (training_module._MAX_IDENTITY_TEXT + 1)
+
+        identity = ExerciseSession(definition).snapshot()
+        identity["exercise_id"] = oversized
+        with self.assertRaisesRegex(ValueError, "exercise_id is too long"):
+            ExerciseSession.restore(definition, identity)
+
+        position = ExerciseSession(definition).snapshot()
+        position["position_fen"] = oversized
+        with self.assertRaisesRegex(ValueError, "position_fen is too long"):
+            ExerciseSession.restore(definition, position)
+
     def test_snapshot_status_is_bounded_before_enum_lookup(self):
         definition = self.make_definition()
         snapshot = ExerciseSession(definition).snapshot()
