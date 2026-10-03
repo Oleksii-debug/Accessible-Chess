@@ -26,6 +26,10 @@ class _BombTuple(tuple):
         raise AssertionError("tuple subclass length hook must not execute")
 
 
+class _DefinitionSubclass(ExerciseDefinition):
+    pass
+
+
 class _BombDict(dict):
     def __iter__(self):
         raise AssertionError("dict subclass iteration hook must not execute")
@@ -268,6 +272,29 @@ class MalformedAndResourceBoundaryTests(unittest.TestCase):
                 (step,),
                 metadata=_BombDict({"kind": "test"}),
             )
+
+    def test_session_retains_exact_definition_authority(self):
+        subclass = _DefinitionSubclass(
+            "subclass",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            ExerciseSession(subclass)
+
+        definition = ExerciseDefinition(
+            "authority",
+            Board.START,
+            (ExerciseStep(frozenset({"e4"})),),
+        )
+        session = ExerciseSession(definition)
+        session.definition = subclass
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            session.snapshot()
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            session.submit("e4")
+        with self.assertRaisesRegex(TypeError, "exact ExerciseDefinition"):
+            session.reset()
 
     def test_constructor_raw_move_and_metadata_resources_are_bounded(self):
         with self.assertRaisesRegex(ValueError, "too long"):
