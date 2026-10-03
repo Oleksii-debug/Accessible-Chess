@@ -993,7 +993,10 @@ class ClassroomCollaborationController:
                 break
             after = current.sequence_no
         expected_sequence = 0 if after is None else after + 1
-        if result.sequence_no > expected_sequence:
+        if (
+            result.transfer_state == "stored"
+            and result.sequence_no > expected_sequence
+        ):
             self.sync_files()
             authoritative = tuple(
                 item
