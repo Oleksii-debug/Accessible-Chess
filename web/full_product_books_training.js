@@ -484,7 +484,7 @@
       const materialId = String(select.value || "");
       if (!materialId) return;
       safeInvoke(root, invoke, "book.open_starter_material", { material_id: materialId }, function (result) {
-        applyBookEvent(main.parentNode, result, invoke, announce, fallbackMessage);
+        applyBookEvent(root, result, invoke, announce, fallbackMessage);
       }, announce, fallbackMessage);
     });
     section.appendChild(open);
