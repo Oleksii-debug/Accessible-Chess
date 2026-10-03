@@ -91,11 +91,13 @@ _LABELS = {
         "blocked": "Учасника видалено й заблоковано.",
         "muted_all": "Чат для учнів вимкнено.",
         "allowed_all": "Чат для учнів увімкнено.",
-        "file_sent": "Файл надіслано.",
-        "file_saved": "Файл передано до безпечного збереження.",
-        "file_opened": "Файл передано до явного відкриття.",
-        "file_cancelled": "Передавання файлу скасовано.",
-        "file_retried": "Повторне передавання завершено.",
+        "file_sent": "Файл надіслано: {name}.",
+        "file_saved": "Файл передано до безпечного збереження: {name}.",
+        "file_opened": "Файл передано до явного відкриття: {name}.",
+        "file_cancelled": "Передавання файлу скасовано: {name}.",
+        "file_retried": "Повторне передавання завершено: {name}.",
+        "file_upload_failed": "Не вдалося передати файл: {name}.",
+        "file_retry_failed": "Не вдалося повторити передавання файла: {name}.",
         "new_file": "Новий файл: {name}.",
         "new_many_files": "Нових файлів: {count}.",
         "file_state_updated": "Стан файла оновлено: {name}.",
@@ -152,11 +154,13 @@ _LABELS = {
         "blocked": "Participant removed and blocked.",
         "muted_all": "Student chat disabled.",
         "allowed_all": "Student chat enabled.",
-        "file_sent": "File sent.",
-        "file_saved": "File passed to safe save.",
-        "file_opened": "File passed to explicit open.",
-        "file_cancelled": "File transfer cancelled.",
-        "file_retried": "File retry completed.",
+        "file_sent": "File sent: {name}.",
+        "file_saved": "File passed to safe save: {name}.",
+        "file_opened": "File passed to explicit open: {name}.",
+        "file_cancelled": "File transfer cancelled: {name}.",
+        "file_retried": "File retry completed: {name}.",
+        "file_upload_failed": "File transfer failed: {name}.",
+        "file_retry_failed": "File retry failed: {name}.",
         "new_file": "New file: {name}.",
         "new_many_files": "New files: {count}.",
         "file_state_updated": "File status updated: {name}.",
@@ -742,10 +746,24 @@ class ClassroomCollaborationWebView:
             payload["focus_target"] = focus_target
         return ClassroomCollaborationWebViewEvent(kind, payload)
 
-    def _error(self) -> ClassroomCollaborationWebViewEvent:
-        payload: dict[str, object] = {"message": _GENERIC_FAILURE[self._language]}
+    def _error(
+        self,
+        *,
+        message: str = "",
+        focus_target: str = "",
+    ) -> ClassroomCollaborationWebViewEvent:
+        payload: dict[str, object] = {
+            "message": message or _GENERIC_FAILURE[self._language]
+        }
         payload["collaboration"] = self.safe_snapshot()
+        if focus_target:
+            payload["focus_target"] = focus_target
         return ClassroomCollaborationWebViewEvent("error", payload)
+
+    def _file_announcement(self, label: str, display_name: str) -> str:
+        return _LABELS[self._language][label].format(
+            name=self._announcement_body(display_name)
+        )
 
     def _send_chat(self, body: object) -> ClassroomCollaborationWebViewEvent:
         if type(body) is not str:
@@ -959,18 +977,28 @@ class ClassroomCollaborationWebView:
                 self._prepared[prepared.metadata.attachment_id] = prepared
             else:
                 self._prepared.pop(prepared.metadata.attachment_id, None)
-            raise
+            return self._error(
+                message=self._file_announcement(
+                    "file_upload_failed",
+                    prepared.metadata.display_name,
+                )
+            )
         if uploaded.transfer_state == "failed":
             if uploaded.scan_state != "blocked":
                 self._prepared[uploaded.attachment_id] = prepared
             else:
                 self._prepared.pop(uploaded.attachment_id, None)
-            return self._error()
+            return self._error(
+                message=self._file_announcement(
+                    "file_upload_failed",
+                    uploaded.display_name,
+                )
+            )
         self._prepared.pop(uploaded.attachment_id, None)
         self._file_page_bucket = None
         return self._event(
             "collaboration.file.sent",
-            announcement=_LABELS[self._language]["file_sent"],
+            announcement=self._file_announcement("file_sent", uploaded.display_name),
         )
 
     def _open_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
@@ -981,7 +1009,7 @@ class ClassroomCollaborationWebView:
         self._file_opener(token, attachment.display_name)
         return self._event(
             "collaboration.file.opened",
-            announcement=_LABELS[self._language]["file_opened"],
+            announcement=self._file_announcement("file_opened", attachment.display_name),
         )
 
     def _retry_file(self, file_key: object) -> ClassroomCollaborationWebViewEvent:
@@ -992,15 +1020,28 @@ class ClassroomCollaborationWebView:
         prepared = self._prepared.get(attachment.attachment_id)
         if prepared is None:
             raise RuntimeError("retry source is unavailable")
-        retried = self._controller.retry_file(prepared)
+        try:
+            retried = self._controller.retry_file(prepared)
+        except Exception:
+            return self._error(
+                message=self._file_announcement(
+                    "file_retry_failed",
+                    attachment.display_name,
+                )
+            )
         if retried.transfer_state == "failed":
             if retried.scan_state == "blocked":
                 self._prepared.pop(retried.attachment_id, None)
-            return self._error()
+            return self._error(
+                message=self._file_announcement(
+                    "file_retry_failed",
+                    retried.display_name,
+                )
+            )
         self._prepared.pop(retried.attachment_id, None)
         return self._event(
             "collaboration.file.retried",
-            announcement=_LABELS[self._language]["file_retried"],
+            announcement=self._file_announcement("file_retried", retried.display_name),
             focus_target="collaboration-file-choose",
         )
 
@@ -1010,7 +1051,7 @@ class ClassroomCollaborationWebView:
         self._prepared.pop(attachment.attachment_id, None)
         return self._event(
             "collaboration.file.cancelled",
-            announcement=_LABELS[self._language]["file_cancelled"],
+            announcement=self._file_announcement("file_cancelled", attachment.display_name),
             focus_target="collaboration-file-choose",
         )
 
@@ -1022,7 +1063,7 @@ class ClassroomCollaborationWebView:
         self._file_saver(token, attachment.display_name)
         return self._event(
             "collaboration.file.saved",
-            announcement=_LABELS[self._language]["file_saved"],
+            announcement=self._file_announcement("file_saved", attachment.display_name),
         )
 
     @staticmethod
