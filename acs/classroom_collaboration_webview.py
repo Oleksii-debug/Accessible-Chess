@@ -1072,6 +1072,12 @@ class ClassroomCollaborationWebView:
             item.message_id: item
             for item in current_messages
         }
+        visible_message_ids = {
+            item.message_id
+            for item in current_messages
+            if not item.hidden
+        }
+        self._unread_message_ids.intersection_update(visible_message_ids)
         recovered_fingerprints: list[str] = []
         pending_conflict = False
         for fingerprint, message_id in self._pending_chat.items():
