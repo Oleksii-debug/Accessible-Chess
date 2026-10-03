@@ -233,8 +233,16 @@ class Version2GameTreeResumeCoordinator:
 
         if guard_token == intended_token:
             # The exact state whose Discard was already confirmed reached the
-            # guard. Completing its deletion is restart-safe and cannot remove a
-            # newer canonical publication.
+            # guard. A concurrently published *different* canonical generation
+            # is preserved. An identical claimed generation at both names is
+            # ambiguous rather than silently resurrected.
+            if canonical_exists:
+                canonical_token = _token_for_bytes(_read_store_bytes(path))
+                if canonical_token == intended_token:
+                    raise GameTreeResumeError(
+                        "resume discard recovery found duplicate claimed state",
+                        code=GameTreeResumeCode.STALE_WRITER,
+                    )
             self._remove_discard_guard_locked(guard)
             return
 
@@ -272,6 +280,9 @@ class Version2GameTreeResumeCoordinator:
         if self._disabled:
             return False
         path = self.store.path
+        guard_directory = self._discard_guard_directory
+        if not os.path.lexists(path) and not os.path.lexists(guard_directory):
+            return False
         try:
             self._reconcile_discard_guard()
             if not _validate_regular_path(path, allow_missing=True):
@@ -380,6 +391,7 @@ class Version2GameTreeResumeCoordinator:
         session = getattr(application, "session", None)
         if session is None:
             return
+        self._reconcile_discard_guard()
         if bool(getattr(session, "dirty")):
             self._clear_claimed_resume()
             return
