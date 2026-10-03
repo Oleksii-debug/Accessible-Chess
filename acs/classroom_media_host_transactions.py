@@ -402,7 +402,16 @@ class ClassroomMediaHostTransactions:
             raise ValueError("controller must use the supplied media transaction port")
         if transaction_id_factory is not None and not callable(transaction_id_factory):
             raise TypeError("transaction id factory must be callable")
-        port._bind_coordinator()
+
+        # Complete every fallible local initialization before claiming exclusive
+        # ownership of the shared transaction port. A constructor failure must
+        # never leave the port permanently poisoned as "already bound".
+        transaction_nonce = (
+            secrets.token_hex(8) if transaction_id_factory is None else ""
+        )
+        lock = RLock()
+        owner_thread_id = get_ident()
+
         self._controller = controller
         self._port = port
         self._transaction_id_factory = transaction_id_factory
@@ -412,13 +421,14 @@ class ClassroomMediaHostTransactions:
         # gives deterministic in-process uniqueness while preserving the compact
         # host-<32 hex> wire shape. Injected factories keep strict replay
         # detection because tests/alternate hosts may supply non-monotonic ids.
-        self._transaction_nonce = secrets.token_hex(8)
+        self._transaction_nonce = transaction_nonce
         self._transaction_counter = 0
         self._injected_transaction_ids: set[str] = set()
-        self._lock = RLock()
-        self._owner_thread_id = get_ident()
+        self._lock = lock
+        self._owner_thread_id = owner_thread_id
         self._pending: _PendingTransaction | None = None
         self._recovery: _PendingTransaction | None = None
+        port._bind_coordinator()
 
     @property
     def pending_effect(self) -> MediaProviderEffect | None:
@@ -475,6 +485,12 @@ class ClassroomMediaHostTransactions:
         self._injected_transaction_ids.add(value)
         return value
 
+    def _release_unexposed_transaction_id(self, transaction_id: str) -> None:
+        """Release only an injected id that never crossed the provider boundary."""
+
+        if self._transaction_id_factory is not None:
+            self._injected_transaction_ids.discard(transaction_id)
+
     def _prepare(self, replay: Callable[[], Any]) -> MediaProviderEffect | None:
         self._assert_owner_thread()
         with self._lock:
@@ -493,13 +509,13 @@ class ClassroomMediaHostTransactions:
                 # private sentinel at the first provider effect and converts that
                 # sentinel into a returned effect. Validation/no-op failures before
                 # that point therefore do not need a permanently retired identity.
-                self._used_transaction_ids.discard(transaction_id)
+                self._release_unexposed_transaction_id(transaction_id)
                 raise
             if effect is None:
                 # A controller no-op never exposes this identity to the browser or
                 # provider, so it is safe to reuse and avoids unbounded identity
                 # retention under repeated already-satisfied UI commands.
-                self._used_transaction_ids.discard(transaction_id)
+                self._release_unexposed_transaction_id(transaction_id)
                 return None
             self._pending = _PendingTransaction(
                 effect=effect,
