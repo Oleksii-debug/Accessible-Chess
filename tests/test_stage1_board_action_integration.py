@@ -16,6 +16,78 @@ class Stage1BoardActionIntegrationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         return Stage1ReleaseAccessibleChessAPI(keymap_path=Path(temp.name) / "keymap.json")
 
+    def test_board_grid_interaction_keys_are_central_and_remappable(self):
+        registry = ActionRegistry()
+        defaults = {
+            "board.cursor_left": "Left",
+            "board.cursor_right": "Right",
+            "board.cursor_up": "Up",
+            "board.cursor_down": "Down",
+            "board.activate": "Enter",
+            "board.activate_alternative": "Space",
+            "board.exit": "Escape",
+        }
+        for action_id, binding in defaults.items():
+            with self.subTest(action_id=action_id):
+                self.assertEqual(registry.get_binding(action_id), binding)
+                resolved = registry.resolve_binding(BindingContext.BOARD, binding)
+                self.assertIsNotNone(resolved)
+                self.assertEqual(resolved.action_id, action_id)
+
+        registry.set_binding("board.cursor_left", "Ctrl+Alt+Left")
+        self.assertIsNone(registry.resolve_binding(BindingContext.BOARD, "Left"))
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.BOARD, "Ctrl+Alt+Left").action_id,
+            "board.cursor_left",
+        )
+
+    def test_shipping_board_handler_has_no_hardcoded_grid_interaction_keys(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        start = html.index("async function onBoardKey(e){")
+        end = html.index("\nfunction focusHistoryJump", start)
+        handler = html[start:end]
+        self.assertIn("keymapActionForEvent(e,'board')", handler)
+        self.assertIn("resolveBinding(chord,'board','board')", handler)
+        self.assertLess(handler.index("e.preventDefault()"), handler.index("await resolveBinding"))
+        self.assertIn("a&&a.actionId===candidate", handler)
+        for hardcoded in (
+            "key==='Escape'",
+            "key==='Enter'",
+            "key==='ArrowLeft'",
+            "key==='ArrowRight'",
+            "key==='ArrowUp'",
+            "key==='ArrowDown'",
+        ):
+            with self.subTest(hardcoded=hardcoded):
+                self.assertNotIn(hardcoded, handler)
+        for action_id in (
+            "board.cursor_left",
+            "board.cursor_right",
+            "board.cursor_up",
+            "board.cursor_down",
+            "board.activate",
+            "board.activate_alternative",
+            "board.exit",
+        ):
+            self.assertIn(action_id, html)
+
+    def test_shipping_global_key_handler_cancels_known_chord_before_bridge_await(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        marker = "if(e.target.closest('#board-application'))return;"
+        start = html.index("document.addEventListener('keydown',async e=>{", html.index(marker) - 80)
+        end = html.index("\n", start)
+        handler = html[start:end]
+
+        ctrl_c = "if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&String(e.key).toLowerCase()==='c')return;"
+        selection = "const selection=window.getSelection&&window.getSelection();if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
+        self.assertIn(ctrl_c, handler)
+        self.assertIn(selection, handler)
+        self.assertIn("actionByRegistryChord(chord,registryContext)", handler)
+        self.assertIn("if(!selected)return;e.preventDefault();", handler)
+        self.assertLess(handler.index(selection), handler.index("e.preventDefault()"))
+        self.assertLess(handler.index("e.preventDefault()"), handler.index("await resolveBinding"))
+        self.assertIn("a.actionId!==selected.actionId", handler)
+
     def test_registry_board_information_actions_are_live_and_non_mutating(self):
         api = self.make_api()
         api.new_game()
