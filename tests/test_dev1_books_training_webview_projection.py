@@ -289,6 +289,16 @@ class BookProjectionTests(unittest.TestCase):
             self.projection.save_bookmark("   ")
         self.assertEqual(0, self.presenter.current().index)
 
+    def test_bookmark_utf16_bound_fails_before_reader_mutation(self) -> None:
+        before = self.presenter.current()
+        with self.assertRaisesRegex(ValueError, "bookmark name"):
+            self.projection.save_bookmark("😀" * 41)
+        self.assertEqual(before, self.presenter.current())
+
+        accepted = self.projection.save_bookmark("😀" * 40)
+        value = accepted.payload["snapshot"]["bookmark"]["value"]
+        self.assertEqual(80, len(value.encode("utf-16-le")) // 2)
+
     def test_language_switch_changes_labels_without_changing_location(self) -> None:
         before = self.projection.snapshot()
         after = self.projection.set_language(UILanguage.UA).payload["snapshot"]
