@@ -1085,6 +1085,30 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertIsNone(caught.exception.__cause__)
 
+    def test_lock_marker_is_rechecked_after_os_lock_acquisition(self) -> None:
+        real_lock = self.store._lock_file_descriptor
+
+        def corrupt_marker_after_lock(descriptor: int) -> None:
+            real_lock(descriptor)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            os.write(descriptor, b"X")
+            os.fsync(descriptor)
+
+        with mock.patch.object(
+            self.store,
+            "_lock_file_descriptor",
+            side_effect=corrupt_marker_after_lock,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertEqual(self.store._lock_path.read_bytes(), b"X")
+        self.assertFalse(self.path.exists())
+
     def test_lock_path_identity_is_rechecked_after_os_lock_acquisition(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.store._lock_path.write_bytes(b"\0")
