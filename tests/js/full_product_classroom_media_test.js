@@ -79,6 +79,7 @@ class FakeElement {
   _matches(selector) {
     if (selector === "[id]") return Boolean(this.id);
     if (selector === "main") return this.tagName === "MAIN";
+    if (selector === "button") return this.tagName === "BUTTON";
     if (selector.startsWith("#")) return this.id === selector.slice(1);
     return false;
   }
@@ -123,6 +124,30 @@ function loadSurface(documentRef) {
 }
 
 function mediaSnapshot(actions) {
+  const activeKey = "c".repeat(64);
+  const activeButtonId = "media-participant-" + activeKey + "-camera";
+  surface.mount(
+    root,
+    mediaSnapshot([
+      {
+        id: activeButtonId,
+        command: "media.publish_permission",
+        label: "Lock camera publishing",
+        payload: { participant_key: activeKey, source: "camera", allowed: false }
+      }
+    ]),
+    () => Promise.reject(new Error("must not invoke active-transaction control")),
+    () => {},
+    "en",
+    {
+      binding_active: true,
+      transaction_active: true,
+      recovery_required: false
+    }
+  );
+  assert.equal(root.querySelector("#" + activeButtonId), null);
+  assert.match(root.textContent, /media update is in progress/i);
+
   const key = "a".repeat(64);
   return {
     document: { heading: "Lesson audio and video" },
@@ -162,6 +187,26 @@ async function run() {
     "en",
     { binding_active: true, recovery_required: true }
   );
+  assert.match(root.textContent, /Media controls are temporarily unavailable/);
+
+  const staleKey = "b".repeat(64);
+  const staleButtonId = "media-participant-" + staleKey + "-soft-mute";
+  surface.mount(
+    root,
+    mediaSnapshot([
+      {
+        id: staleButtonId,
+        command: "media.soft_mute",
+        label: "Soft mute microphone",
+        payload: { participant_key: staleKey, muted: true }
+      }
+    ]),
+    () => Promise.reject(new Error("must not invoke stale recovery control")),
+    () => {},
+    "en",
+    { binding_active: true, recovery_required: true }
+  );
+  assert.equal(root.querySelector("#" + staleButtonId), null);
   assert.match(root.textContent, /Media controls are temporarily unavailable/);
 
   const key = "a".repeat(64);
@@ -321,6 +366,148 @@ async function run() {
   assert.equal(recoveryHeading.tabIndex, -1);
   assert.equal(documentRef.activeElement, recoveryHeading);
   assert.deepEqual(recoveryAnnouncements, ["Media state updated."]);
+
+  // If the provider runtime is unavailable before any provider call, the
+  // exact Python transaction must be retired instead of leaving its global
+  // provider lease stranded active.
+  const unavailableRuntimeButtonId = rowId + "-runtime-unavailable";
+  const unavailableCalls = [];
+  surface.mount(
+    root,
+    mediaSnapshot([
+      {
+        id: unavailableRuntimeButtonId,
+        command: "media.soft_mute",
+        label: "Provider runtime unavailable",
+        payload: { participant_key: key, muted: true }
+      }
+    ]),
+    (command, payload) => {
+      unavailableCalls.push([command, payload]);
+      if (command === "media.soft_mute") {
+        return Promise.resolve({
+          kind: "provider-dispatch",
+          payload: {
+            transaction_id: "host-" + "4".repeat(32),
+            provider: {
+              transaction_id: "host-" + "4".repeat(32),
+              operation: "apply_moderation",
+              chunk_index: 0,
+              chunk_count: 1,
+              commands: []
+            },
+            focus_target: unavailableRuntimeButtonId
+          }
+        });
+      }
+      if (command === "media.provider_not_started") {
+        return Promise.resolve({
+          kind: "error",
+          payload: {
+            message: "Media controls are temporarily unavailable.",
+            snapshot: null,
+            recovery_required: true,
+            focus_target: "classroom-media-heading"
+          }
+        });
+      }
+      throw new Error("unexpected media command " + command);
+    },
+    () => {},
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+  const unavailableRuntimeButton = root.querySelector("#" + unavailableRuntimeButtonId);
+  assert.ok(unavailableRuntimeButton);
+  unavailableRuntimeButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    unavailableCalls.map((item) => item[0]),
+    ["media.soft_mute", "media.provider_not_started"]
+  );
+  assert.equal(root.querySelector("#" + unavailableRuntimeButtonId), null);
+  assert.match(root.textContent, /Media controls are temporarily unavailable/);
+
+  // Provider-backed actions must remain disabled until the complete async
+  // provider transaction settles, not merely until Python prepares it.
+  let releaseProvider;
+  const providerGate = new Promise((resolve) => { releaseProvider = resolve; });
+  global.window.AccessibleChessClassroomMediaProviderRuntime = {
+    ClassroomMediaProviderRuntime: class {
+      constructor(options) {
+        this.invoke = options.invoke;
+      }
+      settle(result) {
+        assert.equal(result.kind, "provider-dispatch");
+        return providerGate;
+      }
+    }
+  };
+  const providerButtonId = rowId + "-provider";
+  const providerOtherButtonId = rowId + "-provider-camera";
+  const providerInitial = mediaSnapshot([
+    {
+      id: providerButtonId,
+      command: "media.soft_mute",
+      label: "Provider-backed soft mute",
+      payload: { participant_key: key, muted: true }
+    },
+    {
+      id: providerOtherButtonId,
+      command: "media.publish_permission",
+      label: "Provider-backed camera lock",
+      payload: { participant_key: key, source: "camera", allowed: false }
+    }
+  ]);
+  const providerUpdated = mediaSnapshot([]);
+  providerUpdated.participants[0].summary = "Student. provider mutation committed.";
+  const providerAnnouncements = [];
+  surface.mount(
+    root,
+    providerInitial,
+    () => Promise.resolve({
+      kind: "provider-dispatch",
+      payload: {
+        transaction_id: "host-" + "3".repeat(32),
+        provider: {
+          transaction_id: "host-" + "3".repeat(32),
+          operation: "apply_moderation",
+          chunk_index: 0,
+          chunk_count: 1,
+          commands: []
+        },
+        focus_target: rowId
+      }
+    }),
+    (message) => providerAnnouncements.push(String(message)),
+    "en",
+    { binding_active: true, recovery_required: false }
+  );
+
+  const providerButton = root.querySelector("#" + providerButtonId);
+  const providerOtherButton = root.querySelector("#" + providerOtherButtonId);
+  assert.ok(providerButton);
+  assert.ok(providerOtherButton);
+  providerButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(providerButton.disabled, true);
+  assert.equal(providerOtherButton.disabled, true);
+  assert.ok(root.querySelector("#" + providerButtonId));
+  assert.ok(root.querySelector("#" + providerOtherButtonId));
+
+  releaseProvider({
+    kind: "media-updated",
+    payload: {
+      snapshot: providerUpdated,
+      announcement: "Media state updated.",
+      focus_target: rowId
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(root.querySelector("#" + providerButtonId), null);
+  assert.equal(root.querySelector("#" + providerOtherButtonId), null);
+  assert.match(root.textContent, /provider mutation committed/);
+  assert.deepEqual(providerAnnouncements, ["Media state updated."]);
 
   console.log("FULL_PRODUCT_CLASSROOM_MEDIA_DOM=PASS");
 }
