@@ -1429,7 +1429,7 @@ class FilesystemSoundPackStore:
                     # failure, and reparse/symlink entries are never traversed.
                     pass
 
-    def _installed_disk_pack(self, pack_id: str) -> InstalledSoundPack:
+    def _installed_disk_pack_metadata(self, pack_id: str) -> InstalledSoundPack:
         identity = _stable_id(pack_id, allow_dot=True)
         _require_real_dir_chain(self.root, "sound pack root")
         pack_dir = self._pack_dir(identity)
@@ -1440,7 +1440,7 @@ class FilesystemSoundPackStore:
                 "sound pack active pointer id does not match directory"
             )
         version_dir = self._version_dir(identity, version)
-        manifest, digests, rights_evidence = self._verify_version(
+        manifest, digests, rights_evidence = self._verify_version_metadata(
             version_dir,
             expected_pack_id=identity,
             expected_version=version,
@@ -1451,6 +1451,12 @@ class FilesystemSoundPackStore:
             digests=digests,
             rights_evidence=rights_evidence,
         )
+
+    def _installed_disk_pack(self, pack_id: str) -> InstalledSoundPack:
+        installed = self._installed_disk_pack_metadata(pack_id)
+        for relative, digest in installed.digests.items():
+            _read_verified_asset_bytes(installed.version_dir / relative, digest)
+        return installed
 
     def _installed_disk_inventory(self) -> dict[str, InstalledSoundPack]:
         result: dict[str, InstalledSoundPack] = {}
@@ -1482,7 +1488,7 @@ class FilesystemSoundPackStore:
                     if identity != child.name or identity in result:
                         continue
                     try:
-                        installed = self._installed_disk_pack(identity)
+                        installed = self._installed_disk_pack_metadata(identity)
                     except (TypeError, ValueError, SoundPackStoreError):
                         continue
                     result[identity] = installed
