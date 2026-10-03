@@ -15,7 +15,6 @@ import os
 from pathlib import Path
 import stat
 import sys
-from typing import Iterable
 
 from .import_contract import fingerprint
 
@@ -77,18 +76,91 @@ def _regular_file(path: Path, *, label: str) -> os.stat_result:
     return info
 
 
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    left_ino = getattr(left, "st_ino", 0)
+    right_ino = getattr(right, "st_ino", 0)
+    if left_ino and right_ino:
+        return (getattr(left, "st_dev", None), left_ino) == (
+            getattr(right, "st_dev", None),
+            right_ino,
+        )
+    return True
+
+
+def _identity_pinned_bytes(
+    path: Path,
+    *,
+    label: str,
+    minimum_bytes: int,
+    maximum_bytes: int,
+) -> bytes:
+    """Read one bounded regular file without following a pathname replacement."""
+
+    before = _regular_file(path, label=label)
+    if not minimum_bytes <= before.st_size <= maximum_bytes:
+        raise UserLibraryPayloadError(f"{label} size is invalid")
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(os.fspath(path), flags)
+    except OSError as exc:
+        raise UserLibraryPayloadError(f"{label} could not be opened safely") from exc
+
+    try:
+        opened = os.fstat(fd)
+        if _is_reparse(opened) or not stat.S_ISREG(opened.st_mode):
+            raise UserLibraryPayloadError(f"{label} opened object is not a regular file")
+        if not _same_file_identity(before, opened):
+            raise UserLibraryPayloadError(f"{label} changed before verified read")
+        chunks: list[bytes] = []
+        remaining = maximum_bytes + 1
+        while remaining > 0:
+            chunk = os.read(fd, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        opened_after = os.fstat(fd)
+    except UserLibraryPayloadError:
+        raise
+    except OSError as exc:
+        raise UserLibraryPayloadError(f"{label} could not be read safely") from exc
+    finally:
+        os.close(fd)
+
+    after = _regular_file(path, label=label)
+    stable_open_file = (
+        _same_file_identity(opened, opened_after)
+        and opened.st_size == opened_after.st_size
+        and getattr(opened, "st_mtime_ns", None) == getattr(opened_after, "st_mtime_ns", None)
+    )
+    stable_path = (
+        _same_file_identity(opened_after, after)
+        and opened_after.st_size == after.st_size
+        and getattr(opened_after, "st_mtime_ns", None) == getattr(after, "st_mtime_ns", None)
+    )
+    if not stable_open_file or not stable_path:
+        raise UserLibraryPayloadError(f"{label} changed during verified read")
+    if not minimum_bytes <= len(payload) <= maximum_bytes or len(payload) != opened_after.st_size:
+        raise UserLibraryPayloadError(f"{label} changed size during verified read")
+    return payload
+
+
 def default_packaged_user_library_root() -> Path:
     return Path(sys.executable).resolve().parent / "release-content" / "user-library"
 
 
 def _read_manifest(path: Path) -> dict[str, object]:
-    info = _regular_file(path, label="packaged user Library manifest")
-    if info.st_size < 2 or info.st_size > MAX_USER_LIBRARY_MANIFEST_BYTES:
-        raise UserLibraryPayloadError("packaged user Library manifest size is invalid")
+    payload = _identity_pinned_bytes(
+        path,
+        label="packaged user Library manifest",
+        minimum_bytes=2,
+        maximum_bytes=MAX_USER_LIBRARY_MANIFEST_BYTES,
+    )
     try:
-        payload = path.read_bytes()
         parsed = json.loads(payload.decode("utf-8", errors="strict"), object_pairs_hook=_unique_object)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, _DuplicateKeyError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateKeyError) as exc:
         raise UserLibraryPayloadError("packaged user Library manifest is invalid") from exc
     if not isinstance(parsed, dict):
         raise UserLibraryPayloadError("packaged user Library manifest root is invalid")

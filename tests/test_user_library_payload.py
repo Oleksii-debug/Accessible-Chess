@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs import user_library_payload as user_library_payload_module
 from acs.user_library_payload import (
     UserLibraryPayloadError,
     load_packaged_user_library,
@@ -103,6 +106,33 @@ class UserLibraryPayloadTests(unittest.TestCase):
             )
             with self.assertRaises(UserLibraryPayloadError):
                 load_packaged_user_library(root)
+
+    def test_manifest_replacement_between_validation_and_open_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "user-library"
+            _write_user_payload(root, {"a.pgn": PGN_ONE})
+            manifest = root / "manifest.json"
+            replacement = root / ".replacement-manifest"
+            replacement.write_bytes(manifest.read_bytes())
+            original_regular_file = user_library_payload_module._regular_file
+            swapped = False
+
+            def race(path: Path, *, label: str):
+                nonlocal swapped
+                info = original_regular_file(path, label=label)
+                if label == "packaged user Library manifest" and not swapped:
+                    swapped = True
+                    os.replace(replacement, path)
+                return info
+
+            with mock.patch.object(
+                user_library_payload_module,
+                "_regular_file",
+                side_effect=race,
+            ):
+                with self.assertRaises(UserLibraryPayloadError):
+                    load_packaged_user_library(root)
+            self.assertTrue(swapped)
 
 
 class _FakeTrustedRuntime:
