@@ -97,6 +97,53 @@ def test_v2_registry_share_restores_full_product_remaps_and_valid_swaps(tmp_path
     assert persisted["bindings"]["library.open_game"] == "F8"
 
 
+def test_v2_registry_adoption_preserves_newer_schema_write_block(tmp_path):
+    path = tmp_path / "keymap.json"
+    future = {
+        "schema_version": 99,
+        "bindings": {
+            "history.go_to_move": "Alt+J",
+            "pgn.next_item": "J",
+        },
+        "aliases": {},
+    }
+    path.write_text(json.dumps(future), encoding="utf-8")
+    original = path.read_text(encoding="utf-8")
+
+    service = KeymapService(path, lang="en")
+    before = service.snapshot()
+    assert before["writeBlocked"] is True
+    assert before["recoveryMessage"] == "newer keymap profile"
+
+    wider = build_final_product_action_registry()
+    shared = _share_v2_action_registry(
+        SimpleNamespace(keymap_service=service),
+        SimpleNamespace(adapter=SimpleNamespace(registry=wider)),
+    )
+
+    assert shared is wider
+    after = service.snapshot()
+    assert after["writeBlocked"] is True
+    assert after["recoveryMessage"] == "newer keymap profile"
+    # Unsupported future values are never interpreted or replayed.
+    assert shared.get_binding("history.go_to_move") == "Ctrl+G"
+    assert shared.get_binding("pgn.next_item") == "Down"
+
+    blocked = service.save("history.go_to_move", "Alt+K")
+    assert blocked["ok"] is False
+    assert "newer" in blocked["message"].lower()
+    assert path.read_text(encoding="utf-8") == original
+
+    # The documented explicit replacement escape hatch remains available.
+    reset = service.reset_all()
+    assert reset["ok"] is True
+    replaced = json.loads(path.read_text(encoding="utf-8"))
+    assert replaced["schema_version"] == 1
+    assert replaced["bindings"]["history.go_to_move"] == "Ctrl+G"
+    assert replaced["bindings"]["pgn.next_item"] == "Down"
+    assert service.snapshot()["writeBlocked"] is False
+
+
 def test_service_rejects_same_context_duplicate_without_overwrite(tmp_path):
     path = tmp_path / "keymap.json"
     service = KeymapService(path)
