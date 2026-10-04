@@ -369,6 +369,35 @@ class PositionTextAuthorityTests(unittest.TestCase):
                 self.assertEqual(api.board.fen(), before)
                 self.assertEqual(result["announcement"], "Хід має бути 'w' або 'b'")
 
+    def test_stage1_set_turn_rejects_non_exact_text_before_equality_hooks(self):
+        class HostileTurn(str):
+            comparisons = 0
+
+            def __eq__(self, _other):
+                type(self).comparisons += 1
+                raise AssertionError("hostile turn equality hook must not execute")
+
+        api = AccessibleChessAPI(lang="uk")
+        before_fen = api.board.fen()
+        before_history = api.review_history
+        before_live_node = api.live_history_node
+
+        hostile = HostileTurn("b")
+        result = api.set_turn(hostile)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Неправильний колір.")
+        self.assertEqual(HostileTurn.comparisons, 0)
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertIs(api.review_history, before_history)
+        self.assertEqual(api.live_history_node, before_live_node)
+
+        for color in (None, False, 0, []):
+            with self.subTest(color=color):
+                result = api.set_turn(color)  # type: ignore[arg-type]
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["announcement"], "Неправильний колір.")
+                self.assertEqual(api.board.fen(), before_fen)
+
     def test_none_turn_preserves_stage1_current_side_default(self):
         api = AccessibleChessAPI(lang="uk")
         api.set_turn("b")
