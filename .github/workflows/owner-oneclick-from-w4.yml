@@ -132,7 +132,7 @@ jobs:
             if(
               [string]::IsNullOrWhiteSpace($value) -or
               $value -ne $value.Trim() -or
-              $value -match '[\\x00-\\x1F\\x7F]'
+              $value -match '[\x00-\x1F\x7F]'
             ){throw "$name INVALID_HTTPS_URL"}
             $uri=$null
             if(
