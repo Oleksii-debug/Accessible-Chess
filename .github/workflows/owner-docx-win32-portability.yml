@@ -18,6 +18,7 @@ on:
       - 'scripts/build_owner_portable_candidate.py'
       - 'acs/version2_portable_package.py'
       - 'tests/test_owner_docx_win32_portability.py'
+      - 'tests/test_owner_portable_candidate_docx_binding.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/owner-docx-win32-portability.yml'
   workflow_dispatch:
