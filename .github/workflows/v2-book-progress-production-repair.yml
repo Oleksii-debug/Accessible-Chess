@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'acs/book_progress_store.py'
+      - 'acs/bookreader.py'
       - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
@@ -85,6 +86,9 @@ jobs:
       RECOVERY_CONSENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
       INTEGRATED_RECOVERY_SUCCESSOR_HEAD: 6658706023a8e4e33e6def18408e17af59b73e53
       INTEGRATED_RECOVERY_APPLICATION_BLOB: 978ad31bfaedd137e8264062c976fe6d14c47045
+      SNAPSHOT_CONTRACT_STORE_BLOB: 9edff8595f1bddaeb7c5fe17bc434be49d2ff814
+      SNAPSHOT_CONTRACT_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
+      SNAPSHOT_CONTRACT_BOOKREADER_BLOB: d138eefc020f0549a29f69b9ff11efe9c48b7551
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -207,6 +211,22 @@ jobs:
             fi
           fi
 
+          snapshot_contract_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_bookreader="$(git rev-parse HEAD:acs/bookreader.py)"
+            if [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ] \
+              && [ "$candidate_bookreader" = "$SNAPSHOT_CONTRACT_BOOKREADER_BLOB" ] \
+              && git diff --quiet "$PR_BASE_SHA" HEAD -- \
+                acs/version2_application.py \
+                tests/test_v2_book_progress_store_production.py \
+                tests/test_version2_application.py; then
+              snapshot_contract_successor=true
+            fi
+          fi
+
           integrated_recovery_convergence=false
           if git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
             candidate_store_now="$(git rev-parse HEAD:acs/book_progress_store.py)"
@@ -257,6 +277,19 @@ jobs:
               web/full_product_books_training.js \
               acs/stage1_release_ui.py
             echo 'BOOK_PROGRESS_TOPOLOGY=BOUNDED_FEATURE'
+          elif [ "$snapshot_contract_successor" = true ]; then
+            snapshot_expected="$(printf '%s\n' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/bookreader.py' \
+              'tests/test_v2_book_progress_store.py' | sort)"
+            test "$changed" = "$snapshot_expected"
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              acs/bookreader.py \
+              tests/test_v2_book_progress_store.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=SNAPSHOT_CONTRACT_SUCCESSOR'
           elif [ "$workflow_repair" = true ]; then
             git diff --check "$current_product" HEAD
             echo 'BOOK_PROGRESS_TOPOLOGY=WORKFLOW_ONLY_REPAIR'
@@ -333,8 +366,12 @@ jobs:
           # bounded path allowlist turn those old tuples into an authority for
           # arbitrary application/test bytes. Any non-base application pair must
           # be the exact latest recovery-consent pair and must travel with its
-          # exact store/base-test/production-test tuple.
-          if [ "$candidate_application" != "$BASE_APPLICATION_BLOB" ] \
+          # exact store/base-test/production-test tuple. Snapshot-contract
+          # successors instead prove those application surfaces unchanged from
+          # the exact PR base above.
+          if [ "$snapshot_contract_successor" = true ]; then
+            :
+          elif [ "$candidate_application" != "$BASE_APPLICATION_BLOB" ] \
             || [ "$candidate_application_test" != "$BASE_APPLICATION_TEST_BLOB" ]; then
             exact_recovery_consent=false
             integrated_recovery_application=false
@@ -364,6 +401,10 @@ jobs:
             && [ "$candidate_base_test" = "$CURRENT_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$CURRENT_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=CURRENT'
+          elif [ "$snapshot_contract_successor" = true ] \
+            && [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=SNAPSHOT_CONTRACT_SUCCESSOR'
           elif [ "$candidate_store" = "$WINDOWS_DURABILITY_STORE_BLOB" ] \
             && [ "$candidate_base_test" = "$WINDOWS_DURABILITY_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB" ]; then
@@ -440,6 +481,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/book_progress_store.py
+          acs/bookreader.py
           acs/version2_application.py
           tests/test_v2_book_progress_store_production.py
           tests/test_v2_book_progress_store.py
