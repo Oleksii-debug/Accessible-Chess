@@ -25,6 +25,12 @@ on:
       - '.github/workflows/v2-windows-book-board-adapter.yml'
       - '.github/workflows/version2-windows-composition.yml'
       - '.github/workflows/w3-p0f-starter-books-training.yml'
+      - '.github/workflows/p0f-lawful-starter-corpus.yml'
+      - '.github/workflows/p0f-package-staging.yml'
+      - '.github/workflows/p0f-packaged-w2-runtime-discovery.yml'
+      - '.github/workflows/p0f-starter-content.yml'
+      - '.github/workflows/release-preflight-extended-source-hygiene.yml'
+      - '.github/workflows/slsa-provenance-v1.yml'
       - '.github/workflows/current-user-library-seed.yml'
       - '.github/workflows/full-product-book-command-authority.yml'
       - '.github/workflows/p0-dynamic-selection-executable.yml'
@@ -210,6 +216,9 @@ jobs:
           tests.test_version2_training_current_runtime
           tests.test_w3_p0f_starter_books_training_content
           tests.test_p0f_starter_training_canonical_legality
+          tests.test_p0f_lawful_starter_bundle
+          tests.test_p0f_starter_content
+          tests.test_p0f_starter_structured_examples
           tests.test_full_product_book_command_authority
 
       - name: Library browser identity, import and privacy regressions
@@ -227,6 +236,7 @@ jobs:
           tests.test_user_library_seed_parent_safety
           tests.test_v2_packaged_starter_application
           tests.test_v2_library_search_service_v4
+          tests.test_v2_library_source_catalog
           tests.test_v2_shared_presentation_path_privacy
           tests.test_version2_package_preflight
 
@@ -318,6 +328,10 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_owner_delivery_uk_docs
+          tests.test_stage_p0f_release_content
+          tests.test_release_preflight_extended_source_hygiene
+          tests.test_slsa_provenance
+          tests.test_slsa_provenance_builder_binding
           tests.test_dev1_full_product_ui_packages
           tests.test_v2_board_analysis_hotkey_feedback
           tests.test_version2_package_assembler
