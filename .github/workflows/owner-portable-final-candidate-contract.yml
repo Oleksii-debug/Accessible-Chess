@@ -20,6 +20,8 @@ on:
       - 'scripts/build_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate_stable_reads.py'
+      - 'tests/test_owner_portable_candidate_docx_binding.py'
+      - 'tests/test_owner_docx_win32_portability.py'
       - '.github/workflows/owner-portable-final-candidate-contract.yml'
   workflow_dispatch:
 
