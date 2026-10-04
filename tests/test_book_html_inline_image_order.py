@@ -919,5 +919,28 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         )
 
 
+    def test_malformed_nested_list_inline_event_does_not_escape_to_outer_owner(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A<ul><li>B'
+            '<img src="inner.png" alt="Inner">C</li></ul>D'
+            '<img src="outer.png" alt="Outer">E</p></body></html>',
+            source_name="malformed-nested-list-inline.html",
+            available_assets={"inner.png", "outer.png"},
+        )
+
+        image_notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(image_notes, ["Inner", "Outer"])
+        self.assertTrue(result.document.blocks)
+        self.assertIsInstance(result.document.blocks[0], Paragraph)
+        self.assertEqual(result.document.blocks[0].text, "A")
+        self.assertTrue(any(block.kind == "List" for block in result.document.blocks))
+        self.assertIsInstance(result.document.blocks[-1], Paragraph)
+        self.assertEqual(result.document.blocks[-1].text, "E")
+
+
 if __name__ == "__main__":
     unittest.main()
