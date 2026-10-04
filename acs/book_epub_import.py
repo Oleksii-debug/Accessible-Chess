@@ -493,7 +493,13 @@ def _resolve_package_href(
             "EPUB package href contains surrounding whitespace",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    parts = urlsplit(raw_href)
+    try:
+        parts = urlsplit(raw_href)
+    except ValueError as exc:
+        raise _error(
+            "EPUB package href is malformed",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        ) from exc
     if "#" in raw_href and not allow_fragment:
         raise _error(
             "EPUB package href must not contain a fragment identifier",
