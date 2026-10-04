@@ -115,7 +115,9 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         self.assertNotIn("if(keymap.length)renderKeymap();renderHelp()", HTML)
 
     def test_shortcut_capture_remains_keyboard_first_and_backend_validated(self) -> None:
-        self.assertIn("b.textContent='Нова комбінація'", HTML)
+        self.assertIn("b.textContent=en?'New shortcut':'Нова комбінація'", HTML)
+        self.assertIn("save.textContent=en?'Save':'Зберегти'", HTML)
+        self.assertIn("reset.textContent=en?'Restore default':'За замовчуванням'", HTML)
         self.assertIn("b.setAttribute('aria-pressed','false')", HTML)
         self.assertIn(
             "b.addEventListener('click',()=>beginCapture(item,inp,status,b))",
@@ -123,6 +125,51 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         )
         self.assertIn("typeof a.keymap_capture_shortcut==='function'", HTML)
         self.assertIn("typeof a.keymap_preview==='function'", HTML)
+
+
+    def test_keymap_mutations_restore_row_focus_and_async_capture_is_transactional(self) -> None:
+        self.assertIn(
+            "const active=document.activeElement,listNode=el('key-list'),focusId=active&&listNode.contains(active)?active.id:''",
+            HTML,
+        )
+        for token in (
+            "inp.id='binding-value-'+token",
+            "b.id='binding-capture-'+token",
+            "save.id='binding-save-'+token",
+            "reset.id='binding-reset-'+token",
+        ):
+            self.assertIn(token, HTML)
+        self.assertIn(
+            "if(focusId){const next=el(focusId);if(next&&typeof next.focus==='function')next.focus();else el('key-search').focus()}",
+            HTML,
+        )
+        self.assertIn("if(e.key==='Tab'){stopCapture(false);return}", HTML)
+        self.assertIn("if(capture!==c)return", HTML)
+        self.assertIn("Shortcut capture unavailable.", HTML)
+        self.assertIn("Захоплення комбінації недоступне.", HTML)
+        self.assertIn(
+            "if(version!==previewVersion||inp.value!==value)return",
+            HTML,
+        )
+        self.assertIn(
+            "if(inp.value!==value){const message=en?'Value changed; review and save again.':'Значення змінено; перевірте та збережіть ще раз.'",
+            HTML,
+        )
+
+    def test_capture_announcements_follow_active_ui_language(self) -> None:
+        self.assertIn(
+            "c.button.textContent=en?'New shortcut':'Нова комбінація'",
+            HTML,
+        )
+        self.assertIn(
+            "button.textContent=en?'Press shortcut':'Натисніть комбінацію'",
+            HTML,
+        )
+        self.assertIn("announce(en?'Cancelled.':'Скасовано.')", HTML)
+        self.assertIn(
+            "announce(en?'Waiting for shortcut.':'Очікую комбінацію.')",
+            HTML,
+        )
 
 
 if __name__ == "__main__":
