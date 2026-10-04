@@ -282,6 +282,60 @@ class BookHtmlImportTests(unittest.TestCase):
                 )
                 self.assertNotIn("not-a-position", str(caught.exception))
 
+    def test_duplicate_semantic_attributes_preserve_first_browser_value(self) -> None:
+        result = import_html_book(
+            '''<html lang="uk" LANG="en"><head>
+<meta name="author" content="First Author" CONTENT="Second Author">
+</head><body>
+<img id="first-image" ID="second-image"
+ src="images/first.png" SRC="images/second.png"
+ alt="First accessible text" ALT="Second accessible text">
+<p>Readable.</p>
+</body></html>''',
+            source_name="duplicate-semantic-attributes.html",
+        )
+
+        self.assertEqual(result.document.language, "uk")
+        self.assertEqual(result.document.author, "First Author")
+        self.assertEqual(result.image_references, ("images/first.png",))
+        image_notes = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(len(image_notes), 1)
+        self.assertEqual(image_notes[0].text, "First accessible text")
+        self.assertEqual(image_notes[0].source_anchor, "first-image")
+
+    def test_duplicate_aria_hidden_preserves_first_accessibility_value(self) -> None:
+        hidden_first = import_html_book(
+            '''<html><body>
+<div aria-hidden="true" ARIA-HIDDEN="false"><p>Must stay hidden.</p></div>
+<p>Visible text.</p>
+</body></html>''',
+            source_name="duplicate-hidden-first.html",
+        )
+        visible_first = import_html_book(
+            '''<html><body>
+<div aria-hidden="false" ARIA-HIDDEN="true"><p>Must stay visible.</p></div>
+</body></html>''',
+            source_name="duplicate-visible-first.html",
+        )
+
+        hidden_text = [
+            block.text
+            for block in hidden_first.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        visible_text = [
+            block.text
+            for block in visible_first.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertNotIn("Must stay hidden.", hidden_text)
+        self.assertIn("Visible text.", hidden_text)
+        self.assertIn("Must stay visible.", visible_text)
+
     def test_duplicate_marker_inside_suppressed_content_does_not_narrow_html_recovery(self) -> None:
         result = import_html_book(
             '''<html><body>
