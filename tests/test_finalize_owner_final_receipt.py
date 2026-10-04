@@ -8,8 +8,10 @@ import tempfile
 import unittest
 from unittest import mock
 
+from scripts.build_owner_portable_candidate import OwnerPortableCandidateReport
 from scripts.build_user_sound_pack import EXPECTED_SOURCE_INVENTORY_SHA256
 from scripts.finalize_owner_final_receipt import (
+    BASE_RECEIPT_KEYS,
     OwnerFinalReceiptError,
     finalize_owner_final_receipt,
     main,
@@ -65,6 +67,25 @@ def _finalize(receipt: Path, final_zip: Path, **overrides: object) -> dict[str, 
 
 
 class OwnerFinalReceiptTests(unittest.TestCase):
+    def test_strict_base_receipt_schema_matches_current_owner_builder(self) -> None:
+        report = OwnerPortableCandidateReport(
+            package_root=Path("owner-oneclick"),
+            archive_path=Path("Accessible-Chess-ONECLICK-OWNER-FINAL.zip"),
+            archive_sha256="a" * 64,
+            integration_sha="b" * 40,
+            document_sha256=("c" * 64, "d" * 64),
+            sound_archive_sha256="e" * 64,
+            sound_inventory_sha256=EXPECTED_SOURCE_INVENTORY_SHA256,
+            package_checksum_sha256="f" * 64,
+            sound_wav_count=330,
+            seed_source_count=6,
+            seed_game_count=3738,
+        ).as_dict()
+        self.assertEqual(set(report), BASE_RECEIPT_KEYS)
+        self.assertIs(report["human_tested"], False)
+        self.assertIs(report["nvda_verified"], False)
+        self.assertEqual(report["result"], "PASS")
+
     def test_finalizes_exact_machine_provenance_deterministically(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
