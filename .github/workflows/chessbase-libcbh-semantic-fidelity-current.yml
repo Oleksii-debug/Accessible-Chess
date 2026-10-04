@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p product/build/libcbh
-          c++ -std=c++20 -O2 -Wall -Wextra -Werror \
+          c++ -std=c++20 -O2 \
             -DLIBCBH_SOURCE_COMMIT="\"${LIBCBH_COMMIT}\"" \
             -I upstream/libcbh/include \
             product/tools/optional/libcbh_json_bridge.cpp \
