@@ -642,9 +642,9 @@ class PortableTreeTests(unittest.TestCase):
                 second_validation.kwargs,
                 {"expected_integration_sha": _SHA},
             )
-            self.assertEqual(
-                (snapshot_root / "AccessibleChess" / "payload.dat").read_bytes(),
-                b"canonical-product-bytes",
+            self.assertFalse(
+                snapshot_root.exists(),
+                "private canonical snapshot must be cleaned after assembly",
             )
             self.assertEqual((output / "App" / "payload.dat").read_bytes(), b"canonical-product-bytes")
             self.assertEqual((output / "AccessibleChess.exe").read_bytes(), launcher.read_bytes())
