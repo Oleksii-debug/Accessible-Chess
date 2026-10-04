@@ -163,20 +163,26 @@
     if (!selectedText) return -1;
     let match = fullText.indexOf(selectedText);
     if (match < 0) return -1;
-    let best = match;
-    let bestScore = contextMatchScore(fullText, selectedText, match, before, after);
-    let bestDistance = Math.abs(match - preferredStart);
+    let best = -1;
+    let bestScore = -1;
+    let bestScoreCount = 0;
+    let candidateCount = 0;
     while (match >= 0) {
+      candidateCount += 1;
+      if (candidateCount > 4096) return -1;
       const score = contextMatchScore(fullText, selectedText, match, before, after);
-      const distance = Math.abs(match - preferredStart);
-      if (score > bestScore || (score === bestScore && distance < bestDistance)) {
+      if (score > bestScore) {
         best = match;
         bestScore = score;
-        bestDistance = distance;
+        bestScoreCount = 1;
+      } else if (score === bestScore) {
+        bestScoreCount += 1;
       }
       match = fullText.indexOf(selectedText, match + 1);
     }
-    return best;
+    // A stale absolute offset is not semantic identity. If retained context
+    // cannot distinguish equal candidates after rerender, do not guess.
+    return bestScoreCount === 1 ? best : -1;
   }
 
   function restoreWorkspaceSelection(snapshot, routeId) {
@@ -188,10 +194,6 @@
       let start = Math.max(0, Math.min(snapshot.start, fullText.length));
       let end = Math.max(start, Math.min(snapshot.end, fullText.length));
       if (snapshot.text) {
-        const directMatch = fullText.slice(start, end) === snapshot.text;
-        const directScore = directMatch
-          ? contextMatchScore(fullText, snapshot.text, start, snapshot.before, snapshot.after)
-          : -1;
         const candidateStart = nearestSelectionStart(
           fullText,
           snapshot.text,
@@ -200,17 +202,8 @@
           snapshot.after
         );
         if (candidateStart < 0) return false;
-        const candidateScore = contextMatchScore(
-          fullText,
-          snapshot.text,
-          candidateStart,
-          snapshot.before,
-          snapshot.after
-        );
-        if (!directMatch || candidateScore > directScore) {
-          start = candidateStart;
-          end = Math.min(fullText.length, start + snapshot.text.length);
-        }
+        start = candidateStart;
+        end = Math.min(fullText.length, start + snapshot.text.length);
       }
       const startPoint = textPoint(workspace, start);
       const endPoint = textPoint(workspace, end);
