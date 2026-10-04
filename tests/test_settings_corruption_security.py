@@ -138,6 +138,10 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
                     '{"schema_version":2,"values":{"ignored":NaN}}',
                 ),
                 (
+                    "non-finite number",
+                    '{"schema_version":2,"values":{"ignored":1e9999}}',
+                ),
+                (
                     "number token is too long",
                     '{"schema_version":'
                     + "9" * 129
