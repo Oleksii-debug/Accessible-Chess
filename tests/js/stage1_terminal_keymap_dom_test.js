@@ -5,6 +5,14 @@ const fs = require('fs');
 const vm = require('vm');
 
 const source = fs.readFileSync('web/stage1_board_actions.js', 'utf8');
+const indexSource = fs.readFileSync('web/index.html', 'utf8');
+
+function indexFunction(name) {
+    const marker = `function ${name}(`;
+    const line = indexSource.split('\\n').find(candidate => candidate.includes(marker));
+    assert.ok(line, `missing ${name} in web/index.html`);
+    return line.trim();
+}
 
 class FakeNode {
     constructor(id = '') {
@@ -68,6 +76,43 @@ function chordFor(event) {
 }
 
 (async () => {
+    // Execute the real Stage1 snapshot resolver from web/index.html. The projected
+    // UI context for MOVE_ENTRY/HISTORY differs from the registry context used by
+    // the terminal bridge; a resolver that matches only row.context silently
+    // disables the remapped submit/commit actions once the keymap is ready.
+    const resolverContext = {
+        keymapReady: true,
+        keymap: [
+            {id: 'move.submit', binding: 'F2', context: 'move-entry', registryContext: 'move_entry'},
+            {id: 'history.commit_go_to_move', binding: 'F3', context: 'document', registryContext: 'history'},
+            {id: 'board.cursor_down', binding: 'J', context: 'board', registryContext: 'board'},
+        ],
+    };
+    resolverContext.window = resolverContext;
+    vm.createContext(resolverContext);
+    vm.runInContext([
+        indexFunction('eventChord'),
+        indexFunction('normalizeChord'),
+        indexFunction('actionByChord'),
+        indexFunction('keymapActionForEvent'),
+    ].join('\\n'), resolverContext, {filename: 'index-keymap-resolver.js'});
+    assert.strictEqual(
+        resolverContext.keymapActionForEvent(eventFor('F2', null), 'move_entry'),
+        'move.submit'
+    );
+    assert.strictEqual(
+        resolverContext.keymapActionForEvent(eventFor('F3', null), 'history'),
+        'history.commit_go_to_move'
+    );
+    assert.strictEqual(
+        resolverContext.keymapActionForEvent(eventFor('J', null), 'board'),
+        'board.cursor_down'
+    );
+    assert.strictEqual(
+        resolverContext.keymapActionForEvent(eventFor('F2', null), 'history'),
+        ''
+    );
+
     const boardGrid = new FakeNode('board-grid');
     const cell = new FakeNode('sq-e2');
     cell.dataset.square = 'e2';
