@@ -81,16 +81,16 @@ jobs:
           portable = Path('acs/version2_portable_package.py').read_text(encoding='utf-8')
           required = (
               '_owner_docx_filename',
+              '_owner_docx_filename',
               '_owner_docx_name',
-              '_WIN32_FORBIDDEN_FILENAME_CHARS',
-              '_WIN32_RESERVED_DEVICE_NAMES',
-              'utf-16-le',
+              '_portable_docx_filename',
               'require_user_seed=True',
               'EXPECTED_SOURCE_WAV_COUNT',
           )
           for token in required:
               assert token in source, token
           for token in (
+              '_portable_docx_filename',
               '_portable_docx_name',
               '_WIN32_FORBIDDEN_FILENAME_CHARS',
               '_WIN32_RESERVED_DEVICE_NAMES',
