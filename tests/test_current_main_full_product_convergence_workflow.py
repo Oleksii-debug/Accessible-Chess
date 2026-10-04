@@ -59,21 +59,41 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
+            "tests.test_book_bidirectional_semantic_navigation",
+            "tests.test_bookreader_snapshot_bounds",
+            "tests.test_v2_accessible_book_core",
+            "tests.test_v2_book_epub_import",
+            "tests.test_v2_html_semantic_lists",
+            "tests.test_v2_markdown_semantic_lists",
             "tests.test_v2_book_html_import",
+            "tests.test_v2_book_epub_package_contract",
             "tests.test_v2_book_text_import",
             "tests.test_book_index",
+            "tests.test_books_semantic_host_bounds",
+            "tests.test_acsdb",
+            "tests.test_d07_library_import_reuse_final_cancel",
             "tests.test_dev1_pgn_webview_projection",
+            "tests.test_v2_pgn_nested_comment_recovery",
+            "tests.test_v2_pgn_semantic_fidelity",
+            "tests.test_pgn_document_context_atomicity",
+            "tests.test_pgn_document_setup_fen_integrity",
+            "tests.test_pgn_stream_source_binding",
+            "tests/js/library_event_boundary_test.js",
             "tests/js/pgn_surface_dom_test.js",
             "tests.test_pgn_open_source_binding",
             "tests.test_pgn_open_identity_fail_closed",
             "tests.test_version2_pgn_commands",
             "tests.test_pgn_document_new_game_position_integrity",
             "tests.test_d08_training_canonical_resume",
+            "tests.test_w2_training_progress_crash_recovery",
             "tests.test_training_snapshot_definition_identity_v4",
+            "tests.test_settings_private_temp_identity_current",
             "tests.test_settings_postpublication_cleanup_current_main",
             "tests/js/p0_selection_ambiguity_runtime_test.js",
             "tests/js/p0_selection_route_epoch_runtime_test.js",
             "tests.test_p0_final_product_resource_order",
+            "tests.test_nvda_p0_contract",
+            "tests.test_version2_accessibility_convergence",
             "tests.test_version2_import_terminal_ui",
             "tests.test_v2_windows_nvda_file_workflows",
             "tests.test_v2_native_thread_runtime_workflow",
@@ -85,6 +105,8 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_v2_packaged_starter_application",
             "tests.test_owner_delivery_uk_docs",
             "tests.test_version2_package_assembler",
+            "tests.test_portable_launcher_contract",
+            "tests.test_version2_portable_package",
             "tests.test_version2_package_preflight",
             "tests.test_v2_package_required_resources",
             "tests.test_version2_release_payload",
@@ -94,6 +116,59 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         for fragment in required:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
+
+    def test_high_risk_completion_lens_contracts_run_in_domain_steps(self) -> None:
+        def step_block(name: str, next_name: str) -> str:
+            start = self.text.index(f"      - name: {name}\n")
+            end = self.text.index(f"      - name: {next_name}\n", start)
+            return self.text[start:end]
+
+        books = step_block(
+            "Books Training semantic and accessibility regressions",
+            "Library browser identity, import and privacy regressions",
+        )
+        recovery = step_block(
+            "Recovery Settings and writer-race regressions",
+            "Chess content, semantic reading and malformed-content regressions",
+        )
+        chess = step_block(
+            "Chess content, semantic reading and malformed-content regressions",
+            "Windows terminal authority, NVDA file flow and Book to Board regressions",
+        )
+        accessibility = step_block(
+            "Windows terminal authority, NVDA file flow and Book to Board regressions",
+            "Owner accessibility and package contracts",
+        )
+
+        for fragment in (
+            "tests.test_book_bidirectional_semantic_navigation",
+            "tests.test_bookreader_snapshot_bounds",
+            "tests.test_v2_accessible_book_core",
+            "tests.test_v2_book_epub_import",
+            "tests.test_v2_html_semantic_lists",
+            "tests.test_v2_markdown_semantic_lists",
+        ):
+            with self.subTest(step="books", fragment=fragment):
+                self.assertIn(fragment, books)
+
+        self.assertIn("tests.test_w2_training_progress_crash_recovery", recovery)
+
+        for fragment in (
+            "tests.test_v2_pgn_nested_comment_recovery",
+            "tests.test_v2_pgn_semantic_fidelity",
+            "tests.test_pgn_document_context_atomicity",
+            "tests.test_pgn_document_setup_fen_integrity",
+            "tests.test_pgn_stream_source_binding",
+        ):
+            with self.subTest(step="chess", fragment=fragment):
+                self.assertIn(fragment, chess)
+
+        for fragment in (
+            "tests.test_nvda_p0_contract",
+            "tests.test_version2_accessibility_convergence",
+        ):
+            with self.subTest(step="accessibility", fragment=fragment):
+                self.assertIn(fragment, accessibility)
 
     def test_successor_workflow_authorities_retrigger_whole_product_gate(self) -> None:
         for path in (
@@ -108,10 +183,22 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             ".github/workflows/current-user-library-seed.yml",
             ".github/workflows/full-product-book-command-authority.yml",
             ".github/workflows/p0-dynamic-selection-executable.yml",
+            ".github/workflows/p0-user-oneclick-portable-launcher.yml",
             ".github/workflows/integration-owner-delivery-uk-docs-current.yml",
             ".github/workflows/w6-v2-package-assembler.yml",
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml",
             ".github/workflows/w6-v2-release-payload-current-assembler.yml",
+            ".github/workflows/books-semantic-durable-board-convergence.yml",
+            ".github/workflows/v2-accessible-book-core.yml",
+            ".github/workflows/v2-book-epub-semantic-ingress.yml",
+            ".github/workflows/v2-markdown-semantic-lists-convergence.yml",
+            ".github/workflows/d06-pgn-nested-comment-recovery.yml",
+            ".github/workflows/d06-pgn-semantic-fidelity.yml",
+            ".github/workflows/pgn-context-atomicity.yml",
+            ".github/workflows/v2-pgn-stream-source-binding.yml",
+            ".github/workflows/w2-training-progress-windows-missing-parent.yml",
+            ".github/workflows/v2-windows-nvda-ui.yml",
+            ".github/workflows/integration-accessibility-successors.yml",
         ):
             with self.subTest(path=path):
                 self.assertIn(f"      - '{path}'", self.text)

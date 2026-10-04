@@ -108,6 +108,32 @@ def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         return first_identity == second_identity
 
 
+def _stable_change_metadata(st: os.stat_result) -> tuple[int, int] | None:
+    """Return the portable change metadata required for a stable read proof.
+
+    Identity plus size alone cannot detect an in-place same-length rewrite of
+    an already-open file. Python exposes nanosecond mtime and ctime on the
+    supported Windows/Linux runtimes; if either signal is unavailable, fail
+    closed rather than silently weakening the private-seed ingress boundary.
+    """
+
+    mtime_ns = getattr(st, "st_mtime_ns", None)
+    ctime_ns = getattr(st, "st_ctime_ns", None)
+    if type(mtime_ns) is not int or type(ctime_ns) is not int:
+        return None
+    return mtime_ns, ctime_ns
+
+
+def _same_file_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
+    if not _same_file_identity(first, second):
+        return False
+    if getattr(first, "st_size", None) != getattr(second, "st_size", None):
+        return False
+    first_change = _stable_change_metadata(first)
+    second_change = _stable_change_metadata(second)
+    return first_change is not None and first_change == second_change
+
+
 def _read_stable_regular_file(
     path: Path,
     *,
@@ -116,26 +142,29 @@ def _read_stable_regular_file(
     changed_message: str,
     expected_size: int | None = None,
 ) -> bytes:
-    """Read one direct file while binding bytes to the opened file identity.
+    """Read one direct file while binding bytes to one stable file snapshot.
 
     Path-only before/after stats are insufficient: a same-size replacement can
-    be installed just before open() and the original pathname restored
-    afterwards. Bind the opened descriptor to the pre-open lstat identity,
-    keep the read bounded to the validated size, and then prove both the open
-    descriptor and pathname still identify the same file.
+    be installed just before open() and the original pathname restored later.
+    Identity plus size is also insufficient because an already-open inode can
+    be rewritten in place without changing either. Bind the opened descriptor
+    to the pre-open pathname identity *and* nanosecond change metadata, keep the
+    read bounded to the validated size, then prove descriptor and pathname
+    snapshots remained unchanged throughout the read.
     """
 
     before = _regular_file(path, label=label, maximum=maximum)
     if expected_size is not None and before.st_size != expected_size:
         raise UserLibrarySeedError(f"{label} byte size mismatch")
+    if _stable_change_metadata(before) is None:
+        raise UserLibrarySeedError(changed_message)
     try:
         with path.open("rb") as handle:
             opened_before = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(opened_before.st_mode)
                 or _is_reparse(opened_before)
-                or opened_before.st_size != before.st_size
-                or not _same_file_identity(before, opened_before)
+                or not _same_file_snapshot(before, opened_before)
             ):
                 raise UserLibrarySeedError(changed_message)
             payload = handle.read(before.st_size + 1)
@@ -148,10 +177,8 @@ def _read_stable_regular_file(
     after = _regular_file(path, label=label, maximum=maximum)
     if (
         len(payload) != before.st_size
-        or opened_after.st_size != before.st_size
-        or after.st_size != before.st_size
-        or not _same_file_identity(opened_before, opened_after)
-        or not _same_file_identity(before, after)
+        or not _same_file_snapshot(opened_before, opened_after)
+        or not _same_file_snapshot(before, after)
     ):
         raise UserLibrarySeedError(changed_message)
     return payload

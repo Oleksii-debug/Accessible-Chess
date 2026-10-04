@@ -27,10 +27,32 @@ on:
       - '.github/workflows/current-user-library-seed.yml'
       - '.github/workflows/full-product-book-command-authority.yml'
       - '.github/workflows/p0-dynamic-selection-executable.yml'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/integration-owner-delivery-uk-docs-current.yml'
       - '.github/workflows/w6-v2-package-assembler.yml'
       - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
       - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+      - '.github/workflows/books-semantic-durable-board-convergence.yml'
+      - '.github/workflows/v2-accessible-book-core.yml'
+      - '.github/workflows/v2-book-epub-semantic-ingress.yml'
+      - '.github/workflows/v2-markdown-semantic-lists-convergence.yml'
+      - '.github/workflows/d06-pgn-nested-comment-recovery.yml'
+      - '.github/workflows/d06-pgn-semantic-fidelity.yml'
+      - '.github/workflows/pgn-context-atomicity.yml'
+      - '.github/workflows/v2-pgn-stream-source-binding.yml'
+      - '.github/workflows/w2-training-progress-windows-missing-parent.yml'
+      - '.github/workflows/v2-windows-nvda-ui.yml'
+      - '.github/workflows/integration-accessibility-successors.yml'
+      - '.github/workflows/d01-books-training-ui-integration.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/d06-gametree-snapshot-resume.yml'
+      - '.github/workflows/d06-snapshot-canonical-restore.yml'
+      - '.github/workflows/d06-pgn-streaming-import.yml'
+      - '.github/workflows/d06-pgn-streaming-export.yml'
+      - '.github/workflows/v2-library-integrity-repair.yml'
+      - '.github/workflows/v2-library-acsdb-search-v4.yml'
+      - '.github/workflows/settings-save-lock-and-temp-identity.yml'
+      - '.github/workflows/windows-stage1-webview-build.yml'
   workflow_dispatch:
 
 permissions:
@@ -133,10 +155,12 @@ jobs:
           node --check tests/js/books_training_surface_dom_test.js
           node --check tests/js/version2_release_bootstrap_dom_test.js
           node --check tests/js/library_surface_dom_test.js
+          node --check tests/js/library_event_boundary_test.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
           node tests/js/library_surface_dom_test.js
+          node tests/js/library_event_boundary_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/p0_accessibility_runtime_test.js
           node tests/js/p0_dynamic_selection_runtime_test.js
@@ -158,7 +182,15 @@ jobs:
           python -m unittest -v
           tests.test_dev1_books_training_webview_bridge
           tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_atomicity
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_bookreader_snapshot_bounds
+          tests.test_v2_accessible_book_core
+          tests.test_v2_book_epub_import
+          tests.test_v2_html_semantic_lists
+          tests.test_v2_markdown_semantic_lists
           tests.test_dev1_full_product_webview_adapter
+          tests.test_books_semantic_host_bounds
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
           tests.test_v2_book_training_route_rollback
@@ -177,6 +209,11 @@ jobs:
           tests.test_dev1_library_webview_projection
           tests.test_d07_library_export_webview
           tests.test_d07_library_import_service
+          tests.test_d07_library_import_reuse_final_cancel
+          tests.test_d07_search_semantic_equivalence
+          tests.test_v2_library_integrity_repair
+          tests.test_v2_library_presentation_path_privacy
+          tests.test_acsdb
           tests.test_user_library_seed
           tests.test_user_library_seed_parent_safety
           tests.test_v2_packaged_starter_application
@@ -188,6 +225,10 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_settings
+          tests.test_settings_corruption_security
+          tests.test_d06_gametree_snapshot_resume
+          tests.test_d06_snapshot_canonical_restore
+          tests.test_settings_private_temp_identity_current
           tests.test_settings_postpublication_cleanup_current_main
           tests.test_v2_upgrade_generated_artifact_authentication
           tests.test_v2_upgrade_publish_race_audit
@@ -201,6 +242,7 @@ jobs:
           tests.test_v2_data_upgrade
           tests.test_v2_data_upgrade_v6
           tests.test_d08_training_canonical_resume
+          tests.test_w2_training_progress_crash_recovery
           tests.test_training_snapshot_definition_identity_v4
           tests.test_training
 
@@ -210,9 +252,26 @@ jobs:
           tests.test_bookdocument
           tests.test_d06_pgn_roundtrip
           tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_webview_atomicity
+          tests.test_v2_pgn_nested_comment_recovery
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document_setup_fen_integrity
+          tests.test_pgn_stream_source_binding
+          tests.test_pgn_concurrent_save
+          tests.test_dev4_pgn_export_concurrency_security
+          tests.test_dev4_pgn_export_failure_recovery
+          tests.test_dev4_pgn_export_path_security
+          tests.test_dev4_pgn_postcommit_cleanup_atomicity
+          tests.test_pgn_streaming_import
+          tests.test_v2_pgn_streaming_export
+          tests.test_v2_pgn_webview_path_privacy
+          tests.test_chessbase_integrity
+          tests.test_dev4_chessbase_symlink_security
           tests.test_gametree
           tests.test_v2_book_html_head_metadata_semantics
           tests.test_v2_book_html_import
+          tests.test_v2_book_epub_package_contract
           tests.test_v2_book_game_content
           tests.test_v2_book_library_game_lookup
           tests.test_book_index
@@ -233,6 +292,11 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_application
+          tests.test_nvda_p0_contract
+          tests.test_version2_accessibility_convergence
+          tests.test_webview2_modern_winforms_accessibility
+          tests.test_ui_native_menu_recovery
+          tests.test_accessible_webui
           tests.test_version2_import_terminal_ui
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_native_thread_runtime_workflow
@@ -248,6 +312,8 @@ jobs:
           tests.test_dev1_full_product_ui_packages
           tests.test_v2_board_analysis_hotkey_feedback
           tests.test_version2_package_assembler
+          tests.test_portable_launcher_contract
+          tests.test_version2_portable_package
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
