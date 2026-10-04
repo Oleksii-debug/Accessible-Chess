@@ -27,6 +27,18 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
         self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
+    def test_w4_run_api_provenance_is_verified_before_artifact_download(self) -> None:
+        provenance_index = self.text.index(
+            "Verify authoritative W4 run provenance before artifact download"
+        )
+        download_index = self.text.index("Download exact W4 artifact by run ID")
+        self.assertLess(provenance_index, download_index)
+        self.assertIn("scripts/verify_owner_w4_run_provenance.py", self.text)
+        self.assertIn("/actions/runs/$env:W4_RUN_ID", self.text)
+        self.assertIn("${{ github.repository }}", self.text)
+        self.assertIn("--default-branch $env:RELEASE_BRANCH", self.text)
+        self.assertIn("W4_AUTHORITATIVE_RUN_PROVENANCE=PASS", self.text)
+
     def test_w4_metadata_is_strict_fresh_and_stably_read(self) -> None:
         for token in (
             "_stable_bytes",
@@ -114,10 +126,16 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         launch_index = self.text.index("Launch exact root one-click bytes")
         freshness_index = self.text.index("Recheck live release apex immediately before publication")
         upload_index = self.text.index("Upload exact owner one-click candidate")
+        post_upload_index = self.text.index(
+            "Confirm published artifact still matches live release apex"
+        )
         self.assertLess(launch_index, freshness_index)
         self.assertLess(freshness_index, upload_index)
+        self.assertLess(upload_index, post_upload_index)
         self.assertIn("OWNER_FINALIZER_STALE_BEFORE_UPLOAD", self.text)
         self.assertIn("OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS", self.text)
+        self.assertIn("OWNER_FINALIZER_STALE_AFTER_UPLOAD", self.text)
+        self.assertIn("OWNER_FINALIZER_POST_UPLOAD_FRESHNESS=PASS", self.text)
         self.assertIn("Accessible-Chess-ONECLICK-OWNER-FINAL.zip", self.text)
         self.assertIn("owner-final-receipt.json", self.text)
         self.assertIn("owner-oneclick/launch-report.txt", self.text)
