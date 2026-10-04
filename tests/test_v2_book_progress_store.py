@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -915,7 +916,7 @@ class BookProgressStoreTests(unittest.TestCase):
         reader = BookReader(self.original_document())
         self.store.save("book:primary-only-bound", reader)
         primary_bytes = self.path.read_bytes()
-        primary_revision = __import__("hashlib").sha256(primary_bytes).hexdigest()
+        primary_revision = hashlib.sha256(primary_bytes).hexdigest()
 
         with self.assertRaises(BookProgressStoreError) as caught:
             self.store.recover_from_backup(
