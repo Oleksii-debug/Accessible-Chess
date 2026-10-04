@@ -178,7 +178,10 @@ def _compact(value: str) -> str:
 
 
 def _asset_name(value: str) -> str:
-    parts = urlsplit(value.strip())
+    try:
+        parts = urlsplit(value.strip())
+    except ValueError:
+        return ""
     if parts.scheme or parts.netloc or not parts.path:
         return ""
     segments = [segment for segment in parts.path.replace("\\", "/").split("/") if segment not in {"", "."}]
