@@ -18,7 +18,7 @@ from .history import HistoryError, ReviewHistory
 from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san
 from .position_text import parse_position_text
-from .ui_review_adapter import ReviewCommandResult, ReviewPresentationAdapter
+from .ui_review_adapter import ReviewPresentationAdapter
 
 VERSION = "0.4.0-dev3"
 
@@ -387,7 +387,10 @@ class AccessibleChessAPI:
         if type(target) is not str:
             return self._error(self._t("review_invalid"))
         raw = target.strip().lower()
-        lineage = self._live_line_nodes()
+        try:
+            lineage = self._live_line_nodes()
+        except Exception:
+            return self._error(self._t("review_position_failed"))
         if raw in ("0", "start"):
             return self._select_review_node(lineage[0])
         if raw == "end":
