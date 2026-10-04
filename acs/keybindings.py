@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Iterable, Mapping
 
 
@@ -528,9 +530,28 @@ class ActionRegistry:
     def save(self, path: str | Path) -> None:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_suffix(target.suffix + ".tmp")
-        tmp.write_text(self.export_json() + "\n", encoding="utf-8")
-        tmp.replace(target)
+        payload = (self.export_json() + "\n").encode("utf-8")
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=str(target.parent),
+        )
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp_name, target)
+        except BaseException:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+            raise
 
     @classmethod
     def load(
@@ -539,10 +560,18 @@ class ActionRegistry:
         definitions: Iterable[ActionDefinition] = DEFAULT_ACTIONS,
     ) -> tuple["ActionRegistry", str | None]:
         target = Path(path)
-        if not target.exists():
-            return cls(definitions), None
         try:
-            return cls.import_json(target.read_text(encoding="utf-8"), definitions), None
+            with target.open("rb") as stream:
+                raw = stream.read(MAX_KEYMAP_JSON_BYTES + 1)
+            if len(raw) > MAX_KEYMAP_JSON_BYTES:
+                raise ValueError("keymap profile is too large")
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("keymap profile must be valid UTF-8 text") from exc
+            return cls.import_json(text, definitions), None
+        except FileNotFoundError:
+            return cls(definitions), None
         except Exception as exc:
             return cls(definitions), f"keymap recovery: {exc}"
 
