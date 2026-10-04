@@ -480,7 +480,10 @@
         if (result && result.announcement) exposeAnnouncement(result.announcement, dispatchId);
         return result;
       } catch (_) {
-        exposeAnnouncement("Не вдалося виконати дію.", dispatchId);
+        const genericFailure = documentRef.documentElement && documentRef.documentElement.lang === "en"
+          ? "Action could not be completed."
+          : "Не вдалося виконати дію.";
+        exposeAnnouncement(genericFailure, dispatchId);
         return null;
       }
     };

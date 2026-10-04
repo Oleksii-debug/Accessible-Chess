@@ -5,8 +5,10 @@ on:
     branches:
       - converge/current-book-progress-snapshot-passive-20261004-c2mbezb
     paths:
-      - 'acs/version2_education_mutation_release.py'
+      - 'web/p0_accessibility_runtime.js'
+      - 'tests/js/p0_generic_failure_localization_test.js'
       - 'tests/test_final_product_announcement_localization_current.py'
+      - 'tests/test_p0_semantic_document_copy.py'
       - '.github/workflows/current-final-product-announcement-localization.yml'
   workflow_dispatch:
 
@@ -54,8 +56,9 @@ jobs:
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-final-product-announcement-localization.yml' \
-            'acs/version2_education_mutation_release.py' \
-            'tests/test_final_product_announcement_localization_current.py' | sort)"
+            'tests/js/p0_generic_failure_localization_test.js' \
+            'tests/test_final_product_announcement_localization_current.py' \
+            'web/p0_accessibility_runtime.js' | sort)"
           test "$changed" = "$expected_paths" || {
             printf 'Unexpected announcement-localization scope:\n%s\n' "$changed" >&2
             exit 1
@@ -65,14 +68,17 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile changed Python surfaces
-        run: >-
-          python -m compileall -q
-          acs/version2_education_mutation_release.py
-          tests/test_final_product_announcement_localization_current.py
+      - name: Compile focused Python regression
+        run: python -m py_compile tests/test_final_product_announcement_localization_current.py
 
-      - name: Check final runtime JavaScript syntax
-        run: node --check web/p0_accessibility_runtime.js && node --check web/stage1_board_actions.js
+      - name: Check focused JavaScript surfaces
+        run: >-
+          node --check web/p0_accessibility_runtime.js &&
+          node --check web/stage1_board_actions.js &&
+          node --check tests/js/p0_generic_failure_localization_test.js
+
+      - name: Execute canonical P0 generic failure localization
+        run: node tests/js/p0_generic_failure_localization_test.js
 
       - name: Run localization and retained accessibility regressions
         run: >-
