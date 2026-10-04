@@ -95,6 +95,72 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
                         self.assertEqual(settings.data, baseline)
                         self.assertEqual(path.read_bytes(), persisted)
 
+    def test_load_rejects_excessive_json_nesting_before_decoder_recursion(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            payload = (
+                '{"schema_version":2,"values":{"ignored":'
+                + "[" * 64
+                + "0"
+                + "]" * 64
+                + "}}"
+            )
+            path.write_text(payload, encoding="utf-8")
+            original = path.read_bytes()
+
+            settings = Settings(path)
+
+            self.assertEqual(settings.data, DEFAULTS)
+            self.assertIn("settings recovery", settings.warning or "")
+            self.assertIn("nesting is too deep", settings.warning or "")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_import_rejects_json_decoder_resource_abuse_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("language", "en")
+            settings.set("volume", 37)
+            baseline = dict(settings.data)
+            persisted = path.read_bytes()
+
+            payloads = (
+                (
+                    "nesting is too deep",
+                    '{"schema_version":2,"values":{"ignored":'
+                    + "[" * 64
+                    + "0"
+                    + "]" * 64
+                    + "}}",
+                ),
+                (
+                    "non-finite number",
+                    '{"schema_version":2,"values":{"ignored":NaN}}',
+                ),
+                (
+                    "non-finite number",
+                    '{"schema_version":2,"values":{"ignored":1e9999}}',
+                ),
+                (
+                    "number token is too long",
+                    '{"schema_version":'
+                    + "9" * 129
+                    + ',"values":{}}',
+                ),
+                (
+                    "too many structural items",
+                    '{"schema_version":2,"values":{"ignored":['
+                    + ",".join("0" for _ in range(9000))
+                    + "]}}",
+                ),
+            )
+            for message, payload in payloads:
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(SettingsError, message):
+                        settings.import_json(payload, persist=False)
+                    self.assertEqual(settings.data, baseline)
+                    self.assertEqual(path.read_bytes(), persisted)
+
     def test_mutation_rejects_active_scalar_subclasses_before_hooks(self) -> None:
         class HostileText(str):
             touched = False
@@ -216,7 +282,7 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             settings.set("tick_policy", "both")
             settings.set("tick_last_seconds", 5)
             settings.set("sound_move_variant", "2")
-            settings.set("engine_path", "stockfish.exe")
+            settings.set("engine_path", "C:\\Games\\[engine]{v2}.exe")
 
             restored = Settings(path)
             self.assertEqual(restored.get("language"), "en")
@@ -225,7 +291,7 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             self.assertEqual(restored.get("tick_policy"), "both")
             self.assertEqual(restored.get("tick_last_seconds"), 5)
             self.assertEqual(restored.get("sound_move_variant"), "2")
-            self.assertEqual(restored.get("engine_path"), "stockfish.exe")
+            self.assertEqual(restored.get("engine_path"), "C:\\Games\\[engine]{v2}.exe")
 
     def test_direct_import_rejects_active_or_oversized_text_before_json_parse(self) -> None:
         class HostileProfile(str):
