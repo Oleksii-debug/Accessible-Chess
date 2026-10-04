@@ -1601,6 +1601,104 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), primary_before)
         self.assertTrue(self.store.has("book:same-bytes-during-backup-sync"))
 
+    def test_backup_publication_rejects_same_bytes_primary_guard_substitution(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:guard-inode-primary", reader)
+
+        primary_before = self.path.read_bytes()
+        real_read = self.store._read_raw_file_unlocked
+        primary_reads = 0
+        injected = False
+
+        def substitute_primary_guard_after_read(
+            path: Path,
+            *,
+            missing_ok: bool,
+        ) -> bytes | None:
+            nonlocal primary_reads, injected
+            raw = real_read(path, missing_ok=missing_ok)
+            if Path(path) == self.path:
+                primary_reads += 1
+                if primary_reads == 3 and raw is not None:
+                    foreign = self.path.with_name("foreign-primary-guard.json")
+                    foreign.write_bytes(raw)
+                    os.replace(foreign, self.path)
+                    injected = True
+            return raw
+
+        reader.go_to(2)
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=substitute_primary_guard_after_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:guard-inode-primary", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertFalse(self.store.backup_path.exists())
+        restored = self.store.restore_primary(
+            "book:guard-inode-primary",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+
+    def test_primary_publication_rejects_same_bytes_backup_guard_substitution(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:guard-inode-backup", reader)
+
+        primary_before = self.path.read_bytes()
+        real_read = self.store._read_raw_file_unlocked
+        backup_nonmissing_reads = 0
+        injected = False
+
+        def substitute_backup_guard_after_read(
+            path: Path,
+            *,
+            missing_ok: bool,
+        ) -> bytes | None:
+            nonlocal backup_nonmissing_reads, injected
+            raw = real_read(path, missing_ok=missing_ok)
+            if Path(path) == self.store.backup_path and raw is not None:
+                backup_nonmissing_reads += 1
+                if backup_nonmissing_reads == 2:
+                    foreign = self.store.backup_path.with_name(
+                        "foreign-backup-guard.json"
+                    )
+                    foreign.write_bytes(raw)
+                    os.replace(foreign, self.store.backup_path)
+                    injected = True
+            return raw
+
+        reader.go_to(2)
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=substitute_backup_guard_after_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:guard-inode-backup", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.STALE_WRITE,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
+        restored = self.store.restore_primary(
+            "book:guard-inode-backup",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+
     def test_primary_publication_rejects_same_bytes_target_inode_substitution(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
