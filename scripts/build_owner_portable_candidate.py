@@ -427,6 +427,16 @@ def assemble_owner_portable_candidate(
         expected_seed_source_count=expected_seed_source_count,
         expected_seed_game_count=expected_seed_game_count,
     )
+
+    # Re-bind the owner-authorized document bytes after owner qualification.
+    # The early check above rejects bad assembly cheaply. This second check is
+    # the trust-boundary check that closes a document+CHECKSUMS rewrite window:
+    # after it succeeds, ZIP publication is pinned to qualification's exact
+    # checksum snapshot and therefore cannot accept a later package rewrite.
+    for source, expected_digest in zip(word_documents, document_digests, strict=True):
+        if _file_sha256(root / Path(source).name) != expected_digest:
+            _fail("packaged owner Word document changed after owner qualification")
+
     archived = write_portable_oneclick_zip(
         root,
         output_zip,
