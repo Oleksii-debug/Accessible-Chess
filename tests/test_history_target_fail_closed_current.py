@@ -61,6 +61,21 @@ class ReviewHistoryTargetFailClosedCurrentTests(unittest.TestCase):
         self.assertNotIn("sys.set_int_max_str_digits", result.announcement)
         self.assertNotIn(str(self.digit_count), result.announcement)
 
+    def test_adapter_contains_oversized_exact_integer_target(self):
+        history = self._history()
+        adapter = ReviewPresentationAdapter(history, language="uk")
+        before = adapter.current()
+        target = 10 ** self.digit_count
+
+        result = adapter.jump(target)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.view, before)
+        self.assertIn("Не вдалося перейти до запитаної позиції", result.announcement)
+        self.assertNotIn("Exceeds the limit", result.announcement)
+        self.assertNotIn("integer string conversion", result.announcement)
+        self.assertNotIn("sys.set_int_max_str_digits", result.announcement)
+
     def test_supported_targets_keep_existing_semantics(self):
         history = self._history()
 
