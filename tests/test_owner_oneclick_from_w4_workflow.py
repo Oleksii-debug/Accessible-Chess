@@ -123,11 +123,11 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         download = self.text.index("Download and bind exact private seed and owner DOCX bytes")
         self.assertLess(validation, download)
         self.assertIn(
-            "from scripts.build_owner_portable_candidate import _owner_docx_name",
+            "from scripts.build_owner_portable_candidate import _owner_docx_filename",
             self.text,
         )
         self.assertIn(
-            "validated = tuple(_owner_docx_name(Path(name)) for name in names)",
+            "validated = tuple(_owner_docx_filename(name) for name in names)",
             self.text,
         )
         self.assertNotIn(
