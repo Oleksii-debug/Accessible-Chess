@@ -56,7 +56,6 @@ class _UnseekableBytesIO(BytesIO):
     def seek(self, *_args: object, **_kwargs: object) -> int:
         raise OSError("fixture stream is intentionally unseekable")
 
-
 def _epub(
     *,
     opf: bytes,
@@ -77,7 +76,6 @@ def _epub(
         for name, data in entries.items():
             archive.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
     return buffer.getvalue()
-
 
 def _corrupt_deflated_entry(raw: bytes, name: str) -> bytes:
     damaged = bytearray(raw)
@@ -127,7 +125,6 @@ def _corrupt_data_descriptor_crc(raw: bytes, name: str) -> bytes:
         descriptor_offset += 4
     damaged[descriptor_offset] ^= 0x01
     return bytes(damaged)
-
 
 def _mark_zip_entry_encrypted(raw: bytes, name: str) -> bytes:
     damaged = bytearray(raw)
@@ -318,7 +315,6 @@ def _insert_postcentral_record(raw: bytes, record: bytes) -> bytes:
     damaged[eocd_offset:eocd_offset] = record
     return bytes(damaged)
 
-
 def _set_eocd_field(
     raw: bytes,
     *,
@@ -426,7 +422,7 @@ def _simple_zip64_epub(chapter: bytes) -> bytes:
     return buffer.getvalue()
 
 
-def _streaming_zip64_epub(chapter: bytes) -> bytes:
+def _simple_streaming_zip64_epub(chapter: bytes) -> bytes:
     buffer = _UnseekableBytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         mimetype = zipfile.ZipInfo("mimetype")
@@ -677,34 +673,6 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
-    def test_streaming_zip64_descriptor_owns_final_sizes(self) -> None:
-        raw = _streaming_zip64_epub(
-            b"<html><body><p>Streaming ZIP64 descriptor.</p></body></html>"
-        )
-        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
-            info = archive.getinfo("OEBPS/Text/ch1.xhtml")
-            self.assertEqual(info.extract_version, 45)
-            self.assertTrue(info.flag_bits & (1 << 3))
-            local_offset = info.header_offset
-        self.assertEqual(
-            int.from_bytes(raw[local_offset + 18 : local_offset + 22], "little"),
-            0xFFFFFFFF,
-        )
-        self.assertEqual(
-            int.from_bytes(raw[local_offset + 22 : local_offset + 26], "little"),
-            0xFFFFFFFF,
-        )
-        result = import_epub_book(raw, source_name="streaming-zip64.epub")
-        self.assertEqual(result.spine_documents, 1)
-        self.assertIn(
-            "Streaming ZIP64 descriptor.",
-            [
-                block.text
-                for block in result.document.blocks
-                if isinstance(block, Paragraph)
-            ],
-        )
-
     def test_local_zip_header_compression_method_is_authoritative(self) -> None:
         raw = _epub(
             opf=_opf(
@@ -834,6 +802,74 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
 
+    def test_postcentral_zip_record_is_rejected(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        digital_signature_record = (
+            b"PK\x05\x05"
+            + (4).to_bytes(2, "little")
+            + b"sig!"
+        )
+        damaged = _insert_postcentral_record(raw, digital_signature_record)
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="postcentral-record.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_eocd_entry_count_must_match_central_directory(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        eocd_offset = raw.rfind(b"PK\x05\x06")
+        self.assertGreaterEqual(eocd_offset, 0)
+        actual_entries = int.from_bytes(
+            raw[eocd_offset + 10 : eocd_offset + 12],
+            "little",
+        )
+        wrong_entries = actual_entries + 1
+        self.assertLessEqual(wrong_entries, 0xFFFF)
+        damaged = _set_eocd_field(
+            raw,
+            offset=8,
+            width=2,
+            value=wrong_entries,
+        )
+        damaged = _set_eocd_field(
+            damaged,
+            offset=10,
+            width=2,
+            value=wrong_entries,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="wrong-entry-count.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+
+    def test_streaming_zip64_data_descriptor_is_supported(self) -> None:
+        raw = _simple_streaming_zip64_epub(
+            b"<html><body><p>Streaming ZIP64 descriptor.</p></body></html>"
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("OEBPS/Text/ch1.xhtml")
+            self.assertEqual(info.extract_version, 45)
+            self.assertTrue(info.flag_bits & (1 << 3))
+            local_offset = info.header_offset
+        self.assertEqual(
+            int.from_bytes(raw[local_offset + 18 : local_offset + 22], "little"),
+            0xFFFFFFFF,
+        )
+        self.assertEqual(
+            int.from_bytes(raw[local_offset + 22 : local_offset + 26], "little"),
+            0xFFFFFFFF,
+        )
+        result = import_epub_book(raw, source_name="streaming-zip64.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Streaming ZIP64 descriptor.",
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+        )
+
     def test_mimetype_local_zip_header_must_not_have_extra_field(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         damaged = _set_local_zip_field(
@@ -919,21 +955,6 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
-    def test_postcentral_zip_record_is_rejected(self) -> None:
-        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
-        digital_signature_record = (
-            b"PK\x05\x05"
-            + (4).to_bytes(2, "little")
-            + b"sig!"
-        )
-        damaged = _insert_postcentral_record(raw, digital_signature_record)
-        with self.assertRaises(BookEpubImportError) as raised:
-            import_epub_book(damaged, source_name="postcentral-record.epub")
-        self.assertEqual(
-            raised.exception.code,
-            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
-        )
-
     def test_eocd_multi_disk_metadata_is_rejected(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         eocd_offset = raw.rfind(b"PK\x05\x06")
@@ -960,35 +981,6 @@ class BookEpubImportTests(unittest.TestCase):
                     raised.exception.code,
                     BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
                 )
-
-    def test_eocd_entry_count_must_match_central_directory(self) -> None:
-        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
-        eocd_offset = raw.rfind(b"PK\x05\x06")
-        self.assertGreaterEqual(eocd_offset, 0)
-        actual_entries = int.from_bytes(
-            raw[eocd_offset + 10 : eocd_offset + 12],
-            "little",
-        )
-        wrong_entries = actual_entries + 1
-        self.assertLessEqual(wrong_entries, 0xFFFF)
-        damaged = _set_eocd_field(
-            raw,
-            offset=8,
-            width=2,
-            value=wrong_entries,
-        )
-        damaged = _set_eocd_field(
-            damaged,
-            offset=10,
-            width=2,
-            value=wrong_entries,
-        )
-        with self.assertRaises(BookEpubImportError) as raised:
-            import_epub_book(damaged, source_name="wrong-entry-count.epub")
-        self.assertEqual(
-            raised.exception.code,
-            BookEpubImportErrorCode.UNSAFE_PACKAGE,
-        )
 
     def test_valid_zip_comment_preserves_single_disk_container(self) -> None:
         raw = _simple_epub(b"<html><body><p>Commented EPUB.</p></body></html>")

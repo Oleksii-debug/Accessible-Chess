@@ -350,7 +350,6 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> int:
         )
     return observed_entries
 
-
 def _is_forbidden_ocf_name_character(character: str) -> bool:
     codepoint = ord(character)
     if character in {'"', "*", ":", "<", ">", "?", "\\", "|"}:
@@ -583,25 +582,23 @@ def _validate_local_zip_header(
         needs_uncompressed=needs_zip64_uncompressed,
         needs_compressed=needs_zip64_compressed,
     )
-    effective_local_uncompressed = (
-        zip64_uncompressed
-        if needs_zip64_uncompressed
-        else local_uncompressed_size
-    )
-    effective_local_compressed = (
-        zip64_compressed
-        if needs_zip64_compressed
-        else local_compressed_size
-    )
-    if not (local_flags & (1 << 3)) and (
-        (
-            zip64_uncompressed is not None
-            and zip64_uncompressed != info.file_size
-        )
-        or (
-            zip64_compressed is not None
-            and zip64_compressed != info.compress_size
-        )
+    if local_flags & (1 << 3):
+        # Streaming ZIP64 writers may leave zero placeholders in the local
+        # ZIP64 extra and publish the authoritative sizes in the descriptor.
+        if (
+            zip64_uncompressed not in {None, 0, info.file_size}
+            or zip64_compressed not in {None, 0, info.compress_size}
+        ):
+            raise _error(
+                "EPUB local ZIP64 placeholder metadata is inconsistent",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
+    elif (
+        zip64_uncompressed is not None
+        and zip64_uncompressed != info.file_size
+    ) or (
+        zip64_compressed is not None
+        and zip64_compressed != info.compress_size
     ):
         raise _error(
             "EPUB local and central ZIP64 size metadata is inconsistent",
@@ -633,10 +630,16 @@ def _validate_local_zip_header(
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
     if not (local_flags & (1 << 3)):
+        resolved_compressed_size = (
+            zip64_compressed if needs_zip64_compressed else local_compressed_size
+        )
+        resolved_uncompressed_size = (
+            zip64_uncompressed if needs_zip64_uncompressed else local_uncompressed_size
+        )
         if (
             local_crc != info.CRC
-            or effective_local_compressed != info.compress_size
-            or effective_local_uncompressed != info.file_size
+            or resolved_compressed_size != info.compress_size
+            or resolved_uncompressed_size != info.file_size
         ):
             raise _error(
                 "EPUB local and central ZIP size or CRC metadata is inconsistent",
@@ -699,7 +702,6 @@ def _validate_local_zip_header(
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
     return extra_length, physical_end
-
 
 def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     infos = archive.infolist()
@@ -854,7 +856,6 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         if not is_directory:
             index[name] = info
     return index
-
 
 def _read_entry(
     archive: zipfile.ZipFile,
@@ -1024,9 +1025,9 @@ def _validate_container_attributes(
     container_prefix = f"{{{_CONTAINER_NAMESPACE}}}"
     for attribute_name in element.attrib:
         if attribute_name.startswith("{"):
-            # Extension attributes are permitted only when genuinely foreign.
-            # The OCF namespace itself is native grammar and has no namespaced
-            # attribute variants.
+            # OCF extension attributes are permitted only when they are foreign
+            # to the OCF container namespace. Attributes in the container
+            # namespace are native grammar and no namespaced variants are valid.
             if not attribute_name.startswith(container_prefix):
                 continue
             raise _error(
@@ -2151,3 +2152,4 @@ __all__ = [
     "SUPPORTED_EPUB_BOOK_CAPABILITY",
     "import_epub_book",
 ]
+
