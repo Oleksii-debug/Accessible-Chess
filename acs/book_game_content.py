@@ -21,7 +21,14 @@ from typing import Protocol
 
 from .bookdocument import BookDocumentError, Game, VariationTree
 from .chesscore import Board
-from .gametree import GameTreeSerializationError, PgnGame, parse_games, serialize_game
+from .gametree import (
+    Comment,
+    GameTreeSerializationError,
+    MoveNode,
+    PgnGame,
+    VariationLine,
+    serialize_game,
+)
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -138,6 +145,30 @@ def _one_embedded_game(pgn: str) -> PgnGame:
     return game
 
 
+def _detached_comment(comment: Comment) -> Comment:
+    return Comment(text=comment.text, style=comment.style)
+
+
+def _detached_move(move: MoveNode) -> MoveNode:
+    return MoveNode(
+        san=move.san,
+        move_number=move.move_number,
+        nags=list(move.nags),
+        comments_before=[_detached_comment(item) for item in move.comments_before],
+        comments_after=[_detached_comment(item) for item in move.comments_after],
+        variations=[_detached_line(line) for line in move.variations],
+    )
+
+
+def _detached_line(line: VariationLine) -> VariationLine:
+    return VariationLine(
+        moves=[_detached_move(move) for move in line.moves],
+        leading_comments=[_detached_comment(item) for item in line.leading_comments],
+        trailing_comments=[_detached_comment(item) for item in line.trailing_comments],
+        result=line.result,
+    )
+
+
 def _canonical_copy(game: object) -> PgnGame:
     # The lookup port promises the canonical concrete GameTree DTO. Reject a
     # PgnGame subclass before any provider-controlled copy hook can run.
@@ -147,19 +178,19 @@ def _canonical_copy(game: object) -> PgnGame:
             code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
     try:
-        # Do not deepcopy provider-owned graph objects. A canonical PgnGame can
-        # still contain subclassed nested nodes with hostile __deepcopy__ hooks.
-        # Let the existing GameTree serializer validate the graph, then parse
-        # that trusted canonical text back through the same structural authority
-        # to obtain detached exact DTOs without inventing a second chess/PGN
-        # validator in Books. Preserve validated non-PGN metadata explicitly.
-        canonical_text = serialize_game(game)
-        detached_games = parse_games(canonical_text)
-        if len(detached_games) != 1:
-            raise ValueError("canonical GameTree serialization did not round-trip once")
-        detached = detached_games[0]
-        detached.source_index = game.source_index
-        detached.warnings = list(game.warnings)
+        # Validate graph/container/PGN representability once through the existing
+        # GameTree authority. Then rebuild the already-validated fields into the
+        # exact canonical DTO classes. This keeps the prior deepcopy semantics
+        # (including absent Result tags / None line results) without invoking a
+        # nested provider subclass's __copy__/__deepcopy__ hooks and without
+        # adding a second chess or PGN validator to Books.
+        serialize_game(game)
+        detached = PgnGame(
+            tags=dict(game.tags),
+            line=_detached_line(game.line),
+            source_index=game.source_index,
+            warnings=list(game.warnings),
+        )
         serialize_game(detached)
     except (GameTreeSerializationError, TypeError, ValueError, RecursionError) as exc:
         raise BookGameContentError(

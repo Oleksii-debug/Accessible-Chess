@@ -4,7 +4,13 @@ import unittest
 
 from acs.book_game_content import BookGameSource, resolve_book_game
 from acs.bookdocument import Game
-from acs.gametree import MoveNode, PgnGame, parse_games, serialize_game
+from acs.gametree import (
+    MoveNode,
+    PgnGame,
+    VariationLine,
+    parse_games,
+    serialize_game,
+)
 
 
 PGN = """[Event \"Nested provider hook\"]
@@ -60,6 +66,7 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
         self.assertEqual(lookup.calls, [17])
         self.assertEqual(resolved.source, BookGameSource.REFERENCE)
         self.assertFalse(HostileMoveNode.touched)
+        self.assertIs(type(resolved.game.line), VariationLine)
         self.assertIs(type(resolved.game.line.moves[0]), MoveNode)
         self.assertIsNot(resolved.game, source)
         self.assertIsNot(resolved.game.line, source.line)
@@ -71,6 +78,32 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
         source.warnings.append("late provider mutation")
         self.assertEqual(resolved.game.line.moves[0].san, "e4")
         self.assertEqual(resolved.game.warnings, ["recovered source warning"])
+        self.assertIn("e4", serialize_game(resolved.game))
+
+    def test_detach_preserves_valid_absent_result_structure(self) -> None:
+        # serialize -> parse would materialize the serializer's effective Result
+        # into both the header and movetext. Detachment must preserve the valid
+        # in-memory canonical structure instead of silently normalizing it.
+        source = PgnGame(
+            tags={"Event": "No explicit result"},
+            line=VariationLine(
+                moves=[MoveNode(san="e4", move_number="1.")],
+                result=None,
+            ),
+            source_index=5,
+            warnings=["provider warning"],
+        )
+        self.assertNotIn("Result", source.tags)
+        self.assertIsNone(source.line.result)
+        self.assertIn("e4", serialize_game(source))
+
+        resolved = resolve_book_game(Game(game_id=23), lookup=_Lookup(source))
+
+        self.assertNotIn("Result", resolved.game.tags)
+        self.assertIsNone(resolved.game.line.result)
+        self.assertEqual(resolved.game.source_index, 5)
+        self.assertEqual(resolved.game.warnings, ["provider warning"])
+        self.assertEqual(resolved.warnings, ("provider warning",))
         self.assertIn("e4", serialize_game(resolved.game))
 
 
