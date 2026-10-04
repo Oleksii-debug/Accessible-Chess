@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: books-current-owner-convergence-${{ github.event.pull_request.head.sha || github.sha }}
+  group: books-current-owner-convergence-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -49,6 +49,9 @@ jobs:
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
           for absorbed in \
+            4c11b8e63c3af7a4814e8e386bbef74609c64376 \
+            73bcf84885a5219606b00149370705e74c3c984a \
+            0fe5eb7eb2da69f3bf7f8941d573c7b78b463be2 \
             36cf0bb63cc45255df3e60dd160cdd4e0ad195a2 \
             64cd6bd75cef34bfc477f651919202d2774ecd74 \
             a0d0a5cfdbae45f25033f129c8d8cb82d28fce3b \
