@@ -529,11 +529,20 @@ class BookReaderPresenter:
         for raw in self._document_warnings[: self._MAX_DOCUMENT_WARNING_ITEMS]:
             # Check length before any normalization so one malformed but still
             # built-in string cannot make presentation scan unbounded content.
-            if len(raw) > self._MAX_DOCUMENT_WARNING_ITEM_CHARS:
+            was_truncated = len(raw) > self._MAX_DOCUMENT_WARNING_ITEM_CHARS
+            if was_truncated:
                 raw = raw[: self._MAX_DOCUMENT_WARNING_ITEM_CHARS]
             text = " ".join(raw.split())
             if text:
                 shown.append(text)
+            elif was_truncated:
+                shown.append(
+                    _localized(
+                        self._language,
+                        "текст попередження приховано після надмірних початкових пробілів",
+                        "warning text omitted after excessive leading whitespace",
+                    )
+                )
         if not shown:
             return ""
         hidden = max(

@@ -102,6 +102,20 @@ class BookDocumentWarningAccessibilityTests(unittest.TestCase):
         self.assertIn("1 more warnings", warning)
         self.assertLessEqual(len(warning), 1000)
 
+    def test_bounded_warning_with_long_leading_whitespace_remains_visible(self) -> None:
+        _document, presenter = self._presenter(
+            [(" " * 181) + "meaningful warning after the presentation bound"]
+        )
+
+        warning = presenter.current().warning
+
+        self.assertIn("Import warnings:", warning)
+        self.assertIn(
+            "warning text omitted after excessive leading whitespace",
+            warning,
+        )
+        self.assertNotEqual("", warning)
+
     def test_projection_redacts_private_paths_from_document_warning(self) -> None:
         document = BookDocument(
             title="Private path warning",
