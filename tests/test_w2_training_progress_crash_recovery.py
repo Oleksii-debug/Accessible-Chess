@@ -338,6 +338,27 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             assert loaded is not None
             self.assertEqual(revision, loaded.revision)
 
+    def test_windows_durability_barrier_uses_bound_nonreparse_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "training-progress.json"
+            path.write_bytes(b"durable")
+            descriptor = os.open(path, os.O_RDWR)
+
+            with (
+                mock.patch.object(progress_store_module.os, "name", "nt"),
+                mock.patch(
+                    "acs.training_progress_store._open_no_reparse",
+                    return_value=descriptor,
+                ) as open_bound,
+                mock.patch("acs.training_progress_store.os.fsync") as fsync,
+            ):
+                progress_store_module._sync_published_path(path)
+
+            open_bound.assert_called_once_with(path, create=False)
+            fsync.assert_called_once_with(descriptor)
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
+
     def test_durability_barrier_failure_withholds_success_after_visible_replace(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "training-progress.json"
