@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'tests/test_windows_unicode_path_portability.py'
+      - 'tests/test_windows_unicode_path_portability_workflow.py'
       - '.github/workflows/windows-unicode-path-portability.yml'
   workflow_dispatch:
 
@@ -72,7 +73,7 @@ jobs:
           test -n "$changed"
           while IFS= read -r path; do
             case "$path" in
-              .github/workflows/windows-unicode-path-portability.yml|tests/test_windows_unicode_path_portability.py) ;;
+              .github/workflows/windows-unicode-path-portability.yml|tests/test_windows_unicode_path_portability.py|tests/test_windows_unicode_path_portability_workflow.py) ;;
               *) echo "Unexpected path in portability evidence successor: $path" >&2; exit 1 ;;
             esac
           done <<< "$changed"
@@ -87,13 +88,17 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile portability oracle
-        run: python -m py_compile tests/test_windows_unicode_path_portability.py
+      - name: Compile portability oracles
+        run: >-
+          python -m py_compile
+          tests/test_windows_unicode_path_portability.py
+          tests/test_windows_unicode_path_portability_workflow.py
 
       - name: Run path portability and adjacent owner regressions
         run: >-
           python -m unittest -v
           tests.test_windows_unicode_path_portability
+          tests.test_windows_unicode_path_portability_workflow
           tests.test_settings
           tests.test_version2_release_app
           tests.test_whole_product_user_journey
