@@ -658,10 +658,11 @@ class _SemanticHtmlParser(HTMLParser):
                 block_id=self._block_id(identity_kind, identity_text),
                 source_anchor=source_anchor if legacy_identity_available else None,
             )
-            if previous_event is None:
-                self._append_block(paragraph)
-            else:
-                self._insert_block(self._block_identity_index(previous_event.block) + 1, paragraph)
+            # A trailing fragment belongs at capture-close time. Semantic blocks
+            # emitted after the last inline image but before this capture closes
+            # (for example a nested blockquote or explicit position) already own
+            # their source-order slots in self.blocks and must not be jumped over.
+            self._append_block(paragraph)
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
