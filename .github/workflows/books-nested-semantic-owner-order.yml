@@ -83,7 +83,7 @@ jobs:
         run: python -m unittest -v tests.test_book_html_nested_semantic_owner_order
 
   publish-verified-candidate:
-    if: github.event_name == 'push'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     needs: [baseline-defect-proof, patched-candidate]
     runs-on: ubuntu-22.04
     permissions:
@@ -91,13 +91,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - name: Prove exact checkout
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
       - name: Reproduce verified source delta
         run: python tools/apply_book_html_nested_semantic_owner_fix.py
       - name: Re-run focused regression before publication
@@ -114,4 +114,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add acs/book_html_import.py
           git commit -m 'Fix nested rich semantic owner source order'
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "HEAD:${{ github.head_ref }}"
