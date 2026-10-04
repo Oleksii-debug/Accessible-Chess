@@ -669,7 +669,16 @@ class BookProgressStore:
                     "book progress store exceeds the resource limit",
                     code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
                 )
-            if before is not None and not self._same_file_identity(before, opened):
+            if before is None:
+                # The canonical pathname was absent at the pre-open inspection,
+                # so accepting a file that appeared before descriptor open would
+                # let a non-cooperating namespace mutation inject authoritative
+                # state into an operation that began from a missing snapshot.
+                raise BookProgressStoreError(
+                    "book progress storage changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            if not self._same_file_identity(before, opened):
                 raise BookProgressStoreError(
                     "book progress storage changed while being opened",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
