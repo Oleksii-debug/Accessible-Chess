@@ -12,6 +12,7 @@ on:
       - 'acs/ui_keymap_editor.py'
       - 'acs/ui_keymap_service.py'
       - 'web/index.html'
+      - 'web/keybindings.json'
       - 'web/stage1_board_actions.js'
       - 'web/full_product_pgn.js'
       - 'web/full_product_library.js'
@@ -104,6 +105,7 @@ jobs:
             'web/full_product_library.js' \
             'web/full_product_pgn.js' \
             'web/index.html' \
+            'web/keybindings.json' \
             'web/stage1_board_actions.js' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected keybinding convergence scope:\n%s\n' "$changed" >&2
