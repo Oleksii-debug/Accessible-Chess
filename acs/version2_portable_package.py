@@ -645,7 +645,6 @@ def validate_portable_oneclick_tree(
     if len({name.casefold() for name in doc_names}) != 2:
         _fail("portable Word document names must be distinct")
     for name in doc_names:
-        _portable_docx_name(Path(name))
         _safe_info(root / name, label="portable Word document", directory=False)
 
     root_docx = tuple(
