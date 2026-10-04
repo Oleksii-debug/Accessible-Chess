@@ -482,6 +482,7 @@ jobs:
           tests.test_version2_package_assembler
           tests.test_owner_portable_candidate
           tests.test_owner_portable_candidate_stable_reads
+          tests.test_owner_portable_candidate_docx_binding
           tests.test_owner_docx_win32_portability
           tests.test_materialize_owner_library_seed
           tests.test_owner_oneclick_from_w4_workflow
