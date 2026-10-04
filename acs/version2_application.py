@@ -383,7 +383,7 @@ class Version2Application:
             try:
                 self._persist_book_progress(imported.book_key, reader)
             except BookProgressStoreError as error:
-                if error.code is not BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
                     raise
                 # Atomic replacement already succeeded before this code can be
                 # reported. Storage, not the speculative caller, decides whether
