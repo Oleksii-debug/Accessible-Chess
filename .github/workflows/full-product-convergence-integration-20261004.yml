@@ -421,6 +421,7 @@ jobs:
           tests.test_v2_pgn_streaming_export
           tests.test_v2_pgn_webview_path_privacy
           tests.test_chessbase_integrity
+          tests.test_chessbase_libcbh_semantic_fidelity_workflow
           tests.test_dev4_chessbase_symlink_security
           tests.test_gametree
           tests.test_v2_book_html_head_metadata_semantics
