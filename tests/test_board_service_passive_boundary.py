@@ -216,6 +216,41 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
         exact = BoardSnapshot(_empty_pieces(), "w")
         self.assertIs(BoardCommandService(exact).board, exact)
 
+    def test_board_service_rejects_active_engine_and_clock_subclasses_before_attribute_hooks(self) -> None:
+        class HostileEngine(EngineSnapshot):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {"evaluation", "best_move"}:
+                    type(self).touched = True
+                    raise AssertionError("hostile EngineSnapshot attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        class HostileClock(ClockSnapshot):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {"my_clock", "opponent_clock"}:
+                    type(self).touched = True
+                    raise AssertionError("hostile ClockSnapshot attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        board = BoardSnapshot(_empty_pieces(), "w")
+        hostile_engine = HostileEngine("+0.20", "Na2")
+        hostile_clock = HostileClock("01:00", "00:59")
+        HostileEngine.armed = True
+        HostileClock.armed = True
+
+        with self.assertRaisesRegex(TypeError, "engine must be EngineSnapshot"):
+            BoardCommandService(board, engine=hostile_engine)
+        self.assertFalse(HostileEngine.touched)
+
+        with self.assertRaisesRegex(TypeError, "clocks must be ClockSnapshot"):
+            BoardCommandService(board, clocks=hostile_clock)
+        self.assertFalse(HostileClock.touched)
+
     def test_exact_builtin_values_keep_public_board_command_semantics(self) -> None:
         pieces = list(_empty_pieces())
         pieces[0] = "N"
