@@ -636,12 +636,6 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
                 )
             temp_identity = prepared
 
-        copied_digest = digest.hexdigest()
-        if expected_size is not None and int(after.st_size) != expected_size:
-            raise Version2UpgradeError("user-data source size does not match expected copy")
-        if expected_sha256 is not None and copied_digest != expected_sha256:
-            raise Version2UpgradeError("user-data source digest does not match expected copy")
-
         assert temp is not None
         try:
             current = os.lstat(temp)
