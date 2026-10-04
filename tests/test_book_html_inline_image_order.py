@@ -106,6 +106,51 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
             [("Paragraph", "Lead"), ("ImageNote", "Board")],
         )
 
+    def test_nested_capture_splits_only_nearest_owner_and_preserves_ancestor_identity(self) -> None:
+        baseline = import_html_book(
+            '<html><body><p id="outer">Outer<blockquote id="inner">InnerLine</blockquote>Tail</p></body></html>',
+            source_name="nested-baseline.html",
+        )
+        baseline_inner = next(
+            block
+            for block in baseline.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "inner"
+        )
+        baseline_outer = next(
+            block
+            for block in baseline.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+
+        result = import_html_book(
+            '<html><body><p id="outer">Outer<blockquote id="inner">Inner<img src="board.png" alt="Board">Line</blockquote>Tail</p></body></html>',
+            source_name="nested-inline.html",
+            available_assets={"board.png"},
+        )
+        result_inner = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "inner"
+        )
+        result_outer = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+
+        self.assertEqual(result_inner.block_id, baseline_inner.block_id)
+        self.assertEqual(result_outer.block_id, baseline_outer.block_id)
+        self.assertEqual(result_outer.text, "Outer InnerLine Tail")
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Line"),
+                ("Paragraph", "Outer InnerLine Tail"),
+            ],
+        )
+
     def test_inline_explicit_fen_diagram_uses_same_source_order_without_new_chess_authority(self) -> None:
         result = import_html_book(
             f'<html><body><p>Before<img src="board.png" alt="Start" data-acs-fen="{Board.START}">After</p></body></html>',
