@@ -23,7 +23,7 @@ on:
       - 'scripts/v2_native_thread_oracle.py'
       - '.github/workflows/v2-native-thread-runtime.yml'
   pull_request:
-    branches: [integration/import-terminal-application-race-apex-20261004-sol6p3]
+    branches: [integration/current-main-windows-apex-reconvergence-20261004-sol]
     paths:
       - 'acs/version2_release_ui.py'
       - 'acs/version2_release_app.py'
@@ -74,7 +74,7 @@ jobs:
           git reset --hard HEAD
           git checkout-index --force --all
 
-      - name: Bind exact live runtime-fixed stacked-parent geometry
+      - name: Bind exact live main-reconverged parent geometry
         shell: bash
         run: |
           set -euo pipefail
@@ -99,8 +99,6 @@ jobs:
               'tests/test_v2_windows_book_board_adapter_workflow.py' | LC_ALL=C sort)"
             test "$changed" = "$wanted"
 
-            # The convergence changes qualification only. All runtime authorities,
-            # including the newly fixed file/import/application seams, are inherited.
             git diff --quiet "$live_base" HEAD -- \
               acs/version2_release_ui.py \
               acs/version2_release_app.py \

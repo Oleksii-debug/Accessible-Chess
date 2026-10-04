@@ -23,13 +23,13 @@ class NativeThreadRuntimeWorkflowTests(unittest.TestCase):
             self.workflow[pull_start:permissions],
         )
 
-    def test_product_push_and_runtime_fixed_stacked_pr_authorities(self) -> None:
+    def test_product_push_and_main_reconverged_pr_authorities(self) -> None:
         push, pull = self._trigger_blocks()
         self.assertIn(
             "work/full-product-teacher-education-reachability-20260911", push
         )
         self.assertIn(
-            "integration/import-terminal-application-race-apex-20261004-sol6p3",
+            "integration/current-main-windows-apex-reconvergence-20261004-sol",
             pull,
         )
         self.assertNotIn("codex/v2-runtime-completion-20260907", self.workflow)
@@ -81,7 +81,7 @@ class NativeThreadRuntimeWorkflowTests(unittest.TestCase):
                 self.assertIn(fragment, self.workflow)
         self.assertIn("fetch-depth: 0", self.workflow)
 
-    def test_qualification_only_gate_pins_fixed_runtime_as_inherited(self) -> None:
+    def test_qualification_only_gate_pins_reconverged_runtime_as_inherited(self) -> None:
         self.assertIn('git diff --quiet "$live_base" HEAD --', self.workflow)
         for path in (
             "acs/version2_release_ui.py",

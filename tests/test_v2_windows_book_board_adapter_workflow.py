@@ -23,13 +23,13 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
             self.workflow[pull_start:dispatch],
         )
 
-    def test_product_push_and_runtime_fixed_stacked_pr_authorities(self) -> None:
+    def test_product_push_and_main_reconverged_pr_authorities(self) -> None:
         push, pull = self._trigger_blocks()
         self.assertIn(
             "work/full-product-teacher-education-reachability-20260911", push
         )
         self.assertIn(
-            "integration/import-terminal-application-race-apex-20261004-sol6p3",
+            "integration/current-main-windows-apex-reconvergence-20261004-sol",
             pull,
         )
         self.assertNotIn("work/v2-windows-book-board-adapter-20260831", self.workflow)
@@ -75,7 +75,7 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertIn(path, block)
 
-    def test_qualification_only_gate_keeps_runtime_fixed_authorities_inherited(self) -> None:
+    def test_qualification_only_gate_keeps_reconverged_authorities_inherited(self) -> None:
         self.assertIn('git diff --quiet "$live_base" HEAD --', self.workflow)
         for path in (
             "run_accessible_chess.py",
