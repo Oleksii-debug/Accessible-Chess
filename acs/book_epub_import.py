@@ -57,6 +57,10 @@ _PACKAGE_TAG = f"{{{_OPF_NAMESPACE}}}package"
 _METADATA_TAG = f"{{{_OPF_NAMESPACE}}}metadata"
 _MANIFEST_TAG = f"{{{_OPF_NAMESPACE}}}manifest"
 _SPINE_TAG = f"{{{_OPF_NAMESPACE}}}spine"
+_GUIDE_TAG = f"{{{_OPF_NAMESPACE}}}guide"
+_BINDINGS_TAG = f"{{{_OPF_NAMESPACE}}}bindings"
+_COLLECTION_TAG = f"{{{_OPF_NAMESPACE}}}collection"
+_TOURS_TAG = f"{{{_OPF_NAMESPACE}}}tours"
 _ITEM_TAG = f"{{{_OPF_NAMESPACE}}}item"
 _ITEMREF_TAG = f"{{{_OPF_NAMESPACE}}}itemref"
 _ID_BEARING_OPF_TAGS = frozenset(
@@ -525,6 +529,29 @@ def _validate_package_document(package: ET.Element) -> None:
     ):
         raise _error(
             "EPUB package required sections must be the first three OPF children in canonical order",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    trailing = structural_children[3:]
+    if version == "3.0":
+        index = 0
+        if index < len(trailing) and trailing[index] == _GUIDE_TAG:
+            index += 1
+        if index < len(trailing) and trailing[index] == _BINDINGS_TAG:
+            index += 1
+        while index < len(trailing) and trailing[index] == _COLLECTION_TAG:
+            index += 1
+        valid_trailing_structure = index == len(trailing)
+    else:
+        index = 0
+        if index < len(trailing) and trailing[index] == _TOURS_TAG:
+            index += 1
+        if index < len(trailing) and trailing[index] == _GUIDE_TAG:
+            index += 1
+        valid_trailing_structure = index == len(trailing)
+    if not valid_trailing_structure:
+        raise _error(
+            "EPUB package contains an invalid OPF top-level element or ordering",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
