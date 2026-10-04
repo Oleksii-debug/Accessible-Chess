@@ -6,6 +6,7 @@ on:
       - integration/book-html-semantic-reading-apex-20261004-sol6p3
       - converge/current-product-settings-a11y-20261004-sol56-q8t2
       - converge/current-product-settings-launcher-20261004-c2mbezb
+      - fix/settings-keymap-refresh-recovery-20261004-c2mbezb
     paths:
       - 'acs/book_game_content.py'
       - 'tests/test_v2_book_game_content.py'
