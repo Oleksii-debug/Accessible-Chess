@@ -1151,6 +1151,26 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsInstance(trailing, Paragraph)
         self.assertEqual(trailing.text, "After")
 
+    def test_head_close_contains_all_nested_unclosed_titles_before_body_text(self) -> None:
+        result = import_html_book(
+            '<html><head><title>Outer<title>Inner</head>'
+            '<body><p id="body">Body text</p></body></html>',
+            source_name="malformed-nested-title-close.html",
+        )
+
+        self.assertEqual(result.document.title, "Inner")
+        paragraphs = [
+            block for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.source_anchor, block.text) for block in paragraphs],
+            [("body", "Body text")],
+        )
+        self.assertGreaterEqual(
+            sum("unclosed title element" in warning for warning in result.warnings),
+            2,
+        )
+
     def test_head_close_contains_unclosed_title_before_body_text(self) -> None:
         result = import_html_book(
             '<html><head><title>Book title</head>'
