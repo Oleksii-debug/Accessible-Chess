@@ -49,6 +49,8 @@ jobs:
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
           for absorbed in \
+            c0c86c11d6f9e520797bfeacc13c15df6a26dab1 \
+            e00eea84cf8c1ab0b93fb1a99f091eb814ab47d3 \
             4c11b8e63c3af7a4814e8e386bbef74609c64376 \
             73bcf84885a5219606b00149370705e74c3c984a \
             0fe5eb7eb2da69f3bf7f8941d573c7b78b463be2 \
@@ -96,6 +98,7 @@ jobs:
           tests/test_v2_book_epub_import.py
           tests/test_bookdocument.py
           tests/test_bookreader.py
+          tests/test_book_document_warning_accessibility.py
           tests/test_version2_application.py
           tests/test_v2_book_progress_store.py
           tests/test_v2_book_progress_store_production.py
@@ -143,6 +146,13 @@ jobs:
           tests.test_books_semantic_host_bounds
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_books_training_webview_atomicity
+
+      - name: Qualify retained document warning accessibility
+        shell: bash
+        run: |
+          python -m unittest -v tests.test_book_document_warning_accessibility
+          node --check tests/js/book_document_warning_accessibility_dom_test.js
+          node tests/js/book_document_warning_accessibility_dom_test.js
 
       - name: Qualify browser presentation lease
         shell: bash
