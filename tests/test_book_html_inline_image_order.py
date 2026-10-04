@@ -14,7 +14,7 @@ from acs.book_html_import import (
     import_html_book,
 )
 from acs.book_progress_store import BookProgressStore
-from acs.bookdocument import Diagram, Game, Note, Paragraph, Position
+from acs.bookdocument import BookDocument, Diagram, Game, Note, Paragraph, Position
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 
@@ -591,6 +591,75 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         )
         self.assertTrue(
             any("unclosed p element" in warning for warning in result.warnings)
+        )
+
+
+    def test_progress_survives_migration_from_legacy_end_appended_game_order(self) -> None:
+        source = (
+            "<html><body><h1>Chapter</h1><pre>{PGN 1}\n"
+            + _PGN
+            + "</pre><p id=\"after\">After game.</p></body></html>"
+        )
+        current = import_html_book(source, source_name="pgn-progress-migration.html")
+        self.assertEqual(
+            [block.kind for block in current.document.blocks],
+            ["Heading", "Game", "Paragraph"],
+        )
+
+        heading, game, after = current.document.blocks
+        legacy = BookDocument(
+            title=current.document.title,
+            language=current.document.language,
+            author=current.document.author,
+            source_name=current.document.source_name,
+            blocks=[heading, after, game],
+            warnings=list(current.document.warnings),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+
+            legacy_reader = BookReader(legacy)
+            legacy_reader.go_to(1)
+            store.save(current.book_key + ":after", legacy_reader)
+            restored_after = store.restore(
+                current.book_key + ":after",
+                current.document,
+            )
+            self.assertEqual(restored_after.location().index, 2)
+            self.assertEqual(restored_after.location().block_id, after.block_id)
+
+            legacy_reader.go_to(2)
+            store.save(current.book_key + ":game", legacy_reader)
+            restored_game = store.restore(
+                current.book_key + ":game",
+                current.document,
+            )
+            self.assertEqual(restored_game.location().index, 1)
+            self.assertEqual(restored_game.location().block_id, game.block_id)
+
+    def test_invalid_first_marked_game_does_not_renumber_later_valid_game_identity(self) -> None:
+        source = (
+            "<html><body><pre>{PGN 1}\n"
+            "[Event \"Broken\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\n"
+            "1. ThisIsNotAMove *\n"
+            "{PGN 2}\n"
+            + _PGN
+            + "</pre><p>After.</p></body></html>"
+        )
+        result = import_html_book(source, source_name="mixed-pgn-validity.html")
+
+        games = [block for block in result.document.blocks if isinstance(block, Game)]
+        self.assertEqual(len(games), 1)
+        self.assertEqual(result.pgn_games, 1)
+        self.assertEqual(games[0].source_anchor, "pgn:2")
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Game", "Paragraph"],
+        )
+        self.assertEqual(
+            next(block.text for block in result.document.blocks if isinstance(block, Paragraph)),
+            "After.",
         )
 
 
