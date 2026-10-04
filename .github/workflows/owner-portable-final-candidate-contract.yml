@@ -1,0 +1,102 @@
+name: Owner Portable Final Candidate Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/build_owner_portable_candidate.py'
+      - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_owner_portable_candidate_stable_reads.py'
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_portable_package.py'
+      - 'scripts/build_user_sound_pack.py'
+      - '.github/workflows/owner-portable-final-candidate-contract.yml'
+  push:
+    branches:
+      - qualification/owner-portable-candidate-20261004-sol6f2
+    paths:
+      - 'scripts/build_owner_portable_candidate.py'
+      - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_owner_portable_candidate_stable_reads.py'
+      - '.github/workflows/owner-portable-final-candidate-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-portable-final-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile release qualification surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            scripts/build_owner_portable_candidate.py \
+            tests/test_owner_portable_candidate.py \
+            tests/test_owner_portable_candidate_stable_reads.py
+          echo 'OWNER_PORTABLE_COMPILE=PASS'
+
+      - name: Run owner candidate and canonical dependency regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest -v \
+            tests.test_owner_portable_candidate \
+            tests.test_owner_portable_candidate_stable_reads \
+            tests.test_user_library_seed \
+            tests.test_version2_portable_package
+          echo 'OWNER_PORTABLE_CONTRACT=PASS'
+
+      - name: Source hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check HEAD^ HEAD
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('scripts/build_owner_portable_candidate.py').read_text(encoding='utf-8')
+          required = (
+              'require_user_seed=True',
+              'EXPECTED_SOURCE_WAV_COUNT',
+              'EXPECTED_SOURCE_INVENTORY_SHA256',
+              'load_user_library_seed',
+              'import_user_library_seed',
+              'AcsDatabase(":memory:")',
+              'expected_seed_game_count: int = 3738',
+              'expected_seed_source_count: int = 6',
+              '_stable_bytes',
+              '_stable_digest',
+          )
+          for token in required:
+              assert token in source, token
+          forbidden = (
+              'parse_pgn_text',
+              'chess.Board',
+              'python-chess',
+          )
+          for token in forbidden:
+              assert token not in source, token
+          print('OWNER_PORTABLE_AUTHORITY_BOUNDARY=PASS')
+          PY
