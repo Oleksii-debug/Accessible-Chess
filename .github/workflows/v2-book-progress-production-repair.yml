@@ -56,6 +56,9 @@ jobs:
       RECOVERY_PAIR_STORE_BLOB: 39a2e78fde6d31e7419f90f7ba11093f870c6f0f
       RECOVERY_PAIR_BASE_TEST_BLOB: e74f95793d32d1c0abaa269f13f47ddf2b4998d4
       RECOVERY_PAIR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      EXPLICIT_RECOVERY_INODE_STORE_BLOB: a1fd9168729b1821ff1df6f6a926623324faee87
+      EXPLICIT_RECOVERY_INODE_BASE_TEST_BLOB: c33f2c1978325f73f362ee66a2670e99e4fc2522
+      EXPLICIT_RECOVERY_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -301,6 +304,10 @@ jobs:
             && [ "$candidate_base_test" = "$RECOVERY_PAIR_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$RECOVERY_PAIR_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_PAIR_SUCCESSOR'
+          elif [ "$candidate_store" = "$EXPLICIT_RECOVERY_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$EXPLICIT_RECOVERY_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$EXPLICIT_RECOVERY_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=EXPLICIT_RECOVERY_INODE_SUCCESSOR'
           else
             printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
               "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2
