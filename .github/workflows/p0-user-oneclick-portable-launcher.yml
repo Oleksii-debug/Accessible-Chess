@@ -357,6 +357,7 @@ jobs:
           foreach ($required in @(
             'PREFLIGHT: PASS',
             'PROCESS_CREATED: YES',
+            'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE',
             'STATUS: STARTUP_WINDOW_READY',
             'USER_WINDOW_PROVEN: YES',
             'USER_NVDA_PROVEN: NO'
@@ -376,6 +377,17 @@ jobs:
           $expectedChildPath = (Resolve-Path (Join-Path $app 'AccessibleChess.exe')).Path
           if ($reportedChild.Path -ne $expectedChildPath) {
             throw "Launch report child PID path mismatch: $($reportedChild.Path)"
+          }
+          $ownedChildren = @(
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $expectedChildPath } catch { $false }
+            }
+          )
+          if ($ownedChildren.Count -ne 1) {
+            throw "Expected exactly one package-local child after overlapping launchers; found $($ownedChildren.Count)"
+          }
+          if ([uint32]$ownedChildren[0].Id -ne $reportedChildPid) {
+            throw "Single package-local child PID mismatch: report=$reportedChildPid actual=$($ownedChildren[0].Id)"
           }
 
           $exclusive = [IO.File]::Open(
@@ -564,6 +576,11 @@ jobs:
           assert 'g_process.dwProcessId' in source
           assert 'CHILD_RUNNING_AFTER_STARTUP_OBSERVATION' not in source
           assert 'SetEnvironmentVariableW(L"LOCALAPPDATA"' in source
+          assert 'L".accessible-chess-instance.lock"' in source
+          assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED' in source
+          assert 'DuplicateHandle(' in source
+          assert 'DUPLICATE_SAME_ACCESS' in source
+          assert 'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE' in source
           assert 'STARTF_USESTDHANDLES' not in source
           assert 'bInheritHandle = TRUE' not in source
           print('PORTABLE_ONECLICK_SOURCE_HYGIENE=PASS')
