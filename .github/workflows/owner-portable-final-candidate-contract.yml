@@ -11,6 +11,7 @@ on:
       - 'acs/user_library_seed.py'
       - 'acs/version2_portable_package.py'
       - 'scripts/build_user_sound_pack.py'
+      - 'tests/test_user_sound_pack_builder.py'
       - '.github/workflows/owner-portable-final-candidate-contract.yml'
   push:
     branches:
@@ -22,6 +23,10 @@ on:
       - 'tests/test_owner_portable_candidate_stable_reads.py'
       - 'tests/test_owner_portable_candidate_docx_binding.py'
       - 'tests/test_owner_docx_win32_portability.py'
+      - 'tests/test_user_sound_pack_builder.py'
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_portable_package.py'
+      - 'scripts/build_user_sound_pack.py'
       - '.github/workflows/owner-portable-final-candidate-contract.yml'
   workflow_dispatch:
 
@@ -75,7 +80,9 @@ jobs:
             tests/test_owner_portable_candidate.py \
             tests/test_owner_portable_candidate_stable_reads.py \
             tests/test_owner_portable_candidate_docx_binding.py \
-            tests/test_owner_docx_win32_portability.py
+            tests/test_owner_docx_win32_portability.py \
+            scripts/build_user_sound_pack.py \
+            tests/test_user_sound_pack_builder.py
           echo 'OWNER_PORTABLE_COMPILE=PASS'
 
       - name: Run owner candidate and canonical dependency regressions
@@ -88,6 +95,7 @@ jobs:
             tests.test_owner_portable_candidate_docx_binding \
             tests.test_owner_docx_win32_portability \
             tests.test_user_library_seed \
+            tests.test_user_sound_pack_builder \
             tests.test_version2_portable_package
           echo 'OWNER_PORTABLE_CONTRACT=PASS'
 
