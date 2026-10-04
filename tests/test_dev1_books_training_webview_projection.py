@@ -482,6 +482,28 @@ class BookProjectionTests(unittest.TestCase):
                 self.projection.open_game()
         self.assertEqual([], self.calls)
 
+    def test_board_handoff_rejects_semantic_snapshot_drift_before_dispatch(self) -> None:
+        self.projection.next_position()
+        position_block = self.presenter.current()
+        with patch.object(
+            self.presenter,
+            "current",
+            return_value=replace(position_block, role="paragraph"),
+        ):
+            with self.assertRaisesRegex(ValueError, "kind/role"):
+                self.projection.open_position()
+        self.assertEqual([], self.calls)
+
+        self.projection.next_game()
+        with patch.object(
+            self.presenter,
+            "navigation_availability",
+            return_value={"previous": True},
+        ):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
+                self.projection.open_game()
+        self.assertEqual([], self.calls)
+
     def test_open_game_keeps_game_content_inside_python_dispatch_boundary(self) -> None:
         event = self.projection.next_game()
         self.assertEqual("Game", event.payload["snapshot"]["block"]["kind"])
