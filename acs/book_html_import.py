@@ -787,8 +787,7 @@ class _SemanticHtmlParser(HTMLParser):
         parent = capture.parent_paragraph
         part_index = capture.parent_part_index
         if (
-            capture.kind != "paragraph"
-            or parent is None
+            parent is None
             or part_index is None
             or not any(candidate is parent for candidate in self._captures)
             or len(self.blocks) <= capture.block_start_index
