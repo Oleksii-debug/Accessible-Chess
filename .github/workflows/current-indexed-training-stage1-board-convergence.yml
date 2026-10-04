@@ -9,11 +9,13 @@ on:
       - '.github/workflows/current-stage1-board-clock-projection-passive.yml'
       - '.github/workflows/current-stage1-v2-board-command-passive-ingress.yml'
       - '.github/workflows/current-v2-keymap-context-passive.yml'
+      - '.github/workflows/current-v2-review-fen-bounds.yml'
       - 'acs/version2_release_ui.py'
       - 'acs/webapp_keymap.py'
       - 'tests/test_stage1_board_clock_projection_passive.py'
       - 'tests/test_stage1_v2_board_command_passive_ingress.py'
       - 'tests/test_v2_keymap_context_passive.py'
+      - 'tests/test_v2_review_fen_bounds.py'
   workflow_dispatch:
 
 permissions:
@@ -65,11 +67,13 @@ jobs:
             '.github/workflows/current-stage1-board-clock-projection-passive.yml' \
             '.github/workflows/current-stage1-v2-board-command-passive-ingress.yml' \
             '.github/workflows/current-v2-keymap-context-passive.yml' \
+            '.github/workflows/current-v2-review-fen-bounds.yml' \
             'acs/version2_release_ui.py' \
             'acs/webapp_keymap.py' \
             'tests/test_stage1_board_clock_projection_passive.py' \
             'tests/test_stage1_v2_board_command_passive_ingress.py' \
-            'tests/test_v2_keymap_context_passive.py' | sort)"
+            'tests/test_v2_keymap_context_passive.py' \
+            'tests/test_v2_review_fen_bounds.py' | sort)"
           test "$changed" = "$expected_paths" || {
             printf 'Unexpected indexed-Training/Stage1 convergence scope:\n%s\n' "$changed" >&2
             exit 1
@@ -91,6 +95,7 @@ jobs:
           tests/test_stage1_board_clock_projection_passive.py
           tests/test_stage1_v2_board_command_passive_ingress.py
           tests/test_v2_keymap_context_passive.py
+          tests/test_v2_review_fen_bounds.py
 
       - name: Execute indexed Book Training regressions
         run: >-
@@ -105,6 +110,8 @@ jobs:
           tests.test_stage1_v2_board_command_passive_ingress
           tests.test_stage1_board_clock_projection_passive
           tests.test_v2_keymap_context_passive
+          tests.test_v2_review_fen_bounds
+          tests.test_version2_external_review_live_state_isolation
           tests.test_stage1_board_action_integration
           tests.test_version2_release_ui
           tests.test_v2_remapped_keyboard_routing
