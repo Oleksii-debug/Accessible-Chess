@@ -14,6 +14,7 @@ on:
       - 'web/index.html'
       - 'web/keybindings.json'
       - 'web/stage1_board_actions.js'
+      - 'web/stage1_release_bootstrap.js'
       - 'web/full_product_pgn.js'
       - 'web/full_product_library.js'
       - 'web/full_product_education.js'
@@ -90,6 +91,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node --check web/stage1_release_bootstrap.js
           node tests/js/stage1_terminal_keymap_dom_test.js
           node tests/js/v2_remapped_keyboard_native_editing_test.js
           node tests/js/pgn_surface_dom_test.js
