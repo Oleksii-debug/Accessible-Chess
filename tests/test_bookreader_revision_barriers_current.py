@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
 from unittest.mock import patch
 
@@ -19,6 +21,31 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
                 Paragraph(text="beta"),
             ],
         )
+
+    def test_revision_digest_streams_exact_legacy_canonical_bytes(self) -> None:
+        book = self.make_book()
+        legacy_payload = json.dumps(
+            [block.as_dict() for block in book.blocks],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        expected = hashlib.sha256(legacy_payload).hexdigest()
+
+        original_dumps = json.dumps
+        dumped_values: list[object] = []
+
+        def guarded_dumps(value, *args, **kwargs):
+            self.assertNotIsInstance(value, list)
+            dumped_values.append(value)
+            return original_dumps(value, *args, **kwargs)
+
+        with patch("acs.bookreader.json.dumps", side_effect=guarded_dumps):
+            actual = BookReader._revision_digest(book.blocks)
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(dumped_values), len(book.blocks))
+        self.assertTrue(all(type(value) is dict for value in dumped_values))
 
     def test_location_keeps_one_live_revision_preflight(self) -> None:
         reader = BookReader(self.make_book())
