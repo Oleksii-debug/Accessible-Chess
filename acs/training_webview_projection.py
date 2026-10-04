@@ -152,7 +152,9 @@ class TrainingWebViewProjection:
         language: UILanguage = UILanguage.UA,
         can_continue: Callable[[], bool] | None = None,
     ) -> None:
-        if not isinstance(presenter, TrainingPresenter):
+        # The WebView projection is the accessible publication boundary.
+        # Reject presenter subclasses before set_language/view/state hooks.
+        if type(presenter) is not TrainingPresenter:
             raise TypeError("presenter must be TrainingPresenter")
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
@@ -246,7 +248,7 @@ class TrainingWebViewProjection:
         return available if type(available) is bool else False
 
     def _snapshot_from_view(self, view: TrainingView) -> dict[str, object]:
-        if not isinstance(view, TrainingView):
+        if type(view) is not TrainingView:
             raise TypeError("TrainingPresenter must return TrainingView")
         if not isinstance(view.status, ExerciseStatus):
             raise ValueError("training status is invalid")
