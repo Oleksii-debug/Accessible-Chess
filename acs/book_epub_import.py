@@ -241,6 +241,23 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
                 "EPUB ZIP64 end-of-central-directory record is invalid",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
+        zip64_record_size = int.from_bytes(
+            raw[zip64_eocd_offset + 4 : zip64_eocd_offset + 12],
+            "little",
+        )
+        zip64_version_needed = int.from_bytes(
+            raw[zip64_eocd_offset + 14 : zip64_eocd_offset + 16],
+            "little",
+        )
+        if (
+            zip64_record_size < 44
+            or zip64_eocd_offset + 12 + zip64_record_size != locator_offset
+            or zip64_version_needed != 45
+        ):
+            raise _error(
+                "EPUB uses an unsupported ZIP64 record version or layout",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
         zip64_record_disk = int.from_bytes(
             raw[zip64_eocd_offset + 16 : zip64_eocd_offset + 20],
             "little",
