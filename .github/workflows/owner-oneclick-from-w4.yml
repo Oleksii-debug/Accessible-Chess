@@ -222,7 +222,7 @@ jobs:
           }
           if not isinstance(metadata, dict) or set(metadata) != expected_metadata_keys:
               raise SystemExit('W4_METADATA_CONTRACT_INVALID')
-          if metadata.get('schema_version') != 1:
+          if type(metadata.get('schema_version')) is not int or metadata.get('schema_version') != 1:
               raise SystemExit('W4_METADATA_SCHEMA_INVALID')
           if (
               metadata.get('pre_upload_product_freshness') is not True
@@ -243,7 +243,7 @@ jobs:
               )
           if metadata.get('human_tested') is not False or metadata.get('nvda_verified') is not False:
               raise SystemExit('W4_MACHINE_EVIDENCE_OVERCLAIMS_HUMAN_ACCEPTANCE')
-          if metadata.get('user_sound_wav_count') != 330:
+          if type(metadata.get('user_sound_wav_count')) is not int or metadata.get('user_sound_wav_count') != 330:
               raise SystemExit('W4_SOUND_WAV_COUNT_INVALID')
           if metadata.get('user_sound_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
               raise SystemExit('W4_SOUND_INVENTORY_SHA_MISMATCH')
