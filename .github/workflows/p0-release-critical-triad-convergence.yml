@@ -43,6 +43,7 @@ jobs:
           CHECKED_SHA: ${{ github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+          INTEGRATION_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb
         run: |
           set -euo pipefail
           test -n "$EVENT_BASE_SHA"
@@ -65,10 +66,16 @@ jobs:
           git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_event_base"
           if [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then
             # Whole-Product integration is intentionally based on the default
-            # branch, which predates the retained Product authority. Prove the
-            # Product authority is in the candidate head instead of requiring
-            # the default-branch base to contain future Product history.
+            # branch, which predates Product history. Retain the long-lived
+            # baseline proof, then bind this release candidate to the live
+            # current Product apex branch as well.
             git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"
+            git fetch --no-tags origin "+refs/heads/$INTEGRATION_PRODUCT_BRANCH:refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH"
+            live_integration_product="$(git rev-parse "refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH")"
+            git cat-file -e "$live_integration_product^{commit}"
+            git merge-base --is-ancestor "$live_product" "$live_integration_product"
+            git merge-base --is-ancestor "$live_integration_product" "$EVENT_HEAD_SHA"
+            echo "P0_TRIAD_CURRENT_PRODUCT_ANCESTOR=$live_integration_product"
             echo "P0_TRIAD_MODE=DEFAULT_BRANCH_INTEGRATION"
           else
             # Stacked Product successors must continue to prove that their live

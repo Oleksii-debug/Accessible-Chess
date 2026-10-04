@@ -45,6 +45,10 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
             workflow,
         )
+        self.assertIn(
+            "INTEGRATION_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb",
+            workflow,
+        )
         self.assertIn('test "$(git rev-parse HEAD)" = "$CHECKED_SHA"', workflow)
         self.assertIn(
             'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
@@ -71,6 +75,23 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"',
             workflow,
         )
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$INTEGRATION_PRODUCT_BRANCH:refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH"',
+            workflow,
+        )
+        self.assertIn(
+            'live_integration_product="$(git rev-parse "refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH")"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_product" "$live_integration_product"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_integration_product" "$EVENT_HEAD_SHA"',
+            workflow,
+        )
+        self.assertIn("P0_TRIAD_CURRENT_PRODUCT_ANCESTOR=", workflow)
         self.assertIn("P0_TRIAD_MODE=DEFAULT_BRANCH_INTEGRATION", workflow)
         self.assertIn(
             'git merge-base --is-ancestor "$live_product" "$live_event_base"',
