@@ -154,6 +154,95 @@ jobs:
           "FIRST_DOCX_URL=$env:FIRST_DOCX_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SECOND_DOCX_URL=$env:SECOND_DOCX_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Authenticate exact W4 workflow run provenance
+        shell: pwsh
+        env:
+          GH_API_URL: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          W4_WORKFLOW_PATH: .github/workflows/w4-v2-p0-fresh-windows-candidate.yml
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json
+          import os
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          run_id = os.environ['W4_RUN_ID'].strip()
+          exact = os.environ['EXACT_PRODUCT_SHA'].strip().lower()
+          release_branch = os.environ['RELEASE_BRANCH'].strip()
+          api_url = os.environ['GH_API_URL'].rstrip('/')
+          repository = os.environ['GH_REPOSITORY'].strip()
+          token = os.environ['GH_TOKEN']
+          workflow_path = os.environ['W4_WORKFLOW_PATH']
+
+          if not token:
+              raise SystemExit('W4_RUN_PROVENANCE_TOKEN_MISSING')
+
+          request = Request(
+              f'{api_url}/repos/{repository}/actions/runs/{run_id}',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f'Bearer {token}',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'accessible-chess-owner-finalizer',
+              },
+          )
+          try:
+              with urlopen(request, timeout=30) as response:
+                  payload = json.load(response)
+          except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+              raise SystemExit(
+                  f'W4_RUN_PROVENANCE_FETCH_FAILED type={type(exc).__name__}'
+              ) from exc
+
+          if str(payload.get('id')) != run_id:
+              raise SystemExit(
+                  f'W4_RUN_ID_MISMATCH actual={payload.get("id")} expected={run_id}'
+              )
+          if payload.get('path') != workflow_path:
+              raise SystemExit(
+                  f'W4_RUN_WORKFLOW_PATH_INVALID actual={payload.get("path")} '
+                  f'expected={workflow_path}'
+              )
+          if payload.get('event') != 'workflow_dispatch':
+              raise SystemExit(
+                  f'W4_RUN_EVENT_INVALID actual={payload.get("event")}'
+              )
+          if payload.get('status') != 'completed':
+              raise SystemExit(
+                  f'W4_RUN_STATUS_INVALID actual={payload.get("status")}'
+              )
+          if payload.get('conclusion') != 'success':
+              raise SystemExit(
+                  f'W4_RUN_CONCLUSION_INVALID actual={payload.get("conclusion")}'
+              )
+          if payload.get('head_branch') != release_branch:
+              raise SystemExit(
+                  f'W4_RUN_HEAD_BRANCH_INVALID actual={payload.get("head_branch")} '
+                  f'expected={release_branch}'
+              )
+          actual_sha = str(payload.get('head_sha') or '').lower()
+          if actual_sha != exact:
+              raise SystemExit(
+                  f'W4_RUN_HEAD_SHA_INVALID actual={actual_sha} expected={exact}'
+              )
+          run_repository = (
+              payload.get('repository') or {}
+          ).get('full_name')
+          if run_repository != repository:
+              raise SystemExit(
+                  f'W4_RUN_REPOSITORY_INVALID actual={run_repository} expected={repository}'
+              )
+
+          print(f'W4_RUN_PROVENANCE_ID={run_id}')
+          print(f'W4_RUN_PROVENANCE_WORKFLOW={workflow_path}')
+          print(f'W4_RUN_PROVENANCE_HEAD={release_branch}@{exact}')
+          print('W4_RUN_PROVENANCE=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'W4 workflow run provenance authentication failed'}
+
       - name: Download exact W4 artifact by run ID
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
