@@ -980,11 +980,30 @@ class Version2Application:
             except Exception:
                 pass
         if self.book_workflow is not None and self.book_workflow.active:
+            # The external Board is now untrustworthy, but the canonical workflow
+            # still owns its exact Book origin. Acquire a non-Board shell owner
+            # before discarding that workflow session; otherwise a rejected Books
+            # route would strand the visible Board with no canonical owner.
+            origin_route = self.shell.current_route.route_id
+            try:
+                route_focus = self.shell.open_route("books")
+            except Exception:
+                if self.shell.current_route.route_id != origin_route:
+                    try:
+                        self._focus = self.shell.open_route(origin_route)
+                    except Exception:
+                        pass
+                return
             try:
                 self.book_workflow.return_to_book()
             except Exception:
+                if self.shell.current_route.route_id != origin_route:
+                    try:
+                        self._focus = self.shell.open_route(origin_route)
+                    except Exception:
+                        pass
                 return
-            self._focus = self.shell.open_route("books")
+            self._focus = route_focus
             self._repair_book_block_focus_after_rebind()
             self._events.append(
                 {"kind": "route", "payload": {"route_id": "books"}}
@@ -1068,11 +1087,24 @@ class Version2Application:
                     self._project_pgn_position(before_fen)
                 except Exception:
                     # The canonical cursor is restored, but the release Board no
-                    # longer has a trustworthy projection. Relinquish Board
-                    # ownership and return to the PGN workspace rather than
-                    # leaving a live review over unknown external state.
+                    # longer has a trustworthy projection. Acquire the PGN shell
+                    # route before relinquishing Board ownership so a rejected or
+                    # partial route transition cannot leave a visible ownerless
+                    # Board. If route acquisition fails, restore Board when
+                    # possible and keep the PGN review owner active for explicit
+                    # Return/recovery.
+                    origin_route = self.shell.current_route.route_id
+                    try:
+                        route_focus = self.shell.open_route("pgn")
+                    except Exception:
+                        if self.shell.current_route.route_id != origin_route:
+                            try:
+                                self._focus = self.shell.open_route(origin_route)
+                            except Exception:
+                                pass
+                        raise
+                    self._focus = route_focus
                     self.pgn_board_active = False
-                    self._focus = self.shell.open_route("pgn")
                 raise
             return None
         if action.startswith("pgn.") and action not in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
