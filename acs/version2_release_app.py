@@ -19,6 +19,7 @@ from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
+from .local_profile import LocalProfileStore
 from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
@@ -27,6 +28,7 @@ from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
 from .version2_gametree_resume import Version2GameTreeResumeCoordinator
+from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
@@ -424,8 +426,9 @@ def create_version2_release_application(
         )
         game_sounds = GameSoundRuntime(sound_runtime)
 
-        api = Version2ReleaseAccessibleChessAPI(
+        api = Version2ProfileAccessibleChessAPI(
             continuous_analysis=continuous,
+            profile_store=LocalProfileStore(layout.root / "profile.json"),
             game_sounds=game_sounds,
             sound_runtime=sound_runtime,
             settings=settings,
