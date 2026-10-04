@@ -129,6 +129,55 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
         self.assertIs(snapshot.legal_moves[0], exact)
         self.assertIs(snapshot.last_move, exact)
 
+    def test_snapshot_subclasses_are_rejected_before_attribute_hooks(self) -> None:
+        class HostileBoard(BoardSnapshot):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"pieces", "turn", "legal_moves", "attacks", "last_move", "last_captured_piece"} and type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile BoardSnapshot attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        class HostileEngine(EngineSnapshot):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"evaluation", "best_move"} and type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile EngineSnapshot attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        class HostileClock(ClockSnapshot):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"my_clock", "opponent_clock"} and type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile ClockSnapshot attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        board = HostileBoard(_empty_pieces(), "w")
+        engine = HostileEngine("+0.1", "e4")
+        clocks = HostileClock("01:00", "02:00")
+        HostileBoard.armed = HostileEngine.armed = HostileClock.armed = True
+
+        with self.assertRaisesRegex(TypeError, "exact BoardSnapshot"):
+            BoardCommandService(board)
+        self.assertFalse(HostileBoard.touched)
+
+        exact_board = BoardSnapshot(_empty_pieces(), "w")
+        with self.assertRaisesRegex(TypeError, "exact EngineSnapshot"):
+            BoardCommandService(exact_board, engine=engine)
+        self.assertFalse(HostileEngine.touched)
+
+        with self.assertRaisesRegex(TypeError, "exact ClockSnapshot"):
+            BoardCommandService(exact_board, clocks=clocks)
+        self.assertFalse(HostileClock.touched)
+
     def test_mapping_roots_reject_active_containers_before_hooks(self) -> None:
         class HostileMapping(Mapping):
             touched = False
