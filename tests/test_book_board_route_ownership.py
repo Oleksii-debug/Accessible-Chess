@@ -822,6 +822,49 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual("pgn", self.app.shell.current_route.route_id)
         self.assertEqual("pgn-edit-modal", self.app.shell.active_dialog_id)
 
+    def test_hidden_native_pgn_navigation_cannot_mutate_cursor(self):
+        self._load_pgn_workspace()
+        selected = self.app.browser_command(
+            "pgn",
+            "pgn.select",
+            {"node_id": "g0:main/m0"},
+        )
+        self.assertNotEqual("error", selected["kind"])
+        before_cursor = self.app.session.workspace.cursor
+        self.app.browser_command("shell", "screen.library")
+
+        with self.assertRaises(ValueError):
+            self.app.router.dispatch("pgn.next_item")
+
+        self.assertEqual(before_cursor, self.app.session.workspace.cursor)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+    def test_modal_blocks_native_pgn_edit_before_document_mutation(self):
+        self._load_pgn_workspace()
+        selected = self.app.browser_command(
+            "pgn",
+            "pgn.select",
+            {"node_id": "g0:main/m0"},
+        )
+        self.assertNotEqual("error", selected["kind"])
+        self.assertFalse(self.app.session.dirty)
+        opened = self.app.adapter.open_dialog(
+            "pgn-native-edit-modal",
+            opener_focus_id="pgn-game-list",
+            initial_focus_id="pgn-native-edit-modal-confirm",
+        )
+        self.assertEqual("dialog-open", opened.kind)
+
+        with self.assertRaises(ValueError):
+            self.app.router.dispatch(
+                "pgn.comment_edit",
+                {"text": "native modal-hidden edit"},
+            )
+
+        self.assertFalse(self.app.session.dirty)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertEqual("pgn-native-edit-modal", self.app.shell.active_dialog_id)
+
     def test_hidden_pgn_board_navigation_cannot_mutate_cursor(self):
         self._load_pgn_workspace()
         self.assertEqual(
