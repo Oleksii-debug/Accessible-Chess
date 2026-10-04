@@ -62,6 +62,8 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_v2_book_html_import",
             "tests.test_v2_book_text_import",
             "tests.test_book_index",
+            "tests.test_dev1_pgn_webview_projection",
+            "tests/js/pgn_surface_dom_test.js",
             "tests.test_pgn_open_source_binding",
             "tests.test_pgn_open_identity_fail_closed",
             "tests.test_version2_pgn_commands",
