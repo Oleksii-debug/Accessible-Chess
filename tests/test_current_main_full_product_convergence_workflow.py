@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "full-product-convergence-integration-20261004.yml"
 BOOKDOCUMENT_WORKFLOW = ROOT / ".github" / "workflows" / "bookdocument-constructor-semantic-integrity.yml"
 PGN_POSITION_WORKFLOW = ROOT / ".github" / "workflows" / "pgn-document-new-game-position-integrity.yml"
+BOOK_AUTHORITY_WORKFLOW = ROOT / ".github" / "workflows" / "full-product-book-command-authority.yml"
 
 
 class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
@@ -129,6 +130,25 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, pgn_position)
+
+    def test_book_command_authority_gate_tracks_reconverged_lineage_without_weakening_contract(self) -> None:
+        text = BOOK_AUTHORITY_WORKFLOW.read_text(encoding="utf-8")
+        required = (
+            "authority_base='4f7485f220f4250cac990aa89f257ebe219e208e'",
+            "authority_tip='e4daa1719b310aa66e8e6cc48bdba80a84a5d7de'",
+            "whole_product_parent='71cae99b6ee65ff95c29a9ccfd93723bd58d1ec7'",
+            'git merge-base --is-ancestor "$authority_tip" HEAD',
+            'git merge-base --is-ancestor "$whole_product_parent" HEAD',
+            'git diff --exit-code "$authority_tip" HEAD --',
+            ".github/workflows/full-product-convergence-integration-20261004.yml",
+            "tests/test_full_product_book_command_authority.py",
+            "BOOK_COMMAND_AUTHORITY_ORIGINAL_SCOPE=PASS",
+            "BOOK_COMMAND_AUTHORITY_RECONVERGED_LINEAGE=PASS",
+            "BOOK_COMMAND_AUTHORITY_EXECUTABLE_CONTRACT_PRESERVED=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, text)
 
     def test_gate_keeps_dual_os_qualification(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)

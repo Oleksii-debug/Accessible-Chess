@@ -44,23 +44,33 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Verify exact parent and regression-only scope
+      - name: Verify reconverged authority lineage and preserved executable scope
         shell: bash
         run: |
           set -euo pipefail
-          base='4f7485f220f4250cac990aa89f257ebe219e208e'
-          git cat-file -e "$base^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
-          test "$(git merge-base "$base" HEAD)" = "$base"
-          changed="$(git diff --name-only "$base" HEAD | sort)"
+          authority_base='4f7485f220f4250cac990aa89f257ebe219e208e'
+          authority_tip='e4daa1719b310aa66e8e6cc48bdba80a84a5d7de'
+          whole_product_parent='71cae99b6ee65ff95c29a9ccfd93723bd58d1ec7'
+          for commit in "$authority_base" "$authority_tip" "$whole_product_parent"; do
+            git cat-file -e "$commit^{commit}"
+          done
+          git merge-base --is-ancestor "$authority_base" "$authority_tip"
+          git merge-base --is-ancestor "$authority_tip" HEAD
+          git merge-base --is-ancestor "$whole_product_parent" HEAD
+          authority_changed="$(git diff --name-only "$authority_base" "$authority_tip" | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/full-product-book-command-authority.yml' \
             '.github/workflows/full-product-convergence-integration-20261004.yml' \
             'tests/test_current_main_full_product_convergence_workflow.py' \
             'tests/test_full_product_book_command_authority.py' | sort)"
-          test "$changed" = "$expected"
-          git diff --check "$base" HEAD
-          echo 'BOOK_COMMAND_AUTHORITY_SCOPE=PASS'
+          test "$authority_changed" = "$expected"
+          git diff --check "$authority_base" "$authority_tip"
+          git diff --exit-code "$authority_tip" HEAD -- \
+            '.github/workflows/full-product-convergence-integration-20261004.yml' \
+            'tests/test_full_product_book_command_authority.py'
+          echo 'BOOK_COMMAND_AUTHORITY_ORIGINAL_SCOPE=PASS'
+          echo 'BOOK_COMMAND_AUTHORITY_RECONVERGED_LINEAGE=PASS'
+          echo 'BOOK_COMMAND_AUTHORITY_EXECUTABLE_CONTRACT_PRESERVED=PASS'
 
       - name: Compile authority regressions
         run: >-
