@@ -8,6 +8,7 @@ on:
       - 'acs/bookdocument.py'
       - 'acs/history.py'
       - 'tests/test_architecture_dynamic_import_aliases.py'
+      - 'tests/test_architecture_workflow_concurrency.py'
       - '.github/workflows/architecture-dynamic-import-alias-gate.yml'
   push:
     paths:
@@ -16,10 +17,15 @@ on:
       - 'acs/bookdocument.py'
       - 'acs/history.py'
       - 'tests/test_architecture_dynamic_import_aliases.py'
+      - 'tests/test_architecture_workflow_concurrency.py'
       - '.github/workflows/architecture-dynamic-import-alias-gate.yml'
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   dynamic-import-alias-boundary:
@@ -46,6 +52,6 @@ jobs:
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected"
       - name: Compile regression
-        run: python -m py_compile tests/test_architecture_dynamic_import_aliases.py
+        run: python -m py_compile tests/test_architecture_dynamic_import_aliases.py tests/test_architecture_workflow_concurrency.py
       - name: Run alias boundary
-        run: python -m unittest -v tests.test_architecture_dynamic_import_aliases
+        run: python -m unittest -v tests.test_architecture_dynamic_import_aliases tests.test_architecture_workflow_concurrency
