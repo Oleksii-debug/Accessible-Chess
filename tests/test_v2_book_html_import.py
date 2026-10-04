@@ -749,6 +749,40 @@ class BookHtmlImportTests(unittest.TestCase):
             any("hidden content unclosed" in warning for warning in result.warnings)
         )
 
+    def test_explicit_body_closes_omitted_head_and_restores_readable_content(self) -> None:
+        result = import_html_book(
+            f'''<html><head><title>Recovered Book</title>
+<meta name="author" content="Recovered Author">
+<body>
+<p>Readable body text.</p>
+<div data-acs-fen="{Board.START}"></div>
+</body></html>''',
+            source_name="body-closes-head.html",
+        )
+
+        self.assertEqual(result.document.title, "Recovered Book")
+        self.assertEqual(result.document.author, "Recovered Author")
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Readable body text."
+                for block in result.document.blocks
+            )
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Position)
+                and Board(block.fen).fen() == Board.START
+                for block in result.document.blocks
+            )
+        )
+        self.assertTrue(
+            any(
+                "implicitly closed by body start" in warning
+                for warning in result.warnings
+            )
+        )
+
     def test_unclosed_head_cannot_recover_hidden_markers_as_readable_games(self) -> None:
         source = f"""<html><head><title>{{PGN 1}}</title><div data-acs-fen="{Board.START}">
 <pre>{PGN}</pre>"""
