@@ -396,17 +396,16 @@ class _SemanticHtmlParser(HTMLParser):
             )
 
     def _record_inline_semantic(self, block: object) -> None:
-        # Paragraph-like captures historically collected text on both sides of an
-        # inline image and emitted the whole Paragraph only when the closing tag
-        # arrived. The image block itself was emitted immediately, which inverted
-        # reading order. Record the exact text boundary for every active Paragraph
-        # capture so closing-time projection can insert text around the already
-        # published image without inventing a second image/chess authority.
-        for capture in self._captures:
+        # Only the nearest paragraph-like semantic owner is split around an inline
+        # image. Ancestor captures intentionally remain legacy whole-block
+        # projections, matching the importer's existing nested-capture behavior
+        # instead of interleaving duplicate ancestor fragments around one image.
+        for capture in reversed(self._captures):
             if capture.kind == "paragraph":
                 capture.inline_semantics.append(
                     _InlineSemanticEvent(part_index=len(capture.parts), block=block)
                 )
+                break
 
     def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
