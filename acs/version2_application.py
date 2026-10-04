@@ -1019,6 +1019,25 @@ class Version2Application:
                         "payload": {"message": self._training_error_message()},
                     }
             if area_id == "books":
+                if self.books is None:
+                    raise ValueError("Books surface is unavailable")
+                if type(command) is not str or len(command) > 64:
+                    raise ValueError("invalid Books browser command")
+                if command == "book.refresh":
+                    return asdict(self.books.dispatch("book.refresh"))
+                if (
+                    type(payload) is not dict
+                    or "presentation_token" not in payload
+                ):
+                    # A browser command without the opaque lease is unbound to
+                    # the rendered/NVDA-visible Book state. Refresh only; never
+                    # reinterpret it against the current canonical reader.
+                    return asdict(self.books.dispatch("book.refresh"))
+                guarded = self.books.projection.browser_presentation_guard(
+                    payload.get("presentation_token")
+                )
+                if guarded is not None:
+                    return asdict(guarded)
                 value = self._dispatch_book_surface_command(command, payload)
                 return asdict(value)
             bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
