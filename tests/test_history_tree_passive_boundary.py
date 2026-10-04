@@ -110,6 +110,52 @@ class HistoryTreePassiveBoundaryTests(unittest.TestCase):
 
         self.assertFalse(HostileSnapshot.touched)
 
+    def test_snapshot_context_dict_subclass_is_rejected_before_mapping_hooks(self) -> None:
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("history context length hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("history context iteration hook must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("history context items hook must not execute")
+
+        hostile = HostileDict({"source": "provider"})
+
+        with self.assertRaisesRegex(HistoryError, "context must be a mapping"):
+            PositionSnapshot(START_FEN, context=hostile)
+
+        self.assertFalse(HostileDict.touched)
+
+    def test_nested_context_dict_subclass_is_rejected_before_mapping_hooks(self) -> None:
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("nested history context length hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("nested history context iteration hook must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("nested history context items hook must not execute")
+
+        hostile = HostileDict({"leaf": True})
+
+        with self.assertRaisesRegex(HistoryError, "unsupported mutable/object value"):
+            PositionSnapshot(START_FEN, context={"nested": hostile})
+
+        self.assertFalse(HostileDict.touched)
+
     def test_nodes_tuple_subclass_is_rejected_before_len_or_iteration_hooks(self) -> None:
         class HostileTuple(tuple):
             touched = False
