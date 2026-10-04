@@ -243,6 +243,51 @@ async function run() {
   check(document.activeElement.id === "education-class-" + "a".repeat(64), "initial focus missing");
   check(root.querySelector("#education-detail").getAttribute("hidden") === "hidden", "empty detail region must start hidden");
 
+  // Child-list navigation follows the live shell resolver, so user remaps are
+  // effective without teaching this surface a second shortcut registry.
+  const remapCalls = [];
+  const remapContexts = [];
+  const remapRoot = new FakeElement("div");
+  window.accessibleChessKeymapAction = function (event, context) {
+    remapContexts.push(context);
+    return context === "education_list" && event.key === "j"
+      ? "education.next_item"
+      : "";
+  };
+  window.AccessibleChessEducationSurface.render(
+    remapRoot,
+    initialSnapshot(),
+    (command, payload) => {
+      remapCalls.push([command, payload || {}]);
+      return null;
+    },
+    () => {},
+    "education-class-" + "a".repeat(64),
+    "Action failed"
+  );
+  const remapOption = remapRoot.querySelector("#education-class-" + "a".repeat(64));
+  let remapPrevented = false;
+  let remapStopped = false;
+  remapOption.listeners.keydown({
+    key: "j",
+    preventDefault: () => { remapPrevented = true; },
+    stopPropagation: () => { remapStopped = true; }
+  });
+  check(remapPrevented, "remapped Education key was not consumed");
+  check(remapStopped, "remapped Education key did not stop shell propagation");
+  check(
+    remapContexts.length === 1 && remapContexts[0] === "education_list",
+    "Education list key used the wrong keymap context"
+  );
+  check(remapCalls.length === 1, "remapped Education key did not dispatch exactly once");
+  check(
+    remapCalls[0][0] === "education.move" &&
+      remapCalls[0][1].kind === "class" &&
+      remapCalls[0][1].direction === 1,
+    "remapped Education key used the wrong canonical command"
+  );
+  delete window.accessibleChessKeymapAction;
+
   const wholeRenders = root.replaceChildrenCalls;
   root.querySelector("#education-class-" + keyB).listeners.click();
   await flushPromises();
