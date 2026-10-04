@@ -217,6 +217,7 @@ jobs:
           tests.test_gametree
           tests.test_v2_book_html_head_metadata_semantics
           tests.test_v2_book_html_import
+          tests.test_v2_book_epub_package_contract
           tests.test_v2_book_game_content
           tests.test_v2_book_library_game_lookup
           tests.test_book_index
