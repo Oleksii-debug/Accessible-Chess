@@ -9,6 +9,7 @@ on:
       - 'acs/usage_sync.py'
       - 'tests/test_usage_statistics.py'
       - 'tests/test_usage_sync.py'
+      - 'tests/test_usage_sync_persisted_json_boundary.py'
       - '.github/workflows/usage-statistics-contract.yml'
   workflow_dispatch:
 
@@ -58,6 +59,7 @@ jobs:
             'acs/usage_sync.py'
             'tests/test_usage_statistics.py'
             'tests/test_usage_sync.py'
+            'tests/test_usage_sync_persisted_json_boundary.py'
           )
           if [[ "${actual[*]}" != "${expected[*]}" ]]; then
             printf 'Unexpected usage-statistics PR scope.\nExpected:\n'
@@ -79,6 +81,7 @@ jobs:
           acs/usage_sync.py
           tests/test_usage_statistics.py
           tests/test_usage_sync.py
+          tests/test_usage_sync_persisted_json_boundary.py
 
       - name: Run aggregate statistics privacy and recovery contracts
         env:
@@ -87,3 +90,4 @@ jobs:
           python -m unittest -v
           tests.test_usage_statistics
           tests.test_usage_sync
+          tests.test_usage_sync_persisted_json_boundary
