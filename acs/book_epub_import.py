@@ -201,6 +201,8 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
     central_disk = int.from_bytes(raw[eocd_offset + 6 : eocd_offset + 8], "little")
     entries_on_disk = int.from_bytes(raw[eocd_offset + 8 : eocd_offset + 10], "little")
     total_entries = int.from_bytes(raw[eocd_offset + 10 : eocd_offset + 12], "little")
+    central_size = int.from_bytes(raw[eocd_offset + 12 : eocd_offset + 16], "little")
+    central_offset = int.from_bytes(raw[eocd_offset + 16 : eocd_offset + 20], "little")
     if disk_number != 0 or central_disk != 0:
         raise _error(
             "EPUB uses a multi-disk ZIP container, which OCF does not permit",
@@ -255,6 +257,14 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
             raw[zip64_eocd_offset + 32 : zip64_eocd_offset + 40],
             "little",
         )
+        central_size = int.from_bytes(
+            raw[zip64_eocd_offset + 40 : zip64_eocd_offset + 48],
+            "little",
+        )
+        central_offset = int.from_bytes(
+            raw[zip64_eocd_offset + 48 : zip64_eocd_offset + 56],
+            "little",
+        )
         if (
             zip64_record_disk != 0
             or zip64_central_disk != 0
@@ -264,6 +274,17 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
                 "EPUB ZIP64 central-directory metadata indicates multiple disks",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
+
+    if (
+        central_size <= 0
+        or central_offset + central_size > eocd_offset
+        or central_offset + 4 > len(raw)
+        or raw[central_offset : central_offset + 4] != b"PK\x01\x02"
+    ):
+        raise _error(
+            "EPUB central directory has an invalid or prohibited leading record",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
 
 
 def _is_forbidden_ocf_name_character(character: str) -> bool:
