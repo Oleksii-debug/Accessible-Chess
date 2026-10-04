@@ -16,6 +16,10 @@ from .bookdocument import Diagram, Exercise, Game, Heading, ListBlock, Note, Par
 from .bookreader import BookReader, ReadingLocation
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .gametree import PgnGame, VariationLine
+from .pgn_presenter_graph_guard import (
+    snapshot_pgn_presentation_games,
+    validate_pgn_presentation_graph,
+)
 from .search_service import GameSearchItem, GameSearchPage, GameSearchQuery, GameSearchService
 from .training import ExerciseResult, ExerciseSession, ExerciseStatus, HintResult
 
@@ -95,7 +99,7 @@ class PgnTreePresenter:
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        self._games = tuple(games)
+        self._games = snapshot_pgn_presentation_games(games)
         self._language = language
         self._game_index = 0 if self._games else -1
         self._selected_node_id: str | None = None
@@ -137,9 +141,11 @@ class PgnTreePresenter:
             self._items = ()
             self._selected_node_id = None
             return
+        game = self._games[self._game_index]
+        validate_pgn_presentation_graph(game)
         items: list[PgnTreeItem] = []
         self._append_line(
-            self._games[self._game_index].line,
+            game.line,
             items,
             line_id=f"g{self._game_index}:main",
             parent_id=None,
