@@ -89,6 +89,42 @@ class BookDocumentTests(unittest.TestCase):
                     BookDocumentErrorCode.INVALID_FIELD,
                 )
 
+    def test_semantic_block_subclasses_fail_before_custom_block_hooks(self):
+        class HostileParagraph(Paragraph):
+            touched = False
+
+            def as_dict(self):
+                type(self).touched = True
+                raise AssertionError("hostile block hook must not execute")
+
+        hostile = HostileParagraph(text="Readable")
+
+        with self.assertRaises(BookDocumentError) as constructor_error:
+            BookDocument("Book", blocks=[hostile])
+        self.assertEqual(
+            constructor_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertFalse(HostileParagraph.touched)
+
+        book = BookDocument("Book")
+        with self.assertRaises(BookDocumentError) as append_error:
+            book.append(hostile)
+        self.assertEqual(
+            append_error.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
+        self.assertFalse(HostileParagraph.touched)
+
+        consumed = [hostile]
+        with self.assertRaises(BookDocumentError) as extend_error:
+            book.extend(consumed)
+        self.assertEqual(
+            extend_error.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
+        self.assertFalse(HostileParagraph.touched)
+
     def test_constructor_preserves_valid_initial_block_objects(self):
         paragraph = Paragraph(text="Readable text", block_id="p1")
         book = BookDocument("Book", blocks=[paragraph])
