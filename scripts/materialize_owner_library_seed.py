@@ -21,6 +21,10 @@ import tempfile
 import zipfile
 
 from acs.acsdb import AcsDatabase
+from acs.version2_package_assembler import (
+    Version2PackageAssemblyError,
+    _publish_directory_no_replace,
+)
 from acs.user_library_seed import (
     MANIFEST_NAME,
     MAX_MANIFEST_BYTES,
@@ -299,10 +303,10 @@ def materialize_owner_library_seed(
             expected_game_count=expected_game_count,
         )
         try:
-            extracted.replace(output)
-        except OSError as exc:
+            _publish_directory_no_replace(extracted, output)
+        except Version2PackageAssemblyError as exc:
             raise OwnerLibrarySeedMaterializeError(
-                "owner Library seed could not be published atomically"
+                "owner Library seed could not be published atomically without replacement"
             ) from exc
 
     return OwnerLibrarySeedMaterializeReport(
