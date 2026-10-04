@@ -75,6 +75,7 @@ class Version2Application:
         }
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
+    _BOOK_BOARD_RETURN_COMMANDS = frozenset({"book.return", "book.return_from_board"})
     _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
         {
             "book.board_next_move",
@@ -790,6 +791,15 @@ class Version2Application:
             # second write would advance BookProgress twice for one transition.
             return dispatch_owned(command_id, payload)
         if is_return_from_board:
+            # Return is a Board-owned transition, not a globally replayable Book
+            # command. A stale/hidden Books surface must not unwind the canonical
+            # Board session after route ownership moved elsewhere.
+            if self.shell.current_route.route_id != "board":
+                return self.books.projection.generic_error()
+            if self.shell.active_dialog_id is not None:
+                return self.books.projection.generic_error()
+            if self.book_workflow is None or not self.book_workflow.active:
+                return self.books.projection.generic_error()
             # The canonical workflow unwinds through the shared router delegate,
             # which re-publishes the exact Book origin once after safe Return.
             # Keeping persistence in that one owner also makes browser/native
@@ -1024,6 +1034,16 @@ class Version2Application:
                 if self.shell.active_dialog_id is not None:
                     raise ValueError("close the active dialog before changing Book Board state")
                 opening_board = action in self._BOOK_BOARD_OPEN_COMMANDS
+                returning_to_book = action in self._BOOK_BOARD_RETURN_COMMANDS
+                if returning_to_book:
+                    # Return owns the visible Board route. Native menus, review
+                    # ingress and stale browser surfaces remain globally
+                    # reachable, so reject them before the workflow can discard
+                    # the active exact-return session behind another route.
+                    if self.shell.current_route.route_id != "board":
+                        raise ValueError("book return requires the visible Board")
+                    if self.book_workflow is None or not self.book_workflow.active:
+                        raise ValueError("no Book Board review is active")
                 if action in self._BOOK_BOARD_ACTIVE_COMMANDS:
                     # Book Board navigation/analysis is meaningful only while the
                     # canonical Board surface is visible. A workflow can remain
@@ -1053,13 +1073,27 @@ class Version2Application:
                         concise_user_error("", language=self.shell.language)
                     )
                 if result.kind in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
+                    # Acquire the shell route before calling the release Board
+                    # projector. The projector is an external host seam; allowing
+                    # it to accept a new position before route ownership commits
+                    # makes a later open_route() failure observably non-atomic.
+                    # If route acquisition fails, no Board bytes were published,
+                    # so roll back only the canonical workflow mutation.
+                    try:
+                        route_focus = self.shell.open_route("board")
+                    except Exception:
+                        if before_view is not None and before_view.cursor is not None:
+                            self.book_workflow.go_to_cursor(before_view.cursor)
+                        elif self.book_workflow is not None and self.book_workflow.active:
+                            self.book_workflow.return_to_book()
+                        raise
+                    self._focus = route_focus
                     try:
                         self._project_board_position(self.book_delegate.view().current_fen)
                     except Exception:
                         self._recover_book_projection_failure(before_view)
                         raise
                     self.pgn_board_active = False
-                    self._focus = self.shell.open_route("board")
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED:
                         # The repaint event and native application focus token
                         # must agree immediately. A second keyboard/menu action
