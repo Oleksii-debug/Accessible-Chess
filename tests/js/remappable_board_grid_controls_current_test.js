@@ -36,13 +36,15 @@ const boardEnd = html.indexOf('\nfunction focusHistoryJump', boardStart);
 assert.notStrictEqual(boardStart, -1, 'onBoardKey not found');
 assert.notStrictEqual(boardEnd, -1, 'onBoardKey terminator not found');
 const boardHandler = html.slice(boardStart, boardEnd);
-assert.ok(boardHandler.includes("keymapActionForEvent(e,'board')"));
+assert.ok(boardHandler.includes("['board','analysis','global']"), 'board predispatch must mirror BOARD -> ANALYSIS -> GLOBAL precedence');
+assert.ok(boardHandler.includes("keymapActionForEvent(e,context)"));
 assert.ok(boardHandler.includes("resolveBinding(chord,'board','board')"));
 const resolverStart = html.indexOf('function actionByChord(chord,context){');
 const resolverEnd = html.indexOf('\nfunction keymapActionForEvent', resolverStart);
 assert.ok(resolverStart >= 0 && resolverEnd > resolverStart, 'canonical snapshot resolver not found');
 const resolver = html.slice(resolverStart, resolverEnd);
-assert.ok(resolver.includes("[context,'global']"), 'board predispatch must preserve ActionRegistry GLOBAL fallback');
+assert.ok(!resolver.includes("[context,'global']"), 'snapshot resolver must stay exact so board can preserve BOARD -> ANALYSIS -> GLOBAL precedence');
+assert.ok(resolver.includes("x.registryContext===context"), 'snapshot resolver must match the exact requested registry context');
 assert.ok(html.includes("function keymapActionForEvent(e,registryContext){if(!keymapReady)return null;"), 'no gesture may be consumed before a keymap snapshot is ready');
 const boardCancel = boardHandler.indexOf('e.preventDefault()');
 const boardAwait = boardHandler.indexOf('await resolveBinding');
@@ -81,7 +83,7 @@ assert.ok(actionBody.includes('analysisViewingTemporaryPosition'), 'board activa
 assert.ok(actionBody.includes("apiAction('activate_square',cell.square)"), 'board activation must use the currently focused canonical cell');
 
 const helpStart = html.indexOf('function renderHelp(){');
-const helpEnd = html.indexOf('\nfunction editableShortcutTarget', helpStart);
+const helpEnd = html.indexOf('\nfunction projectedOwnedAction', helpStart);
 const help = html.slice(helpStart, helpEnd);
 for (const actionId of [
   'board.cursor_left',
