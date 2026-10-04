@@ -243,50 +243,38 @@ async function run() {
   check(document.activeElement.id === "education-class-" + "a".repeat(64), "initial focus missing");
   check(root.querySelector("#education-detail").getAttribute("hidden") === "hidden", "empty detail region must start hidden");
 
-  // Child-list navigation follows the live shell resolver, so user remaps are
-  // effective without teaching this surface a second shortcut registry.
-  const remapCalls = [];
-  const remapContexts = [];
-  const remapRoot = new FakeElement("div");
-  window.accessibleChessKeymapAction = function (event, context) {
-    remapContexts.push(context);
-    return context === "education_list" && event.key === "j"
-      ? "education.next_item"
-      : "";
-  };
+  const liveResolver = window.accessibleChessKeymapAction;
+  window.accessibleChessKeymapAction = function () { return null; };
+  const startupCalls = [];
+  const startupRoot = new FakeElement("div");
   window.AccessibleChessEducationSurface.render(
-    remapRoot,
+    startupRoot,
     initialSnapshot(),
     (command, payload) => {
-      remapCalls.push([command, payload || {}]);
+      startupCalls.push([command, payload || {}]);
       return null;
     },
     () => {},
     "education-class-" + "a".repeat(64),
     "Action failed"
   );
-  const remapOption = remapRoot.querySelector("#education-class-" + "a".repeat(64));
-  let remapPrevented = false;
-  let remapStopped = false;
-  remapOption.listeners.keydown({
-    key: "j",
-    preventDefault: () => { remapPrevented = true; },
-    stopPropagation: () => { remapStopped = true; }
+  const startupOption = startupRoot.querySelector("#education-class-" + "a".repeat(64));
+  let startupPrevented = false;
+  startupOption.listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { startupPrevented = true; },
+    stopPropagation: () => {}
   });
-  check(remapPrevented, "remapped Education key was not consumed");
-  check(remapStopped, "remapped Education key did not stop shell propagation");
+  await flushPromises();
+  check(startupPrevented, "not-ready Education resolver suppressed default ArrowDown");
   check(
-    remapContexts.length === 1 && remapContexts[0] === "education_list",
-    "Education list key used the wrong keymap context"
+    startupCalls.length === 1 &&
+      startupCalls[0][0] === "education.move" &&
+      startupCalls[0][1].kind === "class" &&
+      startupCalls[0][1].direction === 1,
+    "not-ready Education resolver did not preserve default navigation"
   );
-  check(remapCalls.length === 1, "remapped Education key did not dispatch exactly once");
-  check(
-    remapCalls[0][0] === "education.move" &&
-      remapCalls[0][1].kind === "class" &&
-      remapCalls[0][1].direction === 1,
-    "remapped Education key used the wrong canonical command"
-  );
-  delete window.accessibleChessKeymapAction;
+  window.accessibleChessKeymapAction = liveResolver;
 
   const wholeRenders = root.replaceChildrenCalls;
   root.querySelector("#education-class-" + keyB).listeners.click();
