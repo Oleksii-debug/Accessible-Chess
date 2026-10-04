@@ -556,10 +556,16 @@ jobs:
           $root=(Resolve-Path $extracted).Path
           $launcher=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
           $childPath=(Resolve-Path (Join-Path $root 'App\AccessibleChess.exe')).Path
-          $baselineChildPids=@(
-            Get-Process -ErrorAction SilentlyContinue | Where-Object {
-              try { $_.Path -eq $childPath } catch { $false }
-            } | ForEach-Object { [int]$_.Id }
+          $baselineChildIdentities=@(
+            Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+              try {
+                if($_.Path -eq $childPath){
+                  $baselineId=[int]$_.Id
+                  $baselineStartTicks=[long]$_.StartTime.ToUniversalTime().Ticks
+                  "$baselineId|$baselineStartTicks"
+                }
+              } catch {}
+            }
           )
           $proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
           if(-not $proc.WaitForExit(45000)){$proc.Kill();throw 'OWNER_ROOT_LAUNCHER_TIMEOUT'}
@@ -577,7 +583,9 @@ jobs:
             try {
               $candidatePath=$_.Path
               $candidateId=[int]$_.Id
-              $candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId
+              $candidateStartTicks=[long]$_.StartTime.ToUniversalTime().Ticks
+              $candidateIdentity="$candidateId|$candidateStartTicks"
+              $candidatePath -eq $childPath -and $baselineChildIdentities -notcontains $candidateIdentity
             } catch { $false }
           } | Stop-Process -Force -ErrorAction SilentlyContinue
 
