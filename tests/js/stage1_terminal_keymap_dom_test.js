@@ -345,6 +345,93 @@ function chordFor(event) {
     assert.strictEqual(captureInput.focusCalls, 0, 'late backend result cannot steal focus');
     assert.ok(captureAnnouncements.includes('Cancelled.'), 'English cancellation is announced');
 
+    // A successful backend mutation must not report success when canonical
+    // keymap reload fails. A malformed optimistic snapshot may fall back once
+    // to the canonical bridge snapshot, but success is reported only after that
+    // authoritative snapshot actually installs.
+    const recoveryAnnouncements = [];
+    let recoveryMode = 'fail';
+    let recoverySnapshotCalls = 0;
+    const canonicalRecoverySnapshot = {
+        actions: [{
+            id: 'screen.help',
+            labelUk: 'Довідка',
+            labelEn: 'Help',
+            registryContext: 'global',
+            context: 'global',
+            binding: 'F1',
+            defaultBinding: 'F1',
+            alias: null,
+            defaultAlias: null,
+        }],
+    };
+    const keymapRecoveryContext = {
+        keymapBase: null,
+        keymap: [],
+        keymapReady: true,
+        centralKeymap: true,
+        document: {documentElement: {lang: 'en'}},
+        populateContextFilter() {},
+        renderKeymap() {},
+        renderHelp() {},
+        announce(message) { recoveryAnnouncements.push(message); },
+        api() {
+            return {
+                async keymap_snapshot() {
+                    recoverySnapshotCalls += 1;
+                    if (recoveryMode === 'fail') throw new Error('bridge unavailable');
+                    return canonicalRecoverySnapshot;
+                },
+            };
+        },
+        async fetch() { throw new Error('unexpected static fallback'); },
+    };
+    keymapRecoveryContext.window = keymapRecoveryContext;
+    vm.createContext(keymapRecoveryContext);
+    vm.runInContext([
+        indexFunction('installKeymapSnapshot'),
+        indexFunction('loadKeymap'),
+        indexFunction('applyKeymapMutation'),
+    ].join('\\n'), keymapRecoveryContext, {filename: 'index-keymap-refresh-recovery.js'});
+
+    recoveryAnnouncements.length = 0;
+    recoveryMode = 'fail';
+    recoverySnapshotCalls = 0;
+    let mutationApplied = await keymapRecoveryContext.applyKeymapMutation({
+        ok: true,
+        message: 'Saved',
+    });
+    assert.strictEqual(mutationApplied, false, 'reload failure must fail the UI mutation');
+    assert.strictEqual(recoverySnapshotCalls, 1, 'canonical reload attempted once');
+    assert.ok(recoveryAnnouncements.includes('Keyboard settings unavailable.'));
+    assert.strictEqual(
+        recoveryAnnouncements.includes('Saved'),
+        false,
+        'failed refresh must not announce backend success'
+    );
+
+    recoveryAnnouncements.length = 0;
+    recoveryMode = 'good';
+    recoverySnapshotCalls = 0;
+    mutationApplied = await keymapRecoveryContext.applyKeymapMutation({
+        ok: true,
+        snapshot: {actions: null},
+        message: 'Saved',
+    });
+    assert.strictEqual(mutationApplied, true, 'canonical reload may recover malformed optimistic snapshot');
+    assert.strictEqual(recoverySnapshotCalls, 1, 'malformed optimistic snapshot re-fetches authority once');
+    assert.strictEqual(keymapRecoveryContext.keymap.length, 1);
+    assert.strictEqual(keymapRecoveryContext.keymap[0].id, 'screen.help');
+    assert.ok(recoveryAnnouncements.includes('Saved'));
+
+    recoveryAnnouncements.length = 0;
+    recoveryMode = 'fail';
+    recoverySnapshotCalls = 0;
+    keymapRecoveryContext.keymapReady = false;
+    const initialLoad = await keymapRecoveryContext.loadKeymap();
+    assert.strictEqual(initialLoad, false);
+    assert.strictEqual(keymapRecoveryContext.keymapReady, false, 'initial load failure remains unready');
+
     // Execute the real document-level keydown handler. Editable controls retain
     // remapped Help and the pre-existing exact Alt+analysis path while refusing
     // unrelated global/document/history commands that would steal typed input.
