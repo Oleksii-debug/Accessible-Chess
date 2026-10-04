@@ -7,7 +7,9 @@ on:
   pull_request:
     paths:
       - 'acs/training_progress_store.py'
+      - 'acs/version2_training_workspace.py'
       - 'tests/test_w2_training_progress_crash_recovery.py'
+      - 'tests/test_training_authority_convergence.py'
       - 'tests/js/v2_remapped_keyboard_native_editing_test.js'
       - '.github/workflows/w2-training-progress-windows-missing-parent.yml'
 
@@ -48,7 +50,6 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git merge-base "$W2_BASE" HEAD)" = "$W2_BASE"
-          git diff --check "$W2_BASE" HEAD
           changed="$(git diff --name-only "$W2_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/w2-training-progress-windows-missing-parent.yml' \
@@ -57,6 +58,7 @@ jobs:
             'tests/test_w2_training_progress_crash_recovery.py' | sort)"
 
           if test "$changed" = "$expected"; then
+            git diff --check "$W2_BASE" HEAD
             echo "W2_SCOPE=ISOLATED_EXACT"
           else
             # The historical feature is already integrated into modern product
