@@ -1877,6 +1877,120 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
+    def test_package_urls_cannot_be_repaired_by_ascii_control_stripping(self) -> None:
+        for entity in ("&#x9;", "&#xA;", "&#xD;"):
+            with self.subTest(surface="manifest", entity=entity):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            f'    <item id="c1" href="Text/chap{entity}ter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": (
+                            b"<html><body><p>Control-stripped alias.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="manifest-control-alias.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+            with self.subTest(surface="container", entity=entity):
+                container = f'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/con{entity}tent.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''.encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="container-control-alias.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_percent_encoded_ascii_controls_cannot_be_package_path_identity(self) -> None:
+        for encoded, control in (("%09", "\t"), ("%0A", "\n"), ("%0D", "\r")):
+            with self.subTest(encoded=encoded):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            f'    <item id="c1" href="Text/chap{encoded}ter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        f"OEBPS/Text/chap{control}ter.xhtml": (
+                            b"<html><body><p>Control path.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="encoded-control-path.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_epub_image_reference_controls_cannot_alias_manifest_resources(self) -> None:
+        for entity in ("&#x9;", "&#xA;", "&#xD;"):
+            with self.subTest(entity=entity):
+                chapter = (
+                    f'<html><body><img src="../Images/bo{entity}ard.svg" '
+                    'alt="Accessible diagram fallback"/></body></html>'
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest='''    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="board" href="Images/board.svg" media-type="image/svg+xml"/>''',
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": chapter,
+                        "OEBPS/Images/board.svg": b"<svg/>",
+                    },
+                )
+
+                result = import_epub_book(raw, source_name="image-control-alias.epub")
+
+                self.assertEqual(result.image_references, ())
+                self.assertTrue(
+                    any(
+                        "external or unsafe image reference was not resolved" in warning
+                        for warning in result.warnings
+                    )
+                )
+                self.assertIn(
+                    "Accessible diagram fallback",
+                    [
+                        block.text
+                        for block in result.document.blocks
+                        if isinstance(block, Note)
+                    ],
+                )
+
     def test_manifest_item_href_fragment_is_rejected(self) -> None:
         for href in ("Text/chapter.xhtml#start", "Text/chapter.xhtml#"):
             with self.subTest(href=href):
@@ -2294,6 +2408,49 @@ class BookEpubImportTests(unittest.TestCase):
                 with self.assertRaises(BookEpubImportError) as raised:
                     import_epub_book(raw, source_name="invalid-container-links.epub")
                 self.assertEqual(raised.exception.code, expected_code)
+
+    def test_container_link_controls_cannot_be_repaired_by_url_parser(self) -> None:
+        rootfiles = (
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles>'
+        )
+        for entity in ("&#x9;", "&#xA;", "&#xD;"):
+            with self.subTest(entity=entity):
+                links = (
+                    f'<links><link href="OEBPS/chap{entity}ter.xhtml" '
+                    'rel="alternate"/></links>'
+                )
+                container = (
+                    '<container version="1.0" '
+                    'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    f"{rootfiles}{links}</container>"
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        raw,
+                        source_name="container-link-control-alias.epub",
+                    )
+
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
 
     def test_container_link_path_query_fragment_and_rel_tokens_are_preserved(self) -> None:
         container = b'''<?xml version="1.0" encoding="UTF-8"?>
