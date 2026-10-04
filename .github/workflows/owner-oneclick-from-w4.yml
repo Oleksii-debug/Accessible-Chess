@@ -493,12 +493,35 @@ jobs:
           Write-Host "OWNER_ONECLICK_ZIP_SHA256=$($data.archive_sha256)"
           Write-Host 'OWNER_ONECLICK_ASSEMBLY=PASS'
 
-      - name: Launch exact root one-click bytes and inspect machine-only report
+      - name: Launch exact final ZIP extraction and inspect machine-only report
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=(Resolve-Path 'owner-oneclick').Path
-          $launcher=(Resolve-Path 'owner-oneclick\AccessibleChess.exe').Path
+          if(Test-Path -LiteralPath 'owner-zip-smoke'){throw 'OWNER_ZIP_SMOKE_DESTINATION_EXISTS'}
+          Expand-Archive -LiteralPath 'Accessible-Chess-ONECLICK-OWNER-FINAL.zip' -DestinationPath 'owner-zip-smoke'
+          @'
+          import os
+          from scripts.build_owner_portable_candidate import validate_owner_portable_candidate_tree
+
+          report = validate_owner_portable_candidate_tree(
+              'owner-zip-smoke',
+              expected_integration_sha=os.environ['EXACT_PRODUCT_SHA'],
+              expected_sound_archive_sha256=os.environ['SOUND_ARCHIVE_SHA_INPUT'],
+              expected_seed_source_count=6,
+              expected_seed_game_count=3738,
+          )
+          if (
+              report.get('sound_wav_count') != 330
+              or report.get('seed_source_count') != 6
+              or report.get('seed_game_count') != 3738
+          ):
+              raise SystemExit('OWNER_EXTRACTED_ZIP_CONTENT_IDENTITY_INVALID')
+          print('OWNER_EXTRACTED_ZIP_CANONICAL_VALIDATION=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Owner final ZIP extraction validation failed'}
+
+          $root=(Resolve-Path 'owner-zip-smoke').Path
+          $launcher=(Resolve-Path 'owner-zip-smoke\AccessibleChess.exe').Path
           $proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
           if(-not $proc.WaitForExit(15000)){$proc.Kill();throw 'OWNER_ROOT_LAUNCHER_TIMEOUT'}
           if($proc.ExitCode -ne 0){throw "OWNER_ROOT_LAUNCHER_EXIT=$($proc.ExitCode)"}
@@ -509,7 +532,7 @@ jobs:
             if(-not $text.Contains($marker)){throw "OWNER_ROOT_LAUNCH_REPORT_MISSING $marker"}
           }
           Get-Process AccessibleChess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-          Write-Host 'OWNER_ROOT_ONECLICK_MACHINE_LAUNCH=PASS'
+          Write-Host 'OWNER_FINAL_ZIP_MACHINE_LAUNCH=PASS'
           Write-Host 'HUMAN_TESTED=NO'
           Write-Host 'NVDA_VERIFIED=NO'
 
@@ -558,7 +581,7 @@ jobs:
           path: |
             Accessible-Chess-ONECLICK-OWNER-FINAL.zip
             owner-final-receipt.json
-            owner-oneclick/launch-report.txt
+            owner-zip-smoke/launch-report.txt
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
