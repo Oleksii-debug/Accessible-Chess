@@ -878,21 +878,13 @@ class Version2Application:
         # Board-open/update success becomes authoritative only after the application
         # has projected the canonical BookBoard FEN into the real release board.
         if event.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
-            # BookBoardWorkflow guarantees that read-only Board review and exact
-            # Return preserve the BookReader snapshot. This observer owns only
-            # route publication; the browser/native command boundary that caused
-            # the explicit Return re-publishes the canonical origin durably after
-            # the safe workflow unwind. Emergency projection-failure unwind stays
-            # storage-independent in _recover_book_projection_failure().
-            self._focus = self.shell.open_route("books")
-            self._repair_book_block_focus_after_rebind()
-            # Route ownership changed synchronously inside the domain workflow.
-            # Publish one V2 refresh request even if the caller subsequently
-            # reports a persistence error, so the visible/NVDA surface cannot
-            # remain on a Board whose Book workflow has already unwound.
-            self._events.append(
-                {"kind": "route", "payload": {"route_id": "books"}}
-            )
+            # Route ownership for explicit Return is a transaction participant,
+            # not an observer side effect. The shared delegate precommits Books
+            # before asking the workflow to discard its Board session, then emits
+            # the one route refresh only after exact Return succeeds. Keeping this
+            # sink passive matters because the UI adapter deliberately contains
+            # observer failures instead of propagating them to domain state.
+            return
         elif event.kind is BookBoardUiEventKind.FAILED:
             self._events.append(self._error())
 
@@ -1067,8 +1059,24 @@ class Version2Application:
                 if opening_board:
                     self.save_book_progress()
                 before_view = self.book_delegate.view() if self.book_workflow.active else None
+                return_route_precommitted = False
+                if returning_to_book:
+                    # Acquire Books route ownership before the canonical workflow
+                    # discards its exact-return Board session. The adapter treats
+                    # event_sink as a non-authoritative observer and intentionally
+                    # contains observer exceptions, so route mutation cannot live
+                    # in _book_event() without risking inactive-workflow/Board-route
+                    # divergence.
+                    self._focus = self.shell.open_route("books")
+                    self._repair_book_block_focus_after_rebind()
+                    return_route_precommitted = True
                 result = self.book_delegate(action, payload)
                 if result.kind is BookBoardUiEventKind.FAILED:
+                    if return_route_precommitted:
+                        # BookBoardWorkflow keeps the session alive when exact
+                        # Return fails. Restore the visible Board owner before
+                        # surfacing the sanitized failure.
+                        self._focus = self.shell.open_route("board")
                     raise ValueError(
                         concise_user_error("", language=self.shell.language)
                     )
@@ -1103,6 +1111,16 @@ class Version2Application:
                         self._focus = "board-launcher"
                         self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
                 if result.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
+                    if not return_route_precommitted:
+                        raise RuntimeError("Book return route ownership was not precommitted")
+                    # Exact Return and Books route ownership are now both accepted.
+                    # Publish one refresh event before durability acknowledgement
+                    # so browser/native NVDA surfaces cannot remain visually on
+                    # the obsolete Board if the subsequent progress save reports
+                    # an ambiguity or ordinary persistence failure.
+                    self._events.append(
+                        {"kind": "route", "payload": {"route_id": "books"}}
+                    )
                     # Returning already discarded only transient Board review and
                     # restored the exact BookReader origin. Re-publish that
                     # canonical origin through the same durability boundary as
