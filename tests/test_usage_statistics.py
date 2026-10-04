@@ -199,6 +199,28 @@ class UsageStatisticsTests(unittest.TestCase):
             self.assertEqual(events, ["replace", "directory-fsync"])
             self.assertEqual(store.load("install-1"), snapshot)
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "symbolic-link support is required")
+    def test_save_rejects_redirected_parent_before_creating_outside_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = root / "outside"
+            outside.mkdir()
+            redirected = root / "redirected"
+            try:
+                os.symlink(outside, redirected, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"directory symlink creation is unavailable: {exc}")
+
+            path = redirected / "nested" / "stats.json"
+            store = UsageStatisticsStore(path)
+            snapshot = UsageStatisticsSnapshot("install-1", sessions_started=1)
+
+            with self.assertRaisesRegex(OSError, "direct non-reparse directory"):
+                store.save(snapshot)
+
+            self.assertFalse((outside / "nested").exists())
+            self.assertEqual(list(outside.iterdir()), [])
+
     def test_save_rejects_temp_path_substitution_without_deleting_foreign_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "stats.json"
