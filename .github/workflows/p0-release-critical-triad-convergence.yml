@@ -41,6 +41,7 @@ jobs:
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CHECKED_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
         run: |
           set -euo pipefail
@@ -48,6 +49,7 @@ jobs:
           test -n "$EVENT_BASE_REF"
           test -n "$EVENT_HEAD_SHA"
           test -n "$CHECKED_SHA"
+          test -n "$DEFAULT_BRANCH"
           test "$(git rev-parse HEAD)" = "$CHECKED_SHA"
           git cat-file -e "$EVENT_BASE_SHA^{commit}"
           git cat-file -e "$EVENT_HEAD_SHA^{commit}"
@@ -61,7 +63,19 @@ jobs:
           git cat-file -e "$live_event_base^{commit}"
 
           git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_event_base"
-          git merge-base --is-ancestor "$live_product" "$live_event_base"
+          if [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then
+            # Whole-Product integration is intentionally based on the default
+            # branch, which predates the retained Product authority. Prove the
+            # Product authority is in the candidate head instead of requiring
+            # the default-branch base to contain future Product history.
+            git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"
+            echo "P0_TRIAD_MODE=DEFAULT_BRANCH_INTEGRATION"
+          else
+            # Stacked Product successors must continue to prove that their live
+            # base already contains the retained Product authority.
+            git merge-base --is-ancestor "$live_product" "$live_event_base"
+            echo "P0_TRIAD_MODE=STACKED_PRODUCT"
+          fi
           git merge-base --is-ancestor "$live_event_base" "$EVENT_HEAD_SHA"
           git merge-base --is-ancestor "$live_event_base" HEAD
           git merge-base --is-ancestor "$EVENT_HEAD_SHA" HEAD
