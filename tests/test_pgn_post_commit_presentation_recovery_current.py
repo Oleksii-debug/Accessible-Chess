@@ -77,6 +77,23 @@ class CurrentPgnPostCommitPresentationRecoveryTests(unittest.TestCase):
         self.assertNotIn("post-commit-refresh", repr(unavailable.payload))
         self.assertNotIn("C:/Users/private", repr(unavailable.payload))
 
+        # The browser can have a delayed command already queued against the lease
+        # it rendered before the canonical commit. Even though the failed capture
+        # left that old presenter identity in memory, the adapter must compare the
+        # live workspace before mutation, resync, and reject the stale intent.
+        rejected_stale = bridge.dispatch(
+            "pgn.previous_game",
+            {"presentation_token": presentation_token},
+        )
+        self.assertEqual(1, session.workspace.selected_game_index)
+        self.assertEqual("selection", rejected_stale.kind)
+        self.assertEqual("ready", rejected_stale.payload["snapshot"]["status"])
+        self.assertEqual(1, rejected_stale.payload["snapshot"]["game"]["index"])
+        self.assertNotEqual(
+            presentation_token,
+            rejected_stale.payload["snapshot"]["presentation_token"],
+        )
+
         recovered = bridge.dispatch("pgn.refresh", {})
         self.assertEqual("selection", recovered.kind)
         self.assertEqual("ready", recovered.payload["snapshot"]["status"])
