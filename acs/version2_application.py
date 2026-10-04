@@ -181,7 +181,9 @@ class Version2Application:
             raise TypeError("Book browser snapshot must be a built-in mapping")
         leased = dict(snapshot)
         leased["presentation_token"] = self._book_presentation_token()
-        self._book_browser_lease_required = True
+        # Merely producing a host snapshot does not prove that the current JS
+        # surface rendered it. Lease enforcement becomes sticky after the browser
+        # actually echoes one token back; current web assets always do so.
         return leased
 
     def _lease_book_result(self, result):
@@ -792,7 +794,7 @@ class Version2Application:
             # which re-publishes the exact Book origin once after safe Return.
             # Keeping persistence in that one owner also makes browser/native
             # failure behavior identical.
-            return self.books.dispatch(command_id, payload)
+            return dispatch_owned(command_id, payload)
         if is_progress:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
