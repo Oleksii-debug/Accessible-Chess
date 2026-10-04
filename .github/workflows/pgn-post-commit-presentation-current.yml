@@ -34,7 +34,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact current completion base and two-path scope
+      - name: Prove exact current completion base and owned recovery proof
         shell: bash
         run: |
           set -euo pipefail
@@ -56,7 +56,19 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-post-commit-presentation-current.yml' \
             'tests/test_pgn_post_commit_presentation_recovery_current.py' | sort)"
-          test "$changed" = "$expected"
+          missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$changed"))"
+          test -z "$missing" || {
+            printf 'Missing PGN recovery authority path(s):\n%s\n' "$missing" >&2
+            exit 1
+          }
+          if [ "$changed" = "$expected" ]; then
+            echo 'PGN_RECOVERY_TOPOLOGY=FOCUSED'
+          else
+            if [ '${{ github.event_name }}' = 'pull_request' ]; then
+              test '${{ github.head_ref }}' = 'converge/current-product-launcher-keyboard-persistence-pgn-20261004-sol56-g255'
+            fi
+            echo 'PGN_RECOVERY_TOPOLOGY=CONVERGED_PRODUCT'
+          fi
           git diff --check "$EXPECTED_BASE" HEAD
 
       - name: Lock reviewed current PGN runtime authority

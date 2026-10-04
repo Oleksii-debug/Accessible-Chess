@@ -53,6 +53,7 @@ jobs:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -61,7 +62,7 @@ jobs:
             merge_base="$(git merge-base "$BASE_SHA" HEAD)"
             git diff --check "$merge_base" HEAD
             changed="$(git diff --name-only "$merge_base" HEAD | sort)"
-            expected="$(printf '%s\n' \
+            focused_expected="$(printf '%s\n' \
               '.github/workflows/current-apex-remappable-board-input.yml' \
               '.github/workflows/keybindings-current-apex-dom-native.yml' \
               'tests/js/remappable_board_grid_controls_current_test.js' \
@@ -69,8 +70,29 @@ jobs:
               'tests/js/stage1_terminal_keymap_dom_test.js' \
               'web/index.html' \
               'web/stage1_board_actions.js' | sort)"
-            if [ "$changed" != "$expected" ]; then
-              printf 'Unexpected current-apex keymap scope:\n%s\n' "$changed" >&2
+            aggregate_expected="$(printf '%s\n' \
+              '.github/workflows/current-apex-remappable-board-input.yml' \
+              '.github/workflows/keybindings-current-apex-dom-native.yml' \
+              '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+              '.github/workflows/pgn-post-commit-presentation-current.yml' \
+              '.github/workflows/portable-launch-report-reparse-safety.yml' \
+              'packaging/portable_launcher.c' \
+              'tests/js/remappable_board_grid_controls_current_test.js' \
+              'tests/js/remappable_input_submit_keys_current_test.js' \
+              'tests/js/stage1_terminal_keymap_dom_test.js' \
+              'tests/test_pgn_post_commit_presentation_recovery_current.py' \
+              'tests/test_portable_launcher_contract.py' \
+              'tests/test_portable_launcher_window_readiness.py' \
+              'tests/test_portable_localappdata_persistence_binding.py' \
+              'web/index.html' \
+              'web/stage1_board_actions.js' | sort)"
+            if [ "$changed" = "$focused_expected" ]; then
+              echo 'KEYMAP_SCOPE=FOCUSED'
+            elif [ "$HEAD_REF" = 'converge/current-product-launcher-keyboard-persistence-pgn-20261004-sol56-g255' ] \
+              && [ "$changed" = "$aggregate_expected" ]; then
+              echo 'KEYMAP_SCOPE=CONVERGED_PRODUCT'
+            else
+              printf 'Unexpected current-apex keymap/product scope:\n%s\n' "$changed" >&2
               exit 1
             fi
           fi

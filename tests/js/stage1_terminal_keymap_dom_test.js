@@ -151,6 +151,7 @@ function chordFor(event) {
             const chord = chordFor(event);
             if (uiContext === 'global' && chord === 'F1') return 'screen.help';
             if (uiContext === 'global' && chord === 'Ctrl+N') return 'file.new';
+            if (uiContext === 'global' && chord === 'Ctrl+Z') return 'edit.undo';
             if (uiContext === 'analysis' && chord === 'Alt+R') return 'analysis.restart';
             return '';
         },
@@ -162,6 +163,9 @@ function chordFor(event) {
                 result = {actionId: 'screen.help', context: 'global'};
             } else if (registryContext === 'global' && chord === 'Ctrl+N') {
                 result = {actionId: 'file.new', context: 'global'};
+            } else if (chord === 'Ctrl+Z') {
+                // ActionRegistry.resolve_binding(context, ...) falls back to GLOBAL.
+                result = {actionId: 'edit.undo', context: 'global'};
             } else if (registryContext === 'analysis' && chord === 'Alt+R') {
                 result = {actionId: 'analysis.restart', context: 'analysis'};
             }
@@ -239,6 +243,25 @@ function chordFor(event) {
     assert.deepStrictEqual(
         editableActions,
         ['screen.help', 'analysis.restart', 'analysis.restart']
+    );
+
+    // Non-editable resolution checks ANALYSIS first, whose canonical resolver
+    // falls back to GLOBAL. Mirror that order synchronously so Ctrl+Z is claimed
+    // before the async backend validates it.
+    deferEditableResolution = true;
+    const undoOutsideInput = eventFor('z', divTarget);
+    undoOutsideInput.ctrlKey = true;
+    const pendingUndoOutsideInput = documentKeydown(undoOutsideInput);
+    assert.strictEqual(undoOutsideInput.prevented, true);
+    assert.strictEqual(undoOutsideInput.stopped, true);
+    assert.ok(finishEditableResolution, 'global fallback resolver reached after synchronous cancellation');
+    finishEditableResolution();
+    await pendingUndoOutsideInput;
+    deferEditableResolution = false;
+    finishEditableResolution = null;
+    assert.deepStrictEqual(
+        editableActions,
+        ['screen.help', 'analysis.restart', 'analysis.restart', 'edit.undo']
     );
 
     const copyInInput = eventFor('c', inputTarget);
@@ -351,6 +374,21 @@ function chordFor(event) {
     assert.deepStrictEqual(focusCalls, [8]);
     assert.deepStrictEqual(baseActionCalls, []);
 
+    // Board focus also admits ANALYSIS before the canonical GLOBAL fallback.
+    context.resolveBinding = async chord => chord === 'Alt+R' ? {actionId: 'analysis.restart'} : null;
+    context.accessibleChessKeymapAction = (event, uiContext) => (
+        uiContext === 'analysis' && event.altKey && String(event.key).toLowerCase() === 'r'
+            ? 'analysis.restart'
+            : ''
+    );
+    const boardAnalysis = eventFor('r', cell);
+    boardAnalysis.altKey = true;
+    const pendingBoardAnalysis = context.onBoardKey(boardAnalysis);
+    assert.strictEqual(boardAnalysis.prevented, true);
+    assert.strictEqual(boardAnalysis.stopped, true);
+    await pendingBoardAnalysis;
+    assert.deepStrictEqual(baseActionCalls, ['analysis.restart']);
+
     // The board still delegates to the canonical resolver so GLOBAL fallback is
     // retained, but GLOBAL ownership is projected synchronously before await.
     context.resolveBinding = async chord => chord === 'Ctrl+Z' ? {actionId: 'edit.undo'} : null;
@@ -365,7 +403,7 @@ function chordFor(event) {
     assert.strictEqual(globalUndo.prevented, true);
     assert.strictEqual(globalUndo.stopped, true);
     await pendingGlobalUndo;
-    assert.deepStrictEqual(baseActionCalls, ['edit.undo']);
+    assert.deepStrictEqual(baseActionCalls, ['analysis.restart', 'edit.undo']);
     delete context.resolveBinding;
 
     // Activation obeys the remap and preserves the temporary-analysis mutation guard.
