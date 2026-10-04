@@ -72,6 +72,7 @@ _SUPPORTED_PACKAGE_VERSIONS = frozenset({"2.0", "3.0"})
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
+_MIME_TSPECIALS = frozenset('()<>@,;:\\"/[]?=')
 
 
 class BookEpubImportErrorCode(str, Enum):
@@ -405,6 +406,28 @@ def _is_exact_identifier(value: object) -> bool:
         and value == value.strip()
         and not any(character.isspace() for character in value)
     )
+
+
+def _is_mime_token(value: str) -> bool:
+    return bool(value) and all(
+        0x21 <= ord(character) <= 0x7E and character not in _MIME_TSPECIALS
+        for character in value
+    )
+
+
+def _normalized_manifest_media_type(value: object) -> str:
+    if type(value) is not str or value != value.strip():
+        raise _error(
+            "EPUB manifest item media type is malformed",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    parts = value.split("/")
+    if len(parts) != 2 or not all(_is_mime_token(part) for part in parts):
+        raise _error(
+            "EPUB manifest item media type is malformed",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    return value.casefold()
 
 
 def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
@@ -905,19 +928,13 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
         href = element.attrib.get("href")
         raw_fallback = element.attrib.get("fallback")
         raw_media_overlay = element.attrib.get("media-overlay")
-        if (
-            not _is_exact_identifier(raw_item_id)
-            or type(raw_media_type) is not str
-            or not raw_media_type
-            or raw_media_type != raw_media_type.strip()
-            or any(character.isspace() for character in raw_media_type)
-        ):
+        if not _is_exact_identifier(raw_item_id):
             raise _error(
                 "EPUB manifest item is missing or has malformed required identity",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         item_id = raw_item_id
-        media_type = raw_media_type.casefold()
+        media_type = _normalized_manifest_media_type(raw_media_type)
         if raw_fallback is None:
             fallback = None
         elif not _is_exact_identifier(raw_fallback):
