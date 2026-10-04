@@ -467,12 +467,12 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
             )
         # Bind relative configuration to the construction-time working
-        # directory without resolving symlinks. The process-lock key is already
-        # absolute; keeping I/O relative would let a later os.chdir() send the
-        # same store instance to a different file while it still holds the old
-        # process-lock authority.
+        # directory and collapse lexical dot-segments without resolving symlinks.
+        # The process-lock key uses the same abspath normalization; keeping either
+        # I/O relative or an uncollapsed "pivot/../file" path could otherwise let
+        # a later chdir or a symlink pivot split lock authority from actual data.
         try:
-            bound_path = Path(raw_path).absolute()
+            bound_path = Path(os.path.abspath(raw_path))
         except OSError:
             raise BookProgressStoreError(
                 "book progress storage is unavailable",
