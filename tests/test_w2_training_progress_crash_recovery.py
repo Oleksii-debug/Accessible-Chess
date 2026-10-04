@@ -555,6 +555,49 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertTrue(path.exists())
             self.assertEqual(peer.read_bytes(), path.read_bytes())
 
+    def test_existing_progress_disappearance_between_lstat_and_open_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            store.save(ExerciseSession(definition), expected_revision=None)
+
+            real_open = progress_store_module._open_no_reparse
+            removed = False
+
+            def disappearing_open(
+                candidate: Path,
+                *,
+                create: bool,
+                writable: bool = False,
+                exclusive: bool = False,
+            ) -> int:
+                nonlocal removed
+                candidate = Path(candidate)
+                if candidate == path and not create and not removed:
+                    removed = True
+                    path.unlink()
+                return real_open(
+                    candidate,
+                    create=create,
+                    writable=writable,
+                    exclusive=exclusive,
+                )
+
+            with mock.patch(
+                "acs.training_progress_store._open_no_reparse",
+                side_effect=disappearing_open,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "changed while being opened",
+                ):
+                    TrainingProgressStore(path).load(definition)
+
+            self.assertTrue(removed)
+            self.assertFalse(path.exists())
+
     def test_same_byte_progress_path_swap_after_open_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
