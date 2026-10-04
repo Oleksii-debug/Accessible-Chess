@@ -44,7 +44,18 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Prove exact candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $expected) {
+            throw "Exact candidate mismatch: expected $expected, got $actual"
+          }
 
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -146,7 +157,9 @@ jobs:
               DWORD env_size = GetEnvironmentVariableW(L"LOCALAPPDATA", env_value, CAP);
               DWORD module_size = GetModuleFileNameW(NULL, module_path, CAP);
               WCHAR no_window[2];
+              WCHAR flash_window[2];
               DWORD no_window_size;
+              DWORD flash_window_size;
               DWORD i = 0;
               if (env_size == 0 || env_size >= CAP || module_size == 0 || module_size >= CAP) ExitProcess(41);
               while (module_path[i] != L'\0') { expected[i] = module_path[i]; ++i; }
@@ -155,6 +168,7 @@ jobs:
               if (!equal_text(env_value, expected)) ExitProcess(43);
 
               no_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_NO_WINDOW", no_window, 2);
+              flash_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_FLASH_WINDOW", flash_window, 2);
               if (no_window_size == 0) {
                   WNDCLASSW window_class;
                   HWND window;
@@ -180,7 +194,13 @@ jobs:
                   if (window == NULL) ExitProcess(45);
                   ShowWindow(window, SW_SHOW);
                   UpdateWindow(window);
-                  Sleep(7000);
+                  if (flash_window_size > 0) {
+                      Sleep(150);
+                      DestroyWindow(window);
+                      Sleep(1000);
+                  } else {
+                      Sleep(7000);
+                  }
               } else {
                   Sleep(60000);
               }
@@ -288,6 +308,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+          Remove-Item Env:ACS_SMOKE_FLASH_WINDOW -ErrorAction SilentlyContinue
           $launcher = Join-Path $PWD 'portable-smoke/AccessibleChess.exe'
           $root = Join-Path $PWD 'portable-smoke'
           $app = Join-Path $root 'App'
@@ -339,6 +360,55 @@ jobs:
           $data = Join-Path $root 'data'
           if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
           Start-Sleep -Seconds 7
+
+      - name: Execute transient-window false-success regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'portable-flash-window-smoke'
+          $app = Join-Path $root 'App'
+          $launcher = Join-Path $root 'AccessibleChess.exe'
+          $child = Join-Path $app 'AccessibleChess.exe'
+          $report = Join-Path $root 'launch-report.txt'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe $launcher
+          Copy-Item build/SmokeChild.exe $child
+          Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+          $env:ACS_SMOKE_FLASH_WINDOW = '1'
+          try {
+            $process = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            $text = $null
+            do {
+              Start-Sleep -Milliseconds 100
+              if (Test-Path -LiteralPath $report -PathType Leaf) {
+                try { $text = Get-Content -LiteralPath $report -Raw -Encoding utf8 } catch { $text = $null }
+              }
+            } while (
+              [DateTime]::UtcNow -lt $deadline -and
+              ($null -eq $text -or (
+                -not $text.Contains('STATUS: FAILED_EARLY_EXIT') -and
+                -not $text.Contains('STATUS: STARTUP_WINDOW_READY')
+              ))
+            )
+
+            if ($null -ne $text -and $text.Contains('STATUS: STARTUP_WINDOW_READY')) {
+              throw 'Transient Accessible Chess window was falsely accepted as stable startup readiness'
+            }
+            if ($null -eq $text -or -not $text.Contains('STATUS: FAILED_EARLY_EXIT')) {
+              throw 'Transient-window child did not fail closed through early-exit diagnostics'
+            }
+            if (-not $text.Contains('USER_WINDOW_PROVEN: NO')) {
+              throw 'Transient-window failure did not preserve USER_WINDOW_PROVEN: NO'
+            }
+            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+          }
+          finally {
+            Remove-Item Env:ACS_SMOKE_FLASH_WINDOW -ErrorAction SilentlyContinue
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $child } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Execute no-window false-success regression
         shell: pwsh
@@ -401,6 +471,8 @@ jobs:
           assert 'NVDA_VERIFIED: NO' in source
           assert 'CreateProcessW(' in source
           assert 'EnumWindows(ac_find_ready_window' in source
+          assert '#define AC_STARTUP_READY_STABILITY_MS 500' in source
+          assert 'ready_elapsed += AC_STARTUP_POLL_MS' in source
           assert 'STATUS: STARTUP_WINDOW_READY' in source
           assert 'USER_WINDOW_PROVEN: YES' in source
           assert 'CHILD_RUNNING_AFTER_STARTUP_OBSERVATION' not in source
