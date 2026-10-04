@@ -1,12 +1,21 @@
+import contextlib
+import io
 from pathlib import Path
+import re
+import runpy
+import sys
+import types
 import unittest
+from unittest import mock
 
 
 class PortableLauncherSourceContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         root = Path(__file__).resolve().parents[1]
+        cls.root = root
         cls.source = (root / "packaging" / "portable_launcher.c").read_text(encoding="utf-8")
+        cls.runtime = (root / "run_accessible_chess.py").read_text(encoding="utf-8")
         cls.workflow = (
             root / ".github" / "workflows" / "p0-user-oneclick-portable-launcher.yml"
         ).read_text(encoding="utf-8")
@@ -28,7 +37,144 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("CP_UTF8", self.source)
         self.assertIn("STATUS: FAILED_EARLY_EXIT", self.source)
         self.assertIn("CHILD_EXIT_CODE", self.source)
+        self.assertIn("CHILD_EXIT_REASON", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
+
+    def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
+        contracts = (
+            (
+                "ACCESSIBILITY_HOST_INIT_EXIT_CODE",
+                71,
+                "ACCESSIBILITY_HOST_INIT_FAILED",
+            ),
+            (
+                "SAFE_LOCAL_SERVER_INIT_EXIT_CODE",
+                72,
+                "SAFE_LOCAL_SERVER_INIT_FAILED",
+            ),
+            (
+                "RELEASE_UI_STARTUP_EXIT_CODE",
+                73,
+                "RELEASE_UI_STARTUP_FAILED",
+            ),
+        )
+        for name, code, reason in contracts:
+            with self.subTest(name=name):
+                self.assertRegex(
+                    self.runtime,
+                    re.compile(rf"^{name}\s*=\s*{code}\s*$", re.MULTILINE),
+                )
+                self.assertRegex(
+                    self.source,
+                    re.compile(rf"^#define\s+{name}\s+{code}\s*$", re.MULTILINE),
+                )
+                self.assertIn(reason, self.source)
+                self.assertIn(name, self.runtime)
+        self.assertIn("raise SystemExit(exit_code)", self.runtime)
+        self.assertIn("UNKNOWN_EARLY_EXIT", self.source)
+
+    def _run_packaged_bootstrap(
+        self,
+        *,
+        host_ok: bool,
+        server_ok: bool,
+        release_ui_raises: bool = False,
+        host_install_raises: bool = False,
+        server_install_raises: bool = False,
+        safe_port_raises: bool = False,
+    ) -> tuple[object, str]:
+        accessibility = types.ModuleType("acs.webview2_accessibility")
+        accessibility.enable_webview2_renderer_accessibility = lambda: None
+
+        def host_install():
+            if host_install_raises:
+                raise ImportError("synthetic accessibility host import failure")
+            return host_ok
+
+        accessibility.install_pywebview_accessibility_host_patch = host_install
+        safe_server = types.ModuleType("acs.webview_safe_server")
+
+        class SafeLocalServerPortError(RuntimeError):
+            pass
+
+        safe_server.SafeLocalServerPortError = SafeLocalServerPortError
+
+        def server_install():
+            if server_install_raises:
+                raise ImportError("synthetic webview import failure")
+            return server_ok
+
+        safe_server.install_pywebview_safe_local_server_port = server_install
+        release_ui = types.ModuleType("acs.stage1_release_ui")
+
+        def release_main() -> None:
+            if safe_port_raises:
+                raise SafeLocalServerPortError("synthetic safe-port exhaustion")
+            if release_ui_raises:
+                raise RuntimeError("synthetic release UI startup failure")
+
+        release_ui.main = release_main
+        stderr = io.StringIO()
+
+        with (
+            mock.patch.dict(
+                sys.modules,
+                {
+                    "acs.webview2_accessibility": accessibility,
+                    "acs.webview_safe_server": safe_server,
+                    "acs.stage1_release_ui": release_ui,
+                },
+            ),
+            mock.patch.object(sys, "argv", [str(self.root / "run_accessible_chess.py")]),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            runpy.run_path(str(self.root / "run_accessible_chess.py"), run_name="__main__")
+        return raised.exception.code, stderr.getvalue()
+
+    def test_real_entrypoint_reports_accessibility_host_bootstrap_code(self):
+        code, stderr = self._run_packaged_bootstrap(host_ok=False, server_ok=True)
+        self.assertEqual(code, 71)
+        self.assertIn("Accessible WebView2 host could not be initialized.", stderr)
+
+    def test_real_entrypoint_reports_safe_local_server_bootstrap_code(self):
+        code, stderr = self._run_packaged_bootstrap(host_ok=True, server_ok=False)
+        self.assertEqual(code, 72)
+        self.assertIn("Accessible WebView2 local server could not be initialized.", stderr)
+
+    def test_real_entrypoint_maps_bootstrap_installer_exceptions_to_specific_codes(self):
+        host_code, _stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            host_install_raises=True,
+        )
+        self.assertEqual(host_code, 71)
+
+        server_code, _stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            server_install_raises=True,
+        )
+        self.assertEqual(server_code, 72)
+
+    def test_real_entrypoint_keeps_deferred_safe_port_failure_on_code_72(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            safe_port_raises=True,
+        )
+        self.assertEqual(code, 72)
+        self.assertIn("could not obtain a safe loopback port", stderr)
+
+    def test_real_entrypoint_reports_release_ui_startup_code_and_traceback(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            release_ui_raises=True,
+        )
+        self.assertEqual(code, 73)
+        self.assertIn("Accessible Chess release UI could not be started.", stderr)
+        self.assertIn("synthetic release UI startup failure", stderr)
 
     def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
