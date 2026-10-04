@@ -690,12 +690,19 @@ def assemble_portable_oneclick_tree(
     # of the live source is not enough: the source directory can otherwise be
     # coherently rewritten after preflight but before portable copying, letting
     # bytes that never passed the canonical policy become the outer payload.
-    snapshot_container = Path(
-        tempfile.mkdtemp(prefix="accessible-chess-portable-source-")
-    )
-    canonical_snapshot = snapshot_container / "canonical"
-    staged = Path(tempfile.mkdtemp(prefix=f".{output.name}.portable-", dir=output.parent))
+    snapshot_container: Path | None = None
+    staged: Path | None = None
     try:
+        snapshot_container = Path(
+            tempfile.mkdtemp(prefix="accessible-chess-portable-source-")
+        )
+        canonical_snapshot = snapshot_container / "canonical"
+        staged = Path(
+            tempfile.mkdtemp(
+                prefix=f".{output.name}.portable-",
+                dir=output.parent,
+            )
+        )
         _copy_tree(canonical, canonical_snapshot, label="canonical source package")
         validate_version2_package_tree(
             canonical_snapshot,
@@ -769,8 +776,10 @@ def assemble_portable_oneclick_tree(
             total_bytes=report.total_bytes,
         )
     finally:
-        shutil.rmtree(staged, ignore_errors=True)
-        shutil.rmtree(snapshot_container, ignore_errors=True)
+        if staged is not None:
+            shutil.rmtree(staged, ignore_errors=True)
+        if snapshot_container is not None:
+            shutil.rmtree(snapshot_container, ignore_errors=True)
 
 
 def write_portable_oneclick_zip(
