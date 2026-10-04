@@ -654,6 +654,11 @@ class TrainingProgressStore:
                 pass
 
     def load(self, definition: ExerciseDefinition) -> LoadedTrainingProgress | None:
+        # Durable Training progress is bound to one canonical authored
+        # ExerciseDefinition. Reject subclasses before storage I/O or any
+        # overridable definition attribute can participate in restore.
+        if type(definition) is not ExerciseDefinition:
+            raise TypeError("definition must be an ExerciseDefinition")
         data = self._read_progress_bytes(missing_ok=True)
         if data is None:
             return None
@@ -676,7 +681,9 @@ class TrainingProgressStore:
                 f"unsupported training progress schema_version: {schema_version}"
             )
         snapshot = payload["snapshot"]
-        if not isinstance(snapshot, Mapping):
+        # json.loads() produces a built-in dict here. Do not widen this disk
+        # boundary back to active Mapping providers before canonical restore.
+        if type(snapshot) is not dict:
             raise TypeError("training progress snapshot must be a mapping")
         session = ExerciseSession.restore(definition, snapshot)
         return LoadedTrainingProgress(session=session, revision=_revision(data))
@@ -950,7 +957,9 @@ class TrainingProgressStore:
         *,
         expected_revision: str | None,
     ) -> str:
-        if not isinstance(session, ExerciseSession):
+        # Saving durable progress must snapshot the canonical Training session,
+        # not a provider-defined subclass with overridable snapshot/state hooks.
+        if type(session) is not ExerciseSession:
             raise TypeError("session must be an ExerciseSession")
         expected = _validate_revision(expected_revision)
 
