@@ -680,6 +680,43 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertFalse(self.store.backup_path.exists())
 
+    def test_revision_bound_recovery_rejects_primary_repaired_during_confirmation(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:confirmation-race", reader)
+        reader.go_to(3)
+        self.store.save("book:confirmation-race", reader)
+
+        valid_primary = self.path.read_bytes()
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.write_bytes(b'{"schema_version":2,"generation":')
+        backup_revision = self.store.validated_backup_revision(
+            "book:confirmation-race",
+            self.original_document(),
+        )
+
+        replacement = self.path.with_name("externally-repaired-primary.json")
+        replacement.write_bytes(valid_primary)
+        os.replace(replacement, self.path)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.recover_from_backup(
+                expected_backup_revision=backup_revision,
+            )
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), valid_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_unbound_recovery_with_valid_primary_retains_historical_noop(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(2)
+        self.store.save("book:recovery-noop", reader)
+        primary_bytes = self.path.read_bytes()
+
+        self.assertFalse(self.store.recover_from_backup())
+        self.assertEqual(self.path.read_bytes(), primary_bytes)
+
     def test_missing_primary_can_be_explicitly_recovered_from_validated_backup(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
