@@ -3,7 +3,7 @@ name: Current Book Engine Block After FEN Bounds
 on:
   pull_request:
     branches:
-      - fix/current-engine-fen-passive-bounds-20261004-c2mbezb
+      - fix/current-book-engine-block-after-fen-bounds-20261004-sol58c1
     paths:
       - 'acs/engine_assisted_workflows.py'
       - 'tests/test_book_engine_authority_passive_ingress.py'
@@ -43,7 +43,7 @@ jobs:
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
-          base_ref="${EVENT_BASE_REF:-fix/current-engine-fen-passive-bounds-20261004-c2mbezb}"
+          base_ref="${EVENT_BASE_REF:-fix/current-book-engine-block-after-fen-bounds-20261004-sol58c1}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
