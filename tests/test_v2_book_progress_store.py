@@ -2351,6 +2351,31 @@ class BookProgressStoreTests(unittest.TestCase):
                 self.store.has("book:one")
         self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
 
+    def test_existing_primary_disappearance_between_lstat_and_open_fails_closed_even_when_missing_ok(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
+        real_open = os.open
+        removed = False
+
+        def disappearing_open(path: object, flags: int, mode: int = 0o777) -> int:
+            nonlocal removed
+            if not removed and os.fspath(path) == os.fspath(self.path):
+                removed = True
+                self.path.unlink()
+            return real_open(path, flags, mode)
+
+        with mock.patch("acs.book_progress_store.os.open", side_effect=disappearing_open):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:one")
+
+        self.assertTrue(removed)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.IO_FAILURE,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertFalse(self.path.exists())
+
     def test_regular_file_replacement_during_descriptor_read_fails_closed(self) -> None:
         self.path.parent.mkdir(parents=True)
         self.path.write_text('{"schema_version":1,"entries":{}}', encoding="utf-8")
