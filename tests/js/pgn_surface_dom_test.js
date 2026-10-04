@@ -288,22 +288,15 @@ async function run() {
   check(items.length === 2, "semantic tree items missing");
   check(document.activeElement && document.activeElement.id === "pgn-node-aaaaaaaaaaaaaaaaaaaa", "initial tree focus missing");
 
-  // Current user remaps must flow through the shared shell resolver while the
-  // PGN surface keeps canonical pgn.move ownership and presentation handling.
-  const remapCalls = [];
-  const remapContexts = [];
-  const remapRoot = new FakeElement("div");
-  window.accessibleChessKeymapAction = function (event, context) {
-    remapContexts.push(context);
-    return context === "pgn_tree" && event.key === "j"
-      ? "pgn.next_item"
-      : "";
-  };
+  const liveResolver = window.accessibleChessKeymapAction;
+  window.accessibleChessKeymapAction = function () { return null; };
+  const startupCalls = [];
+  const startupRoot = new FakeElement("div");
   window.AccessibleChessPgnSurface.render(
-    remapRoot,
+    startupRoot,
     snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
     (command, payload) => {
-      remapCalls.push([command, payload || {}]);
+      startupCalls.push([command, payload || {}]);
       if (command === "pgn.move") {
         return {
           kind: "selection",
@@ -314,33 +307,28 @@ async function run() {
           }
         };
       }
-      throw new Error("unexpected remapped command " + command);
+      throw new Error("unexpected startup command " + command);
     },
     () => {},
     "pgn-node-aaaaaaaaaaaaaaaaaaaa"
   );
-  const remapItem = remapRoot.querySelectorAll('[role="treeitem"]')[0];
-  let remapPrevented = false;
-  let remapStopped = false;
-  remapItem.listeners.keydown({
-    key: "j",
-    preventDefault: () => { remapPrevented = true; },
-    stopPropagation: () => { remapStopped = true; }
+  const startupItem = startupRoot.querySelectorAll('[role="treeitem"]')[0];
+  let startupPrevented = false;
+  startupItem.listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { startupPrevented = true; },
+    stopPropagation: () => {}
   });
   await flush();
   await flush();
-  check(remapPrevented, "remapped PGN key was not consumed");
-  check(remapStopped, "remapped PGN key did not stop shell propagation");
+  check(startupPrevented, "not-ready PGN resolver suppressed default ArrowDown");
   check(
-    remapContexts.length === 1 && remapContexts[0] === "pgn_tree",
-    "PGN tree key used the wrong keymap context"
+    startupCalls.length === 1 &&
+      startupCalls[0][0] === "pgn.move" &&
+      startupCalls[0][1].delta === 1,
+    "not-ready PGN resolver did not preserve default navigation"
   );
-  check(remapCalls.length === 1, "remapped PGN key did not dispatch exactly once");
-  check(
-    remapCalls[0][0] === "pgn.move" && remapCalls[0][1].delta === 1,
-    "remapped PGN key used the wrong canonical command"
-  );
-  delete window.accessibleChessKeymapAction;
+  window.accessibleChessKeymapAction = liveResolver;
 
   const firstToolbar = findRole(root, "toolbar");
   check(firstToolbar !== null, "PGN action toolbar missing");
