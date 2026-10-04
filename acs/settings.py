@@ -442,35 +442,44 @@ class _SettingsSaveLock:
                 pass
 
 
-def _validated_value(key: str, value: Any) -> Any:
+def _validated_setting_key(key: object) -> str:
+    """Return one passive canonical settings key without invoking subclass hooks."""
+
+    if type(key) is not str:
+        raise KeyError("unknown setting")
     if key not in DEFAULTS:
         raise KeyError(f"unknown setting: {key}")
+    return key
+
+
+def _validated_value(key: str, value: Any) -> Any:
+    key = _validated_setting_key(key)
     if key == "language":
-        if value not in _ALLOWED_LANGUAGE:
+        if type(value) is not str or value not in _ALLOWED_LANGUAGE:
             raise SettingsError("language must be 'uk' or 'en'")
         return value
     if key == "notation":
-        if value not in _ALLOWED_NOTATION:
+        if type(value) is not str or value not in _ALLOWED_NOTATION:
             raise SettingsError("notation must be san, uk_literal, or en_literal")
         return value
     if key in {"sounds", "newgame_animation"}:
-        if not isinstance(value, bool):
+        if type(value) is not bool:
             raise SettingsError(f"{key} must be boolean")
         return value
     if key == "volume":
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+        if type(value) is not int or not 0 <= value <= 100:
             raise SettingsError("volume must be an integer in 0..100")
         return value
     if key in {"tick_policy", "low_time_policy"}:
-        if value not in _ALLOWED_TICK_POLICY:
+        if type(value) is not str or value not in _ALLOWED_TICK_POLICY:
             raise SettingsError(f"{key} must be off, my_turn, or both")
         return value
     if key in {"tick_last_seconds", "low_time_seconds"}:
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3600:
+        if type(value) is not int or not 0 <= value <= 3600:
             raise SettingsError(f"{key} must be an integer in 0..3600")
         return value
     if key in _SOUND_VARIANT_KEYS:
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise SettingsError("sound variant must be text")
         token = value.strip()
         if (
@@ -482,7 +491,7 @@ def _validated_value(key: str, value: Any) -> Any:
             raise SettingsError("sound variant id is invalid")
         return token
     if key == "engine_path":
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise SettingsError("engine_path must be a string")
         return value
     return value
@@ -603,17 +612,17 @@ class Settings:
             raise
 
     def set(self, key: str, value: Any) -> None:
-        validated = _validated_value(key, value)
-        self.data[key] = validated
+        canonical_key = _validated_setting_key(key)
+        validated = _validated_value(canonical_key, value)
+        self.data[canonical_key] = validated
         self._persist_or_reload()
 
     def reset(self, key: str | None = None) -> None:
         if key is None:
             self.data = dict(DEFAULTS)
         else:
-            if key not in DEFAULTS:
-                raise KeyError(f"unknown setting: {key}")
-            self.data[key] = DEFAULTS[key]
+            canonical_key = _validated_setting_key(key)
+            self.data[canonical_key] = DEFAULTS[canonical_key]
         self._persist_or_reload()
 
     def to_profile(self) -> dict[str, Any]:
