@@ -135,6 +135,42 @@ function chordFor(event) {
         'history.previous'
     );
 
+    // Settings mutations rebuild the action list. Preserve the exact keyboard
+    // focus role for the same action, and fall back to Search if filtering removes it.
+    const focusCalls = [];
+    const oldSave = {dataset: {keymapAction: 'board.material', keymapRole: 'save'}};
+    const replacementSave = {
+        dataset: {keymapAction: 'board.material', keymapRole: 'save'},
+        focus() { focusCalls.push('save'); },
+    };
+    const searchFocus = {focus() { focusCalls.push('search'); }};
+    const focusDocument = {
+        activeElement: oldSave,
+        querySelectorAll() { return [replacementSave]; },
+    };
+    const focusContext = {
+        document: focusDocument,
+        el(id) { return id === 'key-search' ? searchFocus : null; },
+        installKeymapSnapshot() { focusDocument.activeElement = null; },
+        loadKeymap: async () => { focusDocument.activeElement = null; },
+        announce() {},
+    };
+    focusContext.window = focusContext;
+    vm.createContext(focusContext);
+    vm.runInContext([
+        indexFunction('keymapMutationFocusAnchor'),
+        indexFunction('restoreKeymapMutationFocus'),
+        indexFunction('applyKeymapMutation'),
+    ].join('\\n'), focusContext, {filename: 'index-keymap-mutation-focus.js'});
+    assert.strictEqual(
+        await focusContext.applyKeymapMutation({ok: true, snapshot: {actions: []}, message: ''}),
+        true
+    );
+    assert.deepStrictEqual(focusCalls, ['save']);
+    focusDocument.querySelectorAll = () => [];
+    focusContext.restoreKeymapMutationFocus({action: 'board.material', role: 'reset'});
+    assert.deepStrictEqual(focusCalls, ['save', 'search']);
+
     // Execute the real document-level keydown handler. Editable controls retain
     // remapped Help and the pre-existing exact Alt+analysis path while refusing
     // unrelated global/document/history commands that would steal typed input.
