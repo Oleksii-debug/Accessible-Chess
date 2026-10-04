@@ -651,6 +651,8 @@ class Settings:
         return json.dumps(self.to_profile(), ensure_ascii=False, indent=indent, sort_keys=True)
 
     def import_json(self, text: str, *, persist: bool = True) -> tuple[str, ...]:
+        if type(persist) is not bool:
+            raise SettingsError("settings import persist flag must be boolean")
         raw = json.loads(_validated_import_text(text))
         if not isinstance(raw, Mapping):
             raise SettingsError("settings profile must be a JSON object")
