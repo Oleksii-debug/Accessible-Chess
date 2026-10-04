@@ -7,6 +7,7 @@ on:
       - 'acs/version2_training_workspace.py'
       - 'tests/test_w2_training_progress_crash_recovery.py'
       - 'tests/test_training_authority_convergence.py'
+      - 'tests/test_training_progress_ancestor_authority.py'
       - '.github/workflows/training-progress-durability.yml'
   workflow_dispatch:
 
@@ -49,6 +50,7 @@ jobs:
           acs/version2_training_workspace.py
           tests/test_w2_training_progress_crash_recovery.py
           tests/test_training_authority_convergence.py
+          tests/test_training_progress_ancestor_authority.py
 
       - name: Run Training progress crash/durability regressions
         shell: bash
@@ -56,6 +58,7 @@ jobs:
           python -m unittest -v
           tests.test_w2_training_progress_crash_recovery
           tests.test_training_authority_convergence
+          tests.test_training_progress_ancestor_authority
 
       - name: Verify candidate diff syntax
         if: ${{ github.event_name == 'pull_request' && runner.os == 'Linux' }}
