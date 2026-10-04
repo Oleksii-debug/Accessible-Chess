@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - fix/books-nested-copy-hook-20261004-sol56k8m2
+      - fix/current-position-passive-boundary-20261004-sol56p2
     paths:
       - 'acs/history.py'
       - 'tests/test_history_target_fail_closed_current.py'
@@ -45,7 +46,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base_ref="$PR_BASE_REF"
           else
-            base_ref="fix/books-nested-copy-hook-20261004-sol56k8m2"
+            base_ref="fix/current-position-passive-boundary-20261004-sol56p2"
           fi
           test -n "$base_ref"
           git fetch --no-tags origin "$base_ref"
