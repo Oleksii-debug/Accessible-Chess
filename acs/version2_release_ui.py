@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .input_limits import MAX_FEN_CHARS
 from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
@@ -408,10 +409,13 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         rejected before the cached projection changes.
         """
 
-        if type(fen) is not str or not fen.strip():
+        if type(fen) is not str or len(fen) > MAX_FEN_CHARS:
+            return {"ok": False}
+        text = fen.strip()
+        if not text:
             return {"ok": False}
         try:
-            canonical = Board(fen).fen()
+            canonical = Board(text).fen()
         except Exception:
             return {"ok": False}
         self._external_review_fen = canonical
