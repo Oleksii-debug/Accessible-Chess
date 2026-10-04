@@ -19,7 +19,7 @@ on:
       - '.github/workflows/v2-windows-book-board-adapter.yml'
   pull_request:
     branches:
-      - qualification/native-thread-current-apex-20261004-solr4k8
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
     paths:
       - 'run_accessible_chess_v2.py'
       - 'acs/version2_windows_book_board_adapter.py'
@@ -76,7 +76,7 @@ jobs:
       - name: Install pinned verification dependencies
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact live stacked-parent pull-request geometry
+      - name: Prove exact live main-reconverged parent geometry
         shell: bash
         run: |
           set -euo pipefail
@@ -95,12 +95,12 @@ jobs:
 
             changed="$(git diff --name-only "$live_base" HEAD | LC_ALL=C sort)"
             wanted="$(printf '%s\n' \
+              '.github/workflows/v2-native-thread-runtime.yml' \
               '.github/workflows/v2-windows-book-board-adapter.yml' \
+              'tests/test_v2_native_thread_runtime_workflow.py' \
               'tests/test_v2_windows_book_board_adapter_workflow.py' | LC_ALL=C sort)"
             test "$changed" = "$wanted"
 
-            # This is qualification only. Book/Board/UI/runtime authorities and
-            # both launchers must remain inherited from the exact stacked base.
             git diff --quiet "$live_base" HEAD -- \
               run_accessible_chess.py \
               run_accessible_chess_v2.py \
@@ -110,7 +110,8 @@ jobs:
               acs/book_webview_bridge.py \
               acs/full_product_presenters.py \
               acs/full_product_actions.py \
-              acs/version2_application.py
+              acs/version2_application.py \
+              acs/version2_windows_file_workflows.py
           else
             parent="$(git rev-parse HEAD^)"
             git cat-file -e "$parent^{commit}"
