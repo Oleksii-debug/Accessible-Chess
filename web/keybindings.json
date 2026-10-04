@@ -4,6 +4,7 @@
     {"id":"history.previous","context":"document","registryContext":"history","labelUk":"Попередня позиція в історії","labelEn":"Previous historical position","binding":"Shift+A","alias":null,"defaultBinding":"Shift+A","defaultAlias":null},
     {"id":"history.next","context":"document","registryContext":"history","labelUk":"Наступна позиція в історії","labelEn":"Next historical position","binding":"Shift+D","alias":null,"defaultBinding":"Shift+D","defaultAlias":null},
     {"id":"history.go_to_move","context":"document","registryContext":"history","labelUk":"Перейти до ходу","labelEn":"Go to move","binding":"Ctrl+G","alias":null,"defaultBinding":"Ctrl+G","defaultAlias":null},
+    {"id":"file.new","context":"document","registryContext":"global","labelUk":"Нова стандартна позиція","labelEn":"New standard position","binding":"Ctrl+N","alias":null,"defaultBinding":"Ctrl+N","defaultAlias":null},
     {"id":"edit.undo","context":"document","registryContext":"global","labelUk":"Скасувати хід","labelEn":"Undo","binding":"Ctrl+Z","alias":null,"defaultBinding":"Ctrl+Z","defaultAlias":null},
     {"id":"edit.redo","context":"document","registryContext":"global","labelUk":"Повторити хід","labelEn":"Redo","binding":"Ctrl+Shift+Z","alias":null,"defaultBinding":"Ctrl+Shift+Z","defaultAlias":null},
     {"id":"analysis.pv1","context":"analysis","registryContext":"analysis","labelUk":"Перший варіант Stockfish","labelEn":"Read principal variation 1","binding":"Alt+1","alias":null,"defaultBinding":"Alt+1","defaultAlias":null},

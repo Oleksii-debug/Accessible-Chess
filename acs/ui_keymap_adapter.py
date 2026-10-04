@@ -30,6 +30,7 @@ _UK_LABELS = {
     "history.previous": "Попередня позиція в історії",
     "history.next": "Наступна позиція в історії",
     "history.go_to_move": "Перейти до ходу",
+    "file.new": "Нова стандартна позиція",
     "edit.undo": "Скасувати хід",
     "edit.redo": "Повторити хід",
     "analysis.pv1": "Перший варіант Stockfish",

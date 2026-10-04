@@ -35,6 +35,12 @@ jobs:
       CURRENT_STORE_BLOB: 3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
       CURRENT_BASE_TEST_BLOB: 52cb2948ec6789b60775e1fa38cae44770baff7a
       CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
+      WINDOWS_DURABILITY_STORE_BLOB: a077dc71ab750ce3bacdbeaf7a76e69d2dccfb0a
+      WINDOWS_DURABILITY_BASE_TEST_BLOB: 0ce0d284ab7c0cdf75c3ffb191bda9f9dad22004
+      WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      READ_DISAPPEAR_STORE_BLOB: 180d598b79c64db54254c79547c6c725a9973f8c
+      READ_DISAPPEAR_BASE_TEST_BLOB: d0f31138253a69c06a9f2ba8583c1fce93bb73b0
+      READ_DISAPPEAR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -116,6 +122,19 @@ jobs:
             fi
           fi
 
+          windows_durability_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && git merge-base --is-ancestor "$current_product" "$PR_BASE_SHA"; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+            if [ "$candidate_store" = "$WINDOWS_DURABILITY_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$WINDOWS_DURABILITY_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB" ]; then
+              windows_durability_successor=true
+            fi
+          fi
+
           full_product_composition=false
           if [ "${{ github.event_name }}" = "pull_request" ] \
             && [ "${{ github.head_ref }}" = "$CURRENT_PRODUCT_BRANCH" ]; then
@@ -161,6 +180,16 @@ jobs:
               tests/test_v2_book_progress_store.py \
               tests/test_v2_book_progress_store_production.py
             echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_SUCCESSOR'
+          elif [ "$windows_durability_successor" = true ]; then
+            # A broad descendant convergence may carry unrelated already-qualified
+            # product work. Bind BookProgress authority to this exact reviewed
+            # runtime/test triplet and lint only the owned successor surface.
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=WINDOWS_DURABILITY_SUCCESSOR'
           elif [ "$full_product_composition" = true ]; then
             # The repair is composed into the live Full Product. A broad Product
             # history is legitimate only on that exact canonical branch.
@@ -178,12 +207,30 @@ jobs:
             exit 1
           fi
 
-          # Every accepted topology must retain the current BookProgress owner
-          # and exact current owned blobs.
+          # Every accepted topology retains the current owner and one exact
+          # reviewed BookProgress runtime/test triplet. Do not turn this into a
+          # prefix/range allowlist: persistence authority is byte-exact.
           git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
-          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+          candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+          candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+          candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+          if [ "$candidate_store" = "$CURRENT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$CURRENT_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$CURRENT_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=CURRENT'
+          elif [ "$candidate_store" = "$WINDOWS_DURABILITY_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$WINDOWS_DURABILITY_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=WINDOWS_DURABILITY_SUCCESSOR'
+          elif [ "$candidate_store" = "$READ_DISAPPEAR_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$READ_DISAPPEAR_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$READ_DISAPPEAR_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=READ_DISAPPEAR_SUCCESSOR'
+          else
+            printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
+              "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2
+            exit 1
+          fi
           echo 'BOOK PROGRESS PRODUCTION OWNERSHIP PASS'
 
       - name: Compile Book progress repair

@@ -1,0 +1,68 @@
+name: Current User Library Seed
+
+on:
+  push:
+    branches:
+      - work/user-corpus-pgn-cp1251-20261003
+    paths:
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_packaged_starter_application.py'
+      - 'tests/test_user_library_seed.py'
+      - 'tests/test_user_library_seed_parent_safety.py'
+      - 'tests/test_v2_packaged_starter_application.py'
+      - '.github/workflows/current-user-library-seed.yml'
+  pull_request:
+    paths:
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_packaged_starter_application.py'
+      - 'tests/test_user_library_seed.py'
+      - 'tests/test_user_library_seed_parent_safety.py'
+      - 'tests/test_v2_packaged_starter_application.py'
+      - '.github/workflows/current-user-library-seed.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-user-library-seed-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  seed:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile private seed seam
+        run: >-
+          python -m py_compile
+          acs/user_library_seed.py
+          acs/version2_packaged_starter_application.py
+          tests/test_user_library_seed.py
+          tests/test_user_library_seed_parent_safety.py
+          tests/test_current_main_full_product_convergence_workflow.py
+          tests/test_v2_packaged_starter_application.py
+
+      - name: Seed security, semantic and startup integration
+        run: >-
+          python -m unittest -v
+          tests.test_user_library_seed
+          tests.test_user_library_seed_parent_safety
+          tests.test_current_main_full_product_convergence_workflow
+          tests.test_v2_packaged_starter_application
+
+      - name: Exact whitespace check
+        shell: bash
+        run: git diff --check

@@ -7,6 +7,9 @@ class SoundEventPolicyTests(unittest.TestCase):
     def test_game_boundary_events_are_explicit(self):
         self.assertEqual(SoundEventPolicy.game_start(), (SoundEvent.START,))
         self.assertEqual(SoundEventPolicy.game_end(), (SoundEvent.END,))
+        self.assertEqual(SoundEventPolicy.checkmate(), (SoundEvent.MATE,))
+        self.assertEqual(SoundEventPolicy.draw(), (SoundEvent.DRAW,))
+        self.assertEqual(SoundEventPolicy.low_time(), (SoundEvent.LOW_TIME,))
         self.assertEqual(SoundEventPolicy.illegal(), (SoundEvent.ILLEGAL,))
 
     def test_plain_move_emits_move_only(self):

@@ -18,6 +18,8 @@ class ActionRegistryTests(unittest.TestCase):
         self.assertEqual(registry.resolve_binding(BindingContext.HISTORY, "shift+a").action_id, "history.previous")
         self.assertEqual(registry.resolve_binding(BindingContext.HISTORY, "shift+d").action_id, "history.next")
         self.assertEqual(registry.resolve_binding(BindingContext.HISTORY, "ctrl+g").action_id, "history.go_to_move")
+        self.assertEqual(registry.resolve_binding(BindingContext.BOARD, "ctrl+n").action_id, "file.new")
+        self.assertEqual(registry.resolve_binding(BindingContext.GLOBAL, "ctrl+n").action_id, "file.new")
         self.assertEqual(registry.resolve_binding(BindingContext.ANALYSIS, "alt+5").action_id, "analysis.pv5")
         self.assertEqual(registry.resolve_binding(BindingContext.ANALYSIS, "alt+up").action_id, "analysis.previous_pv")
         self.assertEqual(registry.resolve_binding(BindingContext.ANALYSIS, "alt+enter").action_id, "analysis.explore_pv")

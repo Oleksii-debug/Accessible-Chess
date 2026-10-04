@@ -107,6 +107,7 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
             "V2_ACCEPTED_P0G_STAGE1_UI_BLOB",
             "V2_ACCEPTED_ENGINE_TIMEOUT_STAGE1_UI_BLOB",
             "V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB",
+            "V2_ACCEPTED_SOUND_RELEASE_APP_BLOB",
             "V2_ACCEPTED_PGN_WORKSPACE_BLOB",
             "V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB",
         ):
@@ -114,6 +115,14 @@ class Version2WindowsCompositionWorkflowTests(unittest.TestCase):
                 self.assertIn(token, self.workflow)
         self.assertIn(
             'git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD',
+            self.workflow,
+        )
+        self.assertIn(
+            "V2_ACCEPTED_SOUND_RELEASE_APP_BLOB: dbbcaabd4f6df0ab615095949d464d1371b0ffef",
+            self.workflow,
+        )
+        self.assertIn(
+            'if [ "$actual_release_app_blob" != "$V2_ACCEPTED_SOUND_RELEASE_APP_BLOB" ]; then',
             self.workflow,
         )
         self.assertIn(

@@ -9,6 +9,7 @@ on:
       - 'acs/history.py'
       - 'tests/test_architecture.py'
       - 'tests/test_architecture_dynamic_imports.py'
+      - 'tests/test_architecture_workflow_concurrency.py'
       - '.github/workflows/architecture-dynamic-import-gate.yml'
   push:
     paths:
@@ -18,10 +19,15 @@ on:
       - 'acs/history.py'
       - 'tests/test_architecture.py'
       - 'tests/test_architecture_dynamic_imports.py'
+      - 'tests/test_architecture_workflow_concurrency.py'
       - '.github/workflows/architecture-dynamic-import-gate.yml'
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   architecture-dynamic-imports:
@@ -49,6 +55,6 @@ jobs:
           test "$actual" = "$expected"
           git diff --check HEAD^
       - name: Compile architecture regression
-        run: python -m py_compile tests/test_architecture_dynamic_imports.py
+        run: python -m py_compile tests/test_architecture_dynamic_imports.py tests/test_architecture_workflow_concurrency.py
       - name: Run architecture boundaries
-        run: python -m unittest -v tests.test_architecture tests.test_architecture_dynamic_imports
+        run: python -m unittest -v tests.test_architecture tests.test_architecture_dynamic_imports tests.test_architecture_workflow_concurrency

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import stat
 import struct
 import tempfile
@@ -12,6 +13,7 @@ import wave
 import zipfile
 
 from acs import version2_release_payload as payload
+from acs import version2_package_preflight as package_preflight
 from acs.sound_events import SoundEvent
 from acs.sound_windows import PackagedSoundAssetResolver
 from acs.stockfish_runtime import StockfishRuntimeConfig, resolve_stockfish_path
@@ -29,6 +31,8 @@ _REQUIRED_WEB_FILES = (
     "full_product_education.js",
     "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
+    "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+    "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
 )
 
 _VALID_WINFORMS_CONFIG = (
@@ -55,8 +59,10 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         for name in _REQUIRED_WEB_FILES:
-            (self.standalone / "web" / name).write_text(
-                f"/* {name} */\n" if name.endswith(".js") else "<main>Accessible Chess</main>\n",
+            path = self.standalone / "web" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                f"/* {name} */\n" if name.endswith(".js") else "Accessible Chess owner resource\n",
                 encoding="utf-8",
             )
 
@@ -79,12 +85,27 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._write_stockfish_archive(self.stockfish)
 
     @staticmethod
-    def _write_wav(path: Path, *, sample: int) -> None:
+    def _write_wav(path: Path, *, sample: int, sample_width: int = 2) -> None:
         with wave.open(str(path), "wb") as writer:
             writer.setnchannels(1)
-            writer.setsampwidth(2)
+            writer.setsampwidth(sample_width)
             writer.setframerate(8000)
-            writer.writeframes(struct.pack("<h", sample) * 8)
+            if sample_width == 1:
+                if not 0 <= sample <= 255:
+                    raise ValueError("8-bit WAV sample must be in 0..255")
+                writer.writeframes(bytes([sample]) * 8)
+            elif sample_width == 2:
+                writer.writeframes(struct.pack("<h", sample) * 8)
+            else:
+                raise ValueError("test WAV sample width must be 1 or 2")
+
+    @staticmethod
+    def _write_wav_8bit(path: Path) -> None:
+        with wave.open(str(path), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(1)
+            writer.setframerate(8000)
+            writer.writeframes(bytes([0, 64, 128, 192, 255] * 4))
 
     def _write_sound_provenance(self) -> None:
         manifest = json.loads((self.sounds / "manifest.json").read_text(encoding="utf-8"))
@@ -118,6 +139,114 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         struct.pack_into("<H", data, coff + 20, 0x20B)
         data.extend(payload_bytes)
         return bytes(data)
+
+    def _enable_inventory_sound_pack(self) -> tuple[int, str, Path]:
+        manifest_path = self.sounds / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        provenance = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
+
+        library = self.sounds / "library"
+        library.mkdir()
+        moved: dict[str, str] = {}
+        for file_name in sorted(set(manifest["files"].values()), key=str.casefold):
+            source = self.sounds / file_name
+            destination = library / file_name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source.replace(destination)
+            moved[file_name] = f"library/{file_name}"
+
+        for event in SoundEvent:
+            old_name = manifest["files"][event.value]
+            new_name = moved[old_name]
+            manifest["files"][event.value] = new_name
+            provenance["events"][event.value]["file"] = new_name
+            provenance["events"][event.value]["sha256"] = self._digest(
+                self.sounds / new_name
+            )
+
+        alt = library / "move-alt.wav"
+        self._write_wav(alt, sample=177, sample_width=1)
+        variants = {
+            "schema_version": 1,
+            "events": {
+                event.value: [
+                    {
+                        "id": "1",
+                        "file": manifest["files"][event.value],
+                        "label_uk": "Варіант 1",
+                        "label_en": "Variant 1",
+                    }
+                ]
+                for event in SoundEvent
+            },
+        }
+        variants["events"][SoundEvent.MOVE.value].append(
+            {
+                "id": "2",
+                "file": "library/move-alt.wav",
+                "label_uk": "Хід 2",
+                "label_en": "Move 2",
+            }
+        )
+        (self.sounds / "variants.json").write_text(
+            json.dumps(variants, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        (self.sounds / "layers.json").write_text(
+            json.dumps({"schema_version": 1, "events": {}}, sort_keys=True),
+            encoding="utf-8",
+        )
+        manifest_path.write_text(
+            json.dumps(manifest, sort_keys=True),
+            encoding="utf-8",
+        )
+        self.sound_provenance.write_text(
+            json.dumps(provenance, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        entries: list[dict[str, object]] = []
+        fingerprint_rows: list[bytes] = []
+        for path in sorted(
+            (item for item in library.rglob("*") if item.is_file() and item.suffix.casefold() == ".wav"),
+            key=lambda item: item.relative_to(library).as_posix().casefold(),
+        ):
+            relative = path.relative_to(library).as_posix()
+            digest = self._digest(path)
+            with wave.open(str(path), "rb") as reader:
+                frames = reader.getnframes()
+                rate = reader.getframerate()
+                entries.append(
+                    {
+                        "file": f"library/{relative}",
+                        "sha256": digest,
+                        "bytes": path.stat().st_size,
+                        "channels": reader.getnchannels(),
+                        "sample_width_bytes": reader.getsampwidth(),
+                        "sample_rate": rate,
+                        "frames": frames,
+                        "duration_seconds": round(frames / rate, 6),
+                        "compression": reader.getcomptype(),
+                    }
+                )
+            fingerprint_rows.append(
+                f"{relative}\0{digest}\n".encode("utf-8")
+            )
+        inventory_sha = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+        inventory = {
+            "schema_version": 1,
+            "source": payload._USER_SOUND_SOURCE,
+            "license_id": payload._USER_SOUND_LICENSE_ID,
+            "creator": payload._USER_SOUND_CREATOR,
+            "file_count": len(entries),
+            "source_inventory_sha256": inventory_sha,
+            "files": entries,
+        }
+        (self.sounds / "inventory.json").write_text(
+            json.dumps(inventory, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        return len(entries), inventory_sha, alt
 
     def _write_stockfish_archive(
         self,
@@ -311,6 +440,48 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self.assertTrue((package / "RELEASE_MANIFEST.json").is_file())
         self.assertTrue((package / "SHA256SUMS.txt").is_file())
 
+    def test_inventory_bound_payload_flows_through_package_assembler_preflight(self) -> None:
+        count, inventory_sha, _alt = self._enable_inventory_sound_pack()
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+        ):
+            prepared = self._prepare(self.root / "payload-inventory-assembled")
+
+        package = self.root / "candidate-inventory-bound"
+        with (
+            patch.object(package_preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(
+                package_preflight,
+                "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                inventory_sha,
+            ),
+        ):
+            assembled = assemble_version2_package_tree(
+                prepared.product_dir,
+                prepared.notices_dir,
+                package,
+                integration_sha="b" * 40,
+            )
+
+        self.assertEqual(assembled.tree_report.integration_sha, "b" * 40)
+        self.assertTrue(
+            (
+                package
+                / "AccessibleChess"
+                / "assets"
+                / "sounds"
+                / "inventory.json"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                package
+                / "THIRD_PARTY_NOTICES"
+                / "SOUND_INVENTORY.json"
+            ).is_file()
+        )
+
     def test_wrong_stockfish_digest_fails_without_output(self) -> None:
         output = self.root / "payload"
         with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "SHA-256 mismatch"):
@@ -467,7 +638,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             path = self.standalone / "web" / name
             original = path.read_bytes()
             path.unlink()
-            output = self.root / f"payload-web-{name.replace('.', '-')}"
+            output = self.root / f"payload-web-{name.replace('/', '-').replace('.', '-')}"
             with self.subTest(name=name):
                 with self.assertRaisesRegex(
                     payload.Version2ReleasePayloadError,
@@ -477,7 +648,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 self._assert_no_publication(output)
             path.write_bytes(original)
 
-    def test_sound_manifest_must_be_exact_nine_and_distinct(self) -> None:
+    def test_sound_manifest_must_cover_complete_semantic_event_set(self) -> None:
         manifest_path = self.sounds / "manifest.json"
         original = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -485,7 +656,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         missing["files"].pop(next(iter(SoundEvent)).value)
         manifest_path.write_text(json.dumps(missing), encoding="utf-8")
         output = self.root / "payload-missing"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all semantic"):
             self._prepare(output)
         self._assert_no_publication(output)
 
@@ -494,21 +665,186 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._write_wav(self.sounds / "extra.wav", sample=1)
         manifest_path.write_text(json.dumps(extra), encoding="utf-8")
         output = self.root / "payload-extra"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all semantic"):
             self._prepare(output)
         self._assert_no_publication(output)
         (self.sounds / "extra.wav").unlink()
 
-        aliased = json.loads(json.dumps(original))
+    def test_release_payload_accepts_8bit_pcm_runtime_sound(self) -> None:
+        target = self.sounds / f"{SoundEvent.LOW_TIME.value}.wav"
+        self._write_wav_8bit(target)
+        self._write_sound_provenance()
+
+        result = self._prepare(self.root / "payload-8bit-sound")
+        packaged = (
+            result.product_dir
+            / "assets"
+            / "sounds"
+            / f"{SoundEvent.LOW_TIME.value}.wav"
+        )
+        with wave.open(str(packaged), "rb") as reader:
+            self.assertEqual(reader.getsampwidth(), 1)
+            self.assertEqual(reader.getcomptype(), "NONE")
+
+    def test_sound_manifest_allows_intentional_alias_when_provenance_matches(self) -> None:
+        manifest_path = self.sounds / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        provenance = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
         events = list(SoundEvent)
-        aliased["files"][events[1].value] = aliased["files"][events[0].value]
-        manifest_path.write_text(json.dumps(aliased), encoding="utf-8")
-        output = self.root / "payload-alias"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "distinct WAV"):
+        source_event = events[0].value
+        alias_event = events[1].value
+        shared_file = manifest["files"][source_event]
+        manifest["files"][alias_event] = shared_file
+        provenance["events"][alias_event]["file"] = shared_file
+        provenance["events"][alias_event]["sha256"] = self._digest(self.sounds / shared_file)
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+        self.sound_provenance.write_text(
+            json.dumps(provenance, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        result = self._prepare(self.root / "payload-alias")
+        packaged_manifest = json.loads(
+            (
+                result.product_dir
+                / "assets"
+                / "sounds"
+                / "manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            packaged_manifest["files"][source_event],
+            packaged_manifest["files"][alias_event],
+        )
+
+    def test_extended_sound_inventory_is_published_and_binds_runtime_variants(self) -> None:
+        count, inventory_sha, alt = self._enable_inventory_sound_pack()
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+        ):
+            result = self._prepare(self.root / "payload-inventory")
+
+        packaged_root = result.product_dir / "assets" / "sounds"
+        self.assertTrue((packaged_root / "inventory.json").is_file())
+        self.assertTrue((packaged_root / "variants.json").is_file())
+        self.assertTrue((packaged_root / "layers.json").is_file())
+        self.assertEqual(
+            self._digest(packaged_root / "library" / "move-alt.wav"),
+            self._digest(alt),
+        )
+
+        notice_path = result.notices_dir / "SOUND_INVENTORY.json"
+        self.assertTrue(notice_path.is_file())
+        notice = json.loads(notice_path.read_text(encoding="utf-8"))
+        self.assertEqual(notice["file_count"], count)
+        self.assertEqual(notice["source_inventory_sha256"], inventory_sha)
+        self.assertIn(
+            "library/move-alt.wav",
+            {entry["file"] for entry in notice["files"]},
+        )
+        alt_entry = next(
+            entry for entry in notice["files"]
+            if entry["file"] == "library/move-alt.wav"
+        )
+        self.assertEqual(alt_entry["sample_width_bytes"], 1)
+
+    def test_non_default_variant_valid_pcm_substitution_fails_inventory_binding(self) -> None:
+        count, inventory_sha, alt = self._enable_inventory_sound_pack()
+        self._write_wav(alt, sample=778)
+        output = self.root / "payload-inventory-tamper"
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+            self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "sound inventory SHA-256 mismatch",
+            ),
+        ):
             self._prepare(output)
         self._assert_no_publication(output)
 
-        manifest_path.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")
+    def test_sound_inventory_rejects_nonfinite_duration_atomically(self) -> None:
+        count, inventory_sha, _alt = self._enable_inventory_sound_pack()
+        inventory_path = self.sounds / "inventory.json"
+        raw = json.loads(inventory_path.read_text(encoding="utf-8"))
+        raw["files"][0]["duration_seconds"] = float("nan")
+        inventory_path.write_text(
+            json.dumps(raw, sort_keys=True),
+            encoding="utf-8",
+        )
+        output = self.root / "payload-inventory-nan"
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+            self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "non-finite JSON number: NaN",
+            ),
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_variant_catalog_without_inventory_fails_atomically(self) -> None:
+        count, inventory_sha, _alt = self._enable_inventory_sound_pack()
+        (self.sounds / "inventory.json").unlink()
+        output = self.root / "payload-inventory-missing"
+        with (
+            patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+            patch.object(payload, "_USER_SOUND_EXPECTED_INVENTORY_SHA256", inventory_sha),
+            self.assertRaisesRegex(
+                payload.Version2ReleasePayloadError,
+                "requires canonical sound inventory",
+            ),
+        ):
+            self._prepare(output)
+        self._assert_no_publication(output)
+
+    def test_layered_sound_assets_are_packaged_and_malformed_layers_fail_atomically(self) -> None:
+        impact = self.sounds / "move-hit.wav"
+        self._write_wav(impact, sample=321)
+        layers_path = self.sounds / "layers.json"
+        layers_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "events": {
+                        "move": {
+                            "1": ["move.wav", "move-hit.wav"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        output = self.root / "payload-layered-sounds"
+        result = self._prepare(output)
+        packaged_sound_root = result.product_dir / "assets" / "sounds"
+        self.assertTrue((packaged_sound_root / "layers.json").is_file())
+        self.assertTrue((packaged_sound_root / "move-hit.wav").is_file())
+
+        shutil.rmtree(output)
+        layers_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "events": {
+                        "move": {
+                            "1": ["move-hit.wav", "move.wav"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        invalid_output = self.root / "payload-layered-sounds-invalid"
+        with self.assertRaisesRegex(
+            payload.Version2ReleasePayloadError,
+            "production resolver contract",
+        ):
+            self._prepare(invalid_output)
+        self._assert_no_publication(invalid_output)
 
     def test_sound_provenance_is_required_and_bound_to_every_asset(self) -> None:
         original = json.loads(self.sound_provenance.read_text(encoding="utf-8"))
@@ -545,7 +881,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         missing["events"].pop(next(iter(SoundEvent)).value)
         self.sound_provenance.write_text(json.dumps(missing), encoding="utf-8")
         output = self.root / "payload-provenance-event-missing"
-        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all nine"):
+        with self.assertRaisesRegex(payload.Version2ReleasePayloadError, "exactly all semantic"):
             self._prepare(output)
         self._assert_no_publication(output)
         self.sound_provenance.write_text(json.dumps(original, sort_keys=True), encoding="utf-8")

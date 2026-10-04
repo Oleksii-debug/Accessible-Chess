@@ -40,6 +40,7 @@ def test_locked_board_and_history_defaults_are_projected_for_webview():
         "history.previous": "Shift+A",
         "history.next": "Shift+D",
         "history.go_to_move": "Ctrl+G",
+        "file.new": "Ctrl+N",
         "board.current": "O",
         "board.last_captured": "C",
         "board.last_move": "L",

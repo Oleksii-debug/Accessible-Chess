@@ -11,6 +11,7 @@ from pathlib import Path
 import copy
 import logging
 import tempfile
+import time
 from typing import Any
 
 from .chesscore import parse_sq
@@ -52,6 +53,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         game_sounds: Any | None = None,
         sound_runtime: Any | None = None,
         settings: Any | None = None,
+        sound_asset_resolver: Any | None = None,
         engine_play_service: EnginePlayService | None = None,
         **kwargs: Any,
     ) -> None:
@@ -64,6 +66,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._game_sounds = game_sounds
         self._sound_runtime = sound_runtime
         self._settings = settings
+        self._sound_asset_resolver = sound_asset_resolver
         self._engine_play_service = engine_play_service
         self._engine_session: EngineGameSessionCoordinator | None = None
         self._engine_game_phase = "idle"
@@ -71,6 +74,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_takeback_unsafe = False
         self._engine_thinking = False
         self._engine_clock_history: list[ClockSnapshot] = []
+        self._clock_sound_not_before = 0.0
+        self._low_time_warned_sides: set[str] = set()
+        self._suppress_next_engine_move_sound_for_start = False
 
     def _concise_error(self, uk: str, en: str) -> dict[str, Any]:
         return self._error(uk if self.lang == "uk" else en)
@@ -78,24 +84,142 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
     def _sound_message(self, uk: str, en: str) -> str:
         return uk if self.lang == "uk" else en
 
+    def _stop_current_sound(self) -> None:
+        runtime = self._sound_runtime
+        stop = getattr(runtime, "stop_current", None) if runtime is not None else None
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
+        self._clock_sound_not_before = 0.0
+
+    def _sound_variant_options(self, event: SoundEvent) -> tuple[dict[str, str], ...]:
+        options = ()
+        resolver = self._sound_asset_resolver
+        if resolver is not None and callable(getattr(resolver, "variants_for", None)):
+            try:
+                options = tuple(resolver.variants_for(event))
+            except Exception:
+                options = ()
+        if not options:
+            return ({"id": "1", "labelUk": "Варіант 1", "labelEn": "Variant 1"},)
+        return tuple(
+            {
+                "id": str(option.variant_id),
+                "labelUk": str(option.label_uk),
+                "labelEn": str(option.label_en),
+            }
+            for option in options
+        )
+
     def _sound_state(self) -> dict[str, Any]:
         enabled = True
+        newgame_animation = True
         volume = 80
+        tick_policy = "my_turn"
+        tick_last_seconds = 0
+        low_time_policy = "my_turn"
+        low_time_seconds = 30
         if self._settings is not None:
             try:
                 enabled = bool(self._settings.get("sounds", True))
+                newgame_animation = bool(self._settings.get("newgame_animation", True))
                 volume = int(self._settings.get("volume", 80))
+                tick_policy = str(self._settings.get("tick_policy", "my_turn"))
+                tick_last_seconds = int(self._settings.get("tick_last_seconds", 0))
+                low_time_policy = str(self._settings.get("low_time_policy", "my_turn"))
+                low_time_seconds = int(self._settings.get("low_time_seconds", 30))
             except Exception:
-                enabled, volume = True, 80
+                enabled = True
+                newgame_animation = True
+                volume = 80
+                tick_policy = "my_turn"
+                tick_last_seconds = 0
+                low_time_policy = "my_turn"
+                low_time_seconds = 30
+
+        variants: dict[str, list[dict[str, str]]] = {}
+        selected: dict[str, str] = {}
+        for event in SoundEvent:
+            options = self._sound_variant_options(event)
+            variants[event.value] = list(options)
+            available = {item["id"] for item in options}
+            choice = "1"
+            if self._settings is not None:
+                try:
+                    choice = str(
+                        self._settings.get(f"sound_{event.value}_variant", "1")
+                    )
+                except Exception:
+                    choice = "1"
+            selected[event.value] = choice if choice in available else "1"
+
         return {
             "enabled": enabled,
+            "newGameAnimation": newgame_animation,
             "volume": max(0, min(100, volume)),
+            "tickPolicy": tick_policy if tick_policy in {"off", "my_turn", "both"} else "my_turn",
+            "tickLastSeconds": max(0, min(3600, tick_last_seconds)),
+            "lowTimePolicy": low_time_policy if low_time_policy in {"off", "my_turn", "both"} else "my_turn",
+            "lowTimeSeconds": max(0, min(3600, low_time_seconds)),
             "events": [event.value for event in SoundEvent],
+            "variants": variants,
+            "selectedVariants": selected,
         }
 
     def get_sound_settings(self) -> dict[str, Any]:
         state = self._sound_state()
         return {"ok": True, **state, "message": ""}
+
+    def set_sound_variant(self, event_id: str, variant_id: str) -> dict[str, Any]:
+        try:
+            event = SoundEvent(str(event_id))
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message("Невідомий звук.", "Unknown sound."),
+            }
+        if self._settings is None or not isinstance(variant_id, str):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося змінити варіант звуку.",
+                    "Sound variant could not be changed.",
+                ),
+            }
+        options = self._sound_variant_options(event)
+        available = {item["id"] for item in options}
+        if variant_id not in available:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Такого варіанта звуку немає.",
+                    "That sound variant is not available.",
+                ),
+            }
+        try:
+            self._settings.set(f"sound_{event.value}_variant", variant_id)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти варіант звуку.",
+                    "Sound variant could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                f"Вибрано варіант {variant_id}.",
+                f"Variant {variant_id} selected.",
+            ),
+        }
 
     def set_sound_enabled(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool) or self._settings is None:
@@ -109,6 +233,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             }
         try:
             self._settings.set("sounds", enabled)
+            if not enabled:
+                self._stop_current_sound()
         except Exception:
             return {
                 "ok": False,
@@ -127,6 +253,40 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             ),
         }
 
+    def set_newgame_animation_enabled(self, enabled: bool) -> dict[str, Any]:
+        if not isinstance(enabled, bool) or self._settings is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося змінити анімацію нової партії.",
+                    "New-game animation setting could not be changed.",
+                ),
+            }
+        try:
+            self._settings.set("newgame_animation", enabled)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти анімацію нової партії.",
+                    "New-game animation setting could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Анімацію нової партії увімкнено."
+                if enabled
+                else "Анімацію нової партії вимкнено.",
+                "New-game animation enabled."
+                if enabled
+                else "New-game animation disabled.",
+            ),
+        }
+
     def set_sound_volume(self, volume: int) -> dict[str, Any]:
         if isinstance(volume, bool) or not isinstance(volume, int) or not 0 <= volume <= 100 or self._settings is None:
             return {
@@ -139,6 +299,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             }
         try:
             self._settings.set("volume", volume)
+            if volume == 0:
+                self._stop_current_sound()
         except Exception:
             return {
                 "ok": False,
@@ -154,6 +316,145 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             "message": self._sound_message(
                 f"Гучність {volume} відсотків.",
                 f"Volume {volume} percent.",
+            ),
+        }
+
+    def set_clock_sound_policy(self, policy: str) -> dict[str, Any]:
+        if policy not in {"off", "my_turn", "both"} or self._settings is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Некоректний режим звуку годинника.",
+                    "Invalid clock sound mode.",
+                ),
+            }
+        try:
+            self._settings.set("tick_policy", policy)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти режим годинника.",
+                    "Clock sound mode could not be saved.",
+                ),
+            }
+        labels = {
+            "off": ("Звук годинника вимкнено.", "Clock sound disabled."),
+            "my_turn": ("Годинник звучить лише під час мого ходу.", "Clock sounds only on my turn."),
+            "both": ("Годинник звучить під час ходу обох сторін.", "Clock sounds on both turns."),
+        }
+        uk, en = labels[policy]
+        return {"ok": True, **self._sound_state(), "message": self._sound_message(uk, en)}
+
+    def set_clock_sound_last_seconds(self, seconds: int) -> dict[str, Any]:
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, int)
+            or not 0 <= seconds <= 3600
+            or self._settings is None
+        ):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Кількість секунд має бути від 0 до 3600.",
+                    "Seconds must be from 0 to 3600.",
+                ),
+            }
+        try:
+            self._settings.set("tick_last_seconds", seconds)
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти межу звуку годинника.",
+                    "Clock sound threshold could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Годинник звучить увесь час."
+                if seconds == 0
+                else f"Годинник звучить останні {seconds} секунд.",
+                "Clock sounds for the whole timed game."
+                if seconds == 0
+                else f"Clock sounds during the last {seconds} seconds.",
+            ),
+        }
+
+    def set_low_time_policy(self, policy: str) -> dict[str, Any]:
+        if policy not in {"off", "my_turn", "both"} or self._settings is None:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Некоректний режим попередження про малий час.",
+                    "Invalid low-time warning mode.",
+                ),
+            }
+        try:
+            self._settings.set("low_time_policy", policy)
+            if policy == "off":
+                self._low_time_warned_sides.clear()
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти режим попередження про малий час.",
+                    "Low-time warning mode could not be saved.",
+                ),
+            }
+        labels = {
+            "off": ("Попередження про малий час вимкнено.", "Low-time warning disabled."),
+            "my_turn": ("Попередження звучить лише для мого часу.", "Low-time warning sounds only for my clock."),
+            "both": ("Попередження звучить для обох сторін.", "Low-time warning sounds for both clocks."),
+        }
+        uk, en = labels[policy]
+        return {"ok": True, **self._sound_state(), "message": self._sound_message(uk, en)}
+
+    def set_low_time_seconds(self, seconds: int) -> dict[str, Any]:
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, int)
+            or not 0 <= seconds <= 3600
+            or self._settings is None
+        ):
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Межа малого часу має бути від 0 до 3600 секунд.",
+                    "Low-time threshold must be from 0 to 3600 seconds.",
+                ),
+            }
+        try:
+            self._settings.set("low_time_seconds", seconds)
+            self._low_time_warned_sides.clear()
+        except Exception:
+            return {
+                "ok": False,
+                **self._sound_state(),
+                "message": self._sound_message(
+                    "Не вдалося зберегти межу малого часу.",
+                    "Low-time threshold could not be saved.",
+                ),
+            }
+        return {
+            "ok": True,
+            **self._sound_state(),
+            "message": self._sound_message(
+                "Попередження про малий час вимкнено."
+                if seconds == 0
+                else f"Попередження звучить при {seconds} секундах.",
+                "Low-time warning disabled."
+                if seconds == 0
+                else f"Low-time warning sounds at {seconds} seconds.",
             ),
         }
 
@@ -204,25 +505,131 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                     "Sound could not be played.",
                 ),
             }
+        preview_guard_seconds = {
+            SoundEvent.START: 8.7,
+            SoundEvent.TICK: 3.5,
+            SoundEvent.LOW_TIME: 4.0,
+        }.get(event)
+        if preview_guard_seconds is not None and getattr(report, "delivered", ()):
+            self._clock_sound_not_before = max(
+                self._clock_sound_not_before,
+                time.monotonic() + preview_guard_seconds,
+            )
         return {
             "ok": True,
             **self._sound_state(),
             "message": self._sound_message("Звук відтворено.", "Sound played."),
         }
 
+    def _play_game_start_sound(self) -> None:
+        if self._game_sounds is None:
+            return
+        report = self._game_sounds.start()
+        if not getattr(report, "disabled", False) and not getattr(report, "failures", ()):
+            # Both supplied NEWGAME variants are a little over eight seconds.
+            # Keep the long clock ambience from taking over the same Windows
+            # playback channel before that cue has completed.
+            self._clock_sound_not_before = time.monotonic() + 8.7
+
+    def clock_sound_pulse(self) -> dict[str, Any]:
+        """Play one complete clock ambience segment when current policy allows it."""
+
+        base = {"ok": True, "played": False, "disabled": False}
+        if time.monotonic() < self._clock_sound_not_before:
+            return base
+        session = self._engine_session
+        if (
+            self._game_sounds is None
+            or self._settings is None
+            or session is None
+            or self._engine_game_phase != "active"
+        ):
+            return base
+        try:
+            tick_policy = str(self._settings.get("tick_policy", "my_turn"))
+            tick_last_seconds = int(self._settings.get("tick_last_seconds", 0))
+            low_time_policy = str(self._settings.get("low_time_policy", "my_turn"))
+            low_time_seconds = int(self._settings.get("low_time_seconds", 30))
+            snapshot = session.snapshot()
+            if snapshot.config.time_control.untimed:
+                return base
+            human = "b" if snapshot.config.engine_side == "w" else "w"
+            if snapshot.turn_state is EngineTurnState.HUMAN:
+                active_side = human
+            elif snapshot.turn_state is EngineTurnState.ENGINE:
+                active_side = snapshot.config.engine_side
+            else:
+                return base
+            remaining_ms = (
+                snapshot.clock.white_ms if active_side == "w" else snapshot.clock.black_ms
+            )
+            if remaining_ms <= 0:
+                return base
+
+            if low_time_seconds <= 0 or remaining_ms > low_time_seconds * 1000:
+                self._low_time_warned_sides.discard(active_side)
+            low_time_allowed = (
+                low_time_seconds > 0
+                and low_time_policy != "off"
+                and (low_time_policy == "both" or active_side == human)
+            )
+            if (
+                low_time_allowed
+                and remaining_ms <= low_time_seconds * 1000
+                and active_side not in self._low_time_warned_sides
+            ):
+                report = self._game_sounds.low_time()
+                delivered = bool(getattr(report, "delivered", ()))
+                failed = bool(getattr(report, "failures", ()))
+                disabled = bool(getattr(report, "disabled", False))
+                if delivered and not failed and not disabled:
+                    self._low_time_warned_sides.add(active_side)
+                    # The default aooga warning is longer than one 3.4-second
+                    # clock-pump interval. Do not let the next Tick restart the
+                    # shared Windows playback channel before it completes.
+                    self._clock_sound_not_before = time.monotonic() + 4.0
+                return {
+                    "ok": not failed,
+                    "played": delivered,
+                    "disabled": disabled,
+                    "event": "low_time",
+                }
+
+            if tick_policy == "off":
+                return {**base, "disabled": True}
+            if tick_policy == "my_turn" and active_side != human:
+                return base
+            if tick_last_seconds > 0 and remaining_ms > tick_last_seconds * 1000:
+                return base
+            report = self._game_sounds.tick()
+            return {
+                "ok": not bool(getattr(report, "failures", ())),
+                "played": bool(getattr(report, "delivered", ())),
+                "disabled": bool(getattr(report, "disabled", False)),
+                "event": "tick",
+            }
+        except Exception:
+            return {"ok": False, "played": False, "disabled": False}
+
     def _play_latest_move(self) -> None:
         if self._game_sounds is None or not self.sans:
             return
         san = str(self.sans[-1])
+        terminal = not bool(self.board.legal_moves())
         facts = MoveSoundFacts(
             legal=True,
             capture="x" in san,
             check=("+" in san or "#" in san),
             castle=san.startswith("O-O"),
             promotion="=" in san,
-            game_ended=not bool(self.board.legal_moves()),
+            game_ended=False,
         )
         self._game_sounds.move(facts)
+        if terminal:
+            if self.board.in_check(self.board.turn):
+                self._game_sounds.checkmate()
+            else:
+                self._game_sounds.draw()
 
     def _play_game_end_sound(self) -> None:
         if self._game_sounds is None:
@@ -247,6 +654,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_takeback_unsafe = False
         self._engine_thinking = False
         self._engine_clock_history = []
+        self._low_time_warned_sides.clear()
 
     @staticmethod
     def _bounded_int(value: Any, *, low: int, high: int) -> int:
@@ -574,7 +982,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self.redo_meta.clear()
         self.selected_source = None
         self._record_position_after_move(san, side)
-        self._play_latest_move()
+        if self._suppress_next_engine_move_sound_for_start:
+            self._suppress_next_engine_move_sound_for_start = False
+        else:
+            self._play_latest_move()
 
     def _finish_engine_game_from_board(self) -> Any | None:
         session = self._engine_session
@@ -805,8 +1216,6 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
 
         self._reset_engine_game_state()
         super().new_game()
-        if self._game_sounds is not None:
-            self._game_sounds.start()
         session = EngineGameSessionCoordinator(
             self._engine_play_service,
             fen_provider=self.board.fen,
@@ -833,6 +1242,7 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._engine_game_phase = "active"
         self._engine_game_error = None
         self._engine_clock_history = [snapshot.clock]
+        self._play_game_start_sound()
 
         human = "b" if snapshot.config.engine_side == "w" else "w"
         intro = (
@@ -843,7 +1253,11 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             f"Level {snapshot.config.level.level}."
         )
         if snapshot.turn_state is EngineTurnState.ENGINE:
+            self._suppress_next_engine_move_sound_for_start = True
             replied, message = self._request_engine_reply()
+            # If no engine move reached _commit_engine_move(), do not let the
+            # one-shot suppression leak into a later ordinary move.
+            self._suppress_next_engine_move_sound_for_start = False
             if not replied:
                 return self._error(f"{intro} {message}")
             return self._ok(f"{intro} {message}")
@@ -1046,8 +1460,8 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 return blocked
         self._reset_engine_game_state()
         result = super().new_game()
-        if result.get("ok") and self._game_sounds is not None:
-            self._game_sounds.start()
+        if result.get("ok"):
+            self._play_game_start_sound()
         return result
 
     def clear_board(self) -> dict[str, Any]:
@@ -1286,7 +1700,12 @@ def complete_user_flow_diagnostic(
         checks["final_board_64"] = len(final.get("board") or []) == 64
         checks["no_raw_exception_text"] = not any(token in str(final.get("announcement") or "") for token in ("Traceback", "ValueError", "RuntimeError", "Exception"))
         sound = api.get_sound_settings()
-        checks["sound_settings_contract"] = bool(sound.get("ok")) and isinstance(sound.get("enabled"), bool) and 0 <= int(sound.get("volume", -1)) <= 100
+        checks["sound_settings_contract"] = (
+            bool(sound.get("ok"))
+            and isinstance(sound.get("enabled"), bool)
+            and isinstance(sound.get("newGameAnimation"), bool)
+            and 0 <= int(sound.get("volume", -1)) <= 100
+        )
 
         return {
             "ok": all(checks.values()),

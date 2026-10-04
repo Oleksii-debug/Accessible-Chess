@@ -1,12 +1,14 @@
+from pathlib import Path
 import unittest
 
-from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex
+from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex, BookTarget
 from acs.bookdocument import (
     BookDocument,
     BookDocumentError,
     Exercise,
     Game,
     Heading,
+    ListBlock,
     Note,
     Paragraph,
     Position,
@@ -78,6 +80,30 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.target.index for entry in index.entries], list(range(8)))
         self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
 
+    def test_public_document_is_detached_from_source_and_from_prior_callers(self):
+        source = self.make_document()
+        index = BookIndex(source)
+
+        first = index.document
+        self.assertIsNot(first, source)
+        self.assertEqual(first.as_dict(), source.as_dict())
+        self.assertEqual(first.blocks[2].text, index.entries[2].label)
+
+        # Mutating either the authoring source or a previously returned copy
+        # must not make the public document disagree with immutable entries.
+        source.blocks.reverse()
+        source.blocks[0].source_anchor = "mutated-source"
+        first.blocks.reverse()
+        first.blocks[0].source_anchor = "mutated-returned-copy"
+
+        second = index.document
+        self.assertIsNot(second, first)
+        self.assertEqual(second.blocks[0].block_id, "h1")
+        self.assertEqual(second.blocks[2].block_id, "h2")
+        self.assertEqual(second.blocks[2].text, "Calculation")
+        self.assertEqual(second.blocks[2].text, index.entries[2].label)
+        self.assertEqual(index.resolve("block:h2").target.index, 2)
+
     def test_index_construction_revalidates_mutated_document_blocks(self):
         document = self.make_document()
         heading = document.blocks[0]
@@ -123,6 +149,37 @@ class BookIndexTests(unittest.TestCase):
         self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
         self.assertEqual(document.blocks[0].source_anchor, "note-a")
 
+    def test_index_bounds_generated_semantic_target_keys_before_materialization(self):
+        block_limit = "b" * (4096 - len("block:"))
+        source_limit = "s" * (4096 - len("source:"))
+
+        at_limit = BookIndex(
+            BookDocument(
+                title="Target bounds",
+                blocks=[
+                    Paragraph(text="Block", block_id=block_limit),
+                    Paragraph(text="Source", source_anchor=source_limit),
+                ],
+            )
+        )
+        self.assertEqual(len(at_limit.entries[0].target.key), 4096)
+        self.assertEqual(len(at_limit.entries[1].target.key), 4096)
+
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            BookIndex(
+                BookDocument(
+                    title="Oversized block target",
+                    blocks=[Paragraph(text="Block", block_id=block_limit + "x")],
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            BookIndex(
+                BookDocument(
+                    title="Oversized source target",
+                    blocks=[Paragraph(text="Source", source_anchor=source_limit + "x")],
+                )
+            )
+
     def test_stable_target_prefers_block_id_then_source_anchor(self):
         index = BookIndex(self.make_document())
         self.assertEqual(index.entries[0].target.key, "block:h1")
@@ -133,6 +190,27 @@ class BookIndexTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 with self.assertRaisesRegex(TypeError, "Book target"):
                     index.resolve(invalid)  # type: ignore[arg-type]
+
+    def test_resolve_bounds_raw_target_before_dictionary_hashing(self):
+        index = BookIndex(self.make_document())
+        oversized = "x" * 4097
+
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            index.resolve(oversized)
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            index.resolve(BookTarget(oversized, 0, None, None))
+
+        class HashForbiddenString(str):
+            def __hash__(self):
+                raise AssertionError("string subclass must be rejected before hashing")
+
+        with self.assertRaisesRegex(TypeError, "Book target"):
+            index.resolve(HashForbiddenString("block:h1"))
+        with self.assertRaisesRegex(TypeError, "target key"):
+            index.resolve(BookTarget(HashForbiddenString("block:h1"), 0, None, None))
+
+        with self.assertRaises(LookupError):
+            index.resolve("x" * 4096)
 
     def test_duplicate_semantic_target_is_rejected_not_silently_resolved(self):
         document = BookDocument(
@@ -165,6 +243,131 @@ class BookIndexTests(unittest.TestCase):
                 with self.assertRaisesRegex(TypeError, "Search kinds"):
                     index.find("model", kinds=kinds)  # type: ignore[arg-type]
 
+    def test_find_reuses_canonical_nfkc_casefold_search_semantics(self):
+        document = BookDocument(
+            title="Unicode search",
+            blocks=[
+                Heading(text="Café strategy", level=1, block_id="accent"),
+                Paragraph(text="ＦＩＡＮＣＨＥＴＴＯ plan", block_id="compatibility"),
+            ],
+        )
+        index = BookIndex(document)
+
+        decomposed = index.find("Cafe\u0301")
+        self.assertEqual([entry.target.key for entry in decomposed], ["block:accent"])
+
+        compatibility = index.find("fianchetto")
+        self.assertEqual(
+            [entry.target.key for entry in compatibility],
+            ["block:compatibility"],
+        )
+
+    def test_find_reuses_canonical_query_whitespace_and_length_policy(self):
+        document = BookDocument(
+            title="Query policy",
+            blocks=[
+                Heading(text="Open file strategy", level=1, block_id="spacing"),
+            ],
+        )
+        index = BookIndex(document)
+
+        spaced = index.find("  Open   file   strategy  ")
+        self.assertEqual(
+            [entry.target.key for entry in spaced],
+            ["block:spacing"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "maximum search term length"):
+            index.find("x" * 257)
+
+    def test_find_normalizes_candidate_whitespace_with_shared_policy(self):
+        document = BookDocument(
+            title="Candidate whitespace",
+            blocks=[
+                Heading(
+                    text="Open   file\tstrategy",
+                    level=1,
+                    block_id="candidate-spacing",
+                ),
+            ],
+        )
+        index = BookIndex(document)
+
+        matches = index.find("Open file strategy")
+        self.assertEqual(
+            [entry.target.key for entry in matches],
+            ["block:candidate-spacing"],
+        )
+        self.assertEqual(matches[0].label, "Open   file\tstrategy")
+
+
+    def test_find_covers_all_list_items_without_duplicate_targets_or_mutable_aliases(self):
+        document = BookDocument(
+            title="Search every item",
+            blocks=[
+                Heading(text="Chapter", level=1, block_id="heading"),
+                ListBlock(
+                    items=[
+                        "Opening choices",
+                        "Second  knight\tstrategy ...Nf6",
+                        "Café pawn structures ...Nf6",
+                    ],
+                    ordered=True,
+                    block_id="main-list",
+                ),
+                ListBlock(
+                    items=["Counterplay", "Black replies ...Nf6"],
+                    ordered=False,
+                    source_anchor="reply-list",
+                ),
+                Paragraph(text="Independent commentary", block_id="prose"),
+            ],
+        )
+        index = BookIndex(document)
+
+        # Multiple matching items yield ONE navigable entry per ListBlock.
+        found = index.find("Nf6", kinds={BookEntryKind.LIST})
+        self.assertEqual(
+            [entry.target.key for entry in found],
+            ["block:main-list", "source:reply-list"],
+        )
+        self.assertEqual([entry.target.index for entry in found], [1, 2])
+        self.assertEqual([entry.label for entry in found], ["Opening choices", "Counterplay"])
+        self.assertIs(index.resolve(found[0].target), found[0])
+        self.assertEqual(index.find("Nf6", kinds={BookEntryKind.PARAGRAPH}), ())
+
+        # Non-label items reuse the SAME Unicode/whitespace search authority.
+        spaced = index.find("second knight strategy")
+        self.assertEqual([entry.target.key for entry in spaced], ["block:main-list"])
+        accent = index.find("Cafe\u0301 pawn")
+        self.assertEqual([entry.target.key for entry in accent], ["block:main-list"])
+        self.assertEqual(index.find("Opening choices")[0].label, "Opening choices")
+
+        # Search and labels are detached from later authoring mutations.
+        source_list = document.blocks[1]
+        self.assertIsInstance(source_list, ListBlock)
+        source_list.items[1] = "Changed after indexing"
+        source_list.items.append("New appended item")
+        document.blocks.reverse()
+        self.assertEqual(
+            [entry.target.key for entry in index.find("Nf6")],
+            ["block:main-list", "source:reply-list"],
+        )
+        self.assertEqual(index.find("Changed after indexing"), ())
+        self.assertEqual(index.find("New appended item"), ())
+        self.assertEqual(index.entries[1].label, "Opening choices")
+
+    def test_find_bounds_raw_query_before_normalization(self):
+        index = BookIndex(self.make_document())
+
+        # The 4096 raw-input fence runs before Unicode/whitespace normalization.
+        with self.assertRaisesRegex(ValueError, "exceeds 4096"):
+            index.find(" " * 4097)
+        # The shared semantic search policy remains the tighter user-term limit.
+        with self.assertRaisesRegex(ValueError, "maximum search term length"):
+            index.find("x" * 257)
+        self.assertEqual(index.find("x" * 256), ())
+
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())
         for value in (None, 7, True, b"model"):
@@ -182,6 +385,34 @@ class BookIndexTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(TypeError, "must be an integer"):
                     index.contents(max_heading_level=value)  # type: ignore[arg-type]
+
+    def test_snapshot_gate_late_binds_live_stacked_parent(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "v2-book-index-snapshot-integrity.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('base_ref="${{ github.base_ref }}"', workflow)
+        self.assertIn("event_base='${{ github.event.pull_request.base.sha }}'", workflow)
+        self.assertIn(
+            '"refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
+            workflow,
+        )
+        self.assertIn(
+            'live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$live_base"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_base" HEAD',
+            workflow,
+        )
+        self.assertNotIn('product_ref="work/full-product-teacher-education-reachability-20260911"', workflow)
 
 
 if __name__ == "__main__":

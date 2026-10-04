@@ -36,16 +36,20 @@ class PgnWebViewBridge:
     def _payload(value: object) -> dict[str, object]:
         if value is None:
             return {}
-        if not isinstance(value, Mapping):
+        # PyWebView JSON objects arrive as built-in dicts. Reject Mapping/dict
+        # subclasses before len()/items() can execute custom Python hooks.
+        if type(value) is not dict:
             raise TypeError("PGN browser payload must be a mapping")
         if len(value) > 4:
             raise ValueError("PGN browser payload has too many fields")
         normalized: dict[str, object] = {}
         for key, item in value.items():
-            if not isinstance(key, str) or not key.strip():
+            if type(key) is not str:
                 raise TypeError("PGN browser payload keys must be text")
+            if len(key) > 64 or "\x00" in key:
+                raise ValueError("invalid PGN browser payload key")
             token = key.strip()
-            if len(token) > 64 or token in normalized:
+            if not token or token in normalized:
                 raise ValueError("invalid PGN browser payload key")
             normalized[token] = item
         return normalized
@@ -57,9 +61,9 @@ class PgnWebViewBridge:
 
     @staticmethod
     def _text(value: object, *, name: str, limit: int) -> str:
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise TypeError(f"{name} must be text")
-        if "\x00" in value or len(value) > limit:
+        if len(value) > limit or "\x00" in value:
             raise ValueError(f"{name} is invalid")
         token = value.strip() if name != "comment text" else value
         if name != "comment text" and not token:
@@ -72,50 +76,108 @@ class PgnWebViewBridge:
         payload: Mapping[str, object] | None = None,
     ) -> PgnWebViewEvent:
         try:
-            if not isinstance(command, str):
+            if type(command) is not str:
                 raise TypeError("PGN browser command must be text")
+            if len(command) > 64 or "\x00" in command:
+                raise ValueError("PGN browser command is invalid")
             command_id = command.strip()
-            if not command_id or len(command_id) > 64:
+            if not command_id:
                 raise ValueError("PGN browser command is invalid")
             data = self._payload(payload)
+            has_presentation_token = "presentation_token" in data
+            raw_presentation_token = data.pop("presentation_token", None)
+            presentation_token: str | None = None
+            if has_presentation_token:
+                if (
+                    type(raw_presentation_token) is not str
+                    or len(raw_presentation_token) != 64
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in raw_presentation_token
+                    )
+                ):
+                    raise ValueError("PGN presentation token is invalid")
+                presentation_token = raw_presentation_token
+
+            def presentation_guard() -> PgnWebViewEvent | None:
+                return self._projection.browser_presentation_guard(
+                    presentation_token
+                )
+
+            if command_id == "pgn.refresh":
+                self._exact_fields(data, set())
+                return self._projection.refresh_view()
 
             if command_id == "pgn.select":
                 self._exact_fields(data, {"node_id"})
                 node_id = self._text(data["node_id"], name="node id", limit=4096)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.select(node_id)
             if command_id == "pgn.move":
                 self._exact_fields(data, {"delta"})
                 delta = data["delta"]
                 if type(delta) is not int or delta not in {-1, 1}:
                     raise ValueError("PGN selection delta must be -1 or 1")
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.move_selection(delta)
             if command_id == "pgn.parent":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.select_parent()
             if command_id == "pgn.previous_game":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.previous_game()
             if command_id == "pgn.next_game":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.next_game()
             if command_id == "pgn.comment_edit":
                 self._exact_fields(data, {"text"})
                 text = self._text(data["text"], name="comment text", limit=8000)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.edit_comment(text)
             if command_id == "pgn.comment_delete":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.delete_comment()
             if command_id == "pgn.variation_delete":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.delete_variation()
             if command_id == "pgn.variation_promote":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.promote_variation()
             if command_id == "pgn.copy_selection":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.copy_selection()
             if command_id == "pgn.export_selection":
                 self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
                 return self._projection.export_selection()
             raise ValueError("unsupported PGN browser command")
         except Exception:
