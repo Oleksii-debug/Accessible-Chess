@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from acs.move_entry import parse_move_entry, parse_piece_coordinate_position
 from acs.position_editor import PositionValidationError
@@ -124,6 +125,39 @@ class PositionTextAuthorityTests(unittest.TestCase):
             result["announcement"],
             "position text must contain W: and B: sections",
         )
+
+    def test_stage1_history_rebuild_failure_preserves_live_game_atomically(self):
+        api = AccessibleChessAPI(lang="uk")
+        move = api.make_move("e4")
+        self.assertTrue(move["ok"])
+
+        before_fen = api.board.fen()
+        before_start_fen = api.start_fen
+        before_sans = list(api.sans)
+        before_move_sides = list(api.move_sides)
+        before_redo_meta = list(api.redo_meta)
+        before_selected_source = api.selected_source
+        before_history = api.review_history
+        before_adapter = api.review_adapter
+        before_live_node = api.live_history_node
+
+        with patch(
+            "acs.webapp.ReviewHistory",
+            side_effect=RuntimeError("history rebuild failed"),
+        ):
+            result = api.set_position_text("W: K e1 B: K e8", "b")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "history rebuild failed")
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.start_fen, before_start_fen)
+        self.assertEqual(api.sans, before_sans)
+        self.assertEqual(api.move_sides, before_move_sides)
+        self.assertEqual(api.redo_meta, before_redo_meta)
+        self.assertEqual(api.selected_source, before_selected_source)
+        self.assertIs(api.review_history, before_history)
+        self.assertIs(api.review_adapter, before_adapter)
+        self.assertEqual(api.live_history_node, before_live_node)
 
     def test_non_text_payload_cannot_coerce_into_a_valid_position(self):
         class CoerciblePosition:
