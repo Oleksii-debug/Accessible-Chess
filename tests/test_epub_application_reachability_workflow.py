@@ -92,17 +92,20 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
         )
 
     def test_dc_metadata_successor_is_pinned_and_current_owner_apex_is_qualified(self) -> None:
+        pull_request_start = self.workflow.index("  pull_request:")
+        pull_request_end = self.workflow.index("    paths:", pull_request_start)
+        pull_request_block = self.workflow[pull_request_start:pull_request_end]
         self.assertIn(
             "- converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb",
-            self.workflow,
+            pull_request_block,
         )
         self.assertIn(
             "- converge/book-inline-order-current-owner-apex-20261004-c2mbezb",
-            self.workflow,
+            pull_request_block,
         )
         self.assertIn(
             "- converge/book-html-epub-semantics-20261004-c2mbezb",
-            self.workflow,
+            pull_request_block,
         )
         self.assertIn(
             "dc_metadata_test_path='tests/test_epub_dc_metadata_identity.py'",
