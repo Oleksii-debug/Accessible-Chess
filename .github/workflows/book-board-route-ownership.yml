@@ -5,8 +5,6 @@ on:
     branches:
       - fix/book-board-route-ownership-ooxple7-20261004
   pull_request:
-    branches:
-      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - acs/version2_application.py
       - tests/test_book_board_route_ownership.py
@@ -45,22 +43,31 @@ jobs:
         shell: bash
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          FOCUSED_BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
+          INTEGRATED_HEAD: 773a4dcaace5d2d1234f3060ae198724417138e7
         run: |
           set -euo pipefail
           BASE=ece44ad8526b0a2845c993cf0eec0ef31d6cb056
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           git cat-file -e "$BASE^{commit}"
           git merge-base --is-ancestor "$BASE" HEAD
-          git diff --check "$BASE" HEAD
-          git diff --name-only "$BASE" HEAD | sort > /tmp/actual-paths
-          cat > /tmp/expected-paths <<'EOF'
+          if [ "${EVENT_BASE_REF:-}" = "$FOCUSED_BASE_REF" ]; then
+            git diff --check "$BASE" HEAD
+            git diff --name-only "$BASE" HEAD | sort > /tmp/actual-paths
+            cat > /tmp/expected-paths <<'EOF'
           .github/workflows/book-board-route-ownership.yml
           acs/version2_application.py
           tests/test_book_board_route_ownership.py
           EOF
-          sort -o /tmp/expected-paths /tmp/expected-paths
-          diff -u /tmp/expected-paths /tmp/actual-paths
-          echo 'BOOK_BOARD_ROUTE_OWNERSHIP_SCOPE=PASS'
+            sort -o /tmp/expected-paths /tmp/expected-paths
+            diff -u /tmp/expected-paths /tmp/actual-paths
+            echo 'BOOK_BOARD_ROUTE_OWNERSHIP_SCOPE=FOCUSED_PASS'
+          else
+            git cat-file -e "$INTEGRATED_HEAD^{commit}"
+            git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
+            echo 'BOOK_BOARD_ROUTE_OWNERSHIP_SCOPE=CONVERGED_SUCCESSOR'
+          fi
 
       - name: Compile route ownership seam
         run: >-

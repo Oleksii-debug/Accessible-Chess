@@ -32,6 +32,17 @@ class WindowsUnicodePathPortabilityWorkflowTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.text)
 
+    def test_converged_owner_can_requalify_without_reopening_product_scope(self) -> None:
+        required = (
+            "FOCUSED_BASE_REF: converge/books-training-owner-current-20261004-zftrkmo",
+            "INTEGRATED_HEAD: d1560f918c266a6dc8c603f977855beabc48391a",
+            'git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD',
+            "WINDOWS_PATH_PORTABILITY_SCOPE=CONVERGED_SUCCESSOR",
+        )
+        for token in required:
+            with self.subTest(token=token):
+                self.assertIn(token, self.text)
+
     def test_gate_remains_evidence_only_and_binds_canonical_oracle(self) -> None:
         required = (
             "tests/test_windows_unicode_path_portability.py",

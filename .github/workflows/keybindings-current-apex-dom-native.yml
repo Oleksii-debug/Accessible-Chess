@@ -2,8 +2,6 @@ name: Keybindings Current Apex DOM and Native
 
 on:
   pull_request:
-    branches:
-      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - 'acs/full_product_native_menu.py'
       - 'acs/version2_release_app.py'
@@ -65,6 +63,8 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          FOCUSED_BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
+          INTEGRATED_HEAD: 0b772f63fbbd624ee578f149476b07fdc62f1c22
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -84,41 +84,49 @@ jobs:
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
           git diff --check "$live_base"...HEAD
 
-          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/keybindings-current-apex-core.yml' \
-            '.github/workflows/keybindings-current-apex-dom-native.yml' \
-            'acs/full_product_actions.py' \
-            'acs/full_product_native_menu.py' \
-            'acs/version2_release_app.py' \
-            'acs/keybindings.py' \
-            'acs/ui_keymap_adapter.py' \
-            'acs/ui_keymap_editor.py' \
-            'acs/ui_keymap_service.py' \
-            'tests/js/education_surface_dom_test.js' \
-            'tests/js/library_surface_dom_test.js' \
-            'tests/js/pgn_surface_dom_test.js' \
-            'tests/js/pgn_tree_boundary_key_ownership_test.js' \
-            'tests/js/stage1_terminal_keymap_dom_test.js' \
-            'tests/js/v2_remapped_keyboard_native_editing_test.js' \
-            'tests/test_full_product_education_keybindings.py' \
-            'tests/test_full_product_library_keybindings.py' \
-            'tests/test_full_product_native_menu.py' \
-            'tests/test_full_product_pgn_keybindings.py' \
-            'tests/test_keybindings_current_apex_reconvergence.py' \
-            'tests/test_ui_keymap_service.py' \
-            'tests/test_terminal_keybinding_surface_wiring.py' \
-            'web/full_product_education.js' \
-            'web/full_product_library.js' \
-            'web/full_product_pgn.js' \
-            'web/index.html' \
-            'web/keybindings.json' \
-            'web/stage1_board_actions.js' \
-            'web/stage1_release_bootstrap.js' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected keybinding convergence scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+          if [ "${EVENT_BASE_REF:-}" = "$FOCUSED_BASE_REF" ]; then
+            changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/keybindings-current-apex-core.yml' \
+              '.github/workflows/keybindings-current-apex-dom-native.yml' \
+              'acs/full_product_actions.py' \
+              'acs/full_product_native_menu.py' \
+              'acs/version2_release_app.py' \
+              'acs/keybindings.py' \
+              'acs/ui_keymap_adapter.py' \
+              'acs/ui_keymap_editor.py' \
+              'acs/ui_keymap_service.py' \
+              'tests/js/education_surface_dom_test.js' \
+              'tests/js/library_surface_dom_test.js' \
+              'tests/js/pgn_surface_dom_test.js' \
+              'tests/js/pgn_tree_boundary_key_ownership_test.js' \
+              'tests/js/stage1_terminal_keymap_dom_test.js' \
+              'tests/js/v2_remapped_keyboard_native_editing_test.js' \
+              'tests/test_full_product_education_keybindings.py' \
+              'tests/test_full_product_library_keybindings.py' \
+              'tests/test_full_product_native_menu.py' \
+              'tests/test_full_product_pgn_keybindings.py' \
+              'tests/test_keybindings_current_apex_reconvergence.py' \
+              'tests/test_ui_keymap_service.py' \
+              'tests/test_terminal_keybinding_surface_wiring.py' \
+              'web/full_product_education.js' \
+              'web/full_product_library.js' \
+              'web/full_product_pgn.js' \
+              'web/index.html' \
+              'web/keybindings.json' \
+              'web/stage1_board_actions.js' \
+              'web/stage1_release_bootstrap.js' | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected keybinding convergence scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+
+            echo 'KEYBINDINGS_TOPOLOGY=FOCUSED_SCOPE'
+          else
+            git cat-file -e "$INTEGRATED_HEAD^{commit}"
+            git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
+            echo 'KEYBINDINGS_TOPOLOGY=CONVERGED_SUCCESSOR'
+          fi
 
       - uses: actions/setup-python@v5
         with:

@@ -26,6 +26,8 @@ jobs:
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      FOCUSED_BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
+      INTEGRATED_HEAD: d1560f918c266a6dc8c603f977855beabc48391a
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -69,19 +71,25 @@ jobs:
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           git diff --check "$upstream" HEAD
 
-          changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          test -n "$changed"
-          while IFS= read -r path; do
-            case "$path" in
-              .github/workflows/windows-unicode-path-portability.yml|tests/test_windows_unicode_path_portability.py|tests/test_windows_unicode_path_portability_workflow.py) ;;
-              *) echo "Unexpected path in portability evidence successor: $path" >&2; exit 1 ;;
-            esac
-          done <<< "$changed"
+          if [ "${PR_BASE_REF:-}" = "$FOCUSED_BASE_REF" ]; then
+            changed="$(git diff --name-only "$upstream" HEAD | sort)"
+            test -n "$changed"
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/windows-unicode-path-portability.yml|tests/test_windows_unicode_path_portability.py|tests/test_windows_unicode_path_portability_workflow.py) ;;
+                *) echo "Unexpected path in portability evidence successor: $path" >&2; exit 1 ;;
+              esac
+            done <<< "$changed"
+            git diff --quiet "$upstream" HEAD -- acs web packaging run_accessible_chess.py
+            echo 'WINDOWS_PATH_PORTABILITY_SCOPE=TEST_WORKFLOW_ONLY'
+          else
+            git cat-file -e "$INTEGRATED_HEAD^{commit}"
+            git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
+            echo 'WINDOWS_PATH_PORTABILITY_SCOPE=CONVERGED_SUCCESSOR'
+          fi
 
-          git diff --quiet "$upstream" HEAD -- acs web packaging run_accessible_chess.py
           test "$(git hash-object tests/test_windows_unicode_path_portability.py)" = \
             '23e6397082d4133726c35f9dedff76a32e0c83f9'
-          echo 'WINDOWS_PATH_PORTABILITY_SCOPE=TEST_WORKFLOW_ONLY'
           echo 'WINDOWS_PATH_PORTABILITY_ORACLE=23e6397082d4133726c35f9dedff76a32e0c83f9'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
