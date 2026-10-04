@@ -14,6 +14,7 @@ from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
+from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewCommandResult, ReviewPresentationAdapter
@@ -76,6 +77,7 @@ class AccessibleChessAPI:
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
             "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
             "move_text_type": "Текст ходу має бути текстовим значенням.",
+            "move_text_too_long": "Текст ходу занадто довгий.",
             "position_history_failed": "Не вдалося підготувати історію нової позиції.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
@@ -90,6 +92,7 @@ class AccessibleChessAPI:
             "undo_none": "No move to undo", "redo_none": "No move to redo",
             "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
             "move_text_type": "Move text must be a text value.",
+            "move_text_too_long": "Move text is too long.",
             "position_history_failed": "Could not prepare history for the new position.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
@@ -360,6 +363,8 @@ class AccessibleChessAPI:
     def make_move(self, text: str) -> dict[str, Any]:
         if type(text) is not str:
             return self._error(self._t("move_text_type"))
+        if len(text) > MAX_MOVE_ENTRY_CHARS:
+            return self._error(self._t("move_text_too_long"))
         text = text.strip()
         if not text:
             return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
