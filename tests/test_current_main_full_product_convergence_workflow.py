@@ -73,6 +73,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_pgn_document_new_game_position_integrity",
             "tests.test_d08_training_canonical_resume",
             "tests.test_training_snapshot_definition_identity_v4",
+            "tests.test_settings_private_temp_identity_current",
             "tests.test_settings_postpublication_cleanup_current_main",
             "tests/js/p0_selection_ambiguity_runtime_test.js",
             "tests/js/p0_selection_route_epoch_runtime_test.js",
