@@ -841,6 +841,11 @@ def _package_rootfile(
                     "EPUB container link href is missing or malformed",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
+            if any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_href):
+                raise _error(
+                    "EPUB container link href contains an ASCII control character",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
             try:
                 href_parts = urlsplit(raw_href)
             except ValueError as exc:
