@@ -55,13 +55,17 @@ class CurrentPgnPostCommitPresentationRecoveryTests(unittest.TestCase):
         session, projection, bridge = self._surface()
         visible = projection.snapshot()
         self.assertEqual(0, visible["game"]["index"])
+        presentation_token = visible["presentation_token"]
 
         with patch.object(
             projection,
             "_capture_presenter",
             side_effect=self._fail_after_preflight(projection),
         ):
-            unavailable = bridge.dispatch("pgn.next_game", {})
+            unavailable = bridge.dispatch(
+                "pgn.next_game",
+                {"presentation_token": presentation_token},
+            )
 
         self.assertEqual(1, session.workspace.selected_game_index)
         self.assertEqual("selection", unavailable.kind)
@@ -80,9 +84,17 @@ class CurrentPgnPostCommitPresentationRecoveryTests(unittest.TestCase):
 
     def test_committed_comment_survives_failed_render_and_refreshes_exact_text(self):
         session, projection, bridge = self._surface()
-        first = projection.snapshot()["tree"][0]
-        selected = bridge.dispatch("pgn.select", {"node_id": first["node_id"]})
+        visible = projection.snapshot()
+        first = visible["tree"][0]
+        selected = bridge.dispatch(
+            "pgn.select",
+            {
+                "node_id": first["node_id"],
+                "presentation_token": visible["presentation_token"],
+            },
+        )
         self.assertEqual("selection", selected.kind)
+        selected_token = selected.payload["snapshot"]["presentation_token"]
         before_revision = session.workspace.content_revision
 
         with patch.object(
@@ -92,7 +104,10 @@ class CurrentPgnPostCommitPresentationRecoveryTests(unittest.TestCase):
         ):
             unavailable = bridge.dispatch(
                 "pgn.comment_edit",
-                {"text": "Durable canonical note"},
+                {
+                    "text": "Durable canonical note",
+                    "presentation_token": selected_token,
+                },
             )
 
         self.assertEqual(before_revision + 1, session.workspace.content_revision)
@@ -111,7 +126,7 @@ class CurrentPgnPostCommitPresentationRecoveryTests(unittest.TestCase):
 
     def test_preflight_capture_failure_never_mutates_canonical_game(self):
         session, projection, bridge = self._surface()
-        projection.snapshot()
+        visible = projection.snapshot()
         before = session.workspace.view()
 
         with patch.object(
@@ -119,7 +134,10 @@ class CurrentPgnPostCommitPresentationRecoveryTests(unittest.TestCase):
             "_capture_presenter",
             side_effect=ValueError("preflight drift"),
         ):
-            unavailable = bridge.dispatch("pgn.next_game", {})
+            unavailable = bridge.dispatch(
+                "pgn.next_game",
+                {"presentation_token": visible["presentation_token"]},
+            )
 
         self.assertEqual(before, session.workspace.view())
         self.assertEqual("selection", unavailable.kind)
