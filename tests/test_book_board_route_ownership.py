@@ -100,6 +100,30 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
             "failed Book route acquisition must not discard the previous Board owner flag",
         )
 
+    def test_open_route_partial_commit_failure_restores_books_before_projection(self):
+        origin = self._open_game_book()
+        self.projected_positions.clear()
+        real_open_route = self.app.shell.open_route
+
+        def fail_after_board_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "board":
+                raise RuntimeError("synthetic failure after Board route commit")
+            return focus
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=fail_after_board_commit,
+        ):
+            result = self.app.browser_command("books", "book.open_game")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual([], self.projected_positions)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
     def test_open_focus_precommit_failure_rolls_back_before_release_projection(self):
         origin = self._open_game_book()
         self.projected_positions.clear()
@@ -232,6 +256,45 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(0, return_calls)
         self.assertTrue(self.app.book_workflow.active)
         self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
+    def test_return_route_partial_commit_failure_restores_board_before_domain_return(self):
+        origin = self._open_board()
+        board_focus = self.app.shell.restore_focus_target()
+        real_open_route = self.app.shell.open_route
+        return_calls = 0
+        real_return = self.app.book_workflow.return_to_book
+
+        def observe_return():
+            nonlocal return_calls
+            return_calls += 1
+            return real_return()
+
+        def fail_after_books_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "books":
+                raise RuntimeError("synthetic failure after Books route commit")
+            return focus
+
+        with (
+            patch.object(
+                self.app.book_workflow,
+                "return_to_book",
+                side_effect=observe_return,
+            ),
+            patch.object(
+                self.app.shell,
+                "open_route",
+                side_effect=fail_after_books_commit,
+            ),
+        ):
+            result = self.app.browser_command("books", "book.return_from_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual(0, return_calls)
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertEqual(board_focus, self.app.shell.restore_focus_target())
         self.assertEqual(origin, self.app.reader.location())
 
     def test_exact_return_failure_rolls_precommitted_route_back_to_board(self):
