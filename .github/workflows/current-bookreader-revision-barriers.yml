@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/bookreader.py'
       - 'tests/test_bookreader_revision_barriers_current.py'
+      - 'tests/test_bookreader.py'
       - '.github/workflows/current-bookreader-revision-barriers.yml'
   workflow_dispatch:
 
@@ -71,6 +72,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/bookreader.py
+          tests/test_bookreader.py
           tests/test_bookreader_revision_barriers_current.py
 
       - name: Execute reader navigation persistence and UI regressions
