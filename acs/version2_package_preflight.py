@@ -51,7 +51,7 @@ _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _WIN_BAD = set('<>:"/\\|?*')
 _WIN_RESERVED = {
-    "CON", "PRN", "AUX", "NUL",
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
     "COM¹", "COM²", "COM³",
@@ -203,11 +203,18 @@ def _fail(message: str) -> None:
 def _portable_component(value: str, *, label: str) -> None:
     if not value or value in {".", ".."}:
         _fail(f"{label} contains an empty or reserved component")
+    try:
+        utf16_units = len(value.encode("utf-16-le", errors="strict")) // 2
+    except UnicodeEncodeError:
+        _fail(f"{label} is not valid Win32 Unicode")
+    if utf16_units > 255:
+        _fail(f"{label} exceeds Windows 255 UTF-16 code-unit component limit")
     if value[-1] in {" ", "."}:
         _fail(f"{label} is not Windows-portable")
-    if any(ord(char) < 32 or char in _WIN_BAD for char in value):
+    if any(ord(char) < 32 or ord(char) == 0x7F or char in _WIN_BAD for char in value):
         _fail(f"{label} is not Windows-portable")
-    if value.split(".", 1)[0].upper() in _WIN_RESERVED:
+    device_stem = value.split(".", 1)[0].rstrip(" .").upper()
+    if device_stem in _WIN_RESERVED:
         _fail(f"{label} uses a reserved Windows name")
 
 
