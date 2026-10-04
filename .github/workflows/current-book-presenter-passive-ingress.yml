@@ -3,7 +3,7 @@ name: Current Book Presenter Passive Ingress
 on:
   pull_request:
     branches:
-      - fix/current-san-grammar-integrity-20261004-sol56h9q2
+      - fix/current-book-board-payload-passive-20261004-c2mbezb
     paths:
       - 'acs/full_product_presenters.py'
       - 'acs/book_webview_projection.py'
@@ -45,7 +45,7 @@ jobs:
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
 
-          base_ref="${EVENT_BASE_REF:-fix/current-san-grammar-integrity-20261004-sol56h9q2}"
+          base_ref="${EVENT_BASE_REF:-fix/current-book-board-payload-passive-20261004-c2mbezb}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
