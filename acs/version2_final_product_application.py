@@ -26,6 +26,23 @@ from .child_coaching_prepared_positions import (
     PreparedPositionNavigator,
     PreparedPositionSnapshot,
 )
+from .child_coaching_rotation import (
+    ChildCoachingRotationError,
+    RotationActivity,
+    RotationPhase,
+    RotationPlan,
+    RotationState,
+    advance_rotation,
+    bind_pair_play_batch,
+    current_round,
+    default_group_rotation,
+    start_rotation,
+    validate_rotation_scope,
+)
+from .child_coaching_rotation_store import (
+    ChildCoachingRotationStore,
+    ChildCoachingRotationStoreConflictError,
+)
 from .classroom_prepared_position_deployment import (
     DeploymentTarget,
     PreparedPositionDeploymentBatch,
@@ -119,6 +136,11 @@ class Version2FinalProductApplication(Version2Application):
         self._child_coaching_application: ChildCoachingApplication | None = None
         self._prepared_position_navigator: PreparedPositionNavigator | None = None
         self._child_coaching_load_error = False
+        self._rotation_store: ChildCoachingRotationStore | None = None
+        self._rotation_plan: RotationPlan | None = None
+        self._rotation_state: RotationState | None = None
+        self._rotation_store_revision: str | None = None
+        self._rotation_load_error = False
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -298,6 +320,9 @@ class Version2FinalProductApplication(Version2Application):
             raise
         self._pairing_batch = None
         self._prepared_position_deployment = None
+        self._rotation_plan = None
+        self._rotation_state = None
+        self._rotation_store_revision = None
         return state
 
     def stop_teaching_session(self) -> None:
@@ -310,6 +335,9 @@ class Version2FinalProductApplication(Version2Application):
         self._teaching_state = None
         self._pairing_batch = None
         self._prepared_position_deployment = None
+        self._rotation_plan = None
+        self._rotation_state = None
+        self._rotation_store_revision = None
         self._clear_teaching_binding()
 
     def unbind_teaching_session(self) -> None:
@@ -320,6 +348,9 @@ class Version2FinalProductApplication(Version2Application):
         self._teaching_state = None
         self._pairing_batch = None
         self._prepared_position_deployment = None
+        self._rotation_plan = None
+        self._rotation_state = None
+        self._rotation_store_revision = None
         self._clear_teaching_binding()
 
     def _classroom_orchestration_authorities(
@@ -478,6 +509,173 @@ class Version2FinalProductApplication(Version2Application):
             plan,
             workspace,
         )
+
+    def bind_child_coaching_rotation_store(
+        self,
+        store: ChildCoachingRotationStore,
+    ) -> None:
+        """Bind one durable rotation slot without adopting stale lesson scope."""
+
+        self._assert_thread()
+        if type(store) is not ChildCoachingRotationStore:
+            raise TypeError("rotation store must be ChildCoachingRotationStore")
+        if self._rotation_store is not None and self._rotation_store is not store:
+            raise RuntimeError("Child coaching rotation store is already bound")
+        self._rotation_store = store
+
+    def _rotation_authorities(
+        self,
+    ) -> tuple[LessonSession, RotationPlan, RotationState, ChildCoachingRotationStore]:
+        lesson, _workspace = self._classroom_orchestration_authorities()
+        plan = self._rotation_plan
+        state = self._rotation_state
+        store = self._rotation_store
+        if plan is None or state is None:
+            raise RuntimeError("No group rotation is active")
+        if store is None:
+            raise RuntimeError("Group rotation store is unavailable")
+        validate_rotation_scope(plan, lesson)
+        return lesson, plan, state, store
+
+    def begin_or_resume_default_group_rotation(
+        self,
+        rotation_id: str,
+    ) -> RotationState:
+        """Create one default rotation or resume the exact durable live-lesson plan."""
+
+        self._assert_thread()
+        lesson, _workspace = self._classroom_orchestration_authorities()
+        store = self._rotation_store
+        if store is None:
+            raise RuntimeError("Group rotation store is unavailable")
+        try:
+            loaded = store.load()
+        except Exception:
+            self._rotation_load_error = True
+            raise RuntimeError("Group rotation requires recovery") from None
+
+        if loaded is None:
+            plan = default_group_rotation(lesson, rotation_id=rotation_id)
+            state = start_rotation(plan)
+            try:
+                revision = store.save(plan, state, expected_revision=None)
+            except Exception:
+                self._rotation_load_error = True
+                raise
+        else:
+            try:
+                validate_rotation_scope(loaded.plan, lesson)
+            except ChildCoachingRotationError as exc:
+                self._rotation_load_error = True
+                raise RuntimeError(
+                    "Stored group rotation belongs to a different teaching session"
+                ) from exc
+            if loaded.plan.rotation_id != rotation_id:
+                raise RuntimeError(
+                    "A different durable group rotation already exists"
+                )
+            plan = loaded.plan
+            state = loaded.state
+            revision = loaded.revision
+
+        self._rotation_plan = plan
+        self._rotation_state = state
+        self._rotation_store_revision = revision
+        self._rotation_load_error = False
+        return state
+
+    def group_rotation_snapshot(self) -> dict[str, object]:
+        """Return bounded teacher-facing phase/round facts without chess state."""
+
+        self._assert_thread()
+        _lesson, plan, state, _store = self._rotation_authorities()
+        payload: dict[str, object] = {
+            "phase": state.phase.value,
+            "round_index": state.round_index,
+            "round_count": len(plan.rounds),
+            "revision": state.revision,
+            "pair_play_bound": state.pair_play_batch_ref is not None,
+        }
+        if state.phase is not RotationPhase.COMPLETED:
+            item = current_round(plan, state)
+            payload.update(
+                {
+                    "activity": item.activity.value,
+                    "title": item.title,
+                    "minutes": item.minutes,
+                    "target": item.target.value,
+                    "target_count": len(item.target_ids),
+                }
+            )
+        return payload
+
+    def bind_current_pairing_to_group_rotation(
+        self,
+        *,
+        expected_rotation_revision: int,
+    ) -> RotationState:
+        """Bind the exact current pairing batch as the rotation's opaque pair ref."""
+
+        self._assert_thread()
+        lesson, plan, state, store = self._rotation_authorities()
+        batch = self._pairing_batch
+        if batch is None:
+            raise RuntimeError("No classroom pairing batch is active")
+        _lesson2, workspace = self._classroom_orchestration_authorities()
+        assert_pairing_scope(batch, lesson, workspace.classroom)
+        next_state = bind_pair_play_batch(
+            plan,
+            state,
+            batch.batch_id,
+            expected_revision=expected_rotation_revision,
+        )
+        expected_store_revision = self._rotation_store_revision
+        if expected_store_revision is None:
+            raise RuntimeError("Group rotation durable revision is unavailable")
+        try:
+            revision = store.save(
+                plan,
+                next_state,
+                expected_revision=expected_store_revision,
+            )
+        except ChildCoachingRotationStoreConflictError:
+            self._rotation_load_error = True
+            raise
+        self._rotation_state = next_state
+        self._rotation_store_revision = revision
+        self._rotation_load_error = False
+        return next_state
+
+    def advance_group_rotation(
+        self,
+        *,
+        expected_rotation_revision: int,
+    ) -> RotationState:
+        """Advance one CAS-bound rotation round; pair play requires a bound batch."""
+
+        self._assert_thread()
+        _lesson, plan, state, store = self._rotation_authorities()
+        next_state = advance_rotation(
+            plan,
+            state,
+            expected_revision=expected_rotation_revision,
+        )
+        expected_store_revision = self._rotation_store_revision
+        if expected_store_revision is None:
+            raise RuntimeError("Group rotation durable revision is unavailable")
+        try:
+            revision = store.save(
+                plan,
+                next_state,
+                expected_revision=expected_store_revision,
+            )
+        except ChildCoachingRotationStoreConflictError:
+            self._rotation_load_error = True
+            raise
+        self._rotation_state = next_state
+        self._rotation_store_revision = revision
+        self._rotation_load_error = False
+        return next_state
 
     def bind_child_coaching_application(
         self,
@@ -699,6 +897,14 @@ class Version2FinalProductApplication(Version2Application):
                     "child_coaching_recovery_required": self._child_coaching_load_error,
                     "prepared_position_navigation_available": (
                         self._prepared_position_navigator is not None
+                    ),
+                    "group_rotation_available": self._rotation_store is not None,
+                    "group_rotation_active": self._rotation_state is not None,
+                    "group_rotation_recovery_required": self._rotation_load_error,
+                    "group_rotation_phase": (
+                        None
+                        if self._rotation_state is None
+                        else self._rotation_state.phase.value
                     ),
                     "remote_transport": "not_approved",
                 },
