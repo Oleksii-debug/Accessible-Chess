@@ -214,6 +214,7 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
+    central_end_offset = eocd_offset
     locator_offset = eocd_offset - 20
     if locator_offset >= 0 and raw[locator_offset : locator_offset + 4] == b"PK\x06\x07":
         zip64_disk = int.from_bytes(
@@ -241,6 +242,7 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
                 "EPUB ZIP64 end-of-central-directory record is invalid",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
+        central_end_offset = zip64_eocd_offset
         zip64_record_size = int.from_bytes(
             raw[zip64_eocd_offset + 4 : zip64_eocd_offset + 12],
             "little",
@@ -294,12 +296,12 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
 
     if (
         central_size <= 0
-        or central_offset + central_size > eocd_offset
+        or central_offset + central_size != central_end_offset
         or central_offset + 4 > len(raw)
         or raw[central_offset : central_offset + 4] != b"PK\x01\x02"
     ):
         raise _error(
-            "EPUB central directory has an invalid or prohibited leading record",
+            "EPUB central directory has an invalid or prohibited boundary record",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
@@ -407,6 +409,9 @@ def _validate_local_zip_header(
         extract_version = int.from_bytes(fixed[4:6], "little")
         local_flags = int.from_bytes(fixed[6:8], "little")
         local_compression = int.from_bytes(fixed[8:10], "little")
+        local_crc = int.from_bytes(fixed[14:18], "little")
+        local_compressed_size = int.from_bytes(fixed[18:22], "little")
+        local_uncompressed_size = int.from_bytes(fixed[22:26], "little")
         name_length = int.from_bytes(fixed[26:28], "little")
         extra_length = int.from_bytes(fixed[28:30], "little")
         raw_name = stream.read(name_length)
@@ -454,6 +459,21 @@ def _validate_local_zip_header(
             "EPUB uses ZIP encryption features, which OCF does not permit",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
+    if local_flags != info.flag_bits:
+        raise _error(
+            "EPUB local and central ZIP flags are inconsistent",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    if not (local_flags & (1 << 3)):
+        if (
+            local_crc != info.CRC
+            or local_compressed_size != info.compress_size
+            or local_uncompressed_size != info.file_size
+        ):
+            raise _error(
+                "EPUB local and central ZIP size or CRC metadata is inconsistent",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
     try:
         local_name = raw_name.decode("utf-8")
     except UnicodeDecodeError as exc:
