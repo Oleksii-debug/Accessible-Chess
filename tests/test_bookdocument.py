@@ -176,6 +176,128 @@ class BookDocumentTests(unittest.TestCase):
         self.assertEqual(consumed, [])
         self.assertEqual(book.blocks, before)
 
+
+    def test_hostile_string_subclasses_fail_before_custom_text_hooks(self):
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile text hook must not execute")
+
+        cases = (
+            lambda value: BookDocument(value),
+            lambda value: Paragraph(text=value),
+            lambda value: Game(pgn=value),
+            lambda value: BookDocument.from_dict({"title": value}),
+            lambda value: BookDocument.from_dict(
+                {"title": "Book", "blocks": [{"kind": "Paragraph", "text": value}]}
+            ),
+        )
+        for build in cases:
+            HostileText.touched = False
+            with self.subTest(build=build):
+                with self.assertRaises(BookDocumentError) as caught:
+                    build(HostileText("hostile"))
+                self.assertEqual(
+                    caught.exception.code,
+                    BookDocumentErrorCode.INVALID_FIELD,
+                )
+                self.assertFalse(HostileText.touched)
+
+    def test_hostile_container_subclasses_fail_before_iteration_hooks(self):
+        class HostileDict(dict):
+            touched = False
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile mapping iteration must not execute")
+
+            def get(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile mapping get must not execute")
+
+        class HostileList(list):
+            touched = False
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile list iteration must not execute")
+
+        payload = HostileDict({"title": "Book"})
+        with self.assertRaises(BookDocumentError) as document_error:
+            BookDocument.from_dict(payload)
+        self.assertEqual(
+            document_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertFalse(HostileDict.touched)
+
+        block = HostileDict({"kind": "Paragraph", "text": "Readable"})
+        with self.assertRaises(BookDocumentError) as block_error:
+            BookDocument.from_dict({"title": "Book", "blocks": [block]})
+        self.assertEqual(
+            block_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertFalse(HostileDict.touched)
+
+        blocks = HostileList()
+        with self.assertRaises(BookDocumentError) as blocks_error:
+            BookDocument.from_dict({"title": "Book", "blocks": blocks})
+        self.assertEqual(
+            blocks_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertFalse(HostileList.touched)
+
+        warnings = HostileList()
+        with self.assertRaises(BookDocumentError) as warnings_error:
+            BookDocument.from_dict({"title": "Book", "warnings": warnings})
+        self.assertEqual(
+            warnings_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertFalse(HostileList.touched)
+
+    def test_scalar_subclasses_fail_before_numeric_or_text_semantics(self):
+        class HostileInt(int):
+            touched = False
+
+            def __lt__(self, _other):
+                type(self).touched = True
+                raise AssertionError("hostile integer comparison must not execute")
+
+            def __le__(self, _other):
+                type(self).touched = True
+                raise AssertionError("hostile integer comparison must not execute")
+
+        with self.assertRaises(BookDocumentError) as heading_error:
+            Heading(text="Heading", level=HostileInt(1))
+        self.assertEqual(
+            heading_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertFalse(HostileInt.touched)
+
+        with self.assertRaises(BookDocumentError) as game_error:
+            Game(pgn="", game_id=HostileInt(1))
+        self.assertEqual(
+            game_error.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertFalse(HostileInt.touched)
+
+        with self.assertRaises(BookDocumentError) as schema_error:
+            BookDocument.from_dict(
+                {"schema_version": HostileInt(1), "title": "Book"}
+            )
+        self.assertEqual(
+            schema_error.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_SCHEMA,
+        )
+        self.assertFalse(HostileInt.touched)
+
     def test_bookdocument_gate_late_binds_live_product_for_push_and_pr(self):
         workflow = (
             Path(__file__).resolve().parents[1]
