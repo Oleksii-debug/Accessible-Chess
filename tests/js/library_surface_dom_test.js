@@ -225,6 +225,50 @@ check(
   "canonical export checkbox focus target was rejected"
 );
 
+// Remapped result-list keys must resolve through the current shell keymap rather
+// than hard-coded Arrow/Enter defaults.
+const remapCalls = [];
+const remapContexts = [];
+const remapRoot = new FakeElement("div");
+window.accessibleChessKeymapAction = function (event, context) {
+  remapContexts.push(context);
+  return context === "library_results" && event.key === "j"
+    ? "library.next_result"
+    : "";
+};
+window.AccessibleChessLibrarySurface.render(
+  remapRoot,
+  exportSnapshot,
+  (command, payload) => {
+    remapCalls.push([command, payload || {}]);
+    return null;
+  },
+  announce,
+  exportDomId
+);
+const remapOption = remapRoot.querySelectorAll('[role="option"]')[0];
+let remapPrevented = false;
+let remapStopped = false;
+remapOption.listeners.keydown({
+  key: "j",
+  preventDefault: () => { remapPrevented = true; },
+  stopPropagation: () => { remapStopped = true; }
+});
+check(remapPrevented, "remapped Library key was not consumed");
+check(remapStopped, "remapped Library key did not stop shell propagation");
+check(
+  remapContexts.length === 1 && remapContexts[0] === "library_results",
+  "Library result key used the wrong keymap context"
+);
+Promise.resolve().then(function () {
+  check(remapCalls.length === 1, "remapped Library key did not dispatch exactly once");
+  check(
+    remapCalls[0][0] === "library.move" && remapCalls[0][1].delta === 1,
+    "remapped Library key used the wrong canonical command"
+  );
+});
+delete window.accessibleChessKeymapAction;
+
 async function runNavigationContract() {
 const navigationCalls = [];
 const navigationRoot = new FakeElement("div");
