@@ -15,6 +15,7 @@ from tests.test_version2_package_preflight import (
     _write_checksums as _write_package_checksums,
 )
 
+from acs.version2_package_preflight import Version2PackagePreflightError
 from acs.version2_release_sbom import (
     SBOM_NAME,
     Version2ReleaseSbomError,
@@ -78,6 +79,53 @@ class Version2ReleaseSbomTests(unittest.TestCase):
             self.assertEqual(summary["package_files"], summary["sbom_files"])
             self.assertEqual(summary["sbom_files"], len(document["files"]))
             self.assertIs(summary["nvda_verified"], False)
+
+    def test_cli_revalidates_package_after_preflight_before_accepting_sbom(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = root / "package"
+            package.mkdir()
+            _make_valid_package_tree(package)
+            notices = package / "THIRD_PARTY_NOTICES"
+            (notices / "Stockfish-COPYING.txt").write_text(
+                "GNU GENERAL PUBLIC LICENSE\n"
+                "Version 3\n"
+                "Redistribution is permitted under version 3 or any later version.\n",
+                encoding="utf-8",
+            )
+            _write_package_checksums(package)
+
+            output = root / SBOM_NAME
+            captured = StringIO()
+            argv = [
+                "write_version2_release_sbom.py",
+                str(package),
+                str(output),
+                "--integration-sha",
+                _SHA,
+            ]
+            content = package / "AccessibleChess" / "assets" / "content.dat"
+
+            def mutate_then_write(*args, **kwargs):
+                content.write_bytes(content.read_bytes() + b"-tampered-after-preflight")
+                return write_version2_release_sbom(*args, **kwargs)
+
+            with (
+                mock.patch("sys.argv", argv),
+                mock.patch.object(
+                    sbom_cli,
+                    "write_version2_release_sbom",
+                    side_effect=mutate_then_write,
+                ),
+                redirect_stdout(captured),
+            ):
+                with self.assertRaises(Version2PackagePreflightError):
+                    sbom_cli.main()
+
+            # The sidecar writer did see and describe the changed bytes, so only
+            # the second canonical package preflight can reject this window.
+            self.assertTrue(output.is_file())
+            self.assertEqual(captured.getvalue(), "")
 
     def _package(self, root: Path) -> Path:
         package = root / "package"
