@@ -71,6 +71,9 @@ jobs:
       MALFORMED_INTEGER_STORE_BLOB: a3bfd7a6d31e186a1c5dee3932e2352073336d65
       MALFORMED_INTEGER_BASE_TEST_BLOB: 56e71a7d706de1f2476ca88f0f74856736bdfe32
       MALFORMED_INTEGER_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      CWD_BOUND_STORE_BLOB: 39502e72ed5a12efd4746f500ccb2ede589d4152
+      CWD_BOUND_BASE_TEST_BLOB: d1e1274c179eb5599bcaf77be9a681ada77373a3
+      CWD_BOUND_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -336,6 +339,10 @@ jobs:
             && [ "$candidate_base_test" = "$MALFORMED_INTEGER_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$MALFORMED_INTEGER_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=MALFORMED_INTEGER_SUCCESSOR'
+          elif [ "$candidate_store" = "$CWD_BOUND_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$CWD_BOUND_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$CWD_BOUND_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=CWD_BOUND_SUCCESSOR'
           else
             printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
               "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2
