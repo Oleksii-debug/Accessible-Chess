@@ -43,8 +43,8 @@ jobs:
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-      EPUB_RUNTIME_BLOB: 0c41fef2d303ed2ee47aeb4349c20fc3cad670b9
-      EPUB_TEST_BLOB: a3fc54c1e948d1edf9c7d9210889b4e52aa8d08c
+      EPUB_RUNTIME_BLOB: 761fdb88a8cd2c8bbc70128348280a3c59450ea9
+      EPUB_TEST_BLOB: fb8a1bb828f15a041db756bddf9e70f5d8e0f7c6
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -70,7 +70,7 @@ jobs:
       - name: Prove live-base ancestry and retained EPUB authority
         shell: bash
         env:
-          EPUB_INTEGRATION_SHA: b7eaab155cd86d41a6126a6a26c15c7f8bacfb53
+          EPUB_INTEGRATION_SHA: 0fe5eb7eb2da69f3bf7f8941d573c7b78b463be2
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'

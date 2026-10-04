@@ -49,14 +49,23 @@ def _opf(*, manifest: str, spine: str, metadata: str | None = None) -> bytes:
 </package>'''.encode("utf-8")
 
 
+class _UnseekableBytesIO(BytesIO):
+    def tell(self) -> int:
+        raise OSError("fixture stream is intentionally unseekable")
+
+    def seek(self, *_args: object, **_kwargs: object) -> int:
+        raise OSError("fixture stream is intentionally unseekable")
+
+
 def _epub(
     *,
     opf: bytes,
     entries: dict[str, bytes],
     container: bytes = CONTAINER,
     prepend: list[tuple[str, bytes]] | None = None,
+    streaming: bool = False,
 ) -> bytes:
-    buffer = BytesIO()
+    buffer = _UnseekableBytesIO() if streaming else BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         mimetype = zipfile.ZipInfo("mimetype")
         mimetype.compress_type = zipfile.ZIP_STORED
@@ -83,6 +92,40 @@ def _corrupt_deflated_entry(raw: bytes, name: str) -> bytes:
     extra_length = int.from_bytes(damaged[offset + 28 : offset + 30], "little")
     data_offset = offset + 30 + name_length + extra_length
     damaged[data_offset + 1] ^= 0xFF
+    return bytes(damaged)
+
+
+def _corrupt_data_descriptor_crc(raw: bytes, name: str) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+    local_offset = info.header_offset
+    if damaged[local_offset : local_offset + 4] != b"PK\x03\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    flags = int.from_bytes(
+        damaged[local_offset + 6 : local_offset + 8],
+        "little",
+    )
+    if not (flags & (1 << 3)):
+        raise AssertionError("fixture entry must use a ZIP data descriptor")
+    name_length = int.from_bytes(
+        damaged[local_offset + 26 : local_offset + 28],
+        "little",
+    )
+    extra_length = int.from_bytes(
+        damaged[local_offset + 28 : local_offset + 30],
+        "little",
+    )
+    descriptor_offset = (
+        local_offset
+        + 30
+        + name_length
+        + extra_length
+        + info.compress_size
+    )
+    if damaged[descriptor_offset : descriptor_offset + 4] == b"PK\x07\x08":
+        descriptor_offset += 4
+    damaged[descriptor_offset] ^= 0x01
     return bytes(damaged)
 
 
@@ -143,6 +186,60 @@ def _set_local_zip_field(
         local_offset + offset : local_offset + offset + width
     ] = value.to_bytes(width, "little")
     return bytes(damaged)
+
+
+def _set_zip_extract_version(raw: bytes, name: str, value: int) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+        central_offset = archive.start_dir
+
+    local_offset = info.header_offset
+    if damaged[local_offset : local_offset + 4] != b"PK\x03\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    damaged[local_offset + 4 : local_offset + 6] = value.to_bytes(2, "little")
+
+    encoded_name = name.encode("utf-8")
+    cursor = central_offset
+    while damaged[cursor : cursor + 4] == b"PK\x01\x02":
+        name_length = int.from_bytes(damaged[cursor + 28 : cursor + 30], "little")
+        extra_length = int.from_bytes(damaged[cursor + 30 : cursor + 32], "little")
+        comment_length = int.from_bytes(damaged[cursor + 32 : cursor + 34], "little")
+        entry_name = bytes(damaged[cursor + 46 : cursor + 46 + name_length])
+        if entry_name == encoded_name:
+            damaged[cursor + 6 : cursor + 8] = value.to_bytes(2, "little")
+            return bytes(damaged)
+        cursor += 46 + name_length + extra_length + comment_length
+    raise AssertionError("fixture central ZIP entry was not found")
+
+
+def _set_local_zip64_uncompressed_size(raw: bytes, name: str, value: int) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+    local_offset = info.header_offset
+    if damaged[local_offset : local_offset + 4] != b"PK\x03\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    name_length = int.from_bytes(damaged[local_offset + 26 : local_offset + 28], "little")
+    extra_length = int.from_bytes(damaged[local_offset + 28 : local_offset + 30], "little")
+    cursor = local_offset + 30 + name_length
+    end = cursor + extra_length
+    while cursor < end:
+        if cursor + 4 > end:
+            raise AssertionError("fixture local ZIP extra field is truncated")
+        field_id = int.from_bytes(damaged[cursor : cursor + 2], "little")
+        field_size = int.from_bytes(damaged[cursor + 2 : cursor + 4], "little")
+        payload_start = cursor + 4
+        payload_end = payload_start + field_size
+        if payload_end > end:
+            raise AssertionError("fixture local ZIP extra field is truncated")
+        if field_id == 0x0001:
+            if field_size < 8:
+                raise AssertionError("fixture ZIP64 extra field lacks uncompressed size")
+            damaged[payload_start : payload_start + 8] = value.to_bytes(8, "little")
+            return bytes(damaged)
+        cursor = payload_end
+    raise AssertionError("fixture local ZIP64 extra field was not found")
 
 
 def _with_zip64_end_records(
@@ -210,6 +307,15 @@ def _insert_precentral_record(raw: bytes, record: bytes) -> bytes:
     damaged[
         new_eocd_offset + 12 : new_eocd_offset + 16
     ] = (central_size + len(record)).to_bytes(4, "little")
+    return bytes(damaged)
+
+
+def _insert_postcentral_record(raw: bytes, record: bytes) -> bytes:
+    damaged = bytearray(raw)
+    eocd_offset = damaged.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or eocd_offset + 22 > len(damaged):
+        raise AssertionError("fixture EOCD record was not found")
+    damaged[eocd_offset:eocd_offset] = record
     return bytes(damaged)
 
 
@@ -289,6 +395,35 @@ def _simple_epub(chapter: bytes) -> bytes:
         ),
         entries={"OEBPS/Text/ch1.xhtml": chapter},
     )
+
+
+def _simple_zip64_epub(chapter: bytes) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        mimetype = zipfile.ZipInfo("mimetype")
+        mimetype.compress_type = zipfile.ZIP_STORED
+        archive.writestr(mimetype, b"application/epub+zip")
+        archive.writestr(
+            "META-INF/container.xml",
+            CONTAINER,
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
+        archive.writestr(
+            "OEBPS/content.opf",
+            _opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
+        chapter_info = zipfile.ZipInfo("OEBPS/Text/ch1.xhtml")
+        chapter_info.compress_type = zipfile.ZIP_DEFLATED
+        with archive.open(chapter_info, "w", force_zip64=True) as target:
+            target.write(chapter)
+    return buffer.getvalue()
 
 
 class BookEpubImportTests(unittest.TestCase):
@@ -413,6 +548,106 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
+    def test_deflated_entry_requires_sufficient_extract_version(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("OEBPS/Text/ch1.xhtml")
+            self.assertEqual(info.compress_type, zipfile.ZIP_DEFLATED)
+            self.assertGreaterEqual(info.extract_version, 20)
+
+        damaged = _set_zip_extract_version(
+            raw,
+            "OEBPS/Text/ch1.xhtml",
+            10,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="deflate-version-10.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_zip64_entry_requires_extract_version_45(self) -> None:
+        raw = _simple_zip64_epub(
+            b"<html><body><p>ZIP64 entry.</p></body></html>"
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("OEBPS/Text/ch1.xhtml")
+            self.assertEqual(info.extract_version, 45)
+            local_offset = info.header_offset
+        self.assertEqual(
+            import_epub_book(raw, source_name="valid-zip64-entry.epub").spine_documents,
+            1,
+        )
+        self.assertEqual(
+            int.from_bytes(raw[local_offset + 18 : local_offset + 22], "little"),
+            0xFFFFFFFF,
+        )
+        self.assertEqual(
+            int.from_bytes(raw[local_offset + 22 : local_offset + 26], "little"),
+            0xFFFFFFFF,
+        )
+
+        damaged = _set_zip_extract_version(
+            raw,
+            "OEBPS/Text/ch1.xhtml",
+            20,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="zip64-version-20.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_zip64_local_size_must_match_central_directory(self) -> None:
+        raw = _simple_zip64_epub(
+            b"<html><body><p>ZIP64 mismatch.</p></body></html>"
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("OEBPS/Text/ch1.xhtml")
+            central_file_size = info.file_size
+
+        damaged = _set_local_zip64_uncompressed_size(
+            raw,
+            "OEBPS/Text/ch1.xhtml",
+            central_file_size + 1,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="zip64-size-mismatch.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+
+    def test_zip64_local_size_sentinels_require_zip64_extra_field(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        damaged = _set_zip_extract_version(
+            raw,
+            "OEBPS/Text/ch1.xhtml",
+            45,
+        )
+        damaged = _set_local_zip_field(
+            damaged,
+            "OEBPS/Text/ch1.xhtml",
+            offset=18,
+            width=4,
+            value=0xFFFFFFFF,
+        )
+        damaged = _set_local_zip_field(
+            damaged,
+            "OEBPS/Text/ch1.xhtml",
+            offset=22,
+            width=4,
+            value=0xFFFFFFFF,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="zip64-missing-extra.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
     def test_local_zip_header_compression_method_is_authoritative(self) -> None:
         raw = _epub(
             opf=_opf(
@@ -441,6 +676,105 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_local_zip_header_metadata_must_match_central_directory(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+            prepend=[("unused.bin", b"authenticated local metadata")],
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("unused.bin")
+        cases = (
+            ("flags", 6, 2, info.flag_bits ^ (1 << 3)),
+            ("crc", 14, 4, info.CRC ^ 1),
+            ("compressed-size", 18, 4, info.compress_size + 1),
+            ("uncompressed-size", 22, 4, info.file_size + 1),
+        )
+        for label, offset, width, value in cases:
+            with self.subTest(label=label):
+                damaged = _set_local_zip_field(
+                    raw,
+                    "unused.bin",
+                    offset=offset,
+                    width=width,
+                    value=value,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        damaged,
+                        source_name=f"local-{label}-mismatch.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
+    def test_streaming_zip_data_descriptors_are_authenticated(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Streaming descriptor.</p></body></html>"
+                ),
+            },
+            streaming=True,
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            self.assertTrue(
+                all(info.flag_bits & (1 << 3) for info in archive.infolist())
+            )
+        result = import_epub_book(raw, source_name="streaming-descriptor.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Streaming descriptor.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_corrupt_zip_data_descriptor_fails_closed(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Descriptor CRC.</p></body></html>"
+                ),
+            },
+            prepend=[("unused.bin", b"descriptor authority")],
+            streaming=True,
+        )
+        damaged = _corrupt_data_descriptor_crc(raw, "unused.bin")
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="bad-descriptor.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
 
     def test_mimetype_local_zip_header_must_not_have_extra_field(self) -> None:
@@ -528,6 +862,21 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
+    def test_postcentral_zip_record_is_rejected(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        digital_signature_record = (
+            b"PK\x05\x05"
+            + (4).to_bytes(2, "little")
+            + b"sig!"
+        )
+        damaged = _insert_postcentral_record(raw, digital_signature_record)
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="postcentral-record.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
     def test_eocd_multi_disk_metadata_is_rejected(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         eocd_offset = raw.rfind(b"PK\x05\x06")
@@ -554,6 +903,35 @@ class BookEpubImportTests(unittest.TestCase):
                     raised.exception.code,
                     BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
                 )
+
+    def test_eocd_entry_count_must_match_central_directory(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        eocd_offset = raw.rfind(b"PK\x05\x06")
+        self.assertGreaterEqual(eocd_offset, 0)
+        actual_entries = int.from_bytes(
+            raw[eocd_offset + 10 : eocd_offset + 12],
+            "little",
+        )
+        wrong_entries = actual_entries + 1
+        self.assertLessEqual(wrong_entries, 0xFFFF)
+        damaged = _set_eocd_field(
+            raw,
+            offset=8,
+            width=2,
+            value=wrong_entries,
+        )
+        damaged = _set_eocd_field(
+            damaged,
+            offset=10,
+            width=2,
+            value=wrong_entries,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="wrong-entry-count.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
 
     def test_valid_zip_comment_preserves_single_disk_container(self) -> None:
         raw = _simple_epub(b"<html><body><p>Commented EPUB.</p></body></html>")
@@ -2854,6 +3232,41 @@ class BookEpubImportTests(unittest.TestCase):
         )
         cases = (
             f'<container version="1.0" {namespace} bogus="x">{rootfiles}</container>',
+            (
+                f'<container version="1.0" {namespace} '
+                'xmlns:c="urn:oasis:names:tc:opendocument:xmlns:container" '
+                f'c:bogus="x">{rootfiles}</container>'
+            ),
+            (
+                f'<container version="1.0" {namespace} '
+                'xmlns:c="urn:oasis:names:tc:opendocument:xmlns:container" '
+                f'c:version="1.0">{rootfiles}</container>'
+            ),
+            (
+                f'<container version="1.0" {namespace} '
+                'xmlns:c="urn:oasis:names:tc:opendocument:xmlns:container">'
+                '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+                'media-type="application/oebps-package+xml" c:full-path="OEBPS/content.opf"/>'
+                '</rootfiles></container>'
+            ),
+            (
+                f'<container version="1.0" {namespace} '
+                'xmlns:c="urn:oasis:names:tc:opendocument:xmlns:container">'
+                '<rootfiles c:bogus="x"><rootfile full-path="OEBPS/content.opf" '
+                'media-type="application/oebps-package+xml"/></rootfiles></container>'
+            ),
+            (
+                f'<container version="1.0" {namespace} '
+                'xmlns:c="urn:oasis:names:tc:opendocument:xmlns:container">'
+                f'{rootfiles}<links c:bogus="x"><link href="OEBPS/chapter.xhtml" '
+                'rel="alternate"/></links></container>'
+            ),
+            (
+                f'<container version="1.0" {namespace} '
+                'xmlns:c="urn:oasis:names:tc:opendocument:xmlns:container">'
+                f'{rootfiles}<links><link href="OEBPS/chapter.xhtml" '
+                'rel="alternate" c:rel="alternate"/></links></container>'
+            ),
             (
                 f'<container version="1.0" {namespace}>'
                 '<rootfiles bogus="x"><rootfile full-path="OEBPS/content.opf" '
