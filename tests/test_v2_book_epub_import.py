@@ -145,6 +145,38 @@ def _set_local_zip_field(
     return bytes(damaged)
 
 
+def _set_eocd_field(
+    raw: bytes,
+    *,
+    offset: int,
+    width: int,
+    value: int,
+) -> bytes:
+    damaged = bytearray(raw)
+    eocd_offset = damaged.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or eocd_offset + 22 > len(damaged):
+        raise AssertionError("fixture EOCD record was not found")
+    damaged[
+        eocd_offset + offset : eocd_offset + offset + width
+    ] = value.to_bytes(width, "little")
+    return bytes(damaged)
+
+
+def _with_zip_comment(raw: bytes, comment: bytes) -> bytes:
+    damaged = bytearray(raw)
+    eocd_offset = damaged.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or eocd_offset + 22 != len(damaged):
+        raise AssertionError("fixture EOCD record was not found at archive end")
+    if len(comment) > 0xFFFF:
+        raise AssertionError("ZIP comment is too large")
+    damaged[eocd_offset + 20 : eocd_offset + 22] = len(comment).to_bytes(
+        2,
+        "little",
+    )
+    damaged.extend(comment)
+    return bytes(damaged)
+
+
 def _set_central_zip_volume(raw: bytes, name: str, volume: int) -> bytes:
     damaged = bytearray(raw)
     with zipfile.ZipFile(BytesIO(raw), "r") as archive:
@@ -243,6 +275,47 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_eocd_multi_disk_metadata_is_rejected(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        eocd_offset = raw.rfind(b"PK\x05\x06")
+        self.assertGreaterEqual(eocd_offset, 0)
+        total_entries = int.from_bytes(
+            raw[eocd_offset + 10 : eocd_offset + 12],
+            "little",
+        )
+        cases = (
+            _set_eocd_field(raw, offset=4, width=2, value=1),
+            _set_eocd_field(raw, offset=6, width=2, value=1),
+            _set_eocd_field(
+                raw,
+                offset=8,
+                width=2,
+                value=max(0, total_entries - 1),
+            ),
+        )
+        for damaged in cases:
+            with self.subTest(damaged=sha256(damaged).hexdigest()[:12]):
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(damaged, source_name="multi-disk-eocd.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+                )
+
+    def test_valid_zip_comment_preserves_single_disk_container(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Commented EPUB.</p></body></html>")
+        commented = _with_zip_comment(raw, b"OCF test comment")
+        result = import_epub_book(commented, source_name="commented.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Commented EPUB.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
         )
 
     def test_multi_disk_zip_entry_is_not_an_ocf_container(self) -> None:
