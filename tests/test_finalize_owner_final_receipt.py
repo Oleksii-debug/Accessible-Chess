@@ -12,6 +12,7 @@ from scripts.build_user_sound_pack import EXPECTED_SOURCE_INVENTORY_SHA256
 from scripts.finalize_owner_final_receipt import (
     OwnerFinalReceiptError,
     finalize_owner_final_receipt,
+    main,
 )
 
 
@@ -102,6 +103,53 @@ class OwnerFinalReceiptTests(unittest.TestCase):
                 )
                 + "\n",
             )
+
+    def test_cli_finalizes_exact_receipt_and_reports_success(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "Accessible-Chess-ONECLICK-OWNER-FINAL.zip"
+            final_zip.write_bytes(b"owner-final-cli-zip")
+            receipt = root / "owner-final-receipt.json"
+            receipt.write_text(
+                json.dumps(_receipt(final_zip), sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            result = main(
+                [
+                    "--receipt",
+                    str(receipt),
+                    "--final-zip",
+                    str(final_zip),
+                    "--product-sha",
+                    PRODUCT_SHA,
+                    "--w4-candidate-sha256",
+                    W4_SHA,
+                    "--seed-archive-sha256",
+                    SEED_SHA,
+                    "--first-docx-sha256",
+                    FIRST_DOC_SHA,
+                    "--second-docx-sha256",
+                    SECOND_DOC_SHA,
+                    "--sound-archive-sha256",
+                    SOUND_SHA,
+                    "--w4-run-id",
+                    "37174317097",
+                    "--w4-run-attempt",
+                    "2",
+                    "--w4-workflow-id",
+                    "123456789",
+                    "--w4-workflow-sha",
+                    PRODUCT_SHA,
+                    "--finalizer-run-id",
+                    "37180000000",
+                    "--finalizer-run-attempt",
+                    "1",
+                ]
+            )
+            self.assertEqual(result, 0)
+            value = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertEqual(value["source_w4_run_id"], 37174317097)
+            self.assertIs(value["machine_root_launch_verified"], True)
 
     def test_rejects_duplicate_builder_receipt_keys(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
