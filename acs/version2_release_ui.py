@@ -233,8 +233,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
 
     @staticmethod
     def _keymap_context_name(value: object) -> str:
-        raw = getattr(value, "value", value)
-        return str(raw or "").strip().lower()
+        # Public keymap contexts are JSON text. Do not coerce arbitrary objects
+        # before the canonical KeymapService has a chance to reject them.
+        if type(value) is not str:
+            return ""
+        return value.strip().lower()
 
     def _v2_keyboard_fallback_contexts(self, requested_context: object) -> tuple[str, ...]:
         """Map the inherited key owner onto the active V2 registry contexts.
