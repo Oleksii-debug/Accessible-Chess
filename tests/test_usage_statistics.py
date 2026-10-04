@@ -174,6 +174,116 @@ class UsageStatisticsTests(unittest.TestCase):
             self.assertEqual(store.load("install-1"), first)
             self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
 
+    def test_save_confirms_parent_directory_durability_after_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            store = UsageStatisticsStore(path)
+            snapshot = UsageStatisticsSnapshot("install-1", sessions_started=1)
+            events: list[str] = []
+            real_replace = os.replace
+
+            def tracked_replace(source: object, target: object) -> None:
+                events.append("replace")
+                real_replace(source, target)
+
+            def tracked_directory_sync(parent: Path) -> None:
+                self.assertEqual(parent, path.parent)
+                events.append("directory-fsync")
+
+            with (
+                patch("acs.usage_statistics.os.replace", side_effect=tracked_replace),
+                patch("acs.usage_statistics._fsync_directory", side_effect=tracked_directory_sync),
+            ):
+                store.save(snapshot)
+
+            self.assertEqual(events, ["replace", "directory-fsync"])
+            self.assertEqual(store.load("install-1"), snapshot)
+
+    def test_save_rejects_temp_path_substitution_without_deleting_foreign_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            store = UsageStatisticsStore(path)
+            snapshot = UsageStatisticsSnapshot("install-1", sessions_started=1)
+            real_replace = os.replace
+            foreign_bytes = b"FOREIGN-STATISTICS-TEMP"
+            substituted_path: Path | None = None
+            owned_path: Path | None = None
+
+            def substitute_before_publication(source: object, target: object) -> None:
+                nonlocal substituted_path, owned_path
+                source_path = Path(source)
+                target_path = Path(target)
+                if target_path == path:
+                    owned_path = source_path.with_name(source_path.name + ".owned")
+                    real_replace(source_path, owned_path)
+                    source_path.write_bytes(foreign_bytes)
+                    substituted_path = source_path
+                    raise OSError("simulated statistics publication interruption")
+                real_replace(source, target)
+
+            with patch(
+                "acs.usage_statistics.os.replace",
+                side_effect=substitute_before_publication,
+            ):
+                with self.assertRaisesRegex(OSError, "simulated statistics publication"):
+                    store.save(snapshot)
+
+            assert substituted_path is not None
+            assert owned_path is not None
+            self.assertFalse(path.exists())
+            self.assertEqual(substituted_path.read_bytes(), foreign_bytes)
+            self.assertTrue(owned_path.is_file())
+
+    def test_save_rejects_published_inode_substitution_before_durability_ack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            store = UsageStatisticsStore(path)
+            snapshot = UsageStatisticsSnapshot("install-1", sessions_started=1)
+            real_replace = os.replace
+            owned_publication = path.with_name("stats-owned-publication.json")
+            foreign_bytes = b"FOREIGN-PUBLISHED-BYTES"
+
+            def substitute_after_publication(source: object, target: object) -> None:
+                real_replace(source, target)
+                if Path(target) == path:
+                    real_replace(path, owned_publication)
+                    path.write_bytes(foreign_bytes)
+
+            with patch(
+                "acs.usage_statistics.os.replace",
+                side_effect=substitute_after_publication,
+            ):
+                with self.assertRaisesRegex(OSError, "changed before durability confirmation"):
+                    store.save(snapshot)
+
+            self.assertEqual(path.read_bytes(), foreign_bytes)
+            self.assertTrue(owned_publication.is_file())
+
+    @unittest.skipUnless(hasattr(os, "link"), "hard-link support is required")
+    def test_save_rejects_hard_linked_publication_before_durability_ack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            store = UsageStatisticsStore(path)
+            snapshot = UsageStatisticsSnapshot("install-1", sessions_started=1)
+            alias = Path(tmp) / "stats-alias.json"
+            real_replace = os.replace
+
+            def hard_link_before_publication(source: object, target: object) -> None:
+                if Path(target) == path:
+                    os.link(source, alias)
+                real_replace(source, target)
+
+            with patch(
+                "acs.usage_statistics.os.replace",
+                side_effect=hard_link_before_publication,
+            ):
+                with self.assertRaisesRegex(OSError, "private regular file"):
+                    store.save(snapshot)
+
+            self.assertTrue(path.is_file())
+            self.assertTrue(alias.is_file())
+            self.assertTrue(os.path.samefile(path, alias))
+
     def test_corrupt_or_unknown_local_payload_recovers_without_content_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "stats.json"

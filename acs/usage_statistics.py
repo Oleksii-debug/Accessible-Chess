@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
+import secrets
+import stat
 import tempfile
 import time
 from dataclasses import dataclass, replace
@@ -24,6 +27,97 @@ def _no_duplicate_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
             raise ValueError("statistics payload contains duplicate fields")
         result[key] = value
     return result
+
+
+def _reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _identity(info: os.stat_result) -> tuple[int, int]:
+    return int(info.st_dev), int(info.st_ino)
+
+
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    try:
+        return os.path.samestat(first, second)
+    except (AttributeError, OSError):
+        return _identity(first) == _identity(second)
+
+
+def _require_private_regular(info: os.stat_result, label: str) -> None:
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or _reparse(info)
+        or not stat.S_ISREG(info.st_mode)
+        or int(getattr(info, "st_nlink", 1)) != 1
+    ):
+        raise OSError(f"{label} must be one private regular file")
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if os.name == "nt" or exc.errno in {
+            errno.EACCES,
+            errno.EINVAL,
+            errno.ENOTSUP,
+        }:
+            return
+        raise OSError("statistics directory could not be synchronized") from exc
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            if os.name != "nt" and exc.errno not in {errno.EINVAL, errno.ENOTSUP}:
+                raise OSError("statistics directory could not be synchronized") from exc
+    finally:
+        os.close(descriptor)
+
+
+def _remove_exact_private_file(
+    path: Path,
+    *,
+    expected_identity: tuple[int, int],
+    label: str,
+) -> None:
+    """Delete only the exact private inode created by this statistics writer."""
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise OSError(f"{label} could not be inspected safely") from exc
+    _require_private_regular(before, label)
+    if _identity(before) != expected_identity:
+        raise OSError(f"{label} changed unexpectedly")
+
+    quarantine: Path | None = None
+    for _ in range(8):
+        candidate = path.parent / (
+            f".{path.name}.remove-quarantine-{secrets.token_hex(8)}"
+        )
+        if candidate.exists() or candidate.is_symlink():
+            continue
+        quarantine = candidate
+        break
+    if quarantine is None:
+        raise OSError(f"{label} cleanup quarantine could not be allocated")
+
+    try:
+        os.replace(path, quarantine)
+    except OSError as exc:
+        raise OSError(f"{label} could not be quarantined safely") from exc
+
+    moved = quarantine.lstat()
+    _require_private_regular(moved, f"{label} quarantine")
+    if _identity(moved) != expected_identity:
+        raise OSError(f"{label} changed during cleanup")
+    try:
+        quarantine.unlink()
+    except OSError as exc:
+        raise OSError(f"{label} could not be removed safely") from exc
+    _fsync_directory(path.parent)
 
 
 def normalize_installation_id(value: object) -> str:
@@ -287,21 +381,57 @@ class UsageStatisticsStore:
             suffix=".tmp",
             dir=self.path.parent,
         )
-        tmp = Path(raw_tmp)
+        tmp: Path | None = Path(raw_tmp)
+        temp_identity: tuple[int, int] | None = None
         try:
+            created = os.fstat(fd)
+            _require_private_regular(created, "statistics temporary file")
+            temp_identity = _identity(created)
+
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 fd = -1
                 handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
+                prepared = os.fstat(handle.fileno())
+                _require_private_regular(prepared, "statistics temporary file")
+                if not _same_file_identity(created, prepared):
+                    raise OSError("statistics temporary file changed while being prepared")
+                temp_identity = _identity(prepared)
+
+            assert tmp is not None
+            current = tmp.lstat()
+            _require_private_regular(current, "statistics temporary file")
+            if _identity(current) != temp_identity:
+                raise OSError("statistics temporary file changed before publication")
+
             os.replace(tmp, self.path)
+            tmp = None
+
+            published = self.path.lstat()
+            _require_private_regular(published, "statistics publication")
+            if _identity(published) != temp_identity:
+                raise OSError("statistics publication changed before durability confirmation")
+            _fsync_directory(self.path.parent)
+            published = self.path.lstat()
+            _require_private_regular(published, "statistics publication")
+            if _identity(published) != temp_identity:
+                raise OSError("statistics publication changed before durability confirmation")
         finally:
             if fd >= 0:
                 try:
                     os.close(fd)
                 except OSError:
                     pass
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
+            if tmp is not None and temp_identity is not None:
+                try:
+                    _remove_exact_private_file(
+                        tmp,
+                        expected_identity=temp_identity,
+                        label="statistics temporary file",
+                    )
+                except OSError:
+                    # Never delete a pathname that stopped naming our private
+                    # temp inode. Leaving owned crash residue is safer than
+                    # deleting foreign bytes.
+                    pass
