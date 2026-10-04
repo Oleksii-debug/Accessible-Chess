@@ -6,28 +6,91 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from acs.usage_sync import UsageEventQueue
+from acs.usage_sync import UsageAnalyticsPolicy, UsageEventQueue
 
 
 NOW = datetime(2026, 10, 4, 16, 0, 0, tzinfo=timezone.utc)
+ENABLED = UsageAnalyticsPolicy(analytics_enabled=True)
 
 
 def make_queue(path: Path) -> UsageEventQueue:
     return UsageEventQueue(path, now=lambda: NOW)
 
 
-def inject_pending(path: Path, *, event_id: str, counters_json: str) -> None:
+def inject_pending(
+    path: Path,
+    *,
+    event_id: str,
+    counters_json: str,
+    installation_id: str = "install-1",
+    created_at_utc: str = "2026-10-04T15:00:00Z",
+) -> None:
     connection = sqlite3.connect(path)
     try:
         connection.execute(
             "INSERT INTO usage_events("
             "event_id, installation_id, kind, counters_json, created_at_utc, sync_state"
-            ") VALUES (?, 'install-1', 'feature', ?, '2026-10-04T15:00:00Z', 'pending')",
-            (event_id, counters_json),
+            ") VALUES (?, ?, 'feature', ?, ?, 'pending')",
+            (event_id, installation_id, counters_json, created_at_utc),
         )
         connection.commit()
     finally:
         connection.close()
+
+
+class ReplacingAckPort:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def sync_events(self, events):  # type: ignore[no-untyped-def]
+        event_id = events[0].event_id
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute("DELETE FROM usage_events WHERE event_id = ?", (event_id,))
+            connection.execute(
+                "INSERT INTO usage_events("
+                "event_id, installation_id, kind, counters_json, created_at_utc, sync_state"
+                ") VALUES (?, 'install-2', 'feature', '{\"feature_uses\":9}', "
+                "'2026-10-04T15:00:01Z', 'pending')",
+                (event_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return (event_id,)
+
+
+class DeletingAckPort:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def sync_events(self, events):  # type: ignore[no-untyped-def]
+        event_id = events[0].event_id
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute("DELETE FROM usage_events WHERE event_id = ?", (event_id,))
+            connection.commit()
+        finally:
+            connection.close()
+        return (event_id,)
+
+
+class ConcurrentSyncAckPort:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def sync_events(self, events):  # type: ignore[no-untyped-def]
+        event_id = events[0].event_id
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE usage_events SET sync_state = 'synced' WHERE event_id = ?",
+                (event_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return (event_id,)
 
 
 class PersistedUsageCounterBoundaryTests(unittest.TestCase):
@@ -97,6 +160,55 @@ class PersistedUsageCounterBoundaryTests(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0].event_id, "canonical")
             self.assertEqual(dict(events[0].counters), {"feature_uses": 1})
+
+    def test_stale_provider_ack_cannot_sync_reused_event_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "usage-sync.sqlite"
+            queue = make_queue(path)
+            inject_pending(
+                path,
+                event_id="reused",
+                counters_json='{"feature_uses":1}',
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError, "queue changed during provider acknowledgement"
+            ):
+                queue.sync_pending(ReplacingAckPort(path), ENABLED, "install-1")
+
+            replacement = queue.pending("install-2")
+            self.assertEqual(len(replacement), 1)
+            self.assertEqual(replacement[0].event_id, "reused")
+            self.assertEqual(dict(replacement[0].counters), {"feature_uses": 9})
+
+    def test_local_deletion_during_provider_call_is_not_resurrected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "usage-sync.sqlite"
+            queue = make_queue(path)
+            inject_pending(
+                path,
+                event_id="deleted",
+                counters_json='{"feature_uses":1}',
+            )
+
+            self.assertEqual(queue.sync_pending(DeletingAckPort(path), ENABLED, "install-1"), 1)
+            self.assertEqual(queue.pending("install-1"), ())
+
+    def test_concurrent_exact_sync_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "usage-sync.sqlite"
+            queue = make_queue(path)
+            inject_pending(
+                path,
+                event_id="already-synced",
+                counters_json='{"feature_uses":1}',
+            )
+
+            self.assertEqual(
+                queue.sync_pending(ConcurrentSyncAckPort(path), ENABLED, "install-1"),
+                1,
+            )
+            self.assertEqual(queue.pending("install-1"), ())
 
 
 if __name__ == "__main__":
