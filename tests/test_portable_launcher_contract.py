@@ -52,6 +52,11 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
                 72,
                 "SAFE_LOCAL_SERVER_INIT_FAILED",
             ),
+            (
+                "RELEASE_UI_STARTUP_EXIT_CODE",
+                73,
+                "RELEASE_UI_STARTUP_FAILED",
+            ),
         )
         for name, code, reason in contracts:
             with self.subTest(name=name):
@@ -68,12 +73,25 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("raise SystemExit(exit_code)", self.runtime)
         self.assertIn("UNKNOWN_EARLY_EXIT", self.source)
 
-    def _run_packaged_bootstrap(self, *, host_ok: bool, server_ok: bool) -> tuple[object, str]:
+    def _run_packaged_bootstrap(
+        self,
+        *,
+        host_ok: bool,
+        server_ok: bool,
+        release_ui_raises: bool = False,
+    ) -> tuple[object, str]:
         accessibility = types.ModuleType("acs.webview2_accessibility")
         accessibility.enable_webview2_renderer_accessibility = lambda: None
         accessibility.install_pywebview_accessibility_host_patch = lambda: host_ok
         safe_server = types.ModuleType("acs.webview_safe_server")
         safe_server.install_pywebview_safe_local_server_port = lambda: server_ok
+        release_ui = types.ModuleType("acs.stage1_release_ui")
+
+        def release_main() -> None:
+            if release_ui_raises:
+                raise RuntimeError("synthetic release UI startup failure")
+
+        release_ui.main = release_main
         stderr = io.StringIO()
 
         with (
@@ -82,6 +100,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
                 {
                     "acs.webview2_accessibility": accessibility,
                     "acs.webview_safe_server": safe_server,
+                    "acs.stage1_release_ui": release_ui,
                 },
             ),
             mock.patch.object(sys, "argv", [str(self.root / "run_accessible_chess.py")]),
@@ -100,6 +119,16 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         code, stderr = self._run_packaged_bootstrap(host_ok=True, server_ok=False)
         self.assertEqual(code, 72)
         self.assertIn("Accessible WebView2 local server could not be initialized.", stderr)
+
+    def test_real_entrypoint_reports_release_ui_startup_code_and_traceback(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            release_ui_raises=True,
+        )
+        self.assertEqual(code, 73)
+        self.assertIn("Accessible Chess release UI could not be started.", stderr)
+        self.assertIn("synthetic release UI startup failure", stderr)
 
     def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
