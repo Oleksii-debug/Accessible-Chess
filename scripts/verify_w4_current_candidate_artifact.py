@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -15,7 +16,9 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from scripts.verify_w4_candidate_artifact import (
     CandidateArtifactError,
+    HASH_CHUNK_BYTES,
     MAX_EVIDENCE_BYTES,
+    MAX_INNER_BYTES,
     MAX_OUTER_BYTES,
     RUN_METADATA_PATH,
     _load_json,
@@ -139,48 +142,67 @@ def _verify_current_sound_binding(
         candidate_info = outer_members.get(candidate_name)
         if candidate_info is None or candidate_info.is_dir():
             raise CandidateArtifactError("current candidate ZIP is missing")
-        candidate_bytes = outer.read(candidate_info)
+        if candidate_info.file_size <= 0 or candidate_info.file_size > MAX_INNER_BYTES:
+            raise CandidateArtifactError("current candidate ZIP size is outside accepted bounds")
+        with tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024) as nested:
+            with outer.open(candidate_info, "r") as source:
+                shutil.copyfileobj(source, nested, length=HASH_CHUNK_BYTES)
+            nested.seek(0)
+            try:
+                candidate = zipfile.ZipFile(nested, "r")
+            except zipfile.BadZipFile as exc:
+                raise CandidateArtifactError("current candidate payload is not a valid ZIP") from exc
+            with candidate:
+                members = _safe_members(candidate, "current candidate ZIP")
+                missing = sorted(SOUND_REQUIRED_METADATA - set(members))
+                if missing:
+                    raise CandidateArtifactError(
+                        "current candidate sound metadata missing: " + ", ".join(missing)
+                    )
+                inventory_info = members[SOUND_INVENTORY_PATH]
+                if (
+                    inventory_info.is_dir()
+                    or inventory_info.file_size <= 0
+                    or inventory_info.file_size > MAX_EVIDENCE_BYTES
+                ):
+                    raise CandidateArtifactError(
+                        "current candidate sound inventory size is outside accepted bounds"
+                    )
+                inventory = _load_json(
+                    candidate.read(inventory_info),
+                    "current candidate sound inventory",
+                )
 
-    try:
-        candidate = zipfile.ZipFile(Path(candidate_name) if False else __import__("io").BytesIO(candidate_bytes), "r")
-    except zipfile.BadZipFile as exc:
-        raise CandidateArtifactError("current candidate payload is not a valid ZIP") from exc
-    with candidate:
-        members = _safe_members(candidate, "current candidate ZIP")
-        missing = sorted(SOUND_REQUIRED_METADATA - set(members))
-        if missing:
-            raise CandidateArtifactError(
-                "current candidate sound metadata missing: " + ", ".join(missing)
-            )
-        inventory_info = members[SOUND_INVENTORY_PATH]
-        if inventory_info.is_dir() or inventory_info.file_size <= 0 or inventory_info.file_size > MAX_EVIDENCE_BYTES:
-            raise CandidateArtifactError("current candidate sound inventory size is outside accepted bounds")
-        inventory = _load_json(candidate.read(inventory_info), "current candidate sound inventory")
+                if inventory.get("file_count") != metadata["user_sound_wav_count"]:
+                    raise CandidateArtifactError(
+                        "current candidate sound WAV count does not match run metadata"
+                    )
+                if inventory.get("source_inventory_sha256") != metadata["user_sound_inventory_sha256"]:
+                    raise CandidateArtifactError(
+                        "current candidate sound inventory SHA-256 does not match run metadata"
+                    )
+                if inventory.get("source_archive_sha256") != metadata["user_sound_pack_zip_sha256"]:
+                    raise CandidateArtifactError(
+                        "current candidate sound source archive SHA-256 does not match run metadata"
+                    )
+                source_archive_bytes = inventory.get("source_archive_bytes")
+                if type(source_archive_bytes) is not int or source_archive_bytes <= 0:
+                    raise CandidateArtifactError(
+                        "current candidate sound source archive byte count is invalid"
+                    )
 
-        if inventory.get("file_count") != metadata["user_sound_wav_count"]:
-            raise CandidateArtifactError("current candidate sound WAV count does not match run metadata")
-        if inventory.get("source_inventory_sha256") != metadata["user_sound_inventory_sha256"]:
-            raise CandidateArtifactError(
-                "current candidate sound inventory SHA-256 does not match run metadata"
-            )
-        if inventory.get("source_archive_sha256") != metadata["user_sound_pack_zip_sha256"]:
-            raise CandidateArtifactError(
-                "current candidate sound source archive SHA-256 does not match run metadata"
-            )
-        source_archive_bytes = inventory.get("source_archive_bytes")
-        if type(source_archive_bytes) is not int or source_archive_bytes <= 0:
-            raise CandidateArtifactError("current candidate sound source archive byte count is invalid")
-
-        wav_prefix = f"{SOUND_ROOT}/library/"
-        wavs = [
-            name
-            for name, info in members.items()
-            if not info.is_dir()
-            and name.startswith(wav_prefix)
-            and name.casefold().endswith(".wav")
-        ]
-        if len(wavs) != metadata["user_sound_wav_count"]:
-            raise CandidateArtifactError("current candidate sound library WAV inventory mismatch")
+                wav_prefix = f"{SOUND_ROOT}/library/"
+                wavs = [
+                    name
+                    for name, info in members.items()
+                    if not info.is_dir()
+                    and name.startswith(wav_prefix)
+                    and name.casefold().endswith(".wav")
+                ]
+                if len(wavs) != metadata["user_sound_wav_count"]:
+                    raise CandidateArtifactError(
+                        "current candidate sound library WAV inventory mismatch"
+                    )
 
 
 def _translated_legacy_metadata(
@@ -222,10 +244,28 @@ def _translate_outer_metadata(
                     + "\n"
                 ).encode("utf-8")
                 target.writestr(info, payload)
-            else:
-                target.writestr(info, source.read(info))
+                continue
+            with source.open(info, "r") as source_member, target.open(info, "w") as target_member:
+                shutil.copyfileobj(source_member, target_member, length=HASH_CHUNK_BYTES)
         if not seen_metadata:
             raise CandidateArtifactError("current run metadata is missing")
+
+
+def _stream_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    total = 0
+    with path.open("rb") as source:
+        while True:
+            block = source.read(HASH_CHUNK_BYTES)
+            if not block:
+                break
+            total += len(block)
+            if total > MAX_OUTER_BYTES:
+                raise CandidateArtifactError("outer artifact exceeds accepted size bound while hashing")
+            digest.update(block)
+    if total != path.stat().st_size:
+        raise CandidateArtifactError("outer artifact changed while being hashed")
+    return digest.hexdigest()
 
 
 def verify_current(
@@ -251,7 +291,7 @@ def verify_current(
     size = outer_path.stat().st_size
     if size <= 0 or size > MAX_OUTER_BYTES:
         raise CandidateArtifactError("outer artifact size is outside accepted bounds")
-    digest = hashlib.sha256(outer_path.read_bytes()).hexdigest()
+    digest = _stream_sha256(outer_path)
     if expected_outer_sha256 is not None:
         wanted = _normalize_sha256(expected_outer_sha256, "outer artifact SHA-256")
         if digest != wanted:
