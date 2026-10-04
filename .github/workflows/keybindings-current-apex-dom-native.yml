@@ -20,6 +20,7 @@ on:
       - 'web/full_product_library.js'
       - 'web/full_product_education.js'
       - 'tests/js/stage1_terminal_keymap_dom_test.js'
+      - 'tests/js/stage1_board_rerender_keymap_integration_test.js'
       - 'tests/js/v2_remapped_keyboard_native_editing_test.js'
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/js/pgn_tree_keyboard_dom_test.js'
@@ -99,6 +100,7 @@ jobs:
             'tests/js/library_surface_dom_test.js' \
             'tests/js/pgn_surface_dom_test.js' \
             'tests/js/pgn_tree_boundary_key_ownership_test.js' \
+            'tests/js/stage1_board_rerender_keymap_integration_test.js' \
             'tests/js/stage1_terminal_keymap_dom_test.js' \
             'tests/js/v2_remapped_keyboard_native_editing_test.js' \
             'tests/test_full_product_education_keybindings.py' \
@@ -147,17 +149,19 @@ jobs:
           set -euo pipefail
           node --check web/stage1_board_actions.js
           node --check web/stage1_release_bootstrap.js
+          node --check tests/js/stage1_terminal_keymap_dom_test.js
+          node --check tests/js/stage1_board_rerender_keymap_integration_test.js
+          node --check tests/js/v2_remapped_keyboard_native_editing_test.js
           node --check web/full_product_pgn.js
           node --check web/full_product_library.js
           node --check web/full_product_education.js
-          node --check tests/js/stage1_terminal_keymap_dom_test.js
-          node --check tests/js/v2_remapped_keyboard_native_editing_test.js
           node --check tests/js/pgn_surface_dom_test.js
           node --check tests/js/pgn_tree_keyboard_dom_test.js
           node --check tests/js/pgn_tree_boundary_key_ownership_test.js
           node --check tests/js/library_surface_dom_test.js
           node --check tests/js/education_surface_dom_test.js
           node tests/js/stage1_terminal_keymap_dom_test.js
+          node tests/js/stage1_board_rerender_keymap_integration_test.js
           node tests/js/v2_remapped_keyboard_native_editing_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_tree_keyboard_dom_test.js
