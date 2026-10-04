@@ -392,7 +392,7 @@ class LibraryPresenter:
             self._status = SurfaceStatus.ERROR
             self._message = concise_user_error(exc, language=self._language)
             return self.view()
-        self._pages.append((query, page)]
+        self._pages.append((query, page))
         self._page_index += 1
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
         self._message = ""
