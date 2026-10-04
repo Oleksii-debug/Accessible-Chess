@@ -82,8 +82,14 @@ class PositionState:
         return replace(self, turn=turn, en_passant="-")
 
     def with_castling(self, rights: Iterable[str] | str) -> "PositionState":
-        if isinstance(rights, str):
+        if type(rights) is str:
             normalized = _normalize_castling(rights)
+        elif isinstance(rights, str):
+            # A string subclass is scalar input, not a generic iterable. Reject it
+            # before any overridable strip/iteration hooks can execute.
+            raise PositionValidationError(
+                "castling rights must be text or an iterable of text symbols"
+            )
         else:
             try:
                 values = tuple(rights)
@@ -146,7 +152,9 @@ class PositionState:
 
     @classmethod
     def from_fen(cls, fen: str) -> "PositionState":
-        if not isinstance(fen, str):
+        if type(fen) is not str:
+            # Keep FEN ingress passive: no user-defined text subclass may run
+            # strip/split/equality hooks before this boundary rejects it.
             raise PositionValidationError("FEN must be text")
         text = fen.strip()
         fields = text.split()
