@@ -9,8 +9,6 @@ on:
       - '.github/workflows/current-portable-manifest-json-prehash-bounds.yml'
       - '.github/workflows/current-bookdocument-total-text-budget.yml'
       - '.github/workflows/current-bookdocument-training-resource-convergence.yml'
-      - '.github/workflows/current-bookreader-revision-barriers.yml'
-      - '.github/workflows/current-bookreader-training-resource-convergence.yml'
       - '.github/workflows/current-settings-bookreader-resource-convergence.yml'
       - '.github/workflows/current-training-progress-json-prehash-bounds.yml'
       - 'acs/version2_package_preflight.py'
@@ -85,9 +83,17 @@ jobs:
           git merge-base --is-ancestor "$live_product" HEAD
           git merge-base --is-ancestor "$live_product" "$live_prior"
 
-          convergence="$(git rev-parse HEAD^)"
-          parents="$(git show -s --format=%P "$convergence")"
-          test "$parents" = "$live_prior $live_portable"
+          matches=0
+          convergence=""
+          while IFS= read -r candidate; do
+            parents="$(git show -s --format=%P "$candidate")"
+            if [ "$parents" = "$live_prior $live_portable" ]; then
+              convergence="$candidate"
+              matches=$((matches + 1))
+            fi
+          done < <(git rev-list --merges HEAD)
+          test "$matches" -eq 1
+          test -n "$convergence"
 
           git diff --check "$live_base"...HEAD
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
