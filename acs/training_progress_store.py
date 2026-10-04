@@ -457,6 +457,10 @@ class TrainingProgressStore:
         try:
             metadata = os.fstat(descriptor)
             self._require_regular_lock(metadata)
+            if existing is not None and not self._same_file_identity(existing, metadata):
+                raise TrainingProgressBusyError(
+                    "training progress lock changed while being opened"
+                )
             if expected_directory_identity is not None:
                 self._require_storage_directory(expected_directory_identity)
             if metadata.st_size == 0:
