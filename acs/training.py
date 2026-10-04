@@ -634,20 +634,27 @@ def _validate_reachable_state(
 def _snapshot_field_names(snapshot: Mapping[str, object]) -> tuple[str, ...]:
     if not isinstance(snapshot, Mapping):
         raise TypeError("exercise snapshot must be a mapping")
-    max_fields = max(
-        len(_TRAINING_SNAPSHOT_V2_FIELDS),
-        len(_TRAINING_SNAPSHOT_V3_FIELDS),
-        len(_TRAINING_SNAPSHOT_V4_FIELDS),
-    )
-    try:
-        field_names = tuple(islice(iter(snapshot), max_fields + 1))
-    except TypeError as exc:
-        raise TypeError("exercise snapshot must expose finite field names") from exc
     allowed_counts = {
         len(_TRAINING_SNAPSHOT_V2_FIELDS),
         len(_TRAINING_SNAPSHOT_V3_FIELDS),
         len(_TRAINING_SNAPSHOT_V4_FIELDS),
     }
+    max_fields = max(allowed_counts)
+
+    # JSON recovery yields a built-in dict. For dict subclasses, inspect the
+    # underlying built-in container count without dispatching an overridden
+    # __len__ hook. An impossible backing size can therefore fail before any
+    # provider-defined iteration/key hook. Non-dict Mapping implementations keep
+    # the historical bounded max_fields+1 probe below.
+    if isinstance(snapshot, dict):
+        backing_count = dict.__len__(snapshot)
+        if backing_count not in allowed_counts:
+            raise ValueError("invalid exercise snapshot field count")
+
+    try:
+        field_names = tuple(islice(iter(snapshot), max_fields + 1))
+    except TypeError as exc:
+        raise TypeError("exercise snapshot must expose finite field names") from exc
     if len(field_names) not in allowed_counts:
         raise ValueError("invalid exercise snapshot field count")
     for field_name in field_names:
@@ -678,8 +685,23 @@ def _require_snapshot_field_names(
 
 
 def _canonical_definition_snapshot(definition: ExerciseDefinition) -> ExerciseDefinition:
-    if not isinstance(definition, ExerciseDefinition):
+    # ExerciseDefinition is the canonical authored Training root. Its public
+    # constructor already normalizes ordinary iterables/mappings into built-in
+    # tuple/dict/frozenset containers, so session/persistence ingress can require
+    # those closed roots before any detached-copy traversal executes hooks.
+    if type(definition) is not ExerciseDefinition:
         raise TypeError("definition must be an ExerciseDefinition")
+    if type(definition.steps) is not tuple:
+        raise ValueError("exercise definition steps must be canonical")
+    if type(definition.tags) is not tuple:
+        raise ValueError("exercise definition tags must be canonical")
+    if type(definition.metadata) is not dict:
+        raise ValueError("exercise definition metadata must be canonical")
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise ValueError("exercise definition steps must be canonical")
+        if type(step.accepted_moves) is not frozenset:
+            raise ValueError("exercise accepted moves must be canonical")
     normalized = ExerciseDefinition(
         definition.exercise_id,
         definition.start_fen,
