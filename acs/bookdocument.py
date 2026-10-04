@@ -14,12 +14,19 @@ from enum import Enum
 from typing import Any, Iterable, Iterator
 
 from .chesscore import Board
+from .input_limits import MAX_FEN_CHARS
 
 
 BOOK_DOCUMENT_SCHEMA_VERSION = 1
 MAX_BOOK_DOCUMENT_BLOCKS = 50_000
 MAX_BOOK_DOCUMENT_WARNINGS = 4_096
 MAX_BOOK_DOCUMENT_FIELDS = 9
+# Scalar/list ceilings preserve the widest currently supported canonical content
+# while ensuring malformed exact built-ins fail before expensive strip/split scans.
+MAX_BOOK_TEXT_FIELD_CHARS = 12 * 1024 * 1024
+MAX_BOOK_PGN_CHARS = 64 * 1024 * 1024
+MAX_BOOK_LIST_ITEMS = 65_536
+MAX_BOOK_LIST_TOTAL_CHARS = 12 * 1024 * 1024
 
 
 class BookDocumentErrorCode(str, Enum):
@@ -39,9 +46,19 @@ class BookDocumentError(ValueError):
 
 def _required_text(value: object, field_name: str) -> str:
     # Canonical Book payloads originate from JSON/text importers and therefore
-    # use built-in strings. Reject subclasses before calling strip() so hostile
-    # Python-side ingress cannot execute custom text hooks inside validation.
-    if type(value) is not str or not value.strip():
+    # use built-in strings. Reject subclasses and oversized exact strings before
+    # strip() so malformed input cannot execute hooks or force an unbounded scan.
+    if type(value) is not str:
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical text field limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if not value.strip():
         raise BookDocumentError(
             f"{field_name} must be non-empty text",
             code=BookDocumentErrorCode.INVALID_FIELD,
@@ -60,6 +77,31 @@ def _optional_identifier(value: object, field_name: str) -> str | None:
     return None if text is None else text.strip()
 
 
+def _required_pgn_text(value: object, field_name: str) -> str:
+    if type(value) is not str:
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if len(value) > MAX_BOOK_PGN_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical PGN text limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if not value.strip():
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    return value
+
+
+def _optional_pgn_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return _required_pgn_text(value, field_name)
+
+
 def _fen_text(value: object, field_name: str) -> str:
     """Validate a Book FEN through the one canonical Board contract.
 
@@ -68,6 +110,11 @@ def _fen_text(value: object, field_name: str) -> str:
     legality rules. A rejected value never becomes a published semantic block.
     """
 
+    if type(value) is str and len(value) > MAX_FEN_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical FEN input limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
     text = _required_text(value, field_name).strip()
     fields = text.split()
     if len(fields) not in {4, 6}:
@@ -159,8 +206,25 @@ class ListBlock(BookBlock):
                 "List items must be a non-empty list of text items",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if len(self.items) > MAX_BOOK_LIST_ITEMS:
+            raise BookDocumentError(
+                f"List supports at most {MAX_BOOK_LIST_ITEMS} items",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         validated_items: list[str] = []
+        total_chars = 0
         for item in self.items:
+            if type(item) is not str:
+                raise BookDocumentError(
+                    "List item must be non-empty text",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+            total_chars += len(item)
+            if total_chars > MAX_BOOK_LIST_TOTAL_CHARS:
+                raise BookDocumentError(
+                    "List text exceeds the canonical aggregate limit",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
             validated_items.append(_required_text(item, "List item"))
         if type(self.ordered) is not bool:
             raise BookDocumentError(
@@ -219,6 +283,11 @@ class Game(BookBlock):
                 "Game PGN must be text",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if len(self.pgn) > MAX_BOOK_PGN_CHARS:
+            raise BookDocumentError(
+                "Game PGN exceeds the canonical PGN text limit",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         self.title = _optional_text(self.title, "Game title")
         if self.game_id is not None and (
             type(self.game_id) is not int or self.game_id < 0
@@ -243,7 +312,7 @@ class VariationTree(BookBlock):
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
         self.root_fen = _fen_text(self.root_fen, "VariationTree root_fen")
-        self.pgn = _required_text(self.pgn, "VariationTree PGN")
+        self.pgn = _required_pgn_text(self.pgn, "VariationTree PGN")
         self.title = _optional_text(self.title, "VariationTree title")
 
 
@@ -259,7 +328,7 @@ class Exercise(BookBlock):
         BookBlock.__post_init__(self)
         self.fen = _fen_text(self.fen, "Exercise FEN")
         self.prompt = _required_text(self.prompt, "Exercise prompt")
-        self.solution_pgn = _optional_text(
+        self.solution_pgn = _optional_pgn_text(
             self.solution_pgn,
             "Exercise solution_pgn",
         )
