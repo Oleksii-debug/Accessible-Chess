@@ -499,13 +499,13 @@ class BookReaderPresenter:
     ) -> None:
         self._reader = reader
         self._language = language
-        warnings = reader.document.warnings
-        if type(warnings) is not list or any(type(item) is not str for item in warnings):
+        warnings = reader.document_warnings_snapshot()
+        if type(warnings) is not tuple or any(type(item) is not str for item in warnings):
             raise TypeError("BookDocument warnings must remain built-in text")
-        # BookReader is snapshot-based. Freeze the retained importer warnings with
-        # the presenter as well so later authoring mutation cannot silently change
-        # what an already-open reading session reports to the user.
-        self._document_warnings = tuple(warnings)
+        # Bind presentation to BookReader's indexed document snapshot rather than
+        # the mutable authoring document. This keeps warnings consistent with the
+        # semantic blocks already frozen by the open reader session.
+        self._document_warnings = warnings
 
     def set_language(self, language: UILanguage) -> None:
         self._language = language

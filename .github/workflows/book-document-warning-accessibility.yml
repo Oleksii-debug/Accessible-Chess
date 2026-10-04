@@ -5,12 +5,14 @@ on:
     branches:
       - fix/book-document-warning-accessibility-20261004-sol56
     paths:
+      - acs/bookreader.py
       - acs/full_product_presenters.py
       - tests/test_book_document_warning_accessibility.py
       - tests/js/book_document_warning_accessibility_dom_test.js
       - .github/workflows/book-document-warning-accessibility.yml
   pull_request:
     paths:
+      - acs/bookreader.py
       - acs/full_product_presenters.py
       - tests/test_book_document_warning_accessibility.py
       - tests/js/book_document_warning_accessibility_dom_test.js
@@ -37,6 +39,7 @@ jobs:
       - name: Compile changed Python surfaces
         run: >-
           python -m compileall -q
+          acs/bookreader.py
           acs/full_product_presenters.py
           tests/test_book_document_warning_accessibility.py
 
