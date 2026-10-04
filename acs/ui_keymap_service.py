@@ -132,17 +132,24 @@ class KeymapService:
                 profile = source_profile
                 self.recovery_message = "invalid keymap profile"
 
+        merged = registry.to_profile()
         try:
-            registry.replace_profile(profile)
+            profile_bindings = profile.get("bindings", {})
+            profile_aliases = profile.get("aliases", {})
+            if not isinstance(profile_bindings, Mapping) or not isinstance(profile_aliases, Mapping):
+                raise ValueError("invalid keymap profile")
+            merged_bindings = merged.get("bindings")
+            merged_aliases = merged.get("aliases")
+            if not isinstance(merged_bindings, dict) or not isinstance(merged_aliases, dict):
+                raise ValueError("invalid wider registry profile")
+            merged_bindings.update(profile_bindings)
+            merged_aliases.update(profile_aliases)
+            registry.replace_profile(merged)
         except Exception:
-            # A profile that was valid for the narrower Stage1 definition set can
-            # become invalid after wider Product actions are introduced (for
-            # example because a new default collides with an old user binding).
-            # Fail closed to the wider defaults without rewriting the source file;
-            # the recovery state remains visible until the user explicitly saves,
-            # resets all, or imports a compatible profile.
-            defaults = ActionRegistry(registry.definitions())
-            registry.replace_profile(defaults.to_profile())
+            # replace_profile validates before mutating, so a profile that only
+            # becomes invalid under the wider Product definition set leaves the
+            # application's existing wider registry untouched. Preserve the file
+            # for explicit recovery instead of silently rewriting it at startup.
             self.recovery_message = "invalid keymap profile"
 
         self.editor.registry = registry
