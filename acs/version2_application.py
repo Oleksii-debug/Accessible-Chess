@@ -1461,6 +1461,19 @@ class Version2Application:
             )
             if (
                 area_id == "pgn"
+                and not pgn_refresh
+                and (
+                    self.shell.current_route.route_id != "pgn"
+                    or self.shell.active_dialog_id is not None
+                )
+            ):
+                # The retained PGN WebView is not an authority surface once the
+                # shell leaves PGN or a modal owns focus. Reject before lease
+                # comparison or bridge dispatch so stale DOM cannot select,
+                # navigate or edit the canonical PGN behind another screen.
+                raise ValueError("PGN command requires the visible PGN workspace")
+            if (
+                area_id == "pgn"
                 and type(command) is str
                 and not pgn_refresh
                 and self._pgn_browser_lease_required
