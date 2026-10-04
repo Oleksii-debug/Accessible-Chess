@@ -86,7 +86,7 @@ jobs:
           assert 'metadata.get(\'product_sha\') != exact' in workflow
           assert 'scripts/verify_owner_w4_run_provenance.py' in workflow
           assert 'scripts/finalize_owner_final_receipt.py' in workflow
-          assert 'OWNER_W4_RUN_API_PROVENANCE=PASS' in workflow
+          assert 'W4_AUTHORITATIVE_RUN_PROVENANCE=PASS' in workflow
           assert 'OWNER_W4_RUN_EXACT_RELEASE_APEX=PASS' in workflow
           assert 'HUMAN_TESTED=YES' not in workflow
           assert 'NVDA_VERIFIED=YES' not in workflow
