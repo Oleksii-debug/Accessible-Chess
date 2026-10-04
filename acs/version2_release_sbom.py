@@ -26,6 +26,8 @@ STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
 STOCKFISH_LICENSE = "THIRD_PARTY_NOTICES/Stockfish-COPYING.txt"
 SOUND_PROVENANCE = "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
 SOUND_ROOT = "AccessibleChess/assets/sounds"
+USER_PROVIDED_LICENSE_ID = "USER_PROVIDED"
+SPDX_NOASSERTION = "NOASSERTION"
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_LICENSE_RE = re.compile(r"^[A-Za-z0-9.+-]{1,128}$")
@@ -145,7 +147,15 @@ def _sound_licenses(root: Path) -> dict[str, str]:
         expected_sha256 = raw.get("sha256")
         if not isinstance(file_name, str) or not file_name or "/" in file_name or "\\" in file_name:
             _fail("sound provenance file name is invalid")
-        if not isinstance(license_id, str) or not _SAFE_LICENSE_RE.fullmatch(license_id):
+        if license_id == USER_PROVIDED_LICENSE_ID:
+            # USER_PROVIDED is canonical package provenance, not an SPDX license
+            # expression and it deliberately does not infer redistribution rights.
+            # Preserve that exact provenance in the packaged notice, which is itself
+            # hashed by this SBOM, while emitting the SPDX-defined unknown sentinel.
+            spdx_license_id = SPDX_NOASSERTION
+        elif isinstance(license_id, str) and _SAFE_LICENSE_RE.fullmatch(license_id):
+            spdx_license_id = license_id
+        else:
             _fail("sound provenance SPDX license identity is invalid")
         if (
             not isinstance(expected_sha256, str)
@@ -158,8 +168,8 @@ def _sound_licenses(root: Path) -> dict[str, str]:
             _fail("sound provenance asset is not a regular packaged file")
         if _sha256(sound_path) != expected_sha256.casefold():
             _fail("sound provenance SHA-256 does not match packaged sound asset")
-        previous = result.setdefault(relative, license_id)
-        if previous != license_id:
+        previous = result.setdefault(relative, spdx_license_id)
+        if previous != spdx_license_id:
             _fail("sound asset has conflicting license identities")
     return result
 
@@ -233,14 +243,14 @@ def build_version2_release_sbom(
         if not path.is_file() or path.is_symlink():
             _fail(f"SBOM payload file is not a regular file: {relative}")
         file_id = _file_spdx_id(relative)
-        license_id = sound_licenses.get(relative, "NOASSERTION")
+        license_id = sound_licenses.get(relative, SPDX_NOASSERTION)
         file_rows.append({
             "SPDXID": file_id,
             "fileName": f"./{relative}",
             "checksums": [{"algorithm": "SHA256", "checksumValue": _sha256(path)}],
             "licenseConcluded": license_id,
             "licenseInfoInFiles": [license_id],
-            "copyrightText": "NOASSERTION",
+            "copyrightText": SPDX_NOASSERTION,
         })
         relationships.append({
             "spdxElementId": PRODUCT_SPDX_ID,
@@ -272,14 +282,14 @@ def build_version2_release_sbom(
                 "name": "Accessible Chess",
                 "SPDXID": PRODUCT_SPDX_ID,
                 "versionInfo": sha,
-                "downloadLocation": "NOASSERTION",
+                "downloadLocation": SPDX_NOASSERTION,
                 "filesAnalyzed": True,
                 "packageVerificationCode": {
                     "packageVerificationCodeValue": verification_code,
                 },
-                "licenseConcluded": "NOASSERTION",
-                "licenseDeclared": "NOASSERTION",
-                "copyrightText": "NOASSERTION",
+                "licenseConcluded": SPDX_NOASSERTION,
+                "licenseDeclared": SPDX_NOASSERTION,
+                "copyrightText": SPDX_NOASSERTION,
                 "comment": "Project license is not inferred; every packaged regular file is enumerated and hashed.",
             },
             {
@@ -290,7 +300,7 @@ def build_version2_release_sbom(
                 "filesAnalyzed": False,
                 "licenseConcluded": "GPL-3.0-or-later",
                 "licenseDeclared": "GPL-3.0-or-later",
-                "copyrightText": "NOASSERTION",
+                "copyrightText": SPDX_NOASSERTION,
                 "comment": (
                     f"Binary: {STOCKFISH_EXECUTABLE}; corresponding source: {STOCKFISH_SOURCE}; "
                     f"notice: {STOCKFISH_NOTICE}; exact license text: {STOCKFISH_LICENSE}."
