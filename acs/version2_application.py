@@ -372,16 +372,20 @@ class Version2Application:
         # staging and prevents a malformed/unrenderable import from creating new
         # durable progress for a Book the user never actually saw open.
         bridge.projection.snapshot()
-        # Do not publish the staged reader/workflow until its initial
-        # presentation, progress state and shell route are all accepted.
-        self._persist_book_progress(imported.book_key, reader)
+        # Do not publish either durable candidate progress or the staged
+        # reader/workflow until shell route ownership has accepted Books. This is
+        # the same transaction boundary used for Board ownership: a hidden or
+        # rejected Book open must not leave an on-disk entry for a source the
+        # user never actually acquired.
         origin_route = self.shell.current_route.route_id
         try:
             route_focus = self.shell.open_route("books")
+            self._persist_book_progress(imported.book_key, reader)
         except Exception:
             # Version2ShellState.open_route() writes its route before restoring
-            # focus. Recover a partial commit before leaving the previously
-            # published Book/Training owner untouched.
+            # focus. Persistence is also fallible after route acquisition. In
+            # either case recover the previously published route/owner; owner
+            # fields are still untouched at this point.
             if self.shell.current_route.route_id != origin_route:
                 self._focus = self.shell.open_route(origin_route)
             raise
