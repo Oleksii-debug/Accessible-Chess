@@ -166,7 +166,15 @@ def _reference_game(game_id: int, lookup: BookGameLookup | None) -> PgnGame:
             "a referenced book game requires a Library game lookup",
             code=BookGameContentErrorCode.LOOKUP_REQUIRED,
         )
-    loader = getattr(lookup, "load_book_game", None)
+    try:
+        loader = getattr(lookup, "load_book_game", None)
+    except Exception:
+        # Provider attribute access is part of the injected port boundary too.
+        # A descriptor/__getattribute__ failure must not leak backend details.
+        raise BookGameContentError(
+            "book game lookup does not expose the required application port",
+            code=BookGameContentErrorCode.INVALID_LOOKUP,
+        ) from None
     if not callable(loader):
         raise BookGameContentError(
             "book game lookup does not expose the required application port",
