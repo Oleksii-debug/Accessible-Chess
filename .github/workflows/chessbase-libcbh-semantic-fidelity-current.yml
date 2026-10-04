@@ -54,6 +54,7 @@ jobs:
           acs/gametree.py
           tests/test_chessbase_decoder.py
           tests/test_chessbase_libcbh_external_fixture.py
+          tests/test_chessbase_libcbh_semantic_fidelity_workflow.py
 
       - name: Run canonical ChessBase safety regressions
         working-directory: product
@@ -62,6 +63,7 @@ jobs:
           tests.test_chessbase_decoder
           tests.test_chessbase_adapter
           tests.test_chessbase_integrity
+          tests.test_chessbase_libcbh_semantic_fidelity_workflow
 
       - name: Build pinned external libcbh
         shell: bash
