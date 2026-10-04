@@ -7,6 +7,8 @@ on:
     paths:
       - 'acs/version2_portable_package.py'
       - 'tests/test_portable_manifest_json_prehash_bounds_current.py'
+      - '.github/workflows/owner-oneclick-from-w4.yml'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/current-portable-manifest-recursion-failclosed.yml'
   workflow_dispatch:
 
@@ -53,6 +55,8 @@ jobs:
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-portable-manifest-recursion-failclosed.yml' \
+            '.github/workflows/owner-oneclick-from-w4.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             'acs/version2_portable_package.py' \
             'tests/test_portable_manifest_json_prehash_bounds_current.py' | sort)"
           test "$changed" = "$expected" || {
