@@ -181,7 +181,7 @@ def _strict_json_bytes(payload: bytes) -> dict[str, object]:
         value = json.loads(decoded, object_pairs_hook=_strict_json_object_pairs)
     except Version2PortablePackageError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
         _fail(f"portable release manifest is invalid: {type(exc).__name__}")
     if not isinstance(value, dict):
         _fail("portable release manifest must be an object")
