@@ -73,7 +73,7 @@ class BoardSnapshot:
             raise ValueError("turn must be 'w' or 'b'")
         if (
             type(self.legal_moves) is not tuple
-            or any(not isinstance(move, MoveView) for move in self.legal_moves)
+            or any(type(move) is not MoveView for move in self.legal_moves)
         ):
             raise TypeError("legal_moves must be a tuple of MoveView")
         if not isinstance(self.attacks, Mapping):
@@ -90,7 +90,7 @@ class BoardSnapshot:
             if target in origins or len(set(origins)) != len(origins):
                 raise ValueError("attack origins must be distinct and exclude the target")
             detached_attacks[target] = tuple(origins)
-        if self.last_move is not None and not isinstance(self.last_move, MoveView):
+        if self.last_move is not None and type(self.last_move) is not MoveView:
             raise TypeError("last_move must be MoveView or None")
         _validate_piece(self.last_captured_piece, field_name="last_captured_piece")
         object.__setattr__(self, "attacks", MappingProxyType(detached_attacks))
