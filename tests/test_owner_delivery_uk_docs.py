@@ -101,10 +101,19 @@ class OwnerDeliveryUkrainianDocsTests(unittest.TestCase):
         assembler = (self.root / "acs" / "version2_package_assembler.py").read_text(
             encoding="utf-8"
         )
+        preflight = (self.root / "acs" / "version2_package_preflight.py").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("--include-data-dir=web=web", workflow)
         self.assertIn("_copy_tree_without_links(standalone, product)", payload)
         self.assertIn('_copy_tree(product, staged / "AccessibleChess"', assembler)
+        for name in (
+            "ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+            "ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
+        ):
+            self.assertIn(name, payload)
+            self.assertIn(name, preflight)
         self.assertTrue(self.hotkeys_path.is_file())
         self.assertTrue(self.capabilities_path.is_file())
 
