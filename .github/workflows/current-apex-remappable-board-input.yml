@@ -6,8 +6,10 @@ on:
       - 'fix/remappable-board-input-current-apex-20261004-c2mbezb'
     paths:
       - 'web/index.html'
+      - 'web/stage1_board_actions.js'
       - 'tests/js/remappable_board_grid_controls_current_test.js'
       - 'tests/js/remappable_input_submit_keys_current_test.js'
+      - 'tests/js/stage1_terminal_keymap_dom_test.js'
       - '.github/workflows/current-apex-remappable-board-input.yml'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
   pull_request:
@@ -15,8 +17,10 @@ on:
       - 'converge/completion-launcher-books-20261004-sol56'
     paths:
       - 'web/index.html'
+      - 'web/stage1_board_actions.js'
       - 'tests/js/remappable_board_grid_controls_current_test.js'
       - 'tests/js/remappable_input_submit_keys_current_test.js'
+      - 'tests/js/stage1_terminal_keymap_dom_test.js'
       - '.github/workflows/current-apex-remappable-board-input.yml'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
   workflow_dispatch:
@@ -61,7 +65,9 @@ jobs:
               '.github/workflows/keybindings-current-apex-dom-native.yml' \
               'tests/js/remappable_board_grid_controls_current_test.js' \
               'tests/js/remappable_input_submit_keys_current_test.js' \
-              'web/index.html' | sort)"
+              'tests/js/stage1_terminal_keymap_dom_test.js' \
+              'web/index.html' \
+              'web/stage1_board_actions.js' | sort)"
             if [ "$changed" != "$expected" ]; then
               printf 'Unexpected current-apex keymap scope:\n%s\n' "$changed" >&2
               exit 1
@@ -87,6 +93,14 @@ jobs:
           tests.test_keybindings
           tests.test_stage1_board_action_integration
           tests.test_webview_keymap_bridge_contract
+
+      - name: Prove absorbed Stage 1 Board ownership timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/stage1_board_actions.js
+          node --check tests/js/stage1_terminal_keymap_dom_test.js
+          node tests/js/stage1_terminal_keymap_dom_test.js
 
       - name: Prove remappable board runtime
         run: node tests/js/remappable_board_grid_controls_current_test.js
