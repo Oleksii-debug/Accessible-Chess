@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from io import BytesIO
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from acs.book_epub_import import import_epub_book
-from acs.book_html_import import import_html_book
+from acs.book_html_import import (
+    BookHtmlImportError,
+    BookHtmlImportErrorCode,
+    import_html_book,
+)
 from acs.bookdocument import Diagram, Note, Paragraph
 from acs.chesscore import Board
 
@@ -85,6 +90,27 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
             ],
         )
 
+    def test_decorative_image_does_not_fragment_legacy_paragraph(self) -> None:
+        baseline = import_html_book(
+            '<html><body><p id="lesson">BeforeAfter</p></body></html>',
+            source_name="decorative-baseline.html",
+        )
+        baseline_paragraph = next(
+            block for block in baseline.document.blocks if isinstance(block, Paragraph)
+        )
+
+        result = import_html_book(
+            '<html><body><p id="lesson">Before<img src="decorative.png">After</p></body></html>',
+            source_name="decorative-inline.html",
+            available_assets={"decorative.png"},
+        )
+        paragraph = next(block for block in result.document.blocks if isinstance(block, Paragraph))
+
+        self.assertEqual(_semantic_signature(result.document.blocks), [("Paragraph", "BeforeAfter")])
+        self.assertEqual(paragraph.block_id, baseline_paragraph.block_id)
+        self.assertEqual(paragraph.source_anchor, "lesson")
+        self.assertTrue(any("no accessible text" in warning for warning in result.warnings))
+
     def test_image_at_paragraph_edges_preserves_reading_order(self) -> None:
         first = import_html_book(
             '<html><body><p><img src="board.png" alt="Board">Tail</p></body></html>',
@@ -150,6 +176,34 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
                 ("Paragraph", "Outer InnerLine Tail"),
             ],
         )
+
+    def test_malformed_unclosed_paragraph_recovers_inline_order(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="lesson">Before<img src="board.png" alt="Board">After',
+            source_name="unclosed-inline.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Before"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertTrue(any("unclosed p element" in warning for warning in result.warnings))
+
+    def test_inline_fragment_insertion_respects_semantic_block_limit(self) -> None:
+        with patch("acs.book_html_import.MAX_HTML_BLOCKS", 2):
+            with self.assertRaises(BookHtmlImportError) as raised:
+                import_html_book(
+                    '<html><body><p>A<img src="board.png" alt="Board">B</p></body></html>',
+                    source_name="bounded-inline.html",
+                    available_assets={"board.png"},
+                )
+
+        self.assertEqual(raised.exception.code, BookHtmlImportErrorCode.RESOURCE_LIMIT)
 
     def test_inline_explicit_fen_diagram_uses_same_source_order_without_new_chess_authority(self) -> None:
         result = import_html_book(
