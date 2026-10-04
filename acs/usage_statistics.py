@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -105,21 +106,25 @@ class UsageStatisticsSnapshot:
             "classroom_sessions",
             "feature_uses",
         }
-        unknown = set(payload) - allowed
+        actual = set(payload)
+        unknown = actual - allowed
+        missing = allowed - actual
         if unknown:
             raise ValueError("statistics payload contains unknown fields")
+        if missing:
+            raise ValueError("statistics payload is missing required fields")
         return cls(
-            installation_id=payload.get("installation_id", ""),
-            session_seconds=payload.get("session_seconds", 0),
-            sessions_started=payload.get("sessions_started", 0),
-            games_started=payload.get("games_started", 0),
-            games_completed=payload.get("games_completed", 0),
-            exercises_attempted=payload.get("exercises_attempted", 0),
-            exercises_completed=payload.get("exercises_completed", 0),
-            classroom_seconds=payload.get("classroom_seconds", 0),
-            classroom_sessions=payload.get("classroom_sessions", 0),
-            feature_uses=payload.get("feature_uses", 0),
-            schema_version=payload.get("schema_version", 0),
+            installation_id=payload["installation_id"],
+            session_seconds=payload["session_seconds"],
+            sessions_started=payload["sessions_started"],
+            games_started=payload["games_started"],
+            games_completed=payload["games_completed"],
+            exercises_attempted=payload["exercises_attempted"],
+            exercises_completed=payload["exercises_completed"],
+            classroom_seconds=payload["classroom_seconds"],
+            classroom_sessions=payload["classroom_sessions"],
+            feature_uses=payload["feature_uses"],
+            schema_version=payload["schema_version"],
         )
 
 
@@ -212,20 +217,31 @@ class UsageStatisticsStore:
         if type(snapshot) is not UsageStatisticsSnapshot:
             raise ValueError("snapshot must be UsageStatisticsSnapshot")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".tmp")
         encoded = json.dumps(
             snapshot.as_dict(),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         ) + "\n"
+        fd, raw_tmp = tempfile.mkstemp(
+            prefix=f".{self.path.name}.",
+            suffix=".tmp",
+            dir=self.path.parent,
+        )
+        tmp = Path(raw_tmp)
         try:
-            with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                fd = -1
                 handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, self.path)
         finally:
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             try:
                 tmp.unlink(missing_ok=True)
             except OSError:
