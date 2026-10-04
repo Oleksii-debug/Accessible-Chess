@@ -6,6 +6,7 @@ import unittest
 
 WORKFLOW = Path(".github/workflows/owner-oneclick-from-w4.yml")
 W4_WORKFLOW = Path(".github/workflows/w4-v2-p0-fresh-windows-candidate.yml")
+CONTRACT_WORKFLOW = Path(".github/workflows/owner-oneclick-finalizer-contract.yml")
 
 
 class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
@@ -13,11 +14,18 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
         cls.w4_text = W4_WORKFLOW.read_text(encoding="utf-8")
+        cls.contract_text = CONTRACT_WORKFLOW.read_text(encoding="utf-8")
 
     def test_w4_producer_contract_matches_finalizer_artifact_topology(self) -> None:
         artifact_name = "Accessible-Chess-V2-NVDA-test-candidate"
         self.assertIn(f"name: {artifact_name}", self.w4_text)
         self.assertIn(f"name: {artifact_name}", self.text)
+        self.assertGreaterEqual(
+            self.contract_text.count(
+                "'.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'"
+            ),
+            2,
+        )
         self.assertIn(
             'echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip"',
             self.w4_text,
