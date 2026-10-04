@@ -109,6 +109,41 @@ def _portable_fixture(root: Path, *, with_seed: bool = False) -> None:
 
 
 class PortableTreeTests(unittest.TestCase):
+    def test_raw_portable_docx_filename_rejects_path_syntax_before_path_parsing(self) -> None:
+        for name in (
+            r"C:\\owner.docx",
+            r"..\\owner.docx",
+            "nested/owner.docx",
+            r"\\server\\share\\owner.docx",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "filename is unsafe",
+                ):
+                    portable_module._portable_docx_filename(name)
+
+    def test_validator_rejects_raw_manifest_docx_path_before_root_join(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            manifest_path = root / MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["word_documents"][0] = r"C:\\owner.docx"
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2PortablePackageError,
+                "filename is unsafe",
+            ):
+                validate_portable_oneclick_tree(
+                    root,
+                    expected_integration_sha=_SHA,
+                )
+
     def test_portable_docx_name_accepts_win32_safe_unicode(self) -> None:
         name = "Доступні шахи — посібник.docx"
         self.assertEqual(portable_module._portable_docx_name(Path(name)), name)
