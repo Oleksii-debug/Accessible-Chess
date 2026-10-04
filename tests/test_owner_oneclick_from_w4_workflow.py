@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
-import textwrap
-import os
-import json
-import io
 import unittest
 
 
@@ -28,7 +23,8 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn('echo "EXACT_PRODUCT_SHA=$exact"', self.text)
         self.assertIn("OWNER_FINALIZER_LIVE_RELEASE_APEX=PASS", self.text)
         self.assertIn("metadata.get('product_sha') != exact", self.text)
-        self.assertIn("metadata.get('workflow_sha') != exact", self.text)
+        self.assertIn("metadata.get('workflow_sha') != validated_workflow", self.text)
+        self.assertIn("W4_RUN_WORKFLOW_SHA_STALE", self.text)
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
         self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
@@ -73,104 +69,38 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
                 with self.assertRaises(Version2PackagePreflightError):
                     _relative_token(unsafe, label="W4 ZIP member")
 
-    def test_w4_run_provenance_is_authenticated_before_download(self) -> None:
-        provenance_index = self.text.index("Authenticate exact W4 workflow run provenance")
+    def test_w4_run_provenance_uses_single_canonical_verifier_before_download(self) -> None:
+        fetch_index = self.text.index("Fetch and authenticate exact W4 workflow run provenance")
+        bind_index = self.text.index("Bind validated W4 workflow authority to final equal apex")
         download_index = self.text.index("Download exact W4 artifact by run ID")
-        self.assertLess(provenance_index, download_index)
+        self.assertLess(fetch_index, bind_index)
+        self.assertLess(bind_index, download_index)
 
         for token in (
-            "actions/runs/{run_id}",
-            "W4_WORKFLOW_PATH: .github/workflows/w4-v2-p0-fresh-windows-candidate.yml",
-            "payload.get('path') != workflow_path",
-            "payload.get('event') != 'workflow_dispatch'",
-            "payload.get('status') != 'completed'",
-            "payload.get('conclusion') != 'success'",
-            "payload.get('head_branch') != release_branch",
-            "actual_sha != exact",
-            "W4_RUN_WORKFLOW_PATH_INVALID",
-            "W4_RUN_EVENT_INVALID",
-            "W4_RUN_STATUS_INVALID",
-            "W4_RUN_CONCLUSION_INVALID",
-            "W4_RUN_HEAD_BRANCH_INVALID",
-            "W4_RUN_HEAD_SHA_INVALID",
-            "W4_RUN_REPOSITORY_INVALID",
+            "id: w4_run_provenance",
+            'gh api --method GET "repos/$env:GH_REPOSITORY/actions/runs/$env:W4_RUN_ID"',
+            "scripts/verify_owner_w4_run_provenance.py",
+            "--run-json $runJson",
+            "--run-id $env:W4_RUN_ID",
+            "--repository $env:GH_REPOSITORY",
+            "--default-branch $env:RELEASE_BRANCH",
+            "--workflow-path $env:W4_WORKFLOW_PATH",
+            "--github-output $env:GITHUB_OUTPUT",
+            "${{ steps.w4_run_provenance.outputs.workflow_sha }}",
+            "W4_RUN_WORKFLOW_SHA_INVALID",
+            "W4_RUN_WORKFLOW_SHA_STALE",
+            "W4_RUN_WORKFLOW_SHA=$actual",
             "W4_RUN_PROVENANCE=PASS",
+            "os.environ['W4_RUN_WORKFLOW_SHA']",
+            "metadata.get('workflow_sha') != validated_workflow",
         ):
-            self.assertIn(token, self.text)
+            with self.subTest(token=token):
+                self.assertIn(token, self.text)
 
-        self.assertIn("Authorization': f'Bearer {token}", self.text)
         self.assertIn("actions: read", self.text)
-
-    def _w4_run_provenance_script(self) -> str:
-        start = self.text.index("      - name: Authenticate exact W4 workflow run provenance")
-        end = self.text.index("      - name: Download exact W4 artifact by run ID", start)
-        step = self.text[start:end]
-        begin_marker = "          @'\n"
-        end_marker = "          '@ | python -\n"
-        begin = step.index(begin_marker) + len(begin_marker)
-        finish = step.index(end_marker, begin)
-        return textwrap.dedent(step[begin:finish])
-
-    def _run_provenance_script(self, payload: dict[str, object]) -> None:
-        script = self._w4_run_provenance_script()
-        environment = {
-            "W4_RUN_ID": "123456",
-            "EXACT_PRODUCT_SHA": "a" * 40,
-            "RELEASE_BRANCH": "main",
-            "GH_API_URL": "https://api.github.test",
-            "GH_REPOSITORY": "Oleksii-debug/Accessible-Chess",
-            "GH_TOKEN": "test-token",
-            "W4_WORKFLOW_PATH": ".github/workflows/w4-v2-p0-fresh-windows-candidate.yml",
-        }
-
-        def fake_urlopen(*_args: object, **_kwargs: object) -> io.BytesIO:
-            return io.BytesIO(json.dumps(payload).encode("utf-8"))
-
-        with patch.dict(os.environ, environment, clear=False), patch(
-            "urllib.request.urlopen", side_effect=fake_urlopen
-        ):
-            exec(compile(script, "<w4-run-provenance>", "exec"), {})
-
-    def test_w4_run_provenance_embedded_python_is_executable(self) -> None:
-        payload = {
-            "id": 123456,
-            "path": ".github/workflows/w4-v2-p0-fresh-windows-candidate.yml",
-            "event": "workflow_dispatch",
-            "status": "completed",
-            "conclusion": "success",
-            "head_branch": "main",
-            "head_sha": "a" * 40,
-            "repository": {"full_name": "Oleksii-debug/Accessible-Chess"},
-        }
-        self._run_provenance_script(payload)
-
-    def test_w4_run_provenance_rejects_wrong_run_authority(self) -> None:
-        canonical = {
-            "id": 123456,
-            "path": ".github/workflows/w4-v2-p0-fresh-windows-candidate.yml",
-            "event": "workflow_dispatch",
-            "status": "completed",
-            "conclusion": "success",
-            "head_branch": "main",
-            "head_sha": "a" * 40,
-            "repository": {"full_name": "Oleksii-debug/Accessible-Chess"},
-        }
-        cases = (
-            ("id", 999999, "W4_RUN_ID_MISMATCH"),
-            ("path", ".github/workflows/other.yml", "W4_RUN_WORKFLOW_PATH_INVALID"),
-            ("event", "push", "W4_RUN_EVENT_INVALID"),
-            ("status", "in_progress", "W4_RUN_STATUS_INVALID"),
-            ("conclusion", "failure", "W4_RUN_CONCLUSION_INVALID"),
-            ("head_branch", "other", "W4_RUN_HEAD_BRANCH_INVALID"),
-            ("head_sha", "b" * 40, "W4_RUN_HEAD_SHA_INVALID"),
-            ("repository", {"full_name": "other/repo"}, "W4_RUN_REPOSITORY_INVALID"),
-        )
-        for key, value, marker in cases:
-            with self.subTest(key=key):
-                payload = dict(canonical)
-                payload[key] = value
-                with self.assertRaisesRegex(SystemExit, marker):
-                    self._run_provenance_script(payload)
+        self.assertNotIn("urllib.request", self.text)
+        self.assertNotIn("json.load(response)", self.text)
+        self.assertNotIn("payload.get('path')", self.text)
 
     def test_owner_external_inputs_are_explicit_https_and_sha_bound(self) -> None:
         for token in (
