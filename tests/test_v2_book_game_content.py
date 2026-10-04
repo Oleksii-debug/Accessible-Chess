@@ -156,6 +156,30 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         rendered = "".join(traceback.format_exception(caught.exception))
         self.assertNotIn("404", rendered)
 
+    def test_lookup_port_attribute_failure_is_sanitized(self) -> None:
+        class ExplodingPort:
+            @property
+            def load_book_game(self):
+                raise RuntimeError(
+                    r"C:\Users\Oleksii\private\library.db provider=sqlite"
+                )
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(
+                Game(game_id=3),
+                lookup=ExplodingPort(),  # type: ignore[arg-type]
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_LOOKUP,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("Users", rendered)
+        self.assertNotIn("library.db", rendered)
+        self.assertNotIn("sqlite", rendered)
+
     def test_invalid_lookup_shape_or_return_type_fails_closed(self) -> None:
         class NoPort:
             pass
