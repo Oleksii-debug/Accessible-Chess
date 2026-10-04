@@ -28,6 +28,7 @@ from acs.user_library_seed import (
 )
 from acs.version2_portable_package import (
     Version2PortablePackageError,
+    _portable_docx_filename,
     _stable_bytes,
     _stable_digest,
     assemble_portable_oneclick_tree,
@@ -45,8 +46,6 @@ from scripts.build_user_sound_pack import (
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _OWNER_JSON_MAX_BYTES = 1024 * 1024
-
-
 class OwnerPortableCandidateError(RuntimeError):
     pass
 
@@ -86,6 +85,33 @@ class OwnerPortableCandidateReport:
 
 def _fail(message: str) -> None:
     raise OwnerPortableCandidateError(message)
+
+
+def _owner_docx_filename(name: str) -> str:
+    """Validate an external DOCX filename before constructing a Path."""
+
+    if type(name) is not str:
+        _fail("owner Word document filename is not Win32-portable")
+    try:
+        return _portable_docx_filename(name)
+    except Version2PortablePackageError as exc:
+        # Preserve the more diagnostic owner-facing Unicode error while keeping
+        # every actual Win32 filename rule in the generic portable authority.
+        try:
+            name.encode("utf-16-le", errors="strict")
+        except UnicodeEncodeError as unicode_exc:
+            raise OwnerPortableCandidateError(
+                "owner Word document filename is not valid Unicode for Win32"
+            ) from unicode_exc
+        raise OwnerPortableCandidateError(
+            "owner Word document filename is not Win32-portable"
+        ) from exc
+
+
+def _owner_docx_name(path: Path) -> str:
+    """Validate the basename of an already-materialized owner DOCX path."""
+
+    return _owner_docx_filename(path.name)
 
 
 def _sha256_value(value: object, *, label: str) -> str:
@@ -398,6 +424,12 @@ def assemble_owner_portable_candidate(
 ) -> OwnerPortableCandidateReport:
     if not isinstance(expected_document_sha256, tuple) or len(expected_document_sha256) != 2:
         raise TypeError("expected_document_sha256 must be an exact two-item tuple")
+    if not isinstance(word_documents, tuple) or len(word_documents) != 2:
+        raise TypeError("word_documents must be an exact two-item tuple")
+    documents = tuple(Path(item) for item in word_documents)
+    document_names = tuple(_owner_docx_name(path) for path in documents)
+    if len({name.casefold() for name in document_names}) != 2:
+        _fail("owner Word documents must have distinct Win32 filenames")
     document_digests = tuple(
         _sha256_value(value, label=f"owner Word document {index + 1}")
         for index, value in enumerate(expected_document_sha256)
@@ -410,14 +442,14 @@ def assemble_owner_portable_candidate(
     assembled = assemble_portable_oneclick_tree(
         canonical_package_root,
         launcher_exe,
-        word_documents,
+        documents,
         output_root,
         integration_sha=integration_sha,
         require_user_seed=True,
     )
     root = assembled.package_root
-    for source, expected_digest in zip(word_documents, document_digests, strict=True):
-        if _file_sha256(root / Path(source).name) != expected_digest:
+    for source, expected_digest in zip(documents, document_digests, strict=True):
+        if _file_sha256(root / source.name) != expected_digest:
             _fail("packaged owner Word document does not match its authorized SHA-256")
 
     qualification = validate_owner_portable_candidate_tree(
@@ -427,6 +459,14 @@ def assemble_owner_portable_candidate(
         expected_seed_source_count=expected_seed_source_count,
         expected_seed_game_count=expected_seed_game_count,
     )
+
+    # Re-bind the owner-authorized document bytes after owner qualification.
+    # The early check rejects bad assembly cheaply. This second check closes
+    # the document+CHECKSUMS rewrite window before ZIP publication, which is
+    # pinned to the qualification checksum snapshot below.
+    for source, expected_digest in zip(documents, document_digests, strict=True):
+        if _file_sha256(root / source.name) != expected_digest:
+            _fail("packaged owner Word document changed after owner qualification")
     archived = write_portable_oneclick_zip(
         root,
         output_zip,

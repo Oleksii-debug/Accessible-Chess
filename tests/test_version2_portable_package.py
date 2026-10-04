@@ -109,6 +109,93 @@ def _portable_fixture(root: Path, *, with_seed: bool = False) -> None:
 
 
 class PortableTreeTests(unittest.TestCase):
+    def test_raw_portable_docx_filename_rejects_path_syntax_before_path_parsing(self) -> None:
+        for name in (
+            r"C:\\owner.docx",
+            r"..\\owner.docx",
+            "nested/owner.docx",
+            r"\\server\\share\\owner.docx",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "filename is unsafe",
+                ):
+                    portable_module._portable_docx_filename(name)
+
+    def test_validator_rejects_raw_manifest_docx_path_before_root_join(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            manifest_path = root / MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["word_documents"][0] = r"C:\\owner.docx"
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2PortablePackageError,
+                "filename is unsafe",
+            ):
+                validate_portable_oneclick_tree(
+                    root,
+                    expected_integration_sha=_SHA,
+                )
+
+    def test_portable_docx_name_accepts_win32_safe_unicode(self) -> None:
+        name = "Доступні шахи — посібник.docx"
+        self.assertEqual(portable_module._portable_docx_name(Path(name)), name)
+
+    def test_portable_docx_name_rejects_win32_device_aliases(self) -> None:
+        for name in (
+            "CON.docx",
+            "nul.DOCX",
+            "PrN.docx",
+            "COM1.docx",
+            "LPT9.docx",
+            "COM¹.docx",
+            "lpt³.docx",
+            "CONIN$.docx",
+            "conout$.docx",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "filename is unsafe",
+                ):
+                    portable_module._portable_docx_name(Path(name))
+
+    def test_portable_docx_name_rejects_win32_forbidden_and_malformed_unicode(self) -> None:
+        invalid = [
+            "owner?.docx",
+            "owner<guide>.docx",
+            "owner|guide.docx",
+            "owner" + chr(31) + ".docx",
+            "owner" + chr(0xD800) + ".docx",
+        ]
+        for name in invalid:
+            with self.subTest(name=repr(name)):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "filename is unsafe",
+                ):
+                    portable_module._portable_docx_name(Path(name))
+
+    def test_portable_docx_name_uses_utf16_component_limit(self) -> None:
+        astral = chr(0x1F642)
+        accepted = astral * 125 + ".docx"
+        rejected = astral * 126 + ".docx"
+        self.assertEqual(len(accepted.encode("utf-16-le")) // 2, 255)
+        self.assertGreater(len(rejected.encode("utf-16-le")) // 2, 255)
+        self.assertEqual(portable_module._portable_docx_name(Path(accepted)), accepted)
+        with self.assertRaisesRegex(
+            Version2PortablePackageError,
+            "filename is unsafe",
+        ):
+            portable_module._portable_docx_name(Path(rejected))
+
     def _assert_same_inode_same_size_stable_read_rejected(self, reader) -> None:
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / "stable.bin"

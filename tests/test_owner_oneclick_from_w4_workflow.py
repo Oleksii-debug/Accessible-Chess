@@ -113,10 +113,39 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
             "second_docx_name:",
             "second_docx_sha256:",
             "sound_archive_sha256:",
-            "MUST_BE_HTTPS",
+            "INVALID_HTTPS_URL",
+            "[System.Uri]::TryCreate",
+            "$value -ne $value.Trim()",
+            "$value -match '[\\x00-\\x1F\\x7F]'",
+            "$uri.Scheme -cne 'https'",
+            "$uri.UserInfo",
             "OWNER_EXTERNAL_BYTES_BOUND=PASS",
         ):
             self.assertIn(token, self.text)
+
+        validation = self.text.index("INVALID_HTTPS_URL")
+        export = self.text.index('"OWNER_SEED_URL=$env:OWNER_SEED_URL_INPUT"')
+        download = self.text.index("Download and bind exact private seed and owner DOCX bytes")
+        self.assertLess(validation, export)
+        self.assertLess(export, download)
+        self.assertNotIn("MUST_BE_HTTPS", self.text)
+
+    def test_owner_docx_names_use_win32_portable_authority_before_download(self) -> None:
+        validation = self.text.index("Bind explicit owner inputs and exact product identity")
+        download = self.text.index("Download and bind exact private seed and owner DOCX bytes")
+        self.assertLess(validation, download)
+        self.assertIn(
+            "from scripts.build_owner_portable_candidate import _owner_docx_filename",
+            self.text,
+        )
+        self.assertIn(
+            "validated = tuple(_owner_docx_filename(name) for name in names)",
+            self.text,
+        )
+        self.assertNotIn(
+            "from acs.version2_portable_package import _portable_docx_name",
+            self.text,
+        )
 
     def test_private_seed_is_materialized_canonically_before_inner_reassembly(self) -> None:
         self.assertIn("materialize_owner_library_seed", self.text)
@@ -177,7 +206,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertNotIn("NVDA_VERIFIED=YES", self.text)
 
     def test_artifact_upload_is_final_oneclick_only_after_machine_launch_and_freshness(self) -> None:
-        launch_index = self.text.index("Launch exact root one-click bytes")
+        launch_index = self.text.index("Fresh-extract and launch exact final ZIP bytes")
         freshness_index = self.text.index("Recheck live release apex immediately before publication")
         upload_index = self.text.index("Upload exact owner one-click candidate")
         self.assertLess(launch_index, freshness_index)
@@ -186,7 +215,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS", self.text)
         self.assertIn("Accessible-Chess-ONECLICK-OWNER-FINAL.zip", self.text)
         self.assertIn("owner-final-receipt.json", self.text)
-        self.assertIn("owner-oneclick/launch-report.txt", self.text)
+        self.assertIn("owner-oneclick-from-zip/launch-report.txt", self.text)
 
 
 if __name__ == "__main__":

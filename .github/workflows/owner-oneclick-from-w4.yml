@@ -129,17 +129,28 @@ jobs:
           }
           foreach($name in @('OWNER_SEED_URL_INPUT','FIRST_DOCX_URL_INPUT','SECOND_DOCX_URL_INPUT')){
             $value=[string](Get-Item "Env:$name").Value
-            if($value -notmatch '^https://'){throw "$name MUST_BE_HTTPS"}
+            if(
+              [string]::IsNullOrWhiteSpace($value) -or
+              $value -ne $value.Trim() -or
+              $value -match '[\\x00-\\x1F\\x7F]'
+            ){throw "$name INVALID_HTTPS_URL"}
+            $uri=$null
+            if(
+              -not [System.Uri]::TryCreate($value,[System.UriKind]::Absolute,[ref]$uri) -or
+              $uri.Scheme -cne 'https' -or
+              [string]::IsNullOrWhiteSpace($uri.Host) -or
+              -not [string]::IsNullOrEmpty($uri.UserInfo)
+            ){throw "$name INVALID_HTTPS_URL"}
           }
           @'
           import os
           from pathlib import Path
-          from acs.version2_portable_package import _portable_docx_name
+          from scripts.build_owner_portable_candidate import _owner_docx_filename
           names = (
               os.environ['FIRST_DOCX_NAME_INPUT'],
               os.environ['SECOND_DOCX_NAME_INPUT'],
           )
-          validated = tuple(_portable_docx_name(Path(name)) for name in names)
+          validated = tuple(_owner_docx_filename(name) for name in names)
           if len({name.casefold() for name in validated}) != 2:
               raise SystemExit('OWNER_DOCX_NAMES_MUST_BE_DISTINCT')
           path = Path(os.environ['GITHUB_ENV'])
