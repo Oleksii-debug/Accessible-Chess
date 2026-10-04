@@ -78,6 +78,13 @@ _PORTABLE_MANIFEST_KEYS = frozenset(
 )
 _PORTABLE_ROOT_DIRECTORIES = frozenset({PORTABLE_APP_DIR, "THIRD_PARTY_NOTICES", PORTABLE_SOURCE_METADATA_DIR})
 _COPY_CHUNK_BYTES = 1024 * 1024
+_WIN32_FORBIDDEN_FILENAME_CHARS = frozenset('<>:"/\\|?*')
+_WIN32_RESERVED_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul", "conin$", "conout$"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+    | {"com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³"}
+)
 
 
 class Version2PortablePackageError(RuntimeError):
@@ -114,17 +121,24 @@ def _fail(message: str) -> None:
 
 
 def _portable_docx_name(path: Path) -> str:
+    """Return a DOCX basename only when Windows can materialize it safely."""
+
     name = path.name
+    try:
+        utf16 = name.encode("utf-16-le", errors="strict")
+    except UnicodeEncodeError:
+        _fail("portable Word document filename is unsafe")
+    device_stem = name.split(".", 1)[0].rstrip(" .").casefold()
     if (
         not name
         or name != name.strip()
         or name in {".", ".."}
-        or len(name) > 255
-        or "/" in name
-        or "\\" in name
-        or ":" in name
+        or name.endswith(".")
+        or len(utf16) // 2 > 255
+        or any(character in _WIN32_FORBIDDEN_FILENAME_CHARS for character in name)
         or any(ord(character) < 32 or ord(character) == 0x7F for character in name)
         or not name.casefold().endswith(".docx")
+        or device_stem in _WIN32_RESERVED_DEVICE_NAMES
     ):
         _fail("portable Word document filename is unsafe")
     return name

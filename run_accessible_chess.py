@@ -2,13 +2,6 @@ import json
 import sys
 import traceback
 
-from acs.webview2_accessibility import enable_webview2_renderer_accessibility
-from acs.webview_safe_server import (
-    SafeLocalServerPortError,
-    install_pywebview_safe_local_server_port,
-)
-
-
 ACCESSIBILITY_HOST_INIT_EXIT_CODE = 71
 SAFE_LOCAL_SERVER_INIT_EXIT_CODE = 72
 RELEASE_UI_STARTUP_EXIT_CODE = 73
@@ -36,6 +29,15 @@ def _abort_packaged_startup(
 
 
 # This must run before importing pywebview or creating a WebView2 environment.
+try:
+    from acs.webview2_accessibility import enable_webview2_renderer_accessibility
+except Exception:
+    _abort_packaged_startup(
+        ACCESSIBILITY_HOST_INIT_EXIT_CODE,
+        'Accessible WebView2 renderer accessibility support could not be loaded.',
+        include_traceback=True,
+    )
+
 try:
     enable_webview2_renderer_accessibility()
 except Exception:
@@ -69,7 +71,26 @@ if '--diagnostic' in sys.argv:
         )
     print('ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS')
 else:
-    from acs.webview2_accessibility import install_pywebview_accessibility_host_patch
+    try:
+        from acs.webview2_accessibility import install_pywebview_accessibility_host_patch
+    except Exception:
+        _abort_packaged_startup(
+            ACCESSIBILITY_HOST_INIT_EXIT_CODE,
+            'Accessible WebView2 host support could not be loaded.',
+            include_traceback=True,
+        )
+
+    try:
+        from acs.webview_safe_server import (
+            SafeLocalServerPortError,
+            install_pywebview_safe_local_server_port,
+        )
+    except Exception:
+        _abort_packaged_startup(
+            SAFE_LOCAL_SERVER_INIT_EXIT_CODE,
+            'Accessible WebView2 local server support could not be loaded.',
+            include_traceback=True,
+        )
 
     # Patch the actual pywebview WinForms/WebView2 host before any EdgeChrome
     # instance is created. No duplicate native or hidden Move control is used.
