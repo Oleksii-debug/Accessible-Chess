@@ -77,6 +77,7 @@ class _InlineSemanticEvent:
     part_index: int
     block: object
     structural: bool = False
+    resume_part_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,6 +418,12 @@ class _SemanticHtmlParser(HTMLParser):
                 return capture
         return None
 
+    def _nearest_inline_owner_capture(self) -> _Capture | None:
+        for capture in reversed(self._captures):
+            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
+                return capture
+        return None
+
     def _record_inline_semantic(
         self,
         block: object,
@@ -424,13 +431,13 @@ class _SemanticHtmlParser(HTMLParser):
         owner: _Capture | None = None,
         part_index: int | None = None,
         structural: bool = False,
+        resume_part_index: int | None = None,
     ) -> None:
         # Direct image/position semantics trigger splitting for the nearest
-        # paragraph-like owner. Nested semantic captures are recorded only as
-        # structural boundaries: they help an already-split paragraph preserve
-        # source order, but do not change legacy nested-only projection by
-        # themselves.
-        capture = owner if owner is not None else self._nearest_paragraph_capture()
+        # paragraph or heading owner. Nested captures are recorded only as
+        # structural boundaries on their explicit parent owner so source order is
+        # preserved without inventing chess or document structure.
+        capture = owner if owner is not None else self._nearest_inline_owner_capture()
         if capture is None:
             return
         boundary = len(capture.parts) if part_index is None else part_index
@@ -439,6 +446,7 @@ class _SemanticHtmlParser(HTMLParser):
                 part_index=boundary,
                 block=block,
                 structural=structural,
+                resume_part_index=resume_part_index,
             )
         )
 
@@ -674,7 +682,17 @@ class _SemanticHtmlParser(HTMLParser):
         cursor = 0
         legacy_identity_available = True
         for event in capture.inline_semantics:
-            if event.part_index < cursor or event.part_index > len(capture.parts):
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
                 raise BookHtmlImportError(
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -690,7 +708,7 @@ class _SemanticHtmlParser(HTMLParser):
                 )
                 self._insert_block(self._block_identity_index(event.block), paragraph)
                 legacy_identity_available = False
-            cursor = event.part_index
+            cursor = resume_part_index
 
         trailing = _compact("".join(capture.parts[cursor:]))
         if trailing:
@@ -707,6 +725,66 @@ class _SemanticHtmlParser(HTMLParser):
             # their source-order slots in self.blocks and must not be jumped over.
             self._append_block(paragraph)
 
+    def _finish_inline_heading(
+        self,
+        capture: _Capture,
+        *,
+        legacy_text: str,
+        source_anchor: str | None,
+        level: int,
+    ) -> None:
+        """Project inline heading semantics without inventing extra headings."""
+        cursor = 0
+        legacy_identity_available = True
+
+        def heading_or_fragment(segment: str):
+            nonlocal legacy_identity_available
+            if legacy_identity_available:
+                block = Heading(
+                    text=segment,
+                    level=level,
+                    block_id=self._block_id("Heading", f"{level}\0{legacy_text}"),
+                    source_anchor=source_anchor,
+                )
+                legacy_identity_available = False
+                return block
+            return Paragraph(
+                text=segment,
+                block_id=self._block_id(
+                    "HeadingInlineFragment",
+                    f"{level}\0{segment}",
+                ),
+                source_anchor=None,
+            )
+
+        for event in capture.inline_semantics:
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
+                raise BookHtmlImportError(
+                    "HTML inline semantic boundary is invalid",
+                    code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+                )
+            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            if segment:
+                self._insert_block(
+                    self._block_identity_index(event.block),
+                    heading_or_fragment(segment),
+                )
+            cursor = resume_part_index
+
+        trailing = _compact("".join(capture.parts[cursor:]))
+        if trailing:
+            self._append_block(heading_or_fragment(trailing))
+
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
         text = _compact(raw)
@@ -721,14 +799,22 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor = capture.attrs.get("id") or None
         if capture.kind == "heading":
             level = int(capture.tag[1])
-            self._append_block(
-                Heading(
-                    text=text,
-                    level=level,
-                    block_id=self._block_id("Heading", f"{level}\0{text}"),
+            if capture.inline_semantics:
+                self._finish_inline_heading(
+                    capture,
+                    legacy_text=text,
                     source_anchor=source_anchor,
+                    level=level,
                 )
-            )
+            else:
+                self._append_block(
+                    Heading(
+                        text=text,
+                        level=level,
+                        block_id=self._block_id("Heading", f"{level}\0{text}"),
+                        source_anchor=source_anchor,
+                    )
+                )
             return
         if (
             capture.kind == "paragraph"
@@ -801,6 +887,9 @@ class _SemanticHtmlParser(HTMLParser):
             owner=parent,
             part_index=part_index,
             structural=True,
+            resume_part_index=(
+                len(parent.parts) if capture.kind == "heading" else None
+            ),
         )
 
     def close(self) -> None:
