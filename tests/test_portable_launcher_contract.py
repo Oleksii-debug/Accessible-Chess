@@ -218,6 +218,19 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertLess(first_launch, second_launch)
         self.assertLess(second_launch, first_wait)
 
+    def test_windows_workflow_executes_native_early_exit_reason_mapping(self):
+        for token in (
+            "ACS_SMOKE_EXIT_CODE",
+            "ACCESSIBILITY_HOST_INIT_FAILED",
+            "SAFE_LOCAL_SERVER_INIT_FAILED",
+            "RELEASE_UI_STARTUP_FAILED",
+            "UNKNOWN_EARLY_EXIT",
+            "CHILD_EXIT_REASON:",
+            "EarlyExitChild.exe",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.workflow)
+
     def test_no_shell_execution_path_is_introduced(self):
         for forbidden in (
             "ShellExecuteW(",
