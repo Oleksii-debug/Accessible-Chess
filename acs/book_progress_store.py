@@ -639,6 +639,16 @@ class BookProgressStore:
         try:
             descriptor = os.open(path, flags)
         except FileNotFoundError:
+            # If this exact pathname existed at the pre-open inspection, its
+            # disappearance is a namespace race, not an ordinary missing state.
+            # Treating it as missing would let a read-only query or a writer's
+            # load/CAS phase silently reclassify concurrent deletion as a clean
+            # first run.
+            if before is not None:
+                raise BookProgressStoreError(
+                    "book progress storage changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                ) from None
             if missing_ok:
                 return None
             raise BookProgressStoreError(
