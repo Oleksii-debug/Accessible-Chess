@@ -443,6 +443,95 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertEqual(loaded.revision, raised.exception.published_revision)
             self.assertIsInstance(raised.exception.__cause__, OSError)
 
+    def test_same_byte_target_swap_before_initial_read_is_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            initial = ExerciseSession(definition)
+            revision = store.save(initial, expected_revision=None)
+            original = path.read_bytes()
+            original_identity = os.lstat(path)
+
+            advanced = ExerciseSession(definition)
+            advanced.submit("e4")
+            real_read = store._read_progress_bytes
+            calls = 0
+            injected = False
+
+            def swap_before_initial_read(*, missing_ok: bool):
+                nonlocal calls, injected
+                calls += 1
+                if calls == 1:
+                    replacement = root / "same-byte-before-initial-read.json"
+                    replacement.write_bytes(original)
+                    os.replace(replacement, path)
+                    injected = True
+                return real_read(missing_ok=missing_ok)
+
+            with mock.patch.object(
+                store,
+                "_read_progress_bytes",
+                side_effect=swap_before_initial_read,
+            ):
+                with self.assertRaises(TrainingProgressConflictError):
+                    store.save(advanced, expected_revision=revision)
+
+            self.assertTrue(injected)
+            self.assertEqual(original, path.read_bytes())
+            self.assertFalse(os.path.samestat(original_identity, os.lstat(path)))
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(0, loaded.session.step_index)
+            self.assertEqual(revision, loaded.revision)
+
+    def test_same_byte_target_swap_after_publication_read_is_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            initial = ExerciseSession(definition)
+            revision = store.save(initial, expected_revision=None)
+            original = path.read_bytes()
+            original_identity = os.lstat(path)
+
+            advanced = ExerciseSession(definition)
+            advanced.submit("e4")
+            real_read = store._read_progress_bytes
+            calls = 0
+            injected = False
+
+            def swap_after_publication_read(*, missing_ok: bool):
+                nonlocal calls, injected
+                calls += 1
+                raw = real_read(missing_ok=missing_ok)
+                if calls == 2 and raw is not None:
+                    replacement = root / "same-byte-after-publication-read.json"
+                    replacement.write_bytes(raw)
+                    os.replace(replacement, path)
+                    injected = True
+                return raw
+
+            with mock.patch.object(
+                store,
+                "_read_progress_bytes",
+                side_effect=swap_after_publication_read,
+            ):
+                with self.assertRaises(TrainingProgressConflictError):
+                    store.save(advanced, expected_revision=revision)
+
+            self.assertTrue(injected)
+            self.assertEqual(original, path.read_bytes())
+            self.assertFalse(os.path.samestat(original_identity, os.lstat(path)))
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(0, loaded.session.step_index)
+            self.assertEqual(revision, loaded.revision)
+
     def test_external_change_during_save_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "training-progress.json"
