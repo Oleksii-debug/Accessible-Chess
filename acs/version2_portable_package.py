@@ -120,10 +120,11 @@ def _fail(message: str) -> None:
     raise Version2PortablePackageError(message)
 
 
-def _portable_docx_name(path: Path) -> str:
-    """Return a DOCX basename only when Windows can materialize it safely."""
+def _portable_docx_filename(name: str) -> str:
+    """Validate one raw root DOCX filename before any path interpretation."""
 
-    name = path.name
+    if type(name) is not str:
+        _fail("portable Word document filename is unsafe")
     try:
         utf16 = name.encode("utf-16-le", errors="strict")
     except UnicodeEncodeError:
@@ -142,6 +143,12 @@ def _portable_docx_name(path: Path) -> str:
     ):
         _fail("portable Word document filename is unsafe")
     return name
+
+
+def _portable_docx_name(path: Path) -> str:
+    """Validate the basename of an already-materialized source DOCX path."""
+
+    return _portable_docx_filename(path.name)
 
 
 def _launcher_identity(path: Path) -> str:
@@ -631,7 +638,10 @@ def validate_portable_oneclick_tree(
         _fail("portable package must declare exactly two Word documents")
     if any(type(name) is not str for name in documents):
         _fail("portable Word document manifest is invalid")
-    doc_names = tuple(str(name) for name in documents)
+    # Validate raw manifest strings before Path/root joining. On Windows a
+    # drive-qualified or nested value can otherwise be normalized to a basename
+    # before the portability policy sees it.
+    doc_names = tuple(_portable_docx_filename(name) for name in documents)
     if len({name.casefold() for name in doc_names}) != 2:
         _fail("portable Word document names must be distinct")
     for name in doc_names:
