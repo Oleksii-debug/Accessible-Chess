@@ -19,6 +19,7 @@ from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
+from acs.training_progress_store import TrainingProgressDurabilityUnknownError
 from acs.training_webview_bridge import TrainingWebViewBridge
 from acs.training_webview_projection import TrainingWebViewProjection
 from acs.version2_application import Version2Application
@@ -340,6 +341,97 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             self.assertEqual(before, workspace.session.snapshot())
             self.assertEqual("", workspace.presenter_message)
             self.assertIsNone(workspace.presenter_message_key)
+
+    def test_workspace_post_publication_failure_reconciles_canonical_progress_in_place(self) -> None:
+        document = BookDocument(
+            title="Training durability reconcile",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Play e4",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="training-durability-reconcile-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            retained_bridge = workspace.start_current()
+            retained_session = workspace.session
+            store = workspace._store
+            self.assertIsNotNone(store)
+            assert store is not None
+
+            with patch(
+                "acs.training_progress_store._sync_published_path",
+                side_effect=OSError("injected post-publication durability failure"),
+            ):
+                with self.assertRaises(TrainingProgressDurabilityUnknownError) as raised:
+                    workspace.dispatch("training.submit", {"answer": "e4"})
+
+            loaded = store.load(workspace.material.definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertIs(retained_session, workspace.session)
+            self.assertIs(retained_bridge, workspace.bridge)
+            self.assertTrue(workspace.session.completed)
+            self.assertEqual(loaded.session.snapshot(), workspace.session.snapshot())
+            self.assertEqual(loaded.revision, workspace._revision)
+            self.assertEqual(loaded.revision, raised.exception.published_revision)
+            self.assertIsInstance(raised.exception.__cause__, OSError)
+            self.assertEqual("", workspace.presenter_message)
+            self.assertIsNone(workspace.presenter_message_key)
+
+    def test_workspace_unreadable_post_publication_state_is_not_rolled_back(self) -> None:
+        document = BookDocument(
+            title="Training durability unreadable",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Play e4",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="training-durability-unreadable-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            retained_bridge = workspace.start_current()
+            retained_session = workspace.session
+            store = workspace._store
+            self.assertIsNotNone(store)
+            assert store is not None
+            published_revision = "a" * 64
+            ambiguity = TrainingProgressDurabilityUnknownError(
+                "published state requires reconciliation",
+                published_revision=published_revision,
+            )
+
+            with (
+                patch.object(store, "save", side_effect=ambiguity),
+                patch.object(store, "load", side_effect=ValueError("canonical state unavailable")),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "canonical state unavailable",
+                ):
+                    workspace.dispatch("training.submit", {"answer": "e4"})
+
+            self.assertIs(retained_session, workspace.session)
+            self.assertIs(retained_bridge, workspace.bridge)
+            self.assertTrue(workspace.session.completed)
+            self.assertEqual(("e4",), workspace.session.accepted_path)
+            self.assertEqual(published_revision, workspace._revision)
 
     def test_workspace_rejects_command_subclass_before_strip_hook(self) -> None:
         class HostileCommand(str):
