@@ -973,6 +973,65 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
             ],
         )
 
+    def test_list_item_inline_image_falls_back_without_reordering_neighbor_items(self) -> None:
+        result = import_html_book(
+            '<html><body><ul id="choices"><li>First</li>'
+            '<li id="rich">Before<img src="board.png" alt="Board">After</li>'
+            '<li>Last</li></ul></body></html>',
+            source_name="list-inline-image.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "• First"),
+                ("Paragraph", "• Before"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "After"),
+                ("Paragraph", "• Last"),
+            ],
+        )
+        self.assertFalse(any(block.kind == "List" for block in result.document.blocks))
+        paragraphs = [
+            block for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs[0].source_anchor, "choices")
+        self.assertEqual(paragraphs[1].source_anchor, "rich")
+        self.assertIsNone(paragraphs[2].source_anchor)
+        self.assertEqual(paragraphs[3].source_anchor, "choices")
+        self.assertTrue(
+            any(
+                "inline semantic content cannot be represented" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_image_only_rich_list_item_cannot_jump_before_previous_item(self) -> None:
+        result = import_html_book(
+            '<html><body><ol id="steps"><li>First</li><li>'
+            '<img src="board.png" alt="Board"></li><li>Last</li></ol>'
+            '</body></html>',
+            source_name="list-image-only-item.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "• First"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "• Last"),
+            ],
+        )
+        self.assertFalse(any(block.kind == "List" for block in result.document.blocks))
+        self.assertTrue(
+            any(
+                "inline semantic content cannot be represented" in warning
+                for warning in result.warnings
+            )
+        )
+
     def test_malformed_nested_list_inline_event_does_not_escape_to_outer_owner(self) -> None:
         result = import_html_book(
             '<html><body><p id="outer">A<ul><li>B'
@@ -991,7 +1050,13 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertTrue(result.document.blocks)
         self.assertIsInstance(result.document.blocks[0], Paragraph)
         self.assertEqual(result.document.blocks[0].text, "A")
-        self.assertTrue(any(block.kind == "List" for block in result.document.blocks))
+        self.assertFalse(any(block.kind == "List" for block in result.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text.startswith("• B")
+                for block in result.document.blocks
+            )
+        )
         self.assertIsInstance(result.document.blocks[-1], Paragraph)
         self.assertEqual(result.document.blocks[-1].text, "E")
 
