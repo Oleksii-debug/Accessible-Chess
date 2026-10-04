@@ -13,6 +13,12 @@ REQUIRED_QA_PATHS = (
     "scripts/p0g_packaged_hotkey_result_probe.ps1",
     "tests/test_p0g_packaged_hotkey_result_probe.py",
 )
+MAIN_INTEGRATION_NARROW_WORKFLOWS = (
+    ".github/workflows/current-indexed-book-training-source.yml",
+    ".github/workflows/current-library-browser-passive-ingress.yml",
+    ".github/workflows/current-library-presenter-passive-root.yml",
+    ".github/workflows/current-pgn-presenter-passive-root.yml",
+)
 
 P0F_MARKER = "P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS"
 P0F_PACKAGE_PATH = "release-content/w2-starter"
@@ -123,6 +129,14 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         for path in REQUIRED_QA_PATHS:
             with self.subTest(trigger_path=path):
                 self.assertIn("      - '" + path + "'", workflow)
+
+    def test_narrow_integration_gates_are_reachable_from_main_pull_request(self) -> None:
+        for workflow_path in MAIN_INTEGRATION_NARROW_WORKFLOWS:
+            with self.subTest(workflow_path=workflow_path):
+                workflow = (ROOT / workflow_path).read_text(encoding="utf-8")
+                self.assertIn("  pull_request:\n    branches:\n", workflow)
+                self.assertIn("      - main\n", workflow)
+                self.assertIn("NARROW_SCOPE_MODE=DEFAULT_BRANCH_INTEGRATION", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]
