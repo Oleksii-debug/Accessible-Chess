@@ -36,6 +36,8 @@ _WINDOWS_RESERVED_BASENAMES = frozenset(
     {"con", "prn", "aux", "nul"}
     | {f"com{index}" for index in range(1, 10)}
     | {f"lpt{index}" for index in range(1, 10)}
+    | {f"com{digit}" for digit in "¹²³"}
+    | {f"lpt{digit}" for digit in "¹²³"}
 )
 
 
