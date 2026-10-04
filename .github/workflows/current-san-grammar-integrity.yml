@@ -70,8 +70,18 @@ jobs:
       - name: Compile notation surface
         run: python -m compileall -q acs/notation.py tests/test_notation.py
 
-      - name: Execute notation regressions
-        run: python -m unittest -v tests.test_notation
+      - name: Execute notation and retained Books regressions
+        run: >-
+          python -m unittest -v
+          tests.test_notation
+          tests.test_v2_book_board_workflow
+          tests.test_bookreader
+          tests.test_bookreader_snapshot_bounds
+          tests.test_bookdocument_deserialize_bounds_current
+          tests.test_bookdocument_scalar_bounds_current
+          tests.test_book_progress_passive_ingress_current
+          tests.test_dev1_books_training_webview_projection
+          tests.test_final_product_announcement_localization_current
 
       - name: Core selftest
         run: python -m acs.selftest
