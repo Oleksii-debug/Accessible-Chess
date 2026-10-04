@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -11,7 +13,9 @@ from acs.book_html_import import (
     BookHtmlImportErrorCode,
     import_html_book,
 )
+from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import Diagram, Note, Paragraph, Position
+from acs.bookreader import BookReader
 from acs.chesscore import Board
 
 
@@ -340,6 +344,33 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
                 ("Paragraph", "After"),
             ],
         )
+
+
+    def test_saved_progress_restores_to_legacy_identity_fragment_after_inline_image_import_change(self) -> None:
+        baseline = import_html_book(
+            '<html><body><p id="lesson">BeforeAfter</p><p>Next</p></body></html>',
+            source_name="progress-baseline.html",
+        )
+        baseline_reader = BookReader(baseline.document)
+        baseline_location = baseline_reader.go_to(0)
+
+        changed = import_html_book(
+            '<html><body><p id="lesson">Before<img src="board.png" alt="Board">After</p><p>Next</p></body></html>',
+            source_name="progress-inline.html",
+            available_assets={"board.png"},
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+            store.save("inline-image-progress-contract", baseline_reader)
+            restored = store.restore("inline-image-progress-contract", changed.document)
+
+        location = restored.location()
+        block = restored.block_snapshot(location.index)
+        self.assertEqual(location.block_id, baseline_location.block_id)
+        self.assertEqual(location.source_anchor, "lesson")
+        self.assertIsInstance(block, Paragraph)
+        self.assertEqual(block.text, "Before")
 
 
 if __name__ == "__main__":
