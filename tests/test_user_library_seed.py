@@ -11,6 +11,7 @@ from acs.user_library_seed import (
     BUNDLE_KIND,
     SCHEMA_VERSION,
     UserLibrarySeedError,
+    _portable_name,
     import_user_library_seed,
     load_user_library_seed,
 )
@@ -127,6 +128,48 @@ class UserLibrarySeedTests(unittest.TestCase):
 
             with self.assertRaises(UserLibrarySeedError):
                 load_user_library_seed(root)
+
+    def test_windows_unsafe_source_names_are_rejected_portably(self) -> None:
+        unsafe_names = (
+            "bad?.pgn",
+            "bad*.pgn",
+            'bad".pgn',
+            "bad|.pgn",
+            "bad<.pgn",
+            "bad>.pgn",
+            "book.pgn.",
+            "CON.pgn",
+            "prn.PGN",
+            "COM1.pgn",
+            "LPT9.pgn",
+            "COM¹.pgn",
+            "com².PGN",
+            "CoM³.pgn",
+            "LPT¹.pgn",
+            "lpt².PGN",
+            "LpT³.pgn",
+            "😀" * 126 + ".pgn",
+        )
+        for unsafe_name in unsafe_names:
+            with self.subTest(name=unsafe_name):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = self._seed(Path(directory) / "seed", {"book.pgn": PGN_ONE})
+                    manifest = self._manifest(root)
+                    files = manifest["files"]
+                    assert isinstance(files, list)
+                    assert isinstance(files[0], dict)
+                    files[0]["file"] = unsafe_name
+                    self._write_manifest(root, manifest)
+
+                    with self.assertRaisesRegex(
+                        UserLibrarySeedError,
+                        "filename is unsafe",
+                    ):
+                        load_user_library_seed(root)
+
+    def test_unpaired_surrogate_filename_is_rejected_before_path_use(self) -> None:
+        with self.assertRaisesRegex(UserLibrarySeedError, "filename is unsafe"):
+            _portable_name("\ud800.pgn")
 
     def test_byte_tampering_fails_before_library_publication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

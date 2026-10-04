@@ -118,6 +118,23 @@ function snapshot(selectedId) {
 
 async function flush() { await Promise.resolve(); await Promise.resolve(); }
 
+function pressKey(target, _toolbar, key) {
+  let prevented = false;
+  const listener = target.listeners.keydown;
+  if (typeof listener !== "function") return false;
+  listener({
+    key: key,
+    preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
+
+function findRole(root, role) {
+  return root.descendants().find(function (item) {
+    return item.getAttribute("role") === role;
+  }) || null;
+}
+
 async function run() {
   const calls = [];
   const announcements = [];
@@ -254,6 +271,32 @@ async function run() {
   const items = root.querySelectorAll('[role="treeitem"]');
   check(items.length === 2, "semantic tree items missing");
   check(document.activeElement && document.activeElement.id === "pgn-node-aaaaaaaaaaaaaaaaaaaa", "initial tree focus missing");
+
+
+  const firstToolbar = findRole(root, "toolbar");
+  check(firstToolbar !== null, "PGN action toolbar missing");
+  check(firstToolbar.getAttribute("aria-orientation") === "horizontal", "PGN toolbar orientation missing");
+  const firstToolbarButtons = firstToolbar.children.filter((item) => item.tagName === "BUTTON");
+  check(firstToolbarButtons.length === 9, "PGN toolbar action fixture changed");
+  check(firstToolbarButtons[3].tabIndex === 0, "first enabled PGN toolbar action must be tabbable");
+  check(firstToolbarButtons[0].disabled && firstToolbarButtons[0].tabIndex === -1, "disabled previous-game action entered roving order");
+  check(firstToolbarButtons[7].tabIndex === -1 && firstToolbarButtons[8].tabIndex === -1, "later enabled PGN toolbar actions must start outside Tab order");
+
+  firstToolbarButtons[3].focus();
+  check(pressKey(firstToolbarButtons[3], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight must be handled");
+  check(document.activeElement === firstToolbarButtons[7], "PGN toolbar ArrowRight did not skip disabled actions");
+  check(firstToolbarButtons[7].tabIndex === 0 && firstToolbarButtons[3].tabIndex === -1, "PGN toolbar roving tab stop did not follow focus");
+  check(pressKey(firstToolbarButtons[7], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight second step must be handled");
+  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar ArrowRight did not reach next enabled action");
+  check(pressKey(firstToolbarButtons[8], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight wrap must be handled");
+  check(document.activeElement === firstToolbarButtons[3], "PGN toolbar ArrowRight did not wrap to first enabled action");
+  check(pressKey(firstToolbarButtons[3], firstToolbar, "ArrowLeft"), "PGN toolbar ArrowLeft wrap must be handled");
+  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar ArrowLeft did not wrap to last enabled action");
+  check(pressKey(firstToolbarButtons[8], firstToolbar, "Home"), "PGN toolbar Home must be handled");
+  check(document.activeElement === firstToolbarButtons[3], "PGN toolbar Home did not reach first enabled action");
+  check(pressKey(firstToolbarButtons[3], firstToolbar, "End"), "PGN toolbar End must be handled");
+  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar End did not reach last enabled action");
+  check(!pressKey(firstToolbarButtons[8], firstToolbar, "Enter"), "PGN toolbar hijacked native button activation key");
 
   let prevented = false;
   items[0].listeners.keydown({ key: "ArrowDown", preventDefault: () => { prevented = true; } });

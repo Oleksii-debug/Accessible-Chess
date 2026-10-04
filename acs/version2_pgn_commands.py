@@ -1,8 +1,9 @@
 """V2 command composition for the canonical PGN workspace and selection writer."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .gametree import Comment, PgnGame, serialize_game
@@ -16,6 +17,80 @@ from .version2_windows_pgn_export import PgnSelectionExportRequest
 
 
 _TARGET_FIELDS = {"game_index", "line_path", "move_index", "expected_record_digest", "content_revision"}
+_NAVIGATION_TARGET_FIELDS = _TARGET_FIELDS | {"expected_content_digest"}
+
+
+@dataclass(frozen=True, slots=True)
+class _PgnNavigationTarget:
+    """Navigation identity that also permits the valid main-line root cursor.
+
+    ``PgnSelectionExportRequest`` deliberately rejects a root cursor because
+    exporting a selection requires a concrete game-tree item.  Previous/next
+    game navigation has a different contract: the main-line root is a normal
+    workspace state.  Keep that exception private to game navigation instead
+    of weakening edit/copy/export selection semantics.
+    """
+
+    game_index: int
+    line_path: tuple[tuple[int, int], ...]
+    move_index: int | None
+    expected_record_digest: str
+    expected_content_digest: str
+    content_revision: int
+
+    def __post_init__(self) -> None:
+        if type(self.game_index) is not int or self.game_index < 0:
+            raise ValueError("PGN navigation game index is invalid")
+        if type(self.content_revision) is not int or self.content_revision < 0:
+            raise ValueError("PGN navigation content revision is invalid")
+        if self.move_index is not None and (
+            type(self.move_index) is not int or self.move_index < 0
+        ):
+            raise ValueError("PGN navigation move index is invalid")
+        if type(self.line_path) is not tuple:
+            raise TypeError("PGN navigation line path must be a tuple")
+        for step in self.line_path:
+            if (
+                type(step) is not tuple
+                or len(step) != 2
+                or type(step[0]) is not int
+                or type(step[1]) is not int
+                or step[0] < 0
+                or step[1] < 0
+            ):
+                raise ValueError("PGN navigation line path is invalid")
+        digest = self.expected_record_digest
+        if (
+            type(digest) is not str
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError("PGN navigation record digest is invalid")
+        document_digest = self.expected_content_digest
+        if (
+            type(document_digest) is not str
+            or len(document_digest) != 64
+            or any(character not in "0123456789abcdef" for character in document_digest)
+        ):
+            raise ValueError("PGN navigation content digest is invalid")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, object]) -> "_PgnNavigationTarget":
+        if not isinstance(payload, Mapping):
+            raise TypeError("PGN navigation target must be a mapping")
+        if set(payload) != _NAVIGATION_TARGET_FIELDS:
+            raise ValueError("PGN navigation target contains missing or untrusted fields")
+        line_path = payload["line_path"]
+        if type(line_path) is not tuple:
+            raise TypeError("PGN navigation line path must be a tuple")
+        return cls(
+            game_index=payload["game_index"],  # type: ignore[arg-type]
+            line_path=line_path,  # type: ignore[arg-type]
+            move_index=payload["move_index"],  # type: ignore[arg-type]
+            expected_record_digest=payload["expected_record_digest"],  # type: ignore[arg-type]
+            expected_content_digest=payload["expected_content_digest"],  # type: ignore[arg-type]
+            content_revision=payload["content_revision"],  # type: ignore[arg-type]
+        )
 
 
 class Version2PgnCommands:
@@ -29,11 +104,31 @@ class Version2PgnCommands:
             raise ValueError("no PGN document")
         return session
 
-    def _target(self, payload, *, workspace=None, require_current=True):
-        request = PgnSelectionExportRequest.from_payload({key: payload[key] for key in _TARGET_FIELDS})
+    def _target(self, payload, *, require_current=True, workspace=None, allow_root=False):
+        target_fields = _NAVIGATION_TARGET_FIELDS if allow_root else _TARGET_FIELDS
+        target_payload = {key: payload[key] for key in target_fields}
+        if allow_root:
+            request = _PgnNavigationTarget.from_payload(target_payload)
+        else:
+            request = PgnSelectionExportRequest.from_payload(target_payload)
         if workspace is None:
             workspace = self._session().workspace
         view = workspace.view()
+        if allow_root and request.expected_content_digest != view.content_digest:
+            raise ValueError("PGN document is stale")
+        if not allow_root and "expected_content_digest" in payload:
+            expected_content_digest = payload["expected_content_digest"]
+            if (
+                type(expected_content_digest) is not str
+                or len(expected_content_digest) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in expected_content_digest
+                )
+            ):
+                raise ValueError("PGN command content digest is invalid")
+            if expected_content_digest != view.content_digest:
+                raise ValueError("PGN document is stale")
         if (request.game_index, request.content_revision, request.expected_record_digest) != (
             view.selected_game_index, view.content_revision, view.current_record_digest
         ):
@@ -45,14 +140,11 @@ class Version2PgnCommands:
             raise ValueError("PGN cursor is stale")
         return request, cursor
 
-    def _selection_game(self, request: PgnSelectionExportRequest, *, workspace) -> PgnGame:
+    def _selection_game(self, request: PgnSelectionExportRequest, workspace) -> PgnGame:
         request, cursor = self._target(asdict(request), workspace=workspace)
         game = workspace.current_game()
         if not cursor.line_path:
-            # Freeze the validated root game before it crosses this command
-            # boundary. Returning the live GameTree object would let callers
-            # mutate canonical document state without workspace validation.
-            return deepcopy(game)
+            return game
         # A RAV begins before its owning move. The canonical legality projection
         # supplies that exact FEN; no move replay or chess rules are copied here.
         step = cursor.line_path[-1]
@@ -68,8 +160,8 @@ class Version2PgnCommands:
         return PgnGame(tags=tags, line=line, source_index=0)
 
     def selection_game(self, request: PgnSelectionExportRequest) -> PgnGame:
-        session = self._session()
-        return self._selection_game(request, workspace=session.workspace)
+        workspace = self._session().workspace
+        return self._selection_game(request, workspace)
 
     def current_fen(self) -> str:
         workspace = self._session().workspace
@@ -91,8 +183,7 @@ class Version2PgnCommands:
 
     def export_selected(self, request: PgnSelectionExportRequest, destination: Path):
         session = self._session()
-        workspace = session.workspace
-        game = self._selection_game(request, workspace=workspace)
+        game = self._selection_game(request, session.workspace)
         expected = session.expected_destination_sha256(destination)
         return export_game_atomic(destination, game, overwrite=expected is not None, expected_sha256=expected)
 
@@ -101,19 +192,30 @@ class Version2PgnCommands:
         workspace = session.workspace
         if action_id in {"pgn.previous_game", "pgn.next_game"}:
             if payload:
-                raise ValueError("game navigation accepts no payload")
+                if set(payload) != _NAVIGATION_TARGET_FIELDS:
+                    raise ValueError("invalid PGN game navigation payload")
+                self._target(
+                    payload,
+                    require_current=True,
+                    workspace=workspace,
+                    allow_root=True,
+                )
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
         if action_id == "pgn.comment_edit": allowed.add("text")
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             allowed.update({"parent_path", "parent_move_index", "variation_index"})
-        if set(payload) != allowed:
+        payload_fields = set(payload)
+        if (
+            payload_fields != allowed
+            and payload_fields != allowed | {"expected_content_digest"}
+        ):
             raise ValueError("invalid PGN command payload")
         request, cursor = self._target(
             payload,
-            workspace=workspace,
             require_current=action_id not in navigation,
+            workspace=workspace,
         )
         if action_id in navigation:
             return workspace.set_cursor(cursor)
@@ -138,8 +240,6 @@ class Version2PgnCommands:
                 raise ValueError("variation selection changed")
             return workspace.delete_variation(target) if action_id.endswith("delete") else workspace.promote_variation(target)
         if action_id == "pgn.copy_selection":
-            self._copy_text(
-                serialize_game(self._selection_game(request, workspace=workspace))
-            )
+            self._copy_text(serialize_game(self._selection_game(request, workspace)))
             return None
         raise ValueError("unsupported PGN command")

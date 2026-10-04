@@ -117,6 +117,20 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_owner_release_pgn_successor_late_binds_live_w4_parent(self) -> None:
+        required = (
+            "      - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb",
+            "      - fix/w4-sound-byte-readback-20261004-sol56",
+            'elif [ "${GITHUB_REF_NAME:-}" = "integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb" ]; then',
+            "live_base_ref='fix/w4-sound-byte-readback-20261004-sol56'",
+            "FULL_PRODUCT_LIVE_OWNER_PGN_CONVERGENCE_PARENT_ANCESTRY=PASS",
+            "tests/js/pgn_tree_keyboard_dom_test.js",
+            "tests.test_pgn_browser_presentation_lease_required",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
