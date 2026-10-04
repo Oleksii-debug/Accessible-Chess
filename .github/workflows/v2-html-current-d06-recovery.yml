@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - 'acs/book_html_import.py'
       - 'tests/test_v2_book_html_import.py'
@@ -23,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v2-html-current-d06-recovery-${{ github.ref }}
+  group: v2-html-current-d06-recovery-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -43,7 +44,7 @@ jobs:
       BOOK_URL: https://www.gutenberg.org/files/16377/16377-h/16377-h.htm
       BOOK_SHA256: 397cd3d816b6e685d30d3d7cfb36627cff415c754cc8f4e455c24da652d3c21e
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -56,7 +57,7 @@ jobs:
           git config core.eol lf
           git checkout-index --force --all
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
 
@@ -235,7 +236,7 @@ jobs:
 
       - name: Upload path-free acceptance logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: v2-html-current-d06-${{ matrix.os }}
           path: |
