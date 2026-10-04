@@ -146,6 +146,8 @@ jobs:
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CURRENT_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
@@ -169,6 +171,14 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS base=$event_base"
             echo "FULL_PRODUCT_LIVE_BASE_ANCESTRY=PASS base=$live_base"
+
+            if [ "$event_base_ref" = "$DEFAULT_BRANCH" ]; then
+              git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"
+              live_product="$(git rev-parse "origin/$CURRENT_PRODUCT_BRANCH")"
+              git cat-file -e "$live_product^{commit}"
+              git merge-base --is-ancestor "$live_product" HEAD
+              echo "FULL_PRODUCT_CURRENT_PRODUCT_ANCESTRY=PASS product=$live_product"
+            fi
           elif [ "${GITHUB_REF_NAME:-}" = "integration/current-main-windows-apex-reconvergence-20261004-sol" ]; then
             # A direct push/dispatch on the canonical current-main integration
             # branch has no pull_request.base fields. It must still prove that
