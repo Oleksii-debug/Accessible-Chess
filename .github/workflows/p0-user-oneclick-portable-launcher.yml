@@ -7,6 +7,7 @@ on:
     paths:
       - 'packaging/portable_launcher.c'
       - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
       - 'acs/webview_safe_server.py'
       - 'acs/version2_portable_package.py'
       - 'tests/test_webview_safe_server.py'
@@ -18,6 +19,7 @@ on:
     paths:
       - 'packaging/portable_launcher.c'
       - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
       - 'acs/webview_safe_server.py'
       - 'acs/version2_portable_package.py'
       - 'tests/test_webview_safe_server.py'
