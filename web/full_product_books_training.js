@@ -1025,7 +1025,6 @@
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
       button.type = "button";
-      button.id = trainingActionFocusTarget(action.command);
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
         safeInvoke(root, invoke, String(action.command || ""), {}, function (result) {
@@ -1070,7 +1069,7 @@
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     markRendered(root);
-    focusTarget(root, effectiveFocus);
+    focusTarget(root, requestedFocus || "");
   }
 
   function buildResetDialog(root, spec, invoke, announce, fallbackMessage) {
@@ -1280,6 +1279,7 @@
     actions.forEach(function (action) {
       const button = node("button", action.label || action.command || "");
       button.type = "button";
+      button.id = trainingActionFocusTarget(action.command);
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
         const command = String(action.command || "");
@@ -1302,7 +1302,7 @@
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     markRendered(root);
-    focusTarget(root, requestedFocus || "");
+    focusTarget(root, effectiveFocus);
   }
 
   global.AccessibleChessBookSurface = Object.freeze({ render: renderBookSurface });
