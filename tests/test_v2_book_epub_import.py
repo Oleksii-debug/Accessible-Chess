@@ -2101,6 +2101,14 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.INVALID_ARGUMENT)
         self.assertEqual(SUPPORTED_EPUB_BOOK_CAPABILITY["format"], "EPUB 2/3")
         self.assertIn("DRM or encrypted spine bypass", SUPPORTED_EPUB_BOOK_CAPABILITY["does_not_claim"])
+        self.assertIn(
+            "Media Overlay playback/synchronization",
+            SUPPORTED_EPUB_BOOK_CAPABILITY["does_not_claim"],
+        )
+        self.assertIn(
+            "NCX navigation rendering",
+            SUPPORTED_EPUB_BOOK_CAPABILITY["does_not_claim"],
+        )
         self.assertIn("ordered/unordered lists", SUPPORTED_EPUB_BOOK_CAPABILITY["preserves"])
 
 
