@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import re
 from typing import Iterable
 
 from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
+MAX_COORDINATE_POSITION_TOKENS = 64 * 2
+MAX_COORDINATE_POSITION_CHARS = 4096
+_POSITION_SECTIONS_RE = re.compile(
+    r"(?is)^\\s*W\\s*:\\s*(?P<white>.*?)\\s*\\bB\\s*:\\s*(?P<black>.*?)\\s*$"
+)
+_COORDINATE_TOKEN_RE = re.compile(r"[^,\\s]+")
 
 
 class PositionValidationError(ValueError):
@@ -192,6 +199,84 @@ def standard_position() -> PositionState:
 
 def empty_position(*, turn: str = "w") -> PositionState:
     return PositionState((None,) * 64, turn=turn)
+
+
+def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionState:
+    """Parse W:/B: piece-coordinate text into a canonical PositionState.
+
+    This parser owns only the compact textual representation. It deliberately
+    does not implement chess legality; Board/Chess Core remains the authority
+    when a position is committed for play.
+    """
+
+    if type(text) is not str:
+        raise ValueError("position text must be text")
+    if len(text) > MAX_COORDINATE_POSITION_CHARS:
+        raise ValueError("position text is too long")
+    if type(turn) is not str or turn not in {"w", "b"}:
+        raise ValueError("turn must be 'w' or 'b'")
+
+    match = _POSITION_SECTIONS_RE.match(text)
+    if match is None:
+        raise ValueError("position text must contain W: and B: sections")
+
+    position = empty_position(turn=turn)
+    used: set[str] = set()
+    token_budget = [0]
+    position = _fill_coordinate_section(
+        position,
+        match.group("white"),
+        white=True,
+        used=used,
+        token_budget=token_budget,
+    )
+    position = _fill_coordinate_section(
+        position,
+        match.group("black"),
+        white=False,
+        used=used,
+        token_budget=token_budget,
+    )
+
+    white_kings = sum(piece == "K" for piece in position.pieces)
+    black_kings = sum(piece == "k" for piece in position.pieces)
+    if white_kings != 1 or black_kings != 1:
+        raise ValueError("position text requires exactly one white and one black king")
+    return position
+
+
+def _fill_coordinate_section(
+    position: PositionState,
+    chunk: str,
+    *,
+    white: bool,
+    used: set[str],
+    token_budget: list[int],
+) -> PositionState:
+    # A legal compact representation can occupy at most 64 squares, with one
+    # piece token and one square token per occupied square. Bound lexical
+    # materialization before building a potentially large split() result.
+    tokens: list[str] = []
+    for match in _COORDINATE_TOKEN_RE.finditer(chunk):
+        token_budget[0] += 1
+        if token_budget[0] > MAX_COORDINATE_POSITION_TOKENS:
+            raise ValueError("position text contains too many piece-square tokens")
+        tokens.append(match.group(0))
+    if len(tokens) % 2:
+        raise ValueError("each piece must be followed by a square, for example N f3")
+
+    result = position
+    for index in range(0, len(tokens), 2):
+        piece = tokens[index].upper()
+        square = tokens[index + 1].lower()
+        if piece not in "KQRBNP":
+            raise ValueError(f"unknown piece symbol: {tokens[index]}")
+        if square in used:
+            raise ValueError(f"square {square} is specified more than once")
+        # with_piece validates the square through the canonical square parser.
+        result = result.with_piece(square, piece if white else piece.lower())
+        used.add(square)
+    return result
 
 
 def _square_index(square: str) -> int:
