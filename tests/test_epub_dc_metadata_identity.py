@@ -23,7 +23,12 @@ _CHAPTER = b'''<html><head><title>Chapter title</title></head><body>
 </body></html>'''
 
 
-def _package(metadata: str, *, unique_identifier: str = "bookid") -> bytes:
+def _package(
+    metadata: str,
+    *,
+    unique_identifier: str = "bookid",
+    trailing_package_content: str = "",
+) -> bytes:
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <package version="3.0" unique-identifier="{unique_identifier}"
  xmlns="http://www.idpf.org/2007/opf"
@@ -36,6 +41,7 @@ def _package(metadata: str, *, unique_identifier: str = "bookid") -> bytes:
     <item id="chapter" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
   <spine><itemref idref="chapter"/></spine>
+{trailing_package_content}
 </package>'''.encode("utf-8")
 
 
@@ -155,6 +161,32 @@ class EpubDublinCoreMetadataIdentityTests(unittest.TestCase):
                     caught.exception.code,
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
+
+
+    def test_collection_metadata_dublin_core_id_shares_document_scope(self) -> None:
+        package = _package(
+            '''
+    <dc:identifier id="bookid">urn:uuid:real</dc:identifier>
+    <dc:title>Canonical title</dc:title>''',
+            trailing_package_content='''
+  <collection role="index" id="collection-root">
+    <metadata>
+      <dc:title id="bookid">Conflicting collection title</dc:title>
+    </metadata>
+    <link href="Text/chapter.xhtml"/>
+  </collection>''',
+        )
+
+        with self.assertRaises(BookEpubImportError) as caught:
+            import_epub_book(
+                _epub(package),
+                source_name="collection-metadata-duplicate-id.epub",
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
 
     def test_foreign_extension_id_does_not_claim_epub_id_space(self) -> None:
         metadata = '''
