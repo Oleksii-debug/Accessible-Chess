@@ -17,6 +17,7 @@ from .analysis_service import AnalysisService
 from .book_progress_store import BookProgressStore
 from .continuous_analysis import ContinuousAnalysisService
 from .child_coaching_application import ChildCoachingApplication
+from .child_coaching_rotation_store import ChildCoachingRotationStore
 from .child_coaching_store import ChildCoachingTemplateStore
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
@@ -487,6 +488,17 @@ def create_version2_release_application(
                         ChildCoachingTemplateStore(
                             layout.root / "child-coaching.json"
                         )
+                    )
+                )
+            rotation_binder = getattr(
+                candidate,
+                "bind_child_coaching_rotation_store",
+                None,
+            )
+            if callable(rotation_binder):
+                rotation_binder(
+                    ChildCoachingRotationStore(
+                        layout.root / "child-coaching-rotation.json"
                     )
                 )
             resume_coordinator.restore(candidate)
