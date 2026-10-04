@@ -76,6 +76,7 @@ class Version2Application:
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
     _BOOK_BOARD_RETURN_COMMANDS = frozenset({"book.return", "book.return_from_board"})
+    _BOOK_BOARD_RETURN_ROUTES = frozenset({"board", "books"})
     _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
         {
             "book.board_next_move",
@@ -791,10 +792,12 @@ class Version2Application:
             # second write would advance BookProgress twice for one transition.
             return dispatch_owned(command_id, payload)
         if is_return_from_board:
-            # Return is a Board-owned transition, not a globally replayable Book
-            # command. A stale/hidden Books surface must not unwind the canonical
-            # Board session after route ownership moved elsewhere.
-            if self.shell.current_route.route_id != "board":
+            # Return belongs to the active Book Board transaction. It is
+            # reachable from the visible Board and from the visible Books reader
+            # (whose projection intentionally exposes Return while Board review
+            # remains active), but never from Library/PGN/Settings or another
+            # hidden route.
+            if self.shell.current_route.route_id not in self._BOOK_BOARD_RETURN_ROUTES:
                 return self.books.projection.generic_error()
             if self.shell.active_dialog_id is not None:
                 return self.books.projection.generic_error()
@@ -1028,12 +1031,11 @@ class Version2Application:
                 opening_board = action in self._BOOK_BOARD_OPEN_COMMANDS
                 returning_to_book = action in self._BOOK_BOARD_RETURN_COMMANDS
                 if returning_to_book:
-                    # Return owns the visible Board route. Native menus, review
-                    # ingress and stale browser surfaces remain globally
-                    # reachable, so reject them before the workflow can discard
-                    # the active exact-return session behind another route.
-                    if self.shell.current_route.route_id != "board":
-                        raise ValueError("book return requires the visible Board")
+                    # Return is valid from the visible Board and the visible Books
+                    # reader, but not from unrelated shell routes. The review
+                    # WebView has its own stricter Board-only ingress fence below.
+                    if self.shell.current_route.route_id not in self._BOOK_BOARD_RETURN_ROUTES:
+                        raise ValueError("book return requires Board or Books ownership")
                     if self.book_workflow is None or not self.book_workflow.active:
                         raise ValueError("no Book Board review is active")
                 if action in self._BOOK_BOARD_ACTIVE_COMMANDS:
@@ -1213,6 +1215,14 @@ class Version2Application:
                     or not empty_authority_payload
                 ):
                     raise ValueError("invalid review command")
+                if (
+                    command.startswith("book.")
+                    and self.shell.current_route.route_id != "board"
+                ):
+                    # The review WebView is a Board-owned surface. Its retained
+                    # DOM must never unwind or navigate Book Board state after a
+                    # shell route change, even when Books itself is visible.
+                    raise ValueError("Book review command requires the visible Board")
                 result = self.router.dispatch(command).value
                 if getattr(result, "kind", None) is BookBoardUiEventKind.FAILED: return self._error()
                 return {"kind": "review", "payload": {}}
