@@ -1056,7 +1056,24 @@ class Version2Application:
             try:
                 self._project_pgn_position()
             except Exception:
-                self._focus = self.shell.open_route("pgn")
+                # No PGN Board owner is published until the release projector
+                # accepts the canonical FEN. A rejected projection therefore
+                # must not leave the shell visibly stranded on ownerless Board.
+                # Prefer the PGN workspace; if that route rejects before commit,
+                # fall back to Library, which has no transient Board authority.
+                try:
+                    self._focus = self.shell.open_route("pgn")
+                except Exception:
+                    if self.shell.current_route.route_id == "pgn":
+                        # open_route() may have committed the safe non-Board route
+                        # before a focus-restore tail failed.
+                        self._focus = self.shell.restore_focus_target()
+                    else:
+                        try:
+                            self._focus = self.shell.open_route("library")
+                        except Exception:
+                            if self.shell.current_route.route_id == "library":
+                                self._focus = self.shell.restore_focus_target()
                 raise
             self.pgn_board_active = True
             return None
