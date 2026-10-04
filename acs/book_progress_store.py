@@ -669,7 +669,16 @@ class BookProgressStore:
                     "book progress store exceeds the resource limit",
                     code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
                 )
-            if before is not None and not self._same_file_identity(before, opened):
+            if before is None:
+                # The canonical pathname was absent at the pre-open inspection,
+                # so accepting a file that appeared before descriptor open would
+                # let a non-cooperating namespace mutation inject authoritative
+                # state into an operation that began from a missing snapshot.
+                raise BookProgressStoreError(
+                    "book progress storage changed while being opened",
+                    code=BookProgressStoreErrorCode.IO_FAILURE,
+                )
+            if not self._same_file_identity(before, opened):
                 raise BookProgressStoreError(
                     "book progress storage changed while being opened",
                     code=BookProgressStoreErrorCode.IO_FAILURE,
@@ -815,37 +824,55 @@ class BookProgressStore:
         *,
         allow_backup_recovery: bool = False,
     ) -> tuple[dict[str, object], bytes | None, str | None]:
-        try:
-            payload, raw, revision = self._read_state_unlocked(self._path, missing_ok=True)
-        except BookProgressStoreError as primary_error:
-            if not allow_backup_recovery or primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
-                raise
+        primary_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
+        if primary_raw is not None:
             try:
-                backup_payload, backup_raw, _ = self._read_state_unlocked(
-                    self.backup_path,
-                    missing_ok=False,
-                )
-            except BookProgressStoreError:
-                raise primary_error
-            assert backup_payload is not None and backup_raw is not None
-            return backup_payload, backup_raw, _revision(backup_raw)
+                primary_payload = self._decode_payload(primary_raw)
+            except BookProgressStoreError as primary_error:
+                if (
+                    not allow_backup_recovery
+                    or primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE
+                ):
+                    raise
+                try:
+                    backup_payload, backup_raw, _ = self._read_state_unlocked(
+                        self.backup_path,
+                        missing_ok=False,
+                    )
+                except BookProgressStoreError:
+                    raise primary_error
+                assert backup_payload is not None and backup_raw is not None
+                self._require_recovery_primary_unchanged_unlocked(primary_raw)
+                return backup_payload, backup_raw, _revision(backup_raw)
+            return primary_payload, primary_raw, _revision(primary_raw)
 
-        if payload is None:
-            if allow_backup_recovery:
-                backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
-                    self.backup_path,
-                    missing_ok=True,
-                )
-                if backup_payload is not None:
-                    assert backup_raw is not None and backup_revision is not None
-                    return backup_payload, backup_raw, backup_revision
-            else:
-                # Mutation callers must not mistake recoverable orphan state for
-                # a clean first run.  The write path repeats this check to close
-                # the race where a backup appears after this load.
-                self._require_no_orphan_backup_unlocked()
-            return _empty_payload(), None, None
-        return payload, raw, revision
+        if allow_backup_recovery:
+            backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
+                self.backup_path,
+                missing_ok=True,
+            )
+            if backup_payload is not None:
+                assert backup_raw is not None and backup_revision is not None
+                self._require_recovery_primary_unchanged_unlocked(None)
+                return backup_payload, backup_raw, backup_revision
+        else:
+            # Mutation callers must not mistake recoverable orphan state for
+            # a clean first run. The write path repeats this check to close
+            # the race where a backup appears after this load.
+            self._require_no_orphan_backup_unlocked()
+        return _empty_payload(), None, None
+
+    def _require_recovery_primary_unchanged_unlocked(
+        self,
+        expected_raw: bytes | None,
+    ) -> None:
+        """Bind a backup fallback to the primary snapshot that authorized it."""
+        current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
+        if current_raw != expected_raw:
+            raise BookProgressStoreError(
+                "book progress primary data changed during recovery read",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
 
     def _load_payload_unlocked(self) -> dict[str, object]:
         payload, _, _ = self._load_state_unlocked()
@@ -1255,6 +1282,26 @@ class BookProgressStore:
                 raise TypeError("expected_guard_raw is required with expected_guard_path")
             if expected_guard_raw is not None and type(expected_guard_raw) is not bytes:
                 raise TypeError("expected_guard_raw must be bytes or None")
+
+        guard_base_identity: os.stat_result | None = None
+        if expected_guard_path is not None:
+            try:
+                guard_base_identity = os.lstat(expected_guard_path)
+            except FileNotFoundError:
+                guard_base_identity = None
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress recovery data changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                ) from None
+            if guard_base_identity is not None:
+                self._require_private_data_metadata(guard_base_identity)
+            if (guard_base_identity is None) != (expected_guard_raw is None):
+                raise BookProgressStoreError(
+                    "book progress recovery data changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
+
         if len(encoded) > MAX_BOOK_PROGRESS_STORE_BYTES:
             raise BookProgressStoreError(
                 "book progress store exceeds the resource limit",
@@ -1271,6 +1318,7 @@ class BookProgressStore:
             ) from None
         if existing is not None:
             self._require_private_data_metadata(existing)
+        publication_base_identity = existing
 
         if expected_target_raw is _EXPECTED_TARGET_UNSET:
             # Even callers that intentionally replace the current target (the
@@ -1282,6 +1330,24 @@ class BookProgressStore:
             )
         else:
             publication_base_raw = expected_target_raw
+
+        if publication_base_identity is not None:
+            try:
+                current_base_identity = os.lstat(target)
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                ) from None
+            self._require_private_data_metadata(current_base_identity)
+            if not self._same_file_identity(
+                publication_base_identity,
+                current_base_identity,
+            ):
+                raise BookProgressStoreError(
+                    "book progress changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
 
         active_directory = self._active_storage_directory_identity
         if active_directory is not None:
@@ -1346,6 +1412,23 @@ class BookProgressStore:
                         "book progress recovery data changed during publication preparation",
                         code=BookProgressStoreErrorCode.STALE_WRITE,
                     )
+                if guard_base_identity is not None:
+                    try:
+                        current_guard_identity = os.lstat(expected_guard_path)
+                    except OSError:
+                        raise BookProgressStoreError(
+                            "book progress recovery data changed during publication preparation",
+                            code=BookProgressStoreErrorCode.STALE_WRITE,
+                        ) from None
+                    self._require_private_data_metadata(current_guard_identity)
+                    if not self._same_file_identity(
+                        guard_base_identity,
+                        current_guard_identity,
+                    ):
+                        raise BookProgressStoreError(
+                            "book progress recovery data changed during publication preparation",
+                            code=BookProgressStoreErrorCode.STALE_WRITE,
+                        )
             current_target_raw = self._read_raw_file_unlocked(
                 target,
                 missing_ok=True,
@@ -1355,6 +1438,23 @@ class BookProgressStore:
                     "book progress changed during publication preparation",
                     code=BookProgressStoreErrorCode.STALE_WRITE,
                 )
+            if publication_base_identity is not None:
+                try:
+                    current_target_identity = os.lstat(target)
+                except OSError:
+                    raise BookProgressStoreError(
+                        "book progress changed during publication preparation",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    ) from None
+                self._require_private_data_metadata(current_target_identity)
+                if not self._same_file_identity(
+                    publication_base_identity,
+                    current_target_identity,
+                ):
+                    raise BookProgressStoreError(
+                        "book progress changed during publication preparation",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
             if active_directory is not None:
                 self._require_storage_directory_unlocked(active_directory)
             self._require_active_lock_unlocked()

@@ -41,6 +41,18 @@ jobs:
       READ_DISAPPEAR_STORE_BLOB: 180d598b79c64db54254c79547c6c725a9973f8c
       READ_DISAPPEAR_BASE_TEST_BLOB: d0f31138253a69c06a9f2ba8583c1fce93bb73b0
       READ_DISAPPEAR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      READ_APPEAR_STORE_BLOB: 8625a9903a4e3fb6828f1e110cf35957a8f3b4d0
+      READ_APPEAR_BASE_TEST_BLOB: 4cef6cecbcce74b36b49907c5a7c0cd3e61b8082
+      READ_APPEAR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      RECOVERY_RECHECK_STORE_BLOB: dc64dfb17d7382afa8ef47adcea75438363aa620
+      RECOVERY_RECHECK_BASE_TEST_BLOB: b246f6bd72f218183bad105ac642b94a32e8b672
+      RECOVERY_RECHECK_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      TARGET_INODE_STORE_BLOB: 922002764958e3e6bcfd793dbb3e2859d0482241
+      TARGET_INODE_BASE_TEST_BLOB: 3f3df6fb21854ec8f368829e957f155f700a1fd8
+      TARGET_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      GUARD_INODE_STORE_BLOB: 78616a83f9f8d6c71e8ca9bb43a4ea5b91c986b8
+      GUARD_INODE_BASE_TEST_BLOB: e80e9dcfde1a5508fb1d266cd8334e24ab904c59
+      GUARD_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -135,6 +147,32 @@ jobs:
             fi
           fi
 
+          read_appear_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && git merge-base --is-ancestor "$current_product" "$PR_BASE_SHA"; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+            if [ "$candidate_store" = "$READ_APPEAR_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$READ_APPEAR_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$READ_APPEAR_PRODUCTION_TEST_BLOB" ]; then
+              read_appear_successor=true
+            fi
+          fi
+
+          recovery_recheck_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && git merge-base --is-ancestor "$current_product" "$PR_BASE_SHA"; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+            if [ "$candidate_store" = "$RECOVERY_RECHECK_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$RECOVERY_RECHECK_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$RECOVERY_RECHECK_PRODUCTION_TEST_BLOB" ]; then
+              recovery_recheck_successor=true
+            fi
+          fi
+
           full_product_composition=false
           if [ "${{ github.event_name }}" = "pull_request" ] \
             && [ "${{ github.head_ref }}" = "$CURRENT_PRODUCT_BRANCH" ]; then
@@ -190,6 +228,20 @@ jobs:
               tests/test_v2_book_progress_store.py \
               tests/test_v2_book_progress_store_production.py
             echo 'BOOK_PROGRESS_TOPOLOGY=WINDOWS_DURABILITY_SUCCESSOR'
+          elif [ "$read_appear_successor" = true ]; then
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=READ_APPEAR_SUCCESSOR'
+          elif [ "$recovery_recheck_successor" = true ]; then
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_RECHECK_SUCCESSOR'
           elif [ "$full_product_composition" = true ]; then
             # The repair is composed into the live Full Product. A broad Product
             # history is legitimate only on that exact canonical branch.
@@ -226,6 +278,22 @@ jobs:
             && [ "$candidate_base_test" = "$READ_DISAPPEAR_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$READ_DISAPPEAR_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=READ_DISAPPEAR_SUCCESSOR'
+          elif [ "$candidate_store" = "$READ_APPEAR_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$READ_APPEAR_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$READ_APPEAR_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=READ_APPEAR_SUCCESSOR'
+          elif [ "$candidate_store" = "$RECOVERY_RECHECK_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$RECOVERY_RECHECK_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_RECHECK_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_RECHECK_SUCCESSOR'
+          elif [ "$candidate_store" = "$TARGET_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$TARGET_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$TARGET_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=TARGET_INODE_SUCCESSOR'
+          elif [ "$candidate_store" = "$GUARD_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$GUARD_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$GUARD_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=GUARD_INODE_SUCCESSOR'
           else
             printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
               "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2

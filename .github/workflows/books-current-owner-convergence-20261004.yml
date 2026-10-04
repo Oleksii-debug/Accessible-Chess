@@ -20,7 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 75
 
     steps:
       - name: Checkout exact convergence head
@@ -39,7 +39,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.sha }}"
-          for absorbed in 36cf0bb63cc45255df3e60dd160cdd4e0ad195a2 64cd6bd75cef34bfc477f651919202d2774ecd74 a0d0a5cfdbae45f25033f129c8d8cb82d28fce3b 74c7a2f614801fbb4bacb6ef0fe4b16763c922a1 be2061e8193fe953efdf5536548a7e964bfd829b 0bf46b2561db3d1dc26f354699c5610d331edb6a
+          for absorbed in \
+            36cf0bb63cc45255df3e60dd160cdd4e0ad195a2 \
+            64cd6bd75cef34bfc477f651919202d2774ecd74 \
+            a0d0a5cfdbae45f25033f129c8d8cb82d28fce3b \
+            74c7a2f614801fbb4bacb6ef0fe4b16763c922a1 \
+            be2061e8193fe953efdf5536548a7e964bfd829b \
+            0bf46b2561db3d1dc26f354699c5610d331edb6a \
+            b6aaaf50e20aec31f908da80249cb285a090fc23 \
+            448d6ccd099549354fee23c5d3f6acfd08179eba \
+            5759e454e9382a09f276d09b15894ae2e77d6c65
           do
             git cat-file -e "$absorbed^{commit}"
             git merge-base --is-ancestor "$absorbed" HEAD
@@ -54,14 +63,31 @@ jobs:
           acs/book_epub_import.py
           acs/bookdocument.py
           acs/bookreader.py
+          acs/book_progress_store.py
+          acs/training_progress_store.py
           acs/full_product_presenters.py
           acs/version2_application.py
+          acs/version2_starter_content_application.py
+          acs/child_coaching.py
+          acs/child_coaching_store.py
+          acs/child_coaching_application.py
+          acs/child_coaching_projection.py
+          acs/child_coaching_rotation.py
+          acs/child_coaching_rotation_store.py
+          acs/child_coaching_prepared_positions.py
           tests/test_book_html_inline_image_order.py
           tests/test_v2_book_epub_import.py
           tests/test_bookdocument.py
           tests/test_bookreader.py
           tests/test_version2_application.py
+          tests/test_v2_book_progress_store.py
           tests/test_w2_training_progress_crash_recovery.py
+          tests/test_book_browser_presentation_lease_required.py
+          tests/test_child_coaching.py
+          tests/test_child_coaching_application.py
+          tests/test_child_coaching_projection.py
+          tests/test_child_coaching_rotation.py
+          tests/test_child_coaching_prepared_positions.py
           tests/test_p0_semantic_document_copy.py
 
       - name: Qualify malformed HTML and source-order semantics
@@ -98,6 +124,17 @@ jobs:
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_books_training_webview_atomicity
 
+      - name: Qualify browser presentation lease
+        shell: bash
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          python -m unittest -v \
+            tests.test_book_browser_presentation_lease_required \
+            tests.test_full_product_book_command_authority \
+            tests.test_w3_p0f_starter_books_training_content
+
       - name: Qualify native accessibility and keyboard feedback
         run: >-
           python -m unittest -v
@@ -108,11 +145,24 @@ jobs:
           tests.test_v2_remapped_keyboard_routing
           tests.test_v2_windows_book_board_adapter
 
-      - name: Qualify persistence portability and semantic copy contract
+      - name: Qualify persistence CAS, portability and semantic copy
         run: >-
           python -m unittest -v
+          tests.test_v2_book_progress_store
           tests.test_w2_training_progress_crash_recovery
           tests.test_p0_semantic_document_copy
+
+      - name: Qualify child coaching over canonical teaching authority
+        run: >-
+          python -m unittest -v
+          tests.test_child_coaching
+          tests.test_child_coaching_application
+          tests.test_child_coaching_projection
+          tests.test_child_coaching_rotation
+          tests.test_child_coaching_prepared_positions
+          tests.test_teaching_session
+          tests.test_education_records
+          tests.test_education_workspace
 
       - name: Core selftest
         run: python -m acs.selftest

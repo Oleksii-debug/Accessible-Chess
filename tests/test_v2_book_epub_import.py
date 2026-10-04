@@ -392,6 +392,315 @@ class BookEpubImportTests(unittest.TestCase):
             ],
         )
 
+    def test_manifest_and_spine_empty_content_models_fail_closed(self) -> None:
+        cases = (
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml">text</item>',
+                '    <itemref idref="c1"/>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"><meta/></item>',
+                '    <itemref idref="c1"/>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="c1">text</itemref>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="c1"><meta/></itemref>',
+            ),
+        )
+        for manifest, spine in cases:
+            with self.subTest(manifest=manifest, spine=spine):
+                raw = _epub(
+                    opf=_opf(manifest=manifest, spine=spine),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="non-empty-item-model.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_manifest_and_spine_mixed_text_fail_closed(self) -> None:
+        cases = (
+            (
+                'manifest-text\n    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="c1"/>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>tail-text',
+                '    <itemref idref="c1"/>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                'spine-text\n    <itemref idref="c1"/>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="c1"/>tail-text',
+            ),
+        )
+        for manifest, spine in cases:
+            with self.subTest(manifest=manifest, spine=spine):
+                raw = _epub(
+                    opf=_opf(manifest=manifest, spine=spine),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="mixed-section-text.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_manifest_and_spine_reject_unexpected_opf_children(self) -> None:
+        cases = (
+            (
+                '''    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <meta property="x:test">unexpected</meta>''',
+                '    <itemref idref="c1"/>',
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                '''    <itemref idref="c1"/>
+    <meta property="x:test">unexpected</meta>''',
+            ),
+        )
+        for manifest, spine in cases:
+            with self.subTest(manifest=manifest, spine=spine):
+                raw = _epub(
+                    opf=_opf(manifest=manifest, spine=spine),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="unexpected-opf-child.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_unused_manifest_fallback_reference_is_still_validated(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="unused" href="unused.svg" media-type="image/svg+xml" fallback="missing"/>''',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+                "OEBPS/unused.svg": b"<svg/>",
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="unused-missing-fallback.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_unused_manifest_fallback_cycle_is_still_rejected(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="a" href="a.svg" media-type="image/svg+xml" fallback="b"/>
+    <item id="b" href="b.svg" media-type="image/svg+xml" fallback="a"/>''',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+                "OEBPS/a.svg": b"<svg/>",
+                "OEBPS/b.svg": b"<svg/>",
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="unused-fallback-cycle.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_unused_manifest_fallback_chain_is_bounded(self) -> None:
+        fallback_items = []
+        entries = {
+            "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>"
+        }
+        for index in range(17):
+            fallback = f' fallback="f{index + 1}"' if index < 16 else ""
+            fallback_items.append(
+                f'    <item id="f{index}" href="f{index}.svg" '
+                f'media-type="image/svg+xml"{fallback}/>'
+            )
+            entries[f"OEBPS/f{index}.svg"] = b"<svg/>"
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>\n'
+                    + "\n".join(fallback_items)
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries=entries,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="unused-deep-fallback.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+
+    def test_manifest_rejects_restricted_package_resources(self) -> None:
+        for href in ("content.opf", "../mimetype", "../META-INF/container.xml"):
+            with self.subTest(href=href):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml"/>\n'
+                            f'    <item id="reserved" href="{href}" '
+                            'media-type="application/octet-stream"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="reserved-manifest-resource.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_manifest_rejects_missing_local_resource_even_when_unused(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="missing" href="Images/missing.png" media-type="image/png"/>''',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="missing-unused-resource.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_spine_page_progression_direction_is_exact(self) -> None:
+        manifest = (
+            '    <item id="c1" href="Text/ch1.xhtml" '
+            'media-type="application/xhtml+xml"/>'
+        )
+        entries = {
+            "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>"
+        }
+        for direction in ("ltr", "rtl", "default"):
+            with self.subTest(direction=direction):
+                opf = _opf(
+                    manifest=manifest,
+                    spine='    <itemref idref="c1"/>',
+                ).replace(
+                    b"<spine>",
+                    f'<spine page-progression-direction="{direction}">'.encode("ascii"),
+                    1,
+                )
+                result = import_epub_book(
+                    _epub(opf=opf, entries=entries),
+                    source_name="valid-progression.epub",
+                )
+                self.assertEqual(result.spine_documents, 1)
+
+        for direction in ("", "LTR", "sideways", " rtl "):
+            with self.subTest(invalid_direction=direction):
+                opf = _opf(
+                    manifest=manifest,
+                    spine='    <itemref idref="c1"/>',
+                ).replace(
+                    b"<spine>",
+                    f'<spine page-progression-direction="{direction}">'.encode("ascii"),
+                    1,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        _epub(opf=opf, entries=entries),
+                        source_name="invalid-progression.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_foreign_spine_content_requires_epub_content_fallback(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="foreign" href="attachment.pdf" media-type="application/pdf"/>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>''',
+                spine='''    <itemref idref="foreign" linear="no"/>
+    <itemref idref="chapter"/>''',
+            ),
+            entries={
+                "OEBPS/attachment.pdf": b"%PDF-not-decoded",
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Readable chapter.</p></body></html>"
+                ),
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="foreign-without-fallback.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_foreign_spine_content_with_xhtml_fallback_remains_readable(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="foreign" href="attachment.pdf" media-type="application/pdf" fallback="fallback"/>
+    <item id="fallback" href="fallback.xhtml" media-type="application/xhtml+xml"/>''',
+                spine='    <itemref idref="foreign"/>',
+            ),
+            entries={
+                "OEBPS/attachment.pdf": b"%PDF-not-decoded",
+                "OEBPS/fallback.xhtml": (
+                    b"<html><body><p>Fallback text.</p></body></html>"
+                ),
+            },
+        )
+        result = import_epub_book(raw, source_name="foreign-with-fallback.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertEqual(
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+            ["Fallback text."],
+        )
+
     def test_unsupported_spine_media_is_explicit_not_silent(self) -> None:
         opf = _opf(
             manifest='''    <item id="cover" href="cover.svg" media-type="image/svg+xml"/>

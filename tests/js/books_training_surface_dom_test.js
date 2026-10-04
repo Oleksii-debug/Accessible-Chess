@@ -833,6 +833,110 @@ async function run() {
   check(document.activeElement === bookRoot.querySelector("#book-block-3"), "book navigation focus was not restored");
   check(announcements.includes("Try again") && announcements.includes("Correct"), "explicit announcements missing");
 
+  const leasedActionRoot = new FakeElement("div");
+  const leasedActionSnapshot = bookSnapshot(41, "Lease action");
+  leasedActionSnapshot.presentation_token = "a".repeat(64);
+  let leasedActionPayload = null;
+  window.AccessibleChessBookSurface.render(
+    leasedActionRoot,
+    leasedActionSnapshot,
+    (command, payload) => {
+      check(command === "book.next", "unexpected leased Book action");
+      leasedActionPayload = payload;
+      return { kind: "error", payload: { message: "expected lease probe error" } };
+    },
+    () => {},
+    "book-block-41",
+    "Lease action failed"
+  );
+  find(leasedActionRoot, "BUTTON", "Next").listeners.click();
+  await flushPromises();
+  check(
+    leasedActionPayload &&
+      Object.keys(leasedActionPayload).length === 1 &&
+      leasedActionPayload.presentation_token === "a".repeat(64),
+    "Book toolbar action did not echo the rendered presentation lease"
+  );
+
+  const leasedBookmarkRoot = new FakeElement("div");
+  const leasedBookmarkSnapshot = bookSnapshot(42, "Lease bookmark");
+  leasedBookmarkSnapshot.presentation_token = "b".repeat(64);
+  let leasedBookmarkPayload = null;
+  window.AccessibleChessBookSurface.render(
+    leasedBookmarkRoot,
+    leasedBookmarkSnapshot,
+    (command, payload) => {
+      check(command === "book.bookmark.save", "unexpected leased bookmark action");
+      leasedBookmarkPayload = payload;
+      return { kind: "error", payload: { message: "expected bookmark lease probe error" } };
+    },
+    () => {},
+    "book-block-42",
+    "Bookmark lease failed"
+  );
+  const leasedBookmarkInput = leasedBookmarkRoot.querySelector("#book-bookmark-name");
+  leasedBookmarkInput.value = "lease-name";
+  find(leasedBookmarkRoot, "FORM").listeners.submit({ preventDefault: () => {} });
+  await flushPromises();
+  check(
+    leasedBookmarkPayload &&
+      Object.keys(leasedBookmarkPayload).length === 2 &&
+      leasedBookmarkPayload.name === "lease-name" &&
+      leasedBookmarkPayload.presentation_token === "b".repeat(64),
+    "Book bookmark action did not preserve input plus presentation lease"
+  );
+
+  const leasedStarterRoot = new FakeElement("div");
+  const leasedStarterSnapshot = withStarterMaterials(
+    bookSnapshot(43, "Lease starter"),
+    "starter-course"
+  );
+  leasedStarterSnapshot.presentation_token = "c".repeat(64);
+  let leasedStarterPayload = null;
+  window.AccessibleChessBookSurface.render(
+    leasedStarterRoot,
+    leasedStarterSnapshot,
+    (command, payload) => {
+      check(command === "book.open_starter_material", "unexpected leased starter action");
+      leasedStarterPayload = payload;
+      return { kind: "error", payload: { message: "expected starter lease probe error" } };
+    },
+    () => {},
+    "book-block-43",
+    "Starter lease failed"
+  );
+  const leasedStarterSelect = leasedStarterRoot.querySelector("#book-starter-material");
+  leasedStarterSelect.value = "starter-booklet-01";
+  find(leasedStarterRoot, "BUTTON", "Open material").listeners.click();
+  await flushPromises();
+  check(
+    leasedStarterPayload &&
+      Object.keys(leasedStarterPayload).length === 2 &&
+      leasedStarterPayload.material_id === "starter-booklet-01" &&
+      leasedStarterPayload.presentation_token === "c".repeat(64),
+    "starter material action did not echo the rendered Book presentation lease"
+  );
+
+  const malformedLeaseSnapshot = bookSnapshot(44, "Malformed lease");
+  malformedLeaseSnapshot.presentation_token = "A".repeat(64);
+  let malformedLeaseRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(
+      new FakeElement("div"),
+      malformedLeaseSnapshot,
+      () => ({ kind: "error", payload: { message: "unused" } }),
+      () => {},
+      "book-block-44",
+      "Malformed lease failed"
+    );
+  } catch (error) {
+    malformedLeaseRejected = error instanceof TypeError;
+  }
+  check(
+    malformedLeaseRejected,
+    "Book render accepted a non-canonical presentation lease token"
+  );
+
   const throwingRoot = new FakeElement("div");
   let throwingCalls = 0;
   const throwingInvoke = () => {
