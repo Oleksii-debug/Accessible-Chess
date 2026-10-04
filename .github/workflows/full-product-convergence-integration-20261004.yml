@@ -178,6 +178,7 @@ jobs:
           tests.test_dev1_library_webview_projection
           tests.test_d07_library_export_webview
           tests.test_d07_library_import_service
+          tests.test_d07_library_import_reuse_final_cancel
           tests.test_acsdb
           tests.test_user_library_seed
           tests.test_user_library_seed_parent_safety
