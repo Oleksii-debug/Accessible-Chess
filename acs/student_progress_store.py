@@ -19,6 +19,7 @@ from typing import Mapping
 from .student_progress import StudentProgressLedger
 
 STUDENT_PROGRESS_STORE_SCHEMA_VERSION = 1
+STUDENT_PROGRESS_STORE_MAX_BYTES = 16 * 1024 * 1024
 _ENVELOPE_FIELDS = frozenset({"schema_version", "snapshot"})
 
 
@@ -47,6 +48,14 @@ def _canonical_bytes(payload: Mapping[str, object]) -> bytes:
 
 def _revision(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _read_bounded_file(path: Path) -> bytes:
+    with path.open("rb") as handle:
+        data = handle.read(STUDENT_PROGRESS_STORE_MAX_BYTES + 1)
+    if len(data) > STUDENT_PROGRESS_STORE_MAX_BYTES:
+        raise ValueError("student progress file exceeds maximum size")
+    return data
 
 
 def _validate_revision(value: str | None) -> str | None:
@@ -81,7 +90,7 @@ class StudentProgressStore:
 
     def load(self) -> LoadedStudentProgress | None:
         try:
-            data = self.path.read_bytes()
+            data = _read_bounded_file(self.path)
         except FileNotFoundError:
             return None
         try:
@@ -124,7 +133,7 @@ class StudentProgressStore:
         temporary: Path | None = None
         try:
             try:
-                current_data = self.path.read_bytes()
+                current_data = _read_bounded_file(self.path)
             except FileNotFoundError:
                 current_revision: str | None = None
             else:
@@ -140,6 +149,8 @@ class StudentProgressStore:
                 "snapshot": ledger.snapshot(),
             }
             data = _canonical_bytes(envelope)
+            if len(data) > STUDENT_PROGRESS_STORE_MAX_BYTES:
+                raise ValueError("student progress payload exceeds maximum size")
             new_revision = _revision(data)
 
             fd, raw_path = tempfile.mkstemp(
