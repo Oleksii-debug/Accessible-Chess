@@ -439,15 +439,23 @@ class Version2Application:
         except BookProgressStoreError as error:
             if error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                 raise
-            # Validate the exact backup for this Book/document and retain its
-            # byte revision. Confirmation may leave the store unlocked, but
-            # recovery may publish only those same semantically validated bytes.
+            # Validate the exact primary/backup recovery pair. Confirmation
+            # intentionally releases the storage lock, so the later commit must
+            # be bound both to the semantically valid backup and to the exact
+            # corrupt/missing primary state the user agreed may be discarded.
             try:
-                backup_revision = self.progress_store.validated_backup_revision(
+                (
+                    primary_revision,
+                    backup_revision,
+                ) = self.progress_store.validated_recovery_revisions(
                     book_key,
                     reader.document,
                 )
-            except (BookProgressStoreError, LookupError, TypeError, ValueError):
+            except BookProgressStoreError as recovery_error:
+                if recovery_error.code == BookProgressStoreErrorCode.STALE_WRITE:
+                    raise
+                raise error
+            except (LookupError, TypeError, ValueError):
                 raise error
             # Recovery can lose the newest corrupt-primary generation, so user
             # consent remains mandatory even after the backup is proven usable.
@@ -459,6 +467,7 @@ class Version2Application:
                 raise
             if not self.progress_store.recover_from_backup(
                 expected_backup_revision=backup_revision,
+                expected_primary_revision=primary_revision,
             ):
                 raise
             # Re-enter the canonical store write after recovery. This reloads

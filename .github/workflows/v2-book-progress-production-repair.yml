@@ -7,8 +7,10 @@ on:
   pull_request:
     paths:
       - 'acs/book_progress_store.py'
+      - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
+      - 'tests/test_version2_application.py'
       - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
 
@@ -35,6 +37,8 @@ jobs:
       CURRENT_STORE_BLOB: 3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
       CURRENT_BASE_TEST_BLOB: 52cb2948ec6789b60775e1fa38cae44770baff7a
       CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
+      BASE_APPLICATION_BLOB: e1020f4d7d2320f3162bc78b9a6221b2afd46876
+      BASE_APPLICATION_TEST_BLOB: 7ec4d04a3cb96ab0cc546a25036475f60ef92ed7
       WINDOWS_DURABILITY_STORE_BLOB: a077dc71ab750ce3bacdbeaf7a76e69d2dccfb0a
       WINDOWS_DURABILITY_BASE_TEST_BLOB: 0ce0d284ab7c0cdf75c3ffb191bda9f9dad22004
       WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
@@ -56,6 +60,29 @@ jobs:
       RECOVERY_PAIR_STORE_BLOB: 39a2e78fde6d31e7419f90f7ba11093f870c6f0f
       RECOVERY_PAIR_BASE_TEST_BLOB: e74f95793d32d1c0abaa269f13f47ddf2b4998d4
       RECOVERY_PAIR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      EXPLICIT_RECOVERY_INODE_STORE_BLOB: a1fd9168729b1821ff1df6f6a926623324faee87
+      EXPLICIT_RECOVERY_INODE_BASE_TEST_BLOB: c33f2c1978325f73f362ee66a2670e99e4fc2522
+      EXPLICIT_RECOVERY_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      TRANSACTION_INODE_STORE_BLOB: 4d7737f53ab2d81db3e9c83cda127b32fa48b828
+      TRANSACTION_INODE_BASE_TEST_BLOB: c009c29f5c71f5d43535b42dcc119ed172e558a3
+      TRANSACTION_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      POST_PUBLICATION_GUARD_STORE_BLOB: c526555195c60c8837e891c6808aaddfbe6db98a
+      POST_PUBLICATION_GUARD_BASE_TEST_BLOB: 6d704de1441f0a8b553c8b76e64c8287fad9b7d3
+      POST_PUBLICATION_GUARD_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      REVISION_BOUND_RECOVERY_STORE_BLOB: 21909ed36723bf2bf38fbc36cc6f49c6e490fcae
+      REVISION_BOUND_RECOVERY_BASE_TEST_BLOB: 1670b2672e5e06dbb58e1bfe8ff0f495ca1f8a02
+      REVISION_BOUND_RECOVERY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      MALFORMED_INTEGER_STORE_BLOB: a3bfd7a6d31e186a1c5dee3932e2352073336d65
+      MALFORMED_INTEGER_BASE_TEST_BLOB: 56e71a7d706de1f2476ca88f0f74856736bdfe32
+      MALFORMED_INTEGER_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      CWD_BOUND_STORE_BLOB: 39502e72ed5a12efd4746f500ccb2ede589d4152
+      CWD_BOUND_BASE_TEST_BLOB: 810b8cbe1f9fbba835cba95e721b702acd924b56
+      CWD_BOUND_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      RECOVERY_CONSENT_STORE_BLOB: 53b8b69ac2c61b42a9e065d1b5fe9c754dd2fd2c
+      RECOVERY_CONSENT_BASE_TEST_BLOB: 37f1048d902e1d577b21b7ed310e9ecea0444136
+      RECOVERY_CONSENT_APPLICATION_BLOB: 4ffb8ede3105a38d0872443fd011cc23c1a7841b
+      RECOVERY_CONSENT_APPLICATION_TEST_BLOB: 5029be95905806de8df625bdae07baddd844c6c4
+      RECOVERY_CONSENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -103,8 +130,10 @@ jobs:
             allowed="$(printf '%s\n' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
-              'tests/test_v2_book_progress_store_production.py' | sort)"
+              'tests/test_v2_book_progress_store_production.py' \
+              'tests/test_version2_application.py' | sort)"
             unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$allowed"))"
             if [ -z "$unexpected" ] \
               && printf '%s\n' "$changed" | grep -Fqx 'acs/book_progress_store.py' \
@@ -269,6 +298,27 @@ jobs:
           candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
           candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
           candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+          candidate_application="$(git rev-parse HEAD:acs/version2_application.py)"
+          candidate_application_test="$(git rev-parse HEAD:tests/test_version2_application.py)"
+
+          # Historically-qualified store/test tuples predate this PR's
+          # application-owned recovery-consent delta. Do not let widening the
+          # bounded path allowlist turn those old tuples into an authority for
+          # arbitrary application/test bytes. Any non-base application pair must
+          # be the exact latest recovery-consent pair and must travel with its
+          # exact store/base-test/production-test tuple.
+          if [ "$candidate_application" != "$BASE_APPLICATION_BLOB" ] \
+            || [ "$candidate_application_test" != "$BASE_APPLICATION_TEST_BLOB" ]; then
+            if [ "$candidate_store" != "$RECOVERY_CONSENT_STORE_BLOB" ] \
+              || [ "$candidate_base_test" != "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+              || [ "$candidate_production_test" != "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+              || [ "$candidate_application" != "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
+              || [ "$candidate_application_test" != "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+              echo 'BookProgress application authority drift' >&2
+              exit 1
+            fi
+          fi
+
           if [ "$candidate_store" = "$CURRENT_STORE_BLOB" ] \
             && [ "$candidate_base_test" = "$CURRENT_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$CURRENT_PRODUCTION_TEST_BLOB" ]; then
@@ -301,6 +351,36 @@ jobs:
             && [ "$candidate_base_test" = "$RECOVERY_PAIR_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$RECOVERY_PAIR_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_PAIR_SUCCESSOR'
+          elif [ "$candidate_store" = "$EXPLICIT_RECOVERY_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$EXPLICIT_RECOVERY_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$EXPLICIT_RECOVERY_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=EXPLICIT_RECOVERY_INODE_SUCCESSOR'
+          elif [ "$candidate_store" = "$TRANSACTION_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$TRANSACTION_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$TRANSACTION_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=TRANSACTION_INODE_SUCCESSOR'
+          elif [ "$candidate_store" = "$POST_PUBLICATION_GUARD_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$POST_PUBLICATION_GUARD_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$POST_PUBLICATION_GUARD_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=POST_PUBLICATION_GUARD_SUCCESSOR'
+          elif [ "$candidate_store" = "$REVISION_BOUND_RECOVERY_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$REVISION_BOUND_RECOVERY_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$REVISION_BOUND_RECOVERY_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=REVISION_BOUND_RECOVERY_SUCCESSOR'
+          elif [ "$candidate_store" = "$MALFORMED_INTEGER_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$MALFORMED_INTEGER_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$MALFORMED_INTEGER_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=MALFORMED_INTEGER_SUCCESSOR'
+          elif [ "$candidate_store" = "$CWD_BOUND_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$CWD_BOUND_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$CWD_BOUND_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=CWD_BOUND_SUCCESSOR'
+          elif [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+            && [ "$candidate_application" = "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
+            && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_CONSENT_SUCCESSOR'
           else
             printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
               "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2
@@ -312,8 +392,10 @@ jobs:
         run: >-
           python -m compileall -q
           acs/book_progress_store.py
+          acs/version2_application.py
           tests/test_v2_book_progress_store_production.py
           tests/test_v2_book_progress_store.py
+          tests/test_version2_application.py
 
       - name: Deterministic production Book progress regressions
         run: python -m unittest -v tests.test_v2_book_progress_store_production
@@ -322,6 +404,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_book_progress_store
+          tests.test_version2_application
           tests.test_bookreader
           tests.test_bookdocument
 
