@@ -6,6 +6,7 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from acs.user_library_seed import BUNDLE_KIND, SCHEMA_VERSION
@@ -175,6 +176,48 @@ class OwnerLibrarySeedMaterializerTests(unittest.TestCase):
                     expected_game_count=6,
                 )
             self.assertFalse(destination.exists())
+
+    def test_destination_appearing_after_qualification_is_never_replaced(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            source = work / "seed.zip"
+            digest = _zip(source, _seed_files())
+            destination = work / "published"
+            real_qualify = __import__(
+                "scripts.materialize_owner_library_seed",
+                fromlist=["_qualify_seed"],
+            )._qualify_seed
+
+            def qualify_then_reserve(root: Path, **kwargs):
+                result = real_qualify(root, **kwargs)
+                destination.mkdir()
+                (destination / "owner-marker.txt").write_text(
+                    "must survive",
+                    encoding="utf-8",
+                )
+                return result
+
+            with mock.patch(
+                "scripts.materialize_owner_library_seed._qualify_seed",
+                side_effect=qualify_then_reserve,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerLibrarySeedMaterializeError,
+                    "without replacement",
+                ):
+                    materialize_owner_library_seed(
+                        source,
+                        destination,
+                        expected_archive_sha256=digest,
+                        expected_source_count=6,
+                        expected_game_count=6,
+                    )
+
+            self.assertEqual(
+                (destination / "owner-marker.txt").read_text(encoding="utf-8"),
+                "must survive",
+            )
+            self.assertFalse((destination / "manifest.json").exists())
 
     def test_exact_acceptance_counts_are_enforced_before_publication(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
