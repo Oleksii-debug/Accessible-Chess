@@ -88,6 +88,10 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("run-id: ${{ env.W4_RUN_ID }}", self.text)
         self.assertIn("Accessible-Chess-V2-NVDA-test-candidate", self.text)
         self.assertIn("W4_CANDIDATE_SHA_MISMATCH", self.text)
+        self.assertIn("expected_candidate_name = f'Accessible-Chess-V2-{exact[:7]}-NVDA-test-candidate.zip'", self.text)
+        self.assertIn("W4_CANDIDATE_NAME_MISMATCH", self.text)
+        self.assertIn("root / 'p0-evidence' / 'w4-run-metadata.json'", self.text)
+        self.assertIn("W4_METADATA_LOCATION_INVALID", self.text)
         self.assertIn("W4_EXACT_ARTIFACT_BINDING=PASS", self.text)
         self.assertIn("validate_version2_package_tree(", self.text)
 
@@ -96,6 +100,10 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("_relative_token", self.text)
         self.assertIn("token = _relative_token(token, label='W4 ZIP member')", self.text)
         self.assertIn("W4_ZIP_MEMBER_PATH_INVALID", self.text)
+        self.assertIn("W4_ZIP_ENCRYPTED_MEMBER_FORBIDDEN", self.text)
+        self.assertIn("W4_ZIP_SYMLINK_FORBIDDEN", self.text)
+        self.assertIn("W4_ZIP_SPECIAL_MEMBER_FORBIDDEN", self.text)
+        self.assertIn("unix_type not in {0, 0o100000}", self.text)
         for unsafe in ("C:evil", "file:stream", "CON", "name.", "name "):
             with self.subTest(unsafe=unsafe):
                 from acs.version2_package_preflight import Version2PackagePreflightError, _relative_token
