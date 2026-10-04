@@ -53,6 +53,10 @@ _MANIFEST_TAG = f"{{{_OPF_NAMESPACE}}}manifest"
 _SPINE_TAG = f"{{{_OPF_NAMESPACE}}}spine"
 _ITEM_TAG = f"{{{_OPF_NAMESPACE}}}item"
 _ITEMREF_TAG = f"{{{_OPF_NAMESPACE}}}itemref"
+_ID_BEARING_OPF_TAGS = frozenset(
+    f"{{{_OPF_NAMESPACE}}}{name}"
+    for name in ("collection", "item", "itemref", "link", "manifest", "meta", "package", "spine")
+)
 _SUPPORTED_PACKAGE_VERSIONS = frozenset({"2.0", "3.0"})
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
@@ -427,6 +431,35 @@ def _is_opf_namespace_tag(tag: object) -> bool:
     return type(tag) is str and tag.startswith(f"{{{_OPF_NAMESPACE}}}")
 
 
+def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> None:
+    """Reject duplicate EPUB-defined IDs before resolving IDREF semantics."""
+
+    seen: set[str] = set()
+
+    def record(element: ET.Element) -> None:
+        raw_id = element.attrib.get("id")
+        if raw_id is None:
+            return
+        if raw_id in seen:
+            raise _error(
+                "EPUB package contains duplicate document identifiers",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        seen.add(raw_id)
+
+    # EPUB's id attribute is document-scoped. Count all recognized OPF
+    # id-bearing elements, plus direct Dublin Core metadata children. Foreign
+    # extension elements do not acquire EPUB ID semantics merely by spelling an
+    # attribute "id".
+    for element in package.iter():
+        if element.tag in _ID_BEARING_OPF_TAGS:
+            record(element)
+    dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
+    for element in metadata:
+        if type(element.tag) is str and element.tag.startswith(dc_prefix):
+            record(element)
+
+
 def _validate_package_document(package: ET.Element) -> None:
     if package.tag != _PACKAGE_TAG:
         raise _error(
@@ -481,6 +514,7 @@ def _validate_package_document(package: ET.Element) -> None:
         )
 
     metadata = _required_unique_direct_child(package, "metadata")
+    _validate_package_ids_unique(package, metadata)
     identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
     matching_identifiers: list[str] = []
     for element in metadata:
