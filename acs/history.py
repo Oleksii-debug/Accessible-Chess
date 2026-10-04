@@ -245,7 +245,7 @@ class ReviewHistory:
                 "branch insertion exceeds the ply safety limit",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
             )
-        if any(not isinstance(snapshot, PositionSnapshot) for snapshot in snapshots):
+        if any(type(snapshot) is not PositionSnapshot for snapshot in snapshots):
             raise HistoryError(
                 "branch insertion contains an invalid snapshot",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
