@@ -49,14 +49,23 @@ def _opf(*, manifest: str, spine: str, metadata: str | None = None) -> bytes:
 </package>'''.encode("utf-8")
 
 
+class _UnseekableBytesIO(BytesIO):
+    def tell(self) -> int:
+        raise OSError("fixture stream is intentionally unseekable")
+
+    def seek(self, *_args: object, **_kwargs: object) -> int:
+        raise OSError("fixture stream is intentionally unseekable")
+
+
 def _epub(
     *,
     opf: bytes,
     entries: dict[str, bytes],
     container: bytes = CONTAINER,
     prepend: list[tuple[str, bytes]] | None = None,
+    streaming: bool = False,
 ) -> bytes:
-    buffer = BytesIO()
+    buffer = _UnseekableBytesIO() if streaming else BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         mimetype = zipfile.ZipInfo("mimetype")
         mimetype.compress_type = zipfile.ZIP_STORED
@@ -83,6 +92,40 @@ def _corrupt_deflated_entry(raw: bytes, name: str) -> bytes:
     extra_length = int.from_bytes(damaged[offset + 28 : offset + 30], "little")
     data_offset = offset + 30 + name_length + extra_length
     damaged[data_offset + 1] ^= 0xFF
+    return bytes(damaged)
+
+
+def _corrupt_data_descriptor_crc(raw: bytes, name: str) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+    local_offset = info.header_offset
+    if damaged[local_offset : local_offset + 4] != b"PK\x03\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    flags = int.from_bytes(
+        damaged[local_offset + 6 : local_offset + 8],
+        "little",
+    )
+    if not (flags & (1 << 3)):
+        raise AssertionError("fixture entry must use a ZIP data descriptor")
+    name_length = int.from_bytes(
+        damaged[local_offset + 26 : local_offset + 28],
+        "little",
+    )
+    extra_length = int.from_bytes(
+        damaged[local_offset + 28 : local_offset + 30],
+        "little",
+    )
+    descriptor_offset = (
+        local_offset
+        + 30
+        + name_length
+        + extra_length
+        + info.compress_size
+    )
+    if damaged[descriptor_offset : descriptor_offset + 4] == b"PK\x07\x08":
+        descriptor_offset += 4
+    damaged[descriptor_offset] ^= 0x01
     return bytes(damaged)
 
 
@@ -494,6 +537,62 @@ class BookEpubImportTests(unittest.TestCase):
                     raised.exception.code,
                     BookEpubImportErrorCode.UNSAFE_PACKAGE,
                 )
+
+    def test_streaming_zip_data_descriptors_are_authenticated(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Streaming descriptor.</p></body></html>"
+                ),
+            },
+            streaming=True,
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            self.assertTrue(
+                all(info.flag_bits & (1 << 3) for info in archive.infolist())
+            )
+        result = import_epub_book(raw, source_name="streaming-descriptor.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Streaming descriptor.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_corrupt_zip_data_descriptor_fails_closed(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Descriptor CRC.</p></body></html>"
+                ),
+            },
+            prepend=[("unused.bin", b"descriptor authority")],
+            streaming=True,
+        )
+        damaged = _corrupt_data_descriptor_crc(raw, "unused.bin")
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="bad-descriptor.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
 
     def test_mimetype_local_zip_header_must_not_have_extra_field(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
