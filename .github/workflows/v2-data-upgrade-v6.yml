@@ -121,7 +121,7 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/settings.py=838e9b3d765bd115e20fab09534353b4b0c444b9
+          acs/settings.py=13af752775f42e62ba09cd24de7b063711858860
           acs/book_progress_store.py=3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
           acs/gametree_resume.py=e22a406a8f4c1f00c3d36390109d53f3088d332b
           acs/version2_release_app.py=426355896fc3d18c143e245876291d6ae01dec4f
@@ -133,7 +133,7 @@ jobs:
           acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
           acs/version2_upgrade_base.py=0b4c43269595d297456625611b59c739f0d1704c
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
-          tests/test_settings_stale_writer_current.py=d80b10a647d7d57f621c32c06efd52250fb69124
+          tests/test_settings_stale_writer_current.py=af378972e3f4984206d918b67359463c5d739708
           tests/test_v2_upgrade_current_acsdb_identity_audit.py=931e02d1cbcea667df8a857b413c343ee19770f8
           tests/test_v2_upgrade_publish_race_audit.py=b9377d18118c02b479e78ad93e5ab46c5fdb36f4
           tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb

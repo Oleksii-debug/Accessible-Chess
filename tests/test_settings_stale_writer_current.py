@@ -143,5 +143,44 @@ class SettingsStaleWriterCurrentTests(unittest.TestCase):
             self.assertEqual("uk", settings.get("language"))
 
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "directory inode preservation across rename/move is a POSIX adversarial oracle",
+    )
+    def test_storage_directory_substitution_blocks_stale_writer_even_with_same_file_inode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profile = root / "profile"
+            profile.mkdir()
+            path = profile / "settings.json"
+            original = (_payload(language="uk", volume=17) + "\n").encode("utf-8")
+            path.write_bytes(original)
+
+            settings = Settings(path)
+            original_inode = path.stat().st_ino
+
+            displaced = root / "displaced-profile"
+            profile.rename(displaced)
+            profile.mkdir()
+            os.replace(displaced / "settings.json", path)
+            displaced.rmdir()
+
+            self.assertEqual(original_inode, path.stat().st_ino)
+            with self.assertRaisesRegex(
+                SettingsError,
+                "changed since this Settings instance was loaded",
+            ):
+                settings.set("volume", 19)
+
+            self.assertEqual(original, path.read_bytes())
+            self.assertEqual(17, settings.get("volume"))
+
+            # The failed write reloads the new namespace deliberately; a fresh
+            # user action can then publish without carrying stale authority.
+            settings.set("volume", 19)
+            durable = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(19, durable["values"]["volume"])
+
+
 if __name__ == "__main__":
     unittest.main()

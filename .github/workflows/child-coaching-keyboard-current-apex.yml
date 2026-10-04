@@ -6,14 +6,26 @@ on:
       - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - acs/full_product_actions.py
+      - acs/version2_final_product_profile.py
       - acs/version2_final_product_application.py
+      - web/keybindings.json
       - tests/test_child_coaching_keyboard_actions.py
+      - tests/test_keybindings_current_apex_reconvergence.py
+      - tests/test_version2_accessibility_convergence.py
+      - tests/js/version2_library_open_route_refresh_dom_test.js
+      - tests/js/version2_library_progress_filter_preservation_dom_test.js
       - .github/workflows/child-coaching-keyboard-current-apex.yml
   pull_request:
     paths:
       - acs/full_product_actions.py
+      - acs/version2_final_product_profile.py
       - acs/version2_final_product_application.py
+      - web/keybindings.json
       - tests/test_child_coaching_keyboard_actions.py
+      - tests/test_keybindings_current_apex_reconvergence.py
+      - tests/test_version2_accessibility_convergence.py
+      - tests/js/version2_library_open_route_refresh_dom_test.js
+      - tests/js/version2_library_progress_filter_preservation_dom_test.js
       - .github/workflows/child-coaching-keyboard-current-apex.yml
   workflow_dispatch:
 
@@ -35,6 +47,8 @@ jobs:
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       ACTIONS_BLOB: 43f96936198bc6506f4033887a1c2857ae3e9d12
+      PROFILE_BLOB: a5331e752fd3b4338fd888894697b47bfceaea76
+      WEB_KEYMAP_BLOB: b3690e67d17b6737b70bce9c75c2b68b149205aa
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
       ROTATION_BLOB: 7fe9da7f1d687f4976c3b4a50652c4c4fa830633
       PREPARED_BLOB: 060fb8cee23c7fe22465208268b4b8fef5760d14
@@ -51,6 +65,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           test "$(git hash-object acs/full_product_actions.py)" = "$ACTIONS_BLOB"
+          test "$(git hash-object acs/version2_final_product_profile.py)" = "$PROFILE_BLOB"
+          test "$(git hash-object web/keybindings.json)" = "$WEB_KEYMAP_BLOB"
           test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
           test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
           test "$(git hash-object acs/child_coaching_prepared_positions.py)" = "$PREPARED_BLOB"
@@ -64,6 +80,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/full_product_actions.py
+          acs/version2_final_product_profile.py
           acs/version2_final_product_application.py
           tests/test_child_coaching_keyboard_actions.py
 

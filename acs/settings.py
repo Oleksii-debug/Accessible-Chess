@@ -118,12 +118,16 @@ def _settings_text_revision(text: str | None) -> str | None:
 
 def _read_private_settings_snapshot(
     path: Path,
-) -> tuple[str | None, tuple[int, int] | None]:
-    """Read one stable private settings snapshot and its exact inode identity."""
+) -> tuple[
+    str | None,
+    tuple[int, int] | None,
+    tuple[int, int] | None,
+]:
+    """Read stable settings bytes plus exact file and directory identities."""
     try:
         parent_before = path.parent.lstat()
     except FileNotFoundError:
-        return None, None
+        return None, None, None
     except OSError as exc:
         raise SettingsError("settings directory could not be inspected safely") from exc
     _require_private_directory(parent_before, "settings directory")
@@ -131,7 +135,7 @@ def _read_private_settings_snapshot(
     try:
         before = path.lstat()
     except FileNotFoundError:
-        return None, None
+        return None, None, _identity(parent_before)
     except OSError as exc:
         raise SettingsError("settings file could not be inspected safely") from exc
     _require_private_regular(before, "settings file")
@@ -188,14 +192,18 @@ def _read_private_settings_snapshot(
         os.close(descriptor)
 
     try:
-        return payload.decode("utf-8"), _identity(current)
+        return (
+            payload.decode("utf-8"),
+            _identity(current),
+            _identity(parent_after),
+        )
     except UnicodeDecodeError as exc:
         raise SettingsError("settings file is not valid UTF-8") from exc
 
 
 def _read_private_settings_text(path: Path) -> str | None:
     """Compatibility wrapper returning only the authenticated settings text."""
-    text, _identity_value = _read_private_settings_snapshot(path)
+    text, _file_identity, _parent_identity = _read_private_settings_snapshot(path)
     return text
 
 
@@ -546,6 +554,7 @@ class Settings:
         self._baseline_known = False
         self._baseline_revision: str | None = None
         self._baseline_identity: tuple[int, int] | None = None
+        self._baseline_parent_identity: tuple[int, int] | None = None
         self._write_blocked_reason: str | None = None
         self.load()
 
@@ -555,9 +564,10 @@ class Settings:
         self._baseline_known = False
         self._baseline_revision = None
         self._baseline_identity = None
+        self._baseline_parent_identity = None
         self._write_blocked_reason = None
         try:
-            text, identity = _read_private_settings_snapshot(self.path)
+            text, identity, parent_identity = _read_private_settings_snapshot(self.path)
         except Exception as exc:
             self.warning = f"settings recovery: {exc}"
             return
@@ -565,6 +575,7 @@ class Settings:
         self._baseline_known = True
         self._baseline_revision = _settings_text_revision(text)
         self._baseline_identity = identity
+        self._baseline_parent_identity = parent_identity
         if text is None:
             return
 
@@ -651,10 +662,18 @@ class Settings:
 
         payload = (self.export_json() + "\n").encode("utf-8")
         with _SettingsSaveLock(self.path) as upgrade_lock:
-            current_text, current_identity = _read_private_settings_snapshot(self.path)
+            (
+                current_text,
+                current_identity,
+                current_parent_identity,
+            ) = _read_private_settings_snapshot(self.path)
             if (
                 _settings_text_revision(current_text) != self._baseline_revision
                 or current_identity != self._baseline_identity
+                or (
+                    self._baseline_parent_identity is not None
+                    and current_parent_identity != self._baseline_parent_identity
+                )
             ):
                 raise SettingsError(
                     "settings changed since this Settings instance was loaded"
@@ -699,12 +718,19 @@ class Settings:
                     )
 
                 upgrade_lock.assert_current()
-                publication_text, publication_identity = _read_private_settings_snapshot(
-                    self.path
-                )
+                (
+                    publication_text,
+                    publication_identity,
+                    publication_parent_identity,
+                ) = _read_private_settings_snapshot(self.path)
                 if (
                     _settings_text_revision(publication_text) != self._baseline_revision
                     or publication_identity != self._baseline_identity
+                    or (
+                        self._baseline_parent_identity is not None
+                        and publication_parent_identity
+                        != self._baseline_parent_identity
+                    )
                 ):
                     raise SettingsError(
                         "settings changed during publication preparation"
@@ -735,6 +761,7 @@ class Settings:
                 self._baseline_known = True
                 self._baseline_revision = hashlib.sha256(payload).hexdigest()
                 self._baseline_identity = temp_identity
+                self._baseline_parent_identity = upgrade_lock.parent_identity
                 self._write_blocked_reason = None
             finally:
                 if fd >= 0:
