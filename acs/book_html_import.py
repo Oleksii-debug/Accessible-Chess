@@ -819,9 +819,25 @@ class _SemanticHtmlParser(HTMLParser):
                     )
                 )
             return
+        has_direct_inline_semantics = any(
+            not event.structural for event in capture.inline_semantics
+        )
+        if capture.kind in {"paragraph", "table_row"} and has_direct_inline_semantics:
+            if capture.kind == "table_row" and not self._warned_table_flatten:
+                self._warning(
+                    "HTML table structure is preserved as row text because BookDocument has no table block kind"
+                )
+                self._warned_table_flatten = True
+            self._finish_inline_paragraph(
+                capture,
+                legacy_text=text,
+                source_anchor=source_anchor,
+            )
+            return
         if (
-            capture.kind == "paragraph"
-            and any(not event.structural for event in capture.inline_semantics)
+            capture.kind == "pre"
+            and has_direct_inline_semantics
+            and not _explicit_pgn_pre(raw)
         ):
             self._finish_inline_paragraph(
                 capture,
