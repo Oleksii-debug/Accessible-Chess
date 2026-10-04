@@ -7,6 +7,7 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
     def setUpClass(cls):
         root = Path(__file__).resolve().parents[1]
         cls.source = (root / "packaging" / "portable_launcher.c").read_text(encoding="utf-8")
+        cls.release_ui = (root / "acs" / "stage1_release_ui.py").read_text(encoding="utf-8")
         cls.workflow = (
             root / ".github" / "workflows" / "p0-user-oneclick-portable-launcher.yml"
         ).read_text(encoding="utf-8")
@@ -23,6 +24,14 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.source)
+
+    def test_launcher_title_matches_canonical_release_window(self):
+        self.assertIn('L"Accessible Chess"', self.source)
+        self.assertIn(
+            'window = webview.create_window(\n        "Accessible Chess",',
+            self.release_ui,
+        )
+        self.assertIn("'acs/stage1_release_ui.py'", self.workflow)
 
     def test_process_liveness_alone_is_not_success(self):
         self.assertNotIn("CHILD_RUNNING_AFTER_STARTUP_OBSERVATION", self.source)
