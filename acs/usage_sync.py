@@ -18,6 +18,7 @@ USAGE_SYNC_SCHEMA_VERSION = 1
 _MAX_COUNTER = 2**63 - 1
 _MAX_BATCH = 250
 _MAX_PENDING_PER_INSTALLATION = 10_000
+_MAX_STORED_COUNTERS_JSON_CHARS = 4096
 _EVENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 
 _ALLOWED_EVENT_KINDS = frozenset(
@@ -64,6 +65,31 @@ def _parse_utc(value: object) -> datetime:
     if parsed.tzinfo != timezone.utc:
         raise ValueError("created_at_utc must be UTC")
     return parsed
+
+
+def _decode_stored_counters(value: object) -> Mapping[str, object]:
+    if type(value) is not str:
+        raise ValueError("stored aggregate counters must be bounded JSON text")
+    if len(value) > _MAX_STORED_COUNTERS_JSON_CHARS:
+        raise ValueError("stored aggregate counters exceed the JSON size limit")
+
+    def unique_object(pairs: list[tuple[object, object]]) -> dict[object, object]:
+        if len(pairs) > len(_ALLOWED_COUNTERS):
+            raise ValueError("stored aggregate counters contain too many object members")
+        result: dict[object, object] = {}
+        for key, raw_value in pairs:
+            if key in result:
+                raise ValueError("stored aggregate counters contain duplicate object keys")
+            result[key] = raw_value
+        return result
+
+    try:
+        decoded = json.loads(value, object_pairs_hook=unique_object)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("stored aggregate counters contain invalid JSON") from exc
+    if not isinstance(decoded, Mapping):
+        raise ValueError("stored aggregate counters must be an object")
+    return decoded
 
 
 @dataclass(frozen=True)
@@ -457,13 +483,18 @@ class UsageEventQueue:
 
     @staticmethod
     def _row_to_event(row: sqlite3.Row) -> UsageEvent:
-        counters = json.loads(row["counters_json"])
-        if not isinstance(counters, Mapping):
-            raise ValueError("stored aggregate counters must be an object")
-        return UsageEvent(
+        raw_counters = row["counters_json"]
+        counters = _decode_stored_counters(raw_counters)
+        event = UsageEvent(
             event_id=row["event_id"],
             installation_id=row["installation_id"],
             kind=row["kind"],
             counters=counters,
             created_at_utc=row["created_at_utc"],
         )
+        canonical = json.dumps(
+            dict(event.counters), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        )
+        if raw_counters != canonical:
+            raise ValueError("stored aggregate counters are not canonical")
+        return event
