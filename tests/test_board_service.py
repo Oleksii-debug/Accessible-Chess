@@ -167,26 +167,19 @@ class BoardCommandServiceTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             MaterialView(invalid_counts, black, 1, 0)
 
-    def test_service_composition_requires_snapshots_and_preserves_falsey_values(self):
+    def test_service_composition_requires_exact_snapshots_and_preserves_values(self):
         board = BoardSnapshot(tuple(empty()), "w")
-        with self.assertRaisesRegex(TypeError, "BoardSnapshot"):
+        with self.assertRaisesRegex(TypeError, "exact BoardSnapshot"):
             BoardCommandService(object())
-        with self.assertRaisesRegex(TypeError, "EngineSnapshot"):
+        with self.assertRaisesRegex(TypeError, "exact EngineSnapshot"):
             BoardCommandService(board, engine=object())
-        with self.assertRaisesRegex(TypeError, "ClockSnapshot"):
+        with self.assertRaisesRegex(TypeError, "exact ClockSnapshot"):
             BoardCommandService(board, clocks=object())
 
-        class FalseyEngine(EngineSnapshot):
-            def __bool__(self):
-                return False
-
-        class FalseyClocks(ClockSnapshot):
-            def __bool__(self):
-                return False
-
-        engine = FalseyEngine("+0.1", "e4")
-        clocks = FalseyClocks("01:00", "02:00")
+        engine = EngineSnapshot("+0.1", "e4")
+        clocks = ClockSnapshot("01:00", "02:00")
         service = BoardCommandService(board, engine=engine, clocks=clocks)
+        self.assertIs(service.board, board)
         self.assertIs(service.engine, engine)
         self.assertIs(service.clocks, clocks)
 
