@@ -1,8 +1,38 @@
 import json
 import sys
+import traceback
 
 from acs.webview2_accessibility import enable_webview2_renderer_accessibility
-from acs.webview_safe_server import install_pywebview_safe_local_server_port
+from acs.webview_safe_server import (
+    SafeLocalServerPortError,
+    install_pywebview_safe_local_server_port,
+)
+
+
+ACCESSIBILITY_HOST_INIT_EXIT_CODE = 71
+SAFE_LOCAL_SERVER_INIT_EXIT_CODE = 72
+RELEASE_UI_STARTUP_EXIT_CODE = 73
+
+
+def _abort_packaged_startup(
+    exit_code: int,
+    message: str,
+    *,
+    include_traceback: bool = False,
+) -> None:
+    """Fail closed with a launcher-readable code without requiring a console."""
+
+    stream = getattr(sys, "stderr", None)
+    if stream is not None:
+        try:
+            print(message, file=stream)
+            if include_traceback:
+                traceback.print_exc(file=stream)
+        except Exception:
+            # A windowed frozen executable may expose an unusable stderr proxy.
+            # The stable numeric code remains the package-local launch authority.
+            pass
+    raise SystemExit(exit_code)
 
 
 # This must run before importing pywebview or creating a WebView2 environment.
@@ -37,13 +67,39 @@ else:
 
     # Patch the actual pywebview WinForms/WebView2 host before any EdgeChrome
     # instance is created. No duplicate native or hidden Move control is used.
-    if not install_pywebview_accessibility_host_patch():
-        raise SystemExit('Accessible WebView2 host could not be initialized.')
+    try:
+        host_patch_ok = install_pywebview_accessibility_host_patch()
+    except Exception:
+        host_patch_ok = False
+    if not host_patch_ok:
+        _abort_packaged_startup(
+            ACCESSIBILITY_HOST_INIT_EXIT_CODE,
+            'Accessible WebView2 host could not be initialized.',
+        )
 
     # pywebview 6.2.1 otherwise chooses a random local-server port in private
     # mode. The release must never reach Chromium-restricted ports such as 6666.
-    if not install_pywebview_safe_local_server_port():
-        raise SystemExit('Accessible WebView2 local server could not be initialized.')
+    try:
+        safe_server_ok = install_pywebview_safe_local_server_port()
+    except Exception:
+        safe_server_ok = False
+    if not safe_server_ok:
+        _abort_packaged_startup(
+            SAFE_LOCAL_SERVER_INIT_EXIT_CODE,
+            'Accessible WebView2 local server could not be initialized.',
+        )
 
-    from acs.stage1_release_ui import main
-    main()
+    try:
+        from acs.stage1_release_ui import main
+        main()
+    except SafeLocalServerPortError:
+        _abort_packaged_startup(
+            SAFE_LOCAL_SERVER_INIT_EXIT_CODE,
+            'Accessible WebView2 local server could not obtain a safe loopback port.',
+        )
+    except Exception:
+        _abort_packaged_startup(
+            RELEASE_UI_STARTUP_EXIT_CODE,
+            'Accessible Chess release UI could not be started.',
+            include_traceback=True,
+        )
