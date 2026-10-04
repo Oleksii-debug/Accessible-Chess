@@ -3,11 +3,13 @@ from __future__ import annotations
 """Write and revalidate an SPDX sidecar for one canonical V2 package tree."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 from acs.version2_package_preflight import validate_version2_package_tree
 from acs.version2_release_sbom import (
+    Version2ReleaseSbomError,
     validate_version2_release_sbom,
     write_version2_release_sbom,
 )
@@ -34,7 +36,7 @@ def main() -> int:
     )
 
     # The package can change after the first canonical preflight but before the
-    # SBOM hashes it.  Re-run the canonical package authority before accepting
+    # SBOM hashes it. Re-run the canonical package authority before accepting
     # the sidecar, then validate the sidecar against that final validated tree.
     # This prevents a same-path payload mutation from being self-consistently
     # described by the SBOM without ever passing package checksum validation.
@@ -48,12 +50,20 @@ def main() -> int:
         integration_sha=final_report.integration_sha,
         inventory=final_report.inventory,
     )
+    try:
+        sbom_bytes = target.read_bytes()
+    except OSError as exc:
+        raise Version2ReleaseSbomError(
+            f"validated release SBOM cannot be read for receipt: {type(exc).__name__}"
+        ) from exc
     summary = {
         "result": "PASS",
         "integration_sha": final_report.integration_sha,
         "package_files": len(final_report.inventory),
         "sbom_files": len(document["files"]),
         "sbom_path": str(target),
+        "sbom_bytes": len(sbom_bytes),
+        "sbom_sha256": hashlib.sha256(sbom_bytes).hexdigest(),
         "nvda_verified": False,
     }
     print(json.dumps(summary, sort_keys=True))
