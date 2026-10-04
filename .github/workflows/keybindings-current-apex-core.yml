@@ -1,0 +1,63 @@
+name: Keybindings Current Apex Core
+
+on:
+  pull_request:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - 'acs/keybindings.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'acs/ui_keymap_editor.py'
+      - 'acs/ui_keymap_service.py'
+      - 'acs/full_product_actions.py'
+      - 'tests/test_keybindings_current_apex_reconvergence.py'
+      - '.github/workflows/keybindings-current-apex-core.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify live PR-base ancestry
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EVENT_BASE_SHA" ]; then
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+            git diff --check "$EVENT_BASE_SHA" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+      - name: Compile current keybinding core
+        run: >-
+          python -m py_compile
+          acs/keybindings.py
+          acs/ui_keymap_adapter.py
+          acs/ui_keymap_editor.py
+          acs/ui_keymap_service.py
+          acs/full_product_actions.py
+          tests/test_keybindings_current_apex_reconvergence.py
+      - name: Run keybinding and native integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_keybindings_current_apex_reconvergence
+          tests.test_keybindings
+          tests.test_ui_keymap_adapter
+          tests.test_full_product_native_menu
+          tests.test_stage1_board_action_integration
