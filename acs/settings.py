@@ -494,7 +494,7 @@ def _validated_value(key: str, value: Any) -> Any:
         if type(value) is not str:
             raise SettingsError("engine_path must be a string")
         return value
-    return value
+    raise SettingsError(f"validation policy is missing for setting: {key}")
 
 
 def _validated_import_text(text: object) -> str:
