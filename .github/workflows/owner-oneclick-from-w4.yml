@@ -129,7 +129,18 @@ jobs:
           }
           foreach($name in @('OWNER_SEED_URL_INPUT','FIRST_DOCX_URL_INPUT','SECOND_DOCX_URL_INPUT')){
             $value=[string](Get-Item "Env:$name").Value
-            if($value -notmatch '^https://'){throw "$name MUST_BE_HTTPS"}
+            if(
+              [string]::IsNullOrWhiteSpace($value) -or
+              $value -ne $value.Trim() -or
+              $value -match '[\\x00-\\x1F\\x7F]'
+            ){throw "$name INVALID_HTTPS_URL"}
+            $uri=$null
+            if(
+              -not [System.Uri]::TryCreate($value,[System.UriKind]::Absolute,[ref]$uri) -or
+              $uri.Scheme -cne 'https' -or
+              [string]::IsNullOrWhiteSpace($uri.Host) -or
+              -not [string]::IsNullOrEmpty($uri.UserInfo)
+            ){throw "$name INVALID_HTTPS_URL"}
           }
           @'
           import os
