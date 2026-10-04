@@ -75,6 +75,7 @@ class AccessibleChessAPI:
             "selected": "вибрано", "illegal": "Нелегальний хід",
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
             "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
+            "move_text_type": "Текст ходу має бути текстовим значенням.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -87,6 +88,7 @@ class AccessibleChessAPI:
             "selected": "selected", "illegal": "Illegal move",
             "undo_none": "No move to undo", "redo_none": "No move to redo",
             "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
+            "move_text_type": "Move text must be a text value.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -314,14 +316,35 @@ class AccessibleChessAPI:
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
         try:
-            side = turn if turn in ("w", "b") else self.board.turn
-            fen = parse_position_text(text or "", side)
-            self.board = Board(fen)
-            self._reset_history()
-            return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
-                            else "Position loaded from text editor.")
+            side = self.board.turn if turn is None else turn
+            fen = parse_position_text(text, side, language=self.lang)
+
+            # Build every fallible part of the replacement state before
+            # publishing any of it.  A history/presenter construction failure
+            # must not leave the live board on the candidate position while the
+            # visible/review state still describes the previous game.
+            candidate_board = Board(fen)
+            candidate_start_fen = candidate_board.fen()
+            candidate_history = ReviewHistory(candidate_start_fen)
+            candidate_adapter = ReviewPresentationAdapter(
+                candidate_history,
+                language=self.lang,
+            )
+            candidate_live_node = candidate_history.cursor_node_id
         except Exception as exc:
             return self._error(str(exc))
+
+        self.board = candidate_board
+        self.start_fen = candidate_start_fen
+        self.sans.clear()
+        self.move_sides.clear()
+        self.redo_meta.clear()
+        self.selected_source = None
+        self.review_history = candidate_history
+        self.review_adapter = candidate_adapter
+        self.live_history_node = candidate_live_node
+        return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
+                        else "Position loaded from text editor.")
 
     def toggle_engine(self) -> dict[str, Any]:
         self.engine_enabled = not self.engine_enabled
@@ -331,7 +354,9 @@ class AccessibleChessAPI:
         return self._ok("Аналіз Stockfish вимкнено." if self.lang == "uk" else "Stockfish analysis disabled.")
 
     def make_move(self, text: str) -> dict[str, Any]:
-        text = (text or "").strip()
+        if type(text) is not str:
+            return self._error(self._t("move_text_type"))
+        text = text.strip()
         if not text:
             return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
         commands = {
