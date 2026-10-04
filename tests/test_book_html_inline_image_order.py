@@ -373,5 +373,22 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(block.text, "Before")
 
 
+    def test_inline_order_workflow_watches_books_persistence_and_chess_authority_dependencies(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "book-html-inline-image-order.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertGreaterEqual(workflow.count("- 'acs/book*.py'"), 2)
+        self.assertGreaterEqual(workflow.count("- 'acs/chesscore.py'"), 2)
+        self.assertGreaterEqual(workflow.count("- 'acs/pgn_roundtrip.py'"), 2)
+        self.assertIn("tests.test_book_html_inline_image_order", workflow)
+        self.assertIn("tests.test_v2_book_html_import", workflow)
+        self.assertIn("from .chesscore import Board", workflow)
+        self.assertIn("from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
