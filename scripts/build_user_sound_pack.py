@@ -192,11 +192,14 @@ def _sha256(path: Path) -> str:
 MAX_ARCHIVE_MEMBER_COUNT = 2048
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+_WINDOWS_FORBIDDEN_COMPONENT_CHARS = frozenset('<>:"/\\\\|?*')
 _WINDOWS_RESERVED_NAMES = {
     "con",
     "prn",
     "aux",
     "nul",
+    "conin$",
+    "conout$",
     *(f"com{index}" for index in range(1, 10)),
     *(f"lpt{index}" for index in range(1, 10)),
     "com¹",
@@ -206,6 +209,31 @@ _WINDOWS_RESERVED_NAMES = {
     "lpt²",
     "lpt³",
 }
+
+
+def _windows_portable_component(part: str) -> str:
+    """Validate one path component against the packaged Windows filesystem contract."""
+
+    if type(part) is not str:
+        raise SoundPackBuildError("sound-pack path component is not Windows-portable")
+    try:
+        utf16 = part.encode("utf-16-le", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise SoundPackBuildError(
+            "sound-pack path component is not Windows-portable"
+        ) from exc
+    device_stem = part.split(".", 1)[0].rstrip(" .").casefold()
+    if (
+        not part
+        or part in {".", ".."}
+        or part.rstrip(" .") != part
+        or len(utf16) // 2 > 255
+        or any(character in _WINDOWS_FORBIDDEN_COMPONENT_CHARS for character in part)
+        or any(ord(character) < 32 or ord(character) == 0x7F for character in part)
+        or device_stem in _WINDOWS_RESERVED_NAMES
+    ):
+        raise SoundPackBuildError("sound-pack path component is not Windows-portable")
+    return part
 
 
 def _snapshot_sound_zip(source: Path, destination: Path) -> int:
@@ -245,15 +273,7 @@ def _safe_archive_member(name: str) -> PurePosixPath:
     ):
         raise SoundPackBuildError("unsafe ZIP member path")
     for part in relative.parts:
-        if (
-            not part
-            or part in {".", ".."}
-            or ":" in part
-            or part.rstrip(" .") != part
-            or any(ord(character) < 32 or ord(character) == 127 for character in part)
-            or part.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_NAMES
-        ):
-            raise SoundPackBuildError("sound-pack ZIP member path is not Windows-portable")
+        _windows_portable_component(part)
     return relative
 
 
@@ -327,15 +347,7 @@ def _safe_relative(path: Path, root: Path) -> PurePosixPath:
     if relative.is_absolute() or ".." in relative.parts:
         raise SoundPackBuildError("unsafe source sound path")
     for part in relative.parts:
-        if (
-            not part
-            or part in {".", ".."}
-            or ":" in part
-            or part.rstrip(" .") != part
-            or any(ord(character) < 32 or ord(character) == 127 for character in part)
-            or part.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_NAMES
-        ):
-            raise SoundPackBuildError("source sound path is not Windows-portable")
+        _windows_portable_component(part)
     return relative
 
 
