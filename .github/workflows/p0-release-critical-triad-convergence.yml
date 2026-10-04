@@ -43,7 +43,7 @@ jobs:
           CHECKED_SHA: ${{ github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
-          INTEGRATION_PRODUCT_BRANCH: converge/current-product-pgn-graph-safety-20261004-sol60a1
+          INTEGRATION_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb
         run: |
           set -euo pipefail
           test -n "$EVENT_BASE_SHA"
