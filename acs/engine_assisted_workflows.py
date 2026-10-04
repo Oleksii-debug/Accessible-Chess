@@ -256,7 +256,10 @@ class EngineAssistedWorkflowService:
     ) -> AudienceAnalysisResult:
         """Analyze the canonical current FEN without mutating training progress."""
 
-        if not isinstance(session, ExerciseSession):
+        # ExerciseSession is the canonical mutable Training state owner, not an
+        # extension/provider seam. Reject subclasses before snapshot() so an
+        # override cannot redefine stale detection or expose alternate progress.
+        if type(session) is not ExerciseSession:
             raise EngineContractError(
                 "training session must be ExerciseSession",
                 code=EngineContractErrorCode.INVALID_REQUEST,
