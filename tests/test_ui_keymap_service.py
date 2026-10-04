@@ -1,7 +1,10 @@
 import json
+from types import SimpleNamespace
 
 from acs.keybindings import ActionRegistry
 from acs.ui_keymap_service import KeymapService
+from acs.version2_final_product_profile import build_final_product_action_registry
+from acs.version2_release_app import _share_v2_action_registry
 
 
 def test_service_persists_shortcut_and_alias(tmp_path):
@@ -16,6 +19,50 @@ def test_service_persists_shortcut_and_alias(tmp_path):
     by_id = {item["id"]: item for item in snap["actions"]}
     assert by_id["history.go_to_move"]["binding"] == "Alt+J"
     assert by_id["move.undo"]["alias"] == "z"
+
+
+def test_v2_registry_share_restores_full_product_remaps_and_valid_swaps(tmp_path):
+    path = tmp_path / "keymap.json"
+    full = build_final_product_action_registry()
+    profile = full.to_profile()
+    # A simultaneous swap is globally valid but cannot be replayed one binding
+    # at a time onto the old defaults without a transient duplicate.
+    profile["bindings"]["pgn.previous_item"] = "Down"
+    profile["bindings"]["pgn.next_item"] = "Up"
+    profile["bindings"]["library.open_game"] = "Ctrl+Enter"
+    profile["bindings"]["history.go_to_move"] = "Alt+J"
+    path.write_text(json.dumps(profile), encoding="utf-8")
+
+    # The Stage1 boot service does not know Product-only action IDs and therefore
+    # drops them from its in-memory projection while leaving the file untouched.
+    service = KeymapService(path)
+    narrow_ids = {item["id"] for item in service.snapshot()["actions"]}
+    assert "pgn.next_item" not in narrow_ids
+    assert service.editor.registry.get_binding("history.go_to_move") == "Alt+J"
+
+    application_registry = build_final_product_action_registry()
+    api = SimpleNamespace(keymap_service=service)
+    application = SimpleNamespace(
+        adapter=SimpleNamespace(registry=application_registry)
+    )
+
+    shared = _share_v2_action_registry(api, application)
+
+    assert shared is application_registry
+    assert service.editor.registry is application_registry
+    assert shared.get_binding("history.go_to_move") == "Alt+J"
+    assert shared.get_binding("pgn.previous_item") == "Down"
+    assert shared.get_binding("pgn.next_item") == "Up"
+    assert shared.get_binding("library.open_game") == "Ctrl+Enter"
+
+    # A later Product mutation must persist the entire widened profile rather
+    # than overwriting the restored Product actions with defaults.
+    saved = service.save("library.open_game", "F8")
+    assert saved["ok"] is True
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["bindings"]["pgn.previous_item"] == "Down"
+    assert persisted["bindings"]["pgn.next_item"] == "Up"
+    assert persisted["bindings"]["library.open_game"] == "F8"
 
 
 def test_service_rejects_same_context_duplicate_without_overwrite(tmp_path):
