@@ -211,7 +211,7 @@ def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionSt
     by the canonical chess-rules layer.
     """
 
-    if not isinstance(text, str):
+    if type(text) is not str:
         raise ValueError("position text must be text")
     if len(text) > MAX_COORDINATE_POSITION_CHARS:
         raise ValueError("position text is too long")
