@@ -31,6 +31,7 @@ from .book_game_content import (
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader, ReadingLocation
 from .chesscore import Board
+from .input_limits import MAX_FEN_CHARS
 from .engine_assisted_workflows import (
     AudienceAnalysisResult,
     EngineAssistedWorkflowService,
@@ -168,7 +169,12 @@ class BookBoardWorkflow:
         # A Book payload is not allowed to use that convenience convention:
         # missing/corrupted semantic FEN must fail closed instead of silently
         # becoming a different chess position.
-        if type(value) is not str or not value.strip():
+        if type(value) is not str or len(value) > MAX_FEN_CHARS:
+            raise BookBoardWorkflow._error(
+                "book position cannot be opened on the canonical board",
+                BookBoardWorkflowCode.INVALID_POSITION,
+            )
+        if not value.strip():
             raise BookBoardWorkflow._error(
                 "book position cannot be opened on the canonical board",
                 BookBoardWorkflowCode.INVALID_POSITION,
