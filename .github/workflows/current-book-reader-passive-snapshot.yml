@@ -3,7 +3,7 @@ name: Current BookReader Passive Snapshot Ingress
 on:
   pull_request:
     branches:
-      - fix/current-book-document-ingress-passive-20261004-zftrkmo
+      - fix/current-book-progress-passive-ingress-20261004-sol57p1
     paths:
       - 'acs/bookreader.py'
       - 'tests/test_bookreader.py'
@@ -44,7 +44,7 @@ jobs:
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
 
-          base_ref="${EVENT_BASE_REF:-fix/current-book-document-ingress-passive-20261004-zftrkmo}"
+          base_ref="${EVENT_BASE_REF:-fix/current-book-progress-passive-ingress-20261004-sol57p1}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
