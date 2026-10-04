@@ -146,7 +146,7 @@ function chordFor(event) {
             this.value = '';
             this.readOnly = false;
             this.id = '';
-            this.classList = {add() {}};
+            this.classList = {add() {}, remove() {}};
             this.attributes = new Map();
         }
         get textContent() { return this._textContent; }
@@ -217,6 +217,101 @@ function chordFor(event) {
     settingsSearchContext.renderKeymap();
     assert.strictEqual(settingsList.children.length, 1, 'Ukrainian visible label must be searchable');
     assert.strictEqual(settingsList.children[0].children[0].textContent, 'Матеріал');
+
+    // Settings rebuild must restore the same semantic Save control instead of
+    // dropping NVDA/keyboard focus into the document body. If filtering removes
+    // that action, focus returns to the stable search field.
+    const firstRow = settingsList.children[0];
+    const firstSave = firstRow.children.find(child => child.id === 'binding-save-board-material');
+    assert.ok(firstSave, 'stable per-action Save id rendered');
+    firstSave.focus();
+    settingsSearchContext.renderKeymap();
+    assert.notStrictEqual(settingsSearchContext.document.activeElement, firstSave, 'rebuild replaces row nodes');
+    assert.strictEqual(
+        settingsSearchContext.document.activeElement.id,
+        'binding-save-board-material',
+        'Settings rebuild must restore the same semantic Save control'
+    );
+    settingsSearch.value = 'no such action';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsList.children.length, 0);
+    assert.strictEqual(
+        settingsSearchContext.document.activeElement,
+        settingsSearch,
+        'removed focused row must fall back to Settings search'
+    );
+    settingsSearch.value = 'матеріал';
+    settingsSearchContext.document.activeElement = null;
+    settingsSearchContext.renderKeymap();
+
+    // Execute the real shortcut-capture transaction. Tab must end capture while
+    // remaining native focus navigation, and a backend result arriving after
+    // Escape must not resurrect the cancelled shortcut or steal focus.
+    let captureKeydown = null;
+    let resolveCapture = null;
+    const captureAnnouncements = [];
+    const captureButton = {
+        textContent: '',
+        attributes: new Map(),
+        classList: {add() {}, remove() {}},
+        focusCalls: 0,
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        focus() { this.focusCalls += 1; },
+    };
+    const captureInput = {
+        value: '',
+        focusCalls: 0,
+        focus() { this.focusCalls += 1; },
+    };
+    const captureStatus = {textContent: ''};
+    const captureContext = {
+        capture: null,
+        centralKeymap: true,
+        api: () => ({
+            keymap_capture_shortcut() {
+                return new Promise(resolve => { resolveCapture = resolve; });
+            },
+        }),
+        eventChord: chordFor,
+        announce(message) { captureAnnouncements.push(message); },
+        document: {
+            documentElement: {lang: 'en'},
+            addEventListener(type, listener) {
+                if (type === 'keydown') captureKeydown = listener;
+            },
+        },
+    };
+    captureContext.window = captureContext;
+    vm.createContext(captureContext);
+    vm.runInContext([
+        indexFunction('stopCapture'),
+        indexFunction('beginCapture'),
+        indexLineContaining("document.addEventListener('keydown',async e=>{if(!capture)return;"),
+    ].join('\\n'), captureContext, {filename: 'index-keymap-capture-transaction.js'});
+    assert.ok(captureKeydown, 'shortcut capture keydown handler installed');
+
+    captureContext.beginCapture({id: 'board.material'}, captureInput, captureStatus, captureButton);
+    const tabDuringCapture = eventFor('Tab', captureButton);
+    await captureKeydown(tabDuringCapture);
+    assert.strictEqual(tabDuringCapture.prevented, false, 'Tab remains native navigation');
+    assert.strictEqual(captureContext.capture, null, 'Tab disarms shortcut capture');
+    assert.strictEqual(captureButton.textContent, 'New shortcut');
+
+    captureContext.beginCapture({id: 'board.material'}, captureInput, captureStatus, captureButton);
+    const capturedK = eventFor('k', captureButton);
+    capturedK.ctrlKey = true;
+    const pendingCapture = captureKeydown(capturedK);
+    assert.strictEqual(capturedK.prevented, true, 'captured shortcut is browser-owned');
+    assert.ok(resolveCapture, 'backend shortcut validation is pending');
+    const escapeDuringPending = eventFor('Escape', captureButton);
+    await captureKeydown(escapeDuringPending);
+    assert.strictEqual(escapeDuringPending.prevented, true);
+    assert.strictEqual(captureContext.capture, null, 'Escape cancels pending capture');
+    resolveCapture({reason: 'captured', binding: 'Ctrl+K', status: 'ok', message: ''});
+    await pendingCapture;
+    assert.strictEqual(captureInput.value, '', 'late backend result cannot resurrect cancelled binding');
+    assert.strictEqual(captureInput.focusCalls, 0, 'late backend result cannot steal focus');
+    assert.ok(captureAnnouncements.includes('Cancelled.'), 'English cancellation is announced');
 
     // Execute the real document-level keydown handler. Editable controls retain
     // remapped Help and the pre-existing exact Alt+analysis path while refusing
