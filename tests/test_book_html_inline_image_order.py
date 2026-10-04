@@ -1018,6 +1018,63 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsInstance(trailing, Paragraph)
         self.assertEqual(trailing.text, "After")
 
+    def test_table_row_inline_image_preserves_flattened_text_source_order(self) -> None:
+        result = import_html_book(
+            '<html><body><table><tr id="row"><td>Before</td><td>'
+            '<img src="board.png" alt="Board"></td><td>After</td></tr></table>'
+            '</body></html>',
+            source_name="table-row-inline-image.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            [
+                (
+                    block.kind,
+                    block.text if isinstance(block, (Paragraph, Note)) else "",
+                )
+                for block in result.document.blocks
+            ],
+            [
+                ("Paragraph", "Before"),
+                ("Note", "Board"),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertEqual(result.document.blocks[0].source_anchor, "row")
+        self.assertIsNone(result.document.blocks[2].source_anchor)
+        self.assertTrue(
+            any(
+                "table structure is preserved as row text" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_non_pgn_pre_inline_image_preserves_prose_source_order(self) -> None:
+        result = import_html_book(
+            '<html><body><pre id="sample">Before'
+            '<img src="board.png" alt="Board">After</pre></body></html>',
+            source_name="pre-inline-image.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            [
+                (
+                    block.kind,
+                    block.text if isinstance(block, (Paragraph, Note)) else "",
+                )
+                for block in result.document.blocks
+            ],
+            [
+                ("Paragraph", "Before"),
+                ("Note", "Board"),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertEqual(result.document.blocks[0].source_anchor, "sample")
+        self.assertIsNone(result.document.blocks[2].source_anchor)
+
     def test_decorative_heading_image_does_not_split_heading_text(self) -> None:
         baseline = import_html_book(
             '<html><body><h2 id="topic">BeforeAfter</h2></body></html>',
