@@ -207,23 +207,16 @@ def resolve_book_game(
         ) from exc
     pgn = snapshot.get("pgn", "")
     game_id = snapshot.get("game_id")
-    if not isinstance(pgn, str) or (
+    if type(pgn) is not str or (
         game_id is not None
-        and (
-            not isinstance(game_id, int)
-            or isinstance(game_id, bool)
-            or game_id < 0
-        )
+        and (type(game_id) is not int or game_id < 0)
     ):
         raise BookGameContentError(
             "book game snapshot is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
-    # BookDocument deliberately accepts str subclasses at its semantic boundary.
-    # The canonical PGN ingress deliberately accepts exact built-in text only.
-    # Normalize only after BookDocument has validated the snapshot so this
-    # adapter preserves both contracts instead of weakening either authority.
-    pgn = str(pgn)
+    # BookDocument and canonical PGN ingress now share the same exact built-in
+    # text boundary, so no coercion is permitted between those authorities.
     selected = _source(source)
     has_embedded = bool(pgn.strip())
     has_reference = game_id is not None
@@ -278,14 +271,15 @@ def resolve_book_game(
 
 def _canonical_root_fen(value: object) -> tuple[str, str, bool]:
     """Return preserved/canonical FEN plus whether counters were authored."""
-    if not isinstance(value, str) or not value.strip():
+    if type(value) is not str or not value.strip():
         raise BookGameContentError(
             "book variation root position is invalid",
             code=BookGameContentErrorCode.INVALID_ROOT_FEN,
         )
-    # Match the BookDocument text contract, then cross the stricter canonical
-    # Board/PGN boundary with exact built-in text.
-    preserved = str(value).strip()
+    # BookDocument's current semantic contract accepts exact built-in text only.
+    # Keep that boundary after post-construction mutation too: reject subclasses
+    # before calling any overridable text method.
+    preserved = value.strip()
     fields = preserved.split()
     if len(fields) not in {4, 6}:
         raise BookGameContentError(
@@ -339,13 +333,11 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
         ) from exc
     snapshot_root = snapshot.get("root_fen")
     pgn = snapshot.get("pgn")
-    if not isinstance(snapshot_root, str) or not isinstance(pgn, str):
+    if type(snapshot_root) is not str or type(pgn) is not str:
         raise BookGameContentError(
             "book variation snapshot is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
-    snapshot_root = str(snapshot_root)
-    pgn = str(pgn)
     if snapshot_root != preserved_root_fen:
         raise BookGameContentError(
             "book variation changed while its canonical snapshot was captured",
