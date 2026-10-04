@@ -1,4 +1,4 @@
-name: Current Product Portable Integration Convergence
+name: Current Product Package Manifest Integration Convergence
 
 on:
   pull_request:
@@ -13,6 +13,7 @@ on:
       - '.github/workflows/current-bookreader-training-resource-convergence.yml'
       - '.github/workflows/current-settings-bookreader-resource-convergence.yml'
       - '.github/workflows/current-training-progress-json-prehash-bounds.yml'
+      - 'acs/version2_package_preflight.py'
       - 'acs/version2_portable_package.py'
       - 'acs/bookdocument.py'
       - 'acs/bookreader.py'
@@ -30,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: current-product-portable-integration-${{ github.event.pull_request.number || github.ref }}
+  group: current-product-package-manifest-integration-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -49,13 +50,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove live integration Product and portable geometry
+      - name: Prove live integration Product and package-manifest geometry
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
+          PRIOR_INTEGRATION_BRANCH: converge/current-product-portable-integration-20261004-ooxple7-g12
           PORTABLE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
           PRODUCT_BRANCH: converge/current-settings-bookreader-resource-20261004-ooxple7-g11
         run: |
@@ -70,18 +72,22 @@ jobs:
             test "$EVENT_BASE_SHA" = "$live_base"
           fi
 
+          git fetch --no-tags origin "+refs/heads/$PRIOR_INTEGRATION_BRANCH:refs/remotes/origin/$PRIOR_INTEGRATION_BRANCH"
+          live_prior="$(git rev-parse "refs/remotes/origin/$PRIOR_INTEGRATION_BRANCH")"
           git fetch --no-tags origin "+refs/heads/$PORTABLE_BRANCH:refs/remotes/origin/$PORTABLE_BRANCH"
           live_portable="$(git rev-parse "refs/remotes/origin/$PORTABLE_BRANCH")"
           git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
           live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
 
           test "$(git merge-base "$live_base" "$live_portable")" = "$live_base"
+          git merge-base --is-ancestor "$live_prior" HEAD
           git merge-base --is-ancestor "$live_portable" HEAD
           git merge-base --is-ancestor "$live_product" HEAD
+          git merge-base --is-ancestor "$live_product" "$live_prior"
 
           convergence="$(git rev-parse HEAD^)"
           parents="$(git show -s --format=%P "$convergence")"
-          test "$parents" = "$live_portable $live_product"
+          test "$parents" = "$live_prior $live_portable"
 
           git diff --check "$live_base"...HEAD
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
@@ -98,6 +104,7 @@ jobs:
             'acs/bookreader.py' \
             'acs/settings.py' \
             'acs/training_progress_store.py' \
+            'acs/version2_package_preflight.py' \
             'acs/version2_portable_package.py' \
             'tests/test_bookdocument_total_text_budget_current.py' \
             'tests/test_bookreader.py' \
@@ -117,6 +124,7 @@ jobs:
       - name: Compile combined integration surfaces
         run: >-
           python -m compileall -q
+          acs/version2_package_preflight.py
           acs/version2_portable_package.py
           acs/bookdocument.py
           acs/bookreader.py
@@ -137,9 +145,10 @@ jobs:
           tests.test_settings_corruption_security
           tests.test_training_progress_json_prehash_bounds_current
 
-      - name: Execute retained portable persistence and application contracts
+      - name: Execute retained package persistence and application contracts
         run: >-
           python -m unittest -v
+          tests.test_version2_package_preflight
           tests.test_version2_portable_package
           tests.test_bookreader
           tests.test_book_training_passive_roots_current
