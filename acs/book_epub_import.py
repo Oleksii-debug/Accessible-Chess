@@ -384,6 +384,67 @@ def _canonical_casefold_name(value: str) -> str:
     return unicodedata.normalize("NFC", normalized.casefold())
 
 
+def _local_zip64_sizes(
+    extra: bytes,
+    *,
+    needs_uncompressed: bool,
+    needs_compressed: bool,
+) -> tuple[int | None, int | None]:
+    zip64_payload: bytes | None = None
+    cursor = 0
+    while cursor < len(extra):
+        if cursor + 4 > len(extra):
+            raise _error(
+                "EPUB local ZIP extra field is truncated",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        field_id = int.from_bytes(extra[cursor : cursor + 2], "little")
+        field_size = int.from_bytes(extra[cursor + 2 : cursor + 4], "little")
+        payload_start = cursor + 4
+        payload_end = payload_start + field_size
+        if payload_end > len(extra):
+            raise _error(
+                "EPUB local ZIP extra field is truncated",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        if field_id == 0x0001:
+            if zip64_payload is not None:
+                raise _error(
+                    "EPUB local ZIP header contains duplicate ZIP64 extra fields",
+                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+                )
+            zip64_payload = extra[payload_start:payload_end]
+        cursor = payload_end
+
+    if not (needs_uncompressed or needs_compressed):
+        return None, None
+    if zip64_payload is None:
+        raise _error(
+            "EPUB ZIP64 entry is missing its local ZIP64 extra field",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    offset = 0
+    uncompressed: int | None = None
+    compressed: int | None = None
+    if needs_uncompressed:
+        if offset + 8 > len(zip64_payload):
+            raise _error(
+                "EPUB local ZIP64 extra field is truncated",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        uncompressed = int.from_bytes(zip64_payload[offset : offset + 8], "little")
+        offset += 8
+    if needs_compressed:
+        if offset + 8 > len(zip64_payload):
+            raise _error(
+                "EPUB local ZIP64 extra field is truncated",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        compressed = int.from_bytes(zip64_payload[offset : offset + 8], "little")
+    return uncompressed, compressed
+
+
 def _validate_local_zip_header(
     archive: zipfile.ZipFile,
     info: zipfile.ZipInfo,
@@ -407,12 +468,20 @@ def _validate_local_zip_header(
         extract_version = int.from_bytes(fixed[4:6], "little")
         local_flags = int.from_bytes(fixed[6:8], "little")
         local_compression = int.from_bytes(fixed[8:10], "little")
+        local_compressed_size = int.from_bytes(fixed[18:22], "little")
+        local_uncompressed_size = int.from_bytes(fixed[22:26], "little")
         name_length = int.from_bytes(fixed[26:28], "little")
         extra_length = int.from_bytes(fixed[28:30], "little")
         raw_name = stream.read(name_length)
         if len(raw_name) != name_length:
             raise _error(
                 "EPUB local ZIP header has a truncated entry name",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        raw_extra = stream.read(extra_length)
+        if len(raw_extra) != extra_length:
+            raise _error(
+                "EPUB local ZIP header has a truncated extra field",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
     except BookEpubImportError:
@@ -438,6 +507,34 @@ def _validate_local_zip_header(
         raise _error(
             "EPUB ZIP extraction version metadata is inconsistent",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    needs_zip64_uncompressed = local_uncompressed_size == 0xFFFFFFFF
+    needs_zip64_compressed = local_compressed_size == 0xFFFFFFFF
+    if (needs_zip64_uncompressed or needs_zip64_compressed) and extract_version != 45:
+        raise _error(
+            "EPUB ZIP64 entry declares an insufficient extraction version",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+    zip64_uncompressed, zip64_compressed = _local_zip64_sizes(
+        raw_extra,
+        needs_uncompressed=needs_zip64_uncompressed,
+        needs_compressed=needs_zip64_compressed,
+    )
+    if (
+        zip64_uncompressed is not None
+        and zip64_uncompressed != info.file_size
+    ) or (
+        zip64_compressed is not None
+        and zip64_compressed != info.compress_size
+    ):
+        raise _error(
+            "EPUB local and central ZIP64 size metadata is inconsistent",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    if local_compression == zipfile.ZIP_DEFLATED and extract_version < 20:
+        raise _error(
+            "EPUB Deflate entry declares an insufficient extraction version",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
     if local_compression not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
         raise _error(
@@ -764,10 +861,18 @@ def _validate_container_attributes(
     *,
     context: str,
 ) -> None:
+    container_prefix = f"{{{_CONTAINER_NAMESPACE}}}"
     for attribute_name in element.attrib:
         if attribute_name.startswith("{"):
-            # OCF validation removes foreign-namespace attributes first.
-            continue
+            # OCF extension attributes are permitted only when they are foreign
+            # to the OCF container namespace. Attributes in the container
+            # namespace are native grammar and no namespaced variants are valid.
+            if not attribute_name.startswith(container_prefix):
+                continue
+            raise _error(
+                f"EPUB {context} contains an invalid attribute",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
         if attribute_name not in allowed:
             raise _error(
                 f"EPUB {context} contains an invalid attribute",
