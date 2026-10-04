@@ -228,7 +228,14 @@ class ClassroomChatRpcClient(ChatTransportPort):
     def _call(self, request: Mapping[str, object]) -> dict[str, object]:
         try:
             response = self._transport.call(request)
-        except ClassroomChatRpcError:
+        except ClassroomChatRpcError as exc:
+            # Preserve canonical protocol/response-validation failures used by
+            # the trusted in-process transport, but never expose backend/service
+            # implementation failures to the desktop client.
+            if str(exc).startswith("classroom chat backend"):
+                raise ClassroomChatRpcError(
+                    "classroom chat service unavailable"
+                ) from None
             raise
         except Exception:
             raise ClassroomChatRpcError("classroom chat service unavailable") from None
