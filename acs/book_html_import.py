@@ -679,6 +679,26 @@ class _SemanticHtmlParser(HTMLParser):
             capture = self._captures.pop()
             self._finish_capture_and_record_parent(capture)
         if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
+            # HTMLParser intentionally does not repair malformed nesting. If a
+            # list container closes while its current <li> (or a semantic child
+            # of that item) is still open, recover that subtree *before* the
+            # list owner disappears. Otherwise later source text can continue
+            # fanning out into the stale item capture until EOF and be
+            # misattributed to the already-closed list.
+            list_depth = len(self._lists)
+            open_item_index = next(
+                (
+                    index
+                    for index in range(len(self._captures) - 1, -1, -1)
+                    if self._captures[index].kind == "list_item"
+                    and self._captures[index].list_depth == list_depth
+                ),
+                None,
+            )
+            if open_item_index is not None:
+                while len(self._captures) > open_item_index:
+                    capture = self._captures.pop()
+                    self._finish_capture_and_record_parent(capture, recovered=True)
             captured = self._lists.pop()
             if captured.nested:
                 for capture in self._captures:
