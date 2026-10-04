@@ -2318,7 +2318,7 @@ class BookEpubImportTests(unittest.TestCase):
         container = b'''<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0"
  xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
- xmlns:x="urn:example:foreign">
+ xmlns:x="urn:example:foreign" x:container-extra="ignored">
   <rootfiles>
     <x:ignored/>tail
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
@@ -2345,6 +2345,70 @@ class BookEpubImportTests(unittest.TestCase):
             raised.exception.code,
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+
+    def test_container_native_attributes_are_exact_after_foreign_attribute_removal(self) -> None:
+        rootfile = (
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles>'
+        )
+        cases = (
+            f'<container version="1.0" bogus="x">{rootfile}</container>',
+            (
+                '<container version="1.0">'
+                '<rootfiles bogus="x"><rootfile full-path="OEBPS/content.opf" '
+                'media-type="application/oebps-package+xml"/></rootfiles>'
+                '</container>'
+            ),
+            (
+                '<container version="1.0"><rootfiles>'
+                '<rootfile full-path="OEBPS/content.opf" '
+                'media-type="application/oebps-package+xml" bogus="x"/>'
+                '</rootfiles></container>'
+            ),
+            (
+                f'<container version="1.0">{rootfile}'
+                '<links bogus="x"><link href="OEBPS/chapter.xhtml" rel="alternate"/></links>'
+                '</container>'
+            ),
+            (
+                f'<container version="1.0">{rootfile}'
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate" bogus="x"/></links>'
+                '</container>'
+            ),
+        )
+        for markup in cases:
+            with self.subTest(markup=markup):
+                container = (
+                    '<wrapper xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    f'{markup}'
+                    '</wrapper>'
+                )
+                container = container.replace(
+                    '<wrapper xmlns="urn:oasis:names:tc:opendocument:xmlns:container">',
+                    '',
+                    1,
+                ).replace('</wrapper>', '', 1).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="invalid-container-attributes.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
 
     def test_container_links_require_nonempty_valid_ocf_links(self) -> None:
         rootfiles = (
@@ -2514,12 +2578,13 @@ class BookEpubImportTests(unittest.TestCase):
  xmlns:x="urn:example:foreign">
   <x:ignored><rootfile full-path="WRONG/content.opf" media-type="application/oebps-package+xml"/></x:ignored>
   <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml">
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"
+      x:rootfile-extra="ignored">
       <x:extension><x:data/></x:extension>
     </rootfile>
   </rootfiles>
   <links>
-    <link href="OEBPS/chapter.xhtml" rel="alternate">
+    <link href="OEBPS/chapter.xhtml" rel="alternate" x:link-extra="ignored">
       <x:extension><x:data/></x:extension>
     </link>
   </links>
