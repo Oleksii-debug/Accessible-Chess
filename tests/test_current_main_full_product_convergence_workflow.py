@@ -60,6 +60,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         required = (
             "tests.test_bookdocument",
             "tests.test_v2_book_html_import",
+            "tests.test_v2_book_epub_package_contract",
             "tests.test_v2_book_text_import",
             "tests.test_book_index",
             "tests.test_books_semantic_host_bounds",
