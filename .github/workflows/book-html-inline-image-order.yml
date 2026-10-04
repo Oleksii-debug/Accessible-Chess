@@ -7,13 +7,17 @@ on:
       - converge/book-inline-order-current-owner-apex-20261004-c2mbezb
       - converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb
     paths:
-      - 'acs/book_html_import.py'
+      - 'acs/book*.py'
+      - 'acs/chesscore.py'
+      - 'acs/pgn_roundtrip.py'
       - 'tests/test_book_html_inline_image_order.py'
       - 'tests/test_v2_book_html_import.py'
       - '.github/workflows/book-html-inline-image-order.yml'
   pull_request:
     paths:
-      - 'acs/book_html_import.py'
+      - 'acs/book*.py'
+      - 'acs/chesscore.py'
+      - 'acs/pgn_roundtrip.py'
       - 'tests/test_book_html_inline_image_order.py'
       - 'tests/test_v2_book_html_import.py'
       - '.github/workflows/book-html-inline-image-order.yml'
