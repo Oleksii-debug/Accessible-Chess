@@ -444,7 +444,7 @@ jobs:
           once(evidence_needle, evidence_replacement, 'Book persistence evidence insertion')
 
           source_test_needle = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy"""
-          source_test_replacement = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy tests.test_book_document_warning_accessibility tests.test_v2_book_epub_import tests.test_v2_book_html_import tests.test_v2_book_text_import tests.test_v2_book_game_content tests.test_v2_book_progress_store_production tests.test_w2_training_progress_crash_recovery tests.test_book_bidirectional_semantic_navigation tests.test_bookreader_snapshot_bounds"""
+          source_test_replacement = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy tests.test_book_document_warning_accessibility tests.test_v2_book_epub_import tests.test_v2_book_html_import tests.test_v2_book_text_import tests.test_v2_book_game_content tests.test_v2_book_progress_store_production tests.test_w2_training_progress_crash_recovery tests.test_book_bidirectional_semantic_navigation tests.test_bookreader_snapshot_bounds tests.test_owner_oneclick_from_w4_workflow tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness"""
           once(source_test_needle, source_test_replacement, 'Current completion safety regression expansion')
 
           source_gate_needle = """          if($LASTEXITCODE -ne 0){throw 'SOURCE_P0G_W3_REGRESSION_FAILURE'}"""
@@ -465,6 +465,9 @@ jobs:
               'tests.test_v2_book_progress_store_production',
               'tests.test_w2_training_progress_crash_recovery',
               'tests.test_book_bidirectional_semantic_navigation',
+              'tests.test_owner_oneclick_from_w4_workflow',
+              'tests.test_portable_launcher_contract',
+              'tests.test_portable_launcher_window_readiness',
               'SOURCE_CURRENT_COMPLETION_SAFETY_REGRESSIONS=PASS',
           )
           for token in required:
