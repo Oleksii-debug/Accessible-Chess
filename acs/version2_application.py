@@ -161,7 +161,6 @@ class Version2Application:
             raise ValueError("PGN replacement cancelled")
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
         self.session, self.pgn = session, PgnWebViewBridge(projection)
-        self._pgn_browser_lease_required = False
         self.pgn_board_active = False
         self._focus = self.shell.open_route("pgn")
 
