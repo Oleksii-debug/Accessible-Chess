@@ -3,7 +3,7 @@ name: Keybindings Passive Boundary
 on:
   pull_request:
     branches:
-      - fix/current-board-material-passive-keys-20261004-sol56m1
+      - fix/current-board-moveview-exact-20261004-sol56m2
     paths:
       - 'acs/keybindings.py'
       - 'tests/test_keybindings_passive_boundary.py'
