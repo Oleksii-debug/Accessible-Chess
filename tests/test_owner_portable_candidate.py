@@ -291,7 +291,7 @@ class OwnerPortableCandidateValidationTests(unittest.TestCase):
             root = Path(raw) / "candidate"
             fingerprint = _owner_tree(root)
             target = root / "App" / "assets" / "sounds" / "library" / "Test" / "329.wav"
-            target.write_bytes(b"mutated")
+            target.write_bytes(b"BAD" + (329).to_bytes(2, "little"))
             with (
                 mock.patch.object(
                     owner_candidate,
