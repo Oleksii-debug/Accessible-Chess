@@ -22,6 +22,7 @@ from .bookdocument import (
     Position,
     VariationTree,
 )
+from .search_policy import normalize_search_term, normalize_search_text, search_fold
 
 
 _MAX_BOOK_TARGET_KEY_CHARS = 4096
@@ -72,16 +73,31 @@ class BookIndex:
             raise TypeError("document must be a BookDocument")
         # BookDocument blocks are authoring-mutable. Materialize one detached
         # canonical snapshot through BookDocument's own wire authority, then
-        # build every index field from that same validated payload. This closes
-        # the validate-then-reread TOCTOU window without introducing a second
-        # Book parser or chess-rules authority.
+        # build every index/search field from that same validated payload. This
+        # closes validate-then-reread aliasing without a second Book parser.
         snapshot = BookDocument.from_dict(document.as_dict())
-        self.document = document
+        self._document_snapshot = snapshot
         self._entries = tuple(self._build_entries(snapshot))
+        # ListBlock deliberately exposes one concise navigation label/target.
+        # Search-only comparison copies cover later items from the SAME detached
+        # snapshot, preserving item boundaries and avoiding duplicate targets.
+        self._additional_list_search_texts = {
+            index: tuple(
+                search_fold(normalize_search_text(item)) or ""
+                for item in block.items[1:]
+            )
+            for index, block in enumerate(snapshot.blocks)
+            if isinstance(block, ListBlock) and len(block.items) > 1
+        }
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
         self._by_key = {key: tuple(entries) for key, entries in by_key.items()}
+
+    @property
+    def document(self) -> BookDocument:
+        """Return a detached copy of the exact snapshot owned by this index."""
+        return BookDocument.from_dict(self._document_snapshot.as_dict())
 
     @property
     def entries(self) -> tuple[BookIndexEntry, ...]:
@@ -140,8 +156,6 @@ class BookIndex:
         if isinstance(block, Paragraph):
             return BookEntryKind.PARAGRAPH, block.text
         if isinstance(block, ListBlock):
-            # Index/search needs one concise deterministic label, while the
-            # BookDocument retains item boundaries and ordering as semantic data.
             return BookEntryKind.LIST, block.items[0]
         raise TypeError(f"Unsupported BookDocument block type: {type(block).__name__}")
 
@@ -187,12 +201,7 @@ class BookIndex:
         return tuple(entry for entry in self._entries if entry.kind is kind)
 
     def resolve(self, target: BookTarget | str) -> BookIndexEntry:
-        """Resolve a target without silently choosing among duplicate semantic keys.
-
-        A key based on block_id/source_anchor remains useful if blocks move after a
-        source-preserving conversion. Index-only targets intentionally describe a
-        snapshot and therefore resolve by their exact generated key.
-        """
+        """Resolve a target without silently choosing among duplicate semantic keys."""
         if isinstance(target, BookTarget):
             key = target.key
             if type(key) is not str:
@@ -201,9 +210,6 @@ class BookIndex:
             key = target
         else:
             raise TypeError("Book target must be a BookTarget or string")
-        # Bound the raw scalar before dictionary lookup hashes caller-controlled
-        # text. This keeps malformed target resolution within a fixed resource
-        # envelope even when BookIndex is used directly outside BookReader.
         if len(key) > _MAX_BOOK_TARGET_KEY_CHARS:
             raise ValueError(
                 f"Book target key exceeds {_MAX_BOOK_TARGET_KEY_CHARS} characters"
@@ -216,7 +222,7 @@ class BookIndex:
         return matches[0]
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
-        """Case-insensitive semantic label search preserving linear reading order."""
+        """Search normalized semantic labels/list items in linear reading order."""
         if type(text) is not str:
             raise TypeError("Search text must be a string")
         if kinds is not None:
@@ -224,17 +230,32 @@ class BookIndex:
                 isinstance(kind, BookEntryKind) for kind in kinds
             ):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
-        # Reject oversized raw input before strip/casefold allocate and scan a
-        # caller-controlled query. Normal UI queries stay far below this limit.
+        # Preserve the newer resource fence before Unicode normalization scans a
+        # caller-controlled value; canonical search policy then enforces its
+        # stricter 256-character normalized user-query ceiling.
         if len(text) > _MAX_BOOK_SEARCH_QUERY_CHARS:
             raise ValueError(
                 f"Search text exceeds {_MAX_BOOK_SEARCH_QUERY_CHARS} characters"
             )
-        needle = text.strip().casefold()
-        if not needle:
+        normalized_needle = normalize_search_term(text, name="Book search text")
+        if normalized_needle is None:
             raise ValueError("Search text must not be empty")
+        needle = search_fold(normalized_needle)
+        assert needle is not None
         return tuple(
             entry
             for entry in self._entries
-            if (kinds is None or entry.kind in kinds) and needle in entry.label.casefold()
+            if (kinds is None or entry.kind in kinds)
+            and (
+                needle in (search_fold(normalize_search_text(entry.label)) or "")
+                or (
+                    entry.kind is BookEntryKind.LIST
+                    and any(
+                        needle in item
+                        for item in self._additional_list_search_texts.get(
+                            entry.target.index, ()
+                        )
+                    )
+                )
+            )
         )
