@@ -555,6 +555,12 @@ jobs:
 
           $root=(Resolve-Path $extracted).Path
           $launcher=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
+          $childPath=(Resolve-Path (Join-Path $root 'App\AccessibleChess.exe')).Path
+          $baselineChildPids=@(
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $childPath } catch { $false }
+            } | ForEach-Object { [int]$_.Id }
+          )
           $proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
           if(-not $proc.WaitForExit(45000)){$proc.Kill();throw 'OWNER_ROOT_LAUNCHER_TIMEOUT'}
           if($proc.ExitCode -ne 0){throw "OWNER_ROOT_LAUNCHER_EXIT=$($proc.ExitCode)"}
@@ -567,9 +573,12 @@ jobs:
           if($text.Contains('STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION')){
             throw 'OWNER_ROOT_LAUNCH_REPORT_LEGACY_LIVENESS_SUCCESS'
           }
-          $childPath=(Resolve-Path (Join-Path $root 'App\AccessibleChess.exe')).Path
           Get-Process -ErrorAction SilentlyContinue | Where-Object {
-            try { $_.Path -eq $childPath } catch { $false }
+            try {
+              $candidatePath=$_.Path
+              $candidateId=[int]$_.Id
+              $candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId
+            } catch { $false }
           } | Stop-Process -Force -ErrorAction SilentlyContinue
 
           $afterLaunch=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
