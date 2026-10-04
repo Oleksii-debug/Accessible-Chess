@@ -1,0 +1,183 @@
+name: P0 User One-Click Portable Launcher
+
+on:
+  pull_request:
+    paths:
+      - 'packaging/portable_launcher.c'
+      - 'acs/version2_portable_package.py'
+      - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_version2_portable_package.py'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-user-oneclick-portable-launcher-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  portable-launcher:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Focused portable packaging regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest tests.test_portable_launcher_contract tests.test_version2_portable_package -v
+          if ($LASTEXITCODE -ne 0) { throw 'Portable package regressions failed' }
+          python -m py_compile acs/version2_portable_package.py
+          if ($LASTEXITCODE -ne 0) { throw 'Portable package module compile failed' }
+
+      - name: Build native x64 launcher without CRT
+        shell: cmd
+        run: |
+          @echo off
+          setlocal EnableExtensions
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSROOT=%%i"
+          if not defined VSROOT exit /b 20
+          call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 21
+          if not exist build mkdir build
+          cl /nologo /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c packaging\portable_launcher.c /Fo:build\portable_launcher.obj || exit /b 22
+          link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /NODEFAULTLIB build\portable_launcher.obj kernel32.lib user32.lib /OUT:build\AccessibleChess.exe || exit /b 23
+          dumpbin /headers build\AccessibleChess.exe > build\headers.txt || exit /b 24
+          dumpbin /dependents build\AccessibleChess.exe > build\dependents.txt || exit /b 25
+
+      - name: Verify native launcher architecture and dependency closure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = Get-Content -Raw build/headers.txt
+          if ($headers -notmatch 'machine \(x64\)') { throw 'Portable launcher is not x64' }
+          $deps = @(
+            Get-Content build/dependents.txt |
+              ForEach-Object {
+                if ($_ -match '^\s+([A-Za-z0-9_.-]+\.dll)\s*$') { $Matches[1].ToUpperInvariant() }
+              } |
+              Where-Object { $_ } |
+              Sort-Object -Unique
+          )
+          $expected = @('KERNEL32.DLL', 'USER32.DLL')
+          $delta = @(Compare-Object $expected $deps)
+          if ($delta.Count -ne 0) {
+            Write-Host 'Observed launcher dependencies:'
+            $deps | ForEach-Object { Write-Host " - $_" }
+            throw 'Portable launcher gained an unapproved runtime DLL dependency'
+          }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path build/AccessibleChess.exe))
+          if ($bytes.Length -lt 1024 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) {
+            throw 'Portable launcher PE identity failed'
+          }
+
+      - name: Build package-local environment smoke child
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          #define CAP 32768
+          static WCHAR env_value[CAP];
+          static WCHAR module_path[CAP];
+          static WCHAR expected[CAP];
+          static int equal_text(const WCHAR *a, const WCHAR *b) {
+              DWORD i = 0;
+              while (a[i] != L'\0' || b[i] != L'\0') {
+                  if (a[i] != b[i]) return 0;
+                  ++i;
+              }
+              return 1;
+          }
+          static int parent(WCHAR *value) {
+              DWORD size = 0;
+              while (value[size] != L'\0') ++size;
+              while (size > 0) {
+                  --size;
+                  if (value[size] == L'\\') { value[size] = L'\0'; return 1; }
+              }
+              return 0;
+          }
+          static int append(WCHAR *target, const WCHAR *suffix) {
+              DWORD used = 0, index = 0;
+              while (target[used] != L'\0') ++used;
+              while (suffix[index] != L'\0') {
+                  if (used + index + 1 >= CAP) return 0;
+                  target[used + index] = suffix[index];
+                  ++index;
+              }
+              target[used + index] = L'\0';
+              return 1;
+          }
+          void WINAPI SmokeChildEntry(void) {
+              DWORD env_size = GetEnvironmentVariableW(L"LOCALAPPDATA", env_value, CAP);
+              DWORD module_size = GetModuleFileNameW(NULL, module_path, CAP);
+              DWORD i = 0;
+              if (env_size == 0 || env_size >= CAP || module_size == 0 || module_size >= CAP) ExitProcess(41);
+              while (module_path[i] != L'\0') { expected[i] = module_path[i]; ++i; }
+              expected[i] = L'\0';
+              if (!parent(expected) || !parent(expected) || !append(expected, L"\\data")) ExitProcess(42);
+              if (!equal_text(env_value, expected)) ExitProcess(43);
+              Sleep(5000);
+              ExitProcess(0);
+          }
+          '@ | Set-Content -Encoding ascii build/smoke_child.c
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsroot = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsroot) { throw 'MSVC installation not found' }
+          $command = "call `"$vsroot\VC\Auxiliary\Build\vcvars64.bat`" && cl /nologo /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c build\smoke_child.c /Fo:build\smoke_child.obj && link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:SmokeChildEntry /NODEFAULTLIB build\smoke_child.obj kernel32.lib /OUT:build\SmokeChild.exe"
+          cmd /d /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Smoke child compilation failed' }
+
+      - name: Execute package-local launcher smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'portable-smoke'
+          $app = Join-Path $root 'App'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe (Join-Path $root 'AccessibleChess.exe')
+          Copy-Item build/SmokeChild.exe (Join-Path $app 'AccessibleChess.exe')
+          $process = Start-Process -FilePath (Join-Path $root 'AccessibleChess.exe') -WorkingDirectory $root -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Portable launcher smoke failed with exit code $($process.ExitCode)" }
+          $report = Join-Path $root 'launch-report.txt'
+          if (-not (Test-Path -LiteralPath $report -PathType Leaf)) { throw 'Package-local launch report was not created' }
+          $text = Get-Content -LiteralPath $report -Raw -Encoding utf8
+          foreach ($required in @(
+            'PREFLIGHT: PASS',
+            'PROCESS_CREATED: YES',
+            'STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION',
+            'USER_NVDA_PROVEN: NO'
+          )) {
+            if (-not $text.Contains($required)) { throw "Launch report missing: $required" }
+          }
+          $data = Join-Path $root 'data'
+          if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
+          Start-Sleep -Seconds 3
+
+      - name: Diff and source hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check HEAD^ HEAD
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('packaging/portable_launcher.c').read_text(encoding='utf-8')
+          assert 'HUMAN_TESTED: NO' in source
+          assert 'NVDA_VERIFIED: NO' in source
+          assert 'CreateProcessW(' in source
+          assert 'SetEnvironmentVariableW(L"LOCALAPPDATA"' in source
+          print('PORTABLE_ONECLICK_SOURCE_HYGIENE=PASS')
+          PY
