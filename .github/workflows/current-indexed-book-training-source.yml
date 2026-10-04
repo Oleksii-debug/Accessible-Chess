@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - fix/current-library-presenter-passive-root-20261004-zftrkmo
+      - main
     paths:
       - 'acs/bookreader.py'
       - 'acs/book_training.py'
