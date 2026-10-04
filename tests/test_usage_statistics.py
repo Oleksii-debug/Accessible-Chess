@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from acs.usage_statistics import (
+    ActiveSessionClock,
     AggregateUsageStatistics,
     UsageStatisticsSnapshot,
     UsageStatisticsStore,
@@ -37,6 +38,55 @@ class UsageStatisticsTests(unittest.TestCase):
         self.assertEqual(snapshot.feature_uses, 1)
         forbidden = {"pgn", "fen", "book", "database", "chat", "audio", "video", "file", "clipboard"}
         self.assertTrue(forbidden.isdisjoint(snapshot.as_dict()))
+
+    def test_active_session_clock_excludes_suspended_time_and_does_not_double_count_resume(self) -> None:
+        current_ns = 0
+
+        def now_ns() -> int:
+            return current_ns
+
+        stats = AggregateUsageStatistics(UsageStatisticsSnapshot("install-1"))
+        clock = ActiveSessionClock(now_ns=now_ns)
+        self.assertTrue(clock.resume())
+        self.assertFalse(clock.resume())
+
+        current_ns += 5_600_000_000
+        self.assertEqual(clock.checkpoint(stats), 5)
+        self.assertEqual(stats.snapshot.session_seconds, 5)
+
+        current_ns += 700_000_000
+        self.assertEqual(clock.suspend(stats), 1)
+        self.assertFalse(clock.is_active)
+        self.assertEqual(stats.snapshot.session_seconds, 6)
+
+        current_ns += 100_000_000_000
+        self.assertEqual(clock.suspend(stats), 0)
+        self.assertEqual(stats.snapshot.session_seconds, 6)
+
+        self.assertTrue(clock.resume())
+        current_ns += 800_000_000
+        self.assertEqual(clock.suspend(stats), 1)
+        self.assertEqual(stats.snapshot.session_seconds, 7)
+
+    def test_active_session_clock_fails_closed_on_regression_without_losing_active_state(self) -> None:
+        current_ns = 10_000
+
+        def now_ns() -> int:
+            return current_ns
+
+        stats = AggregateUsageStatistics(UsageStatisticsSnapshot("install-1"))
+        clock = ActiveSessionClock(now_ns=now_ns)
+        self.assertTrue(clock.resume())
+        current_ns = 9_999
+        with self.assertRaisesRegex(ValueError, "moved backwards"):
+            clock.suspend(stats)
+        self.assertTrue(clock.is_active)
+        self.assertEqual(stats.snapshot.session_seconds, 0)
+
+        current_ns = 1_000_010_000
+        self.assertEqual(clock.suspend(stats), 1)
+        self.assertFalse(clock.is_active)
+        self.assertEqual(stats.snapshot.session_seconds, 1)
 
     def test_cannot_complete_non_started_game_or_exercise(self) -> None:
         stats = AggregateUsageStatistics(UsageStatisticsSnapshot("install-1"))
