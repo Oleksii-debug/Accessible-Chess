@@ -7,11 +7,13 @@ on:
     paths:
       - 'acs/book_html_import.py'
       - 'tests/test_book_html_nested_semantic_owner_order.py'
+      - 'tools/apply_book_html_nested_semantic_owner_fix.py'
       - '.github/workflows/books-nested-semantic-owner-order.yml'
   pull_request:
     paths:
       - 'acs/book_html_import.py'
       - 'tests/test_book_html_nested_semantic_owner_order.py'
+      - 'tools/apply_book_html_nested_semantic_owner_fix.py'
       - '.github/workflows/books-nested-semantic-owner-order.yml'
 
 permissions:
@@ -22,7 +24,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  nested-semantic-owner-order:
+  baseline-defect-proof:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+      - name: Prove current parser still violates nested-owner regression
+        shell: bash
+        run: |
+          set +e
+          python -m unittest -v tests.test_book_html_nested_semantic_owner_order > baseline.log 2>&1
+          rc=$?
+          set -e
+          cat baseline.log
+          if test "$rc" -eq 0; then
+            echo 'Nested-owner defect no longer reproduces on the unpatched exact head.' >&2
+            exit 1
+          fi
+          grep -q 'FAILED' baseline.log
+          echo 'NESTED_OWNER_BASELINE_DEFECT=REPRODUCED'
+
+  patched-candidate:
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +69,9 @@ jobs:
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected"
-      - name: Compile focused regression
-        run: python -m py_compile acs/book_html_import.py tests/test_book_html_nested_semantic_owner_order.py
+      - name: Apply fail-closed candidate repair
+        run: python tools/apply_book_html_nested_semantic_owner_fix.py
+      - name: Compile focused candidate
+        run: python -m py_compile acs/book_html_import.py tests/test_book_html_nested_semantic_owner_order.py tools/apply_book_html_nested_semantic_owner_fix.py
       - name: Run focused nested semantic owner regression
         run: python -m unittest -v tests.test_book_html_nested_semantic_owner_order
