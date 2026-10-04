@@ -63,6 +63,13 @@ class ChildCoachingFinalProductBindingTests(unittest.TestCase):
                     child.store.path,
                 )
                 self.assertIsNotNone(application._prepared_position_navigator)
+                rotation_store = application._rotation_store
+                self.assertIsNotNone(rotation_store)
+                assert rotation_store is not None
+                self.assertEqual(
+                    root / "child-coaching-rotation.json",
+                    rotation_store.path,
+                )
 
                 catalog = application.open_child_coaching_catalog()
                 self.assertGreaterEqual(len(catalog.templates), 4)
