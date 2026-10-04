@@ -168,7 +168,7 @@ jobs:
           }
           $uri="${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/$env:W4_RUN_ID"
           Invoke-WebRequest -Uri $uri -Headers $headers -OutFile 'w4-run-authority.json'
-          python scripts/verify_owner_w4_run_provenance.py `
+          python -m scripts.verify_owner_w4_run_provenance `
             --run-json w4-run-authority.json `
             --run-id $env:W4_RUN_ID `
             --repository '${{ github.repository }}' `
@@ -472,7 +472,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $receipt='owner-final-receipt.json'
-          python scripts/build_owner_portable_candidate.py `
+          python -m scripts.build_owner_portable_candidate `
             owner-inner `
             build\AccessibleChess.exe `
             (Join-Path owner-inputs $env:FIRST_DOCX_NAME) `
@@ -534,7 +534,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          python scripts/finalize_owner_final_receipt.py `
+          python -m scripts.finalize_owner_final_receipt `
             --receipt owner-final-receipt.json `
             --final-zip Accessible-Chess-ONECLICK-OWNER-FINAL.zip `
             --product-sha $env:EXACT_PRODUCT_SHA `
