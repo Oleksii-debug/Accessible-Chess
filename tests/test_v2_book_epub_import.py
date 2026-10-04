@@ -170,6 +170,35 @@ def _set_zip_extract_version(raw: bytes, name: str, value: int) -> bytes:
     raise AssertionError("fixture central ZIP entry was not found")
 
 
+def _set_local_zip64_uncompressed_size(raw: bytes, name: str, value: int) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+    local_offset = info.header_offset
+    if damaged[local_offset : local_offset + 4] != b"PK\x03\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    name_length = int.from_bytes(damaged[local_offset + 26 : local_offset + 28], "little")
+    extra_length = int.from_bytes(damaged[local_offset + 28 : local_offset + 30], "little")
+    cursor = local_offset + 30 + name_length
+    end = cursor + extra_length
+    while cursor < end:
+        if cursor + 4 > end:
+            raise AssertionError("fixture local ZIP extra field is truncated")
+        field_id = int.from_bytes(damaged[cursor : cursor + 2], "little")
+        field_size = int.from_bytes(damaged[cursor + 2 : cursor + 4], "little")
+        payload_start = cursor + 4
+        payload_end = payload_start + field_size
+        if payload_end > end:
+            raise AssertionError("fixture local ZIP extra field is truncated")
+        if field_id == 0x0001:
+            if field_size < 8:
+                raise AssertionError("fixture ZIP64 extra field lacks uncompressed size")
+            damaged[payload_start : payload_start + 8] = value.to_bytes(8, "little")
+            return bytes(damaged)
+        cursor = payload_end
+    raise AssertionError("fixture local ZIP64 extra field was not found")
+
+
 def _with_zip64_end_records(
     raw: bytes,
     *,
@@ -517,6 +546,26 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_zip64_local_size_must_match_central_directory(self) -> None:
+        raw = _simple_zip64_epub(
+            b"<html><body><p>ZIP64 mismatch.</p></body></html>"
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("OEBPS/Text/ch1.xhtml")
+            central_file_size = info.file_size
+
+        damaged = _set_local_zip64_uncompressed_size(
+            raw,
+            "OEBPS/Text/ch1.xhtml",
+            central_file_size + 1,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="zip64-size-mismatch.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
 
     def test_zip64_local_size_sentinels_require_zip64_extra_field(self) -> None:
