@@ -641,13 +641,25 @@ class Version2Application:
             return False
         if self.reader is None or self.reader.location().kind != "Exercise":
             return False
-        workspace = self.training_workspace
-        if workspace is None or workspace.reader is not self.reader:
-            workspace = Version2BookTrainingWorkspace(
-                self.reader,
-                progress_root=self.training_progress_root,
-                language=self.shell.language,
+        previous_workspace = self.training_workspace
+        training_language = (
+            previous_workspace.language
+            if (
+                previous_workspace is not None
+                and previous_workspace.reader is self.reader
             )
+            else self.shell.language
+        )
+        # Re-entry is a staged owner replacement, not an in-place mutation of a
+        # retained Training workspace. start_current() publishes material,
+        # session, bridge and durable revision into its workspace. Building that
+        # state on a fresh owner keeps the currently published Training model
+        # untouched until the caller's shell-route transaction succeeds.
+        workspace = Version2BookTrainingWorkspace(
+            self.reader,
+            progress_root=self.training_progress_root,
+            language=training_language,
+        )
         bridge = workspace.start_current()
         self.training_workspace, self.training = workspace, bridge
         return True
