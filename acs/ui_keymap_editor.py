@@ -26,6 +26,9 @@ _CONTEXT_LABELS_UK = {
     BindingContext.ENGINE_GAME.value: "Гра з рушієм",
     BindingContext.DATABASE.value: "База даних",
     BindingContext.BOOK_READER.value: "Читання книги",
+    BindingContext.PGN_TREE.value: "Дерево PGN",
+    BindingContext.LIBRARY_RESULTS.value: "Результати бібліотеки",
+    BindingContext.EDUCATION_LIST.value: "Навчальний список",
 }
 
 _CONTEXT_LABELS_EN = {
@@ -39,6 +42,9 @@ _CONTEXT_LABELS_EN = {
     BindingContext.ENGINE_GAME.value: "Engine game",
     BindingContext.DATABASE.value: "Database",
     BindingContext.BOOK_READER.value: "Book reader",
+    BindingContext.PGN_TREE.value: "PGN tree",
+    BindingContext.LIBRARY_RESULTS.value: "Library results",
+    BindingContext.EDUCATION_LIST.value: "Education list",
 }
 
 
@@ -122,7 +128,11 @@ class KeymapEditorModel:
             default = item["defaultBinding"] if shortcut else item["defaultAlias"]
             current_text = "" if current is None else str(current)
             default_text = "" if default is None else str(default)
-            haystack = " ".join((label, registry_context, current_text, default_text, str(item["id"]))).casefold()
+            # Search only user-facing semantics. Internal action IDs are stable
+            # transport identifiers and can contain generic words (for example
+            # history.commit_go_to_move) that would otherwise pollute localized
+            # searches such as "go" / "перейти".
+            haystack = " ".join((label, registry_context, current_text, default_text)).casefold()
             if term and term not in haystack:
                 continue
             context_labels = _CONTEXT_LABELS_EN if self.lang == "en" else _CONTEXT_LABELS_UK

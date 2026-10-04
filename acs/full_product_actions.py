@@ -36,6 +36,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
             route.open_action_id,
             BindingContext.GLOBAL,
             route.heading[UILanguage.EN],
+            binding="F1" if route.open_action_id == "screen.help" else None,
         )
         for route in ROUTES
     ),
@@ -51,9 +52,9 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.select_item", BindingContext.DOCUMENT, "Select GameTree item"),
     _action("pgn.previous_game", BindingContext.DOCUMENT, "Previous PGN game"),
     _action("pgn.next_game", BindingContext.DOCUMENT, "Next PGN game"),
-    _action("pgn.previous_item", BindingContext.DOCUMENT, "Previous GameTree item"),
-    _action("pgn.next_item", BindingContext.DOCUMENT, "Next GameTree item"),
-    _action("pgn.parent_variation", BindingContext.DOCUMENT, "Return to parent variation"),
+    _action("pgn.previous_item", BindingContext.PGN_TREE, "Previous GameTree item", "Up"),
+    _action("pgn.next_item", BindingContext.PGN_TREE, "Next GameTree item", "Down"),
+    _action("pgn.parent_variation", BindingContext.PGN_TREE, "Return to parent variation", "Left"),
     _action("pgn.comment_edit", BindingContext.DOCUMENT, "Add or edit GameTree comment"),
     _action("pgn.comment_delete", BindingContext.DOCUMENT, "Delete GameTree comment"),
     _action("pgn.variation_delete", BindingContext.DOCUMENT, "Delete variation"),
@@ -64,7 +65,9 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("library.reset_filters", BindingContext.DATABASE, "Reset library filters"),
     _action("library.next_page", BindingContext.DATABASE, "Next library page"),
     _action("library.previous_page", BindingContext.DATABASE, "Previous library page"),
-    _action("library.open_game", BindingContext.DATABASE, "Open selected library game"),
+    _action("library.previous_result", BindingContext.LIBRARY_RESULTS, "Previous library result", "Up"),
+    _action("library.next_result", BindingContext.LIBRARY_RESULTS, "Next library result", "Down"),
+    _action("library.open_game", BindingContext.LIBRARY_RESULTS, "Open selected library game", "Enter"),
     _action("library.import", BindingContext.DATABASE, "Import into library"),
     _action("library.cancel_import", BindingContext.DATABASE, "Cancel library import"),
     _action("library.export", BindingContext.DATABASE, "Export from library"),
@@ -101,6 +104,9 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("teacher.engine_visibility", BindingContext.DOCUMENT, "Set teaching engine visibility"),
     _action("teacher.read_student_event", BindingContext.DOCUMENT, "Read latest student event"),
     _action("student.move", BindingContext.DOCUMENT, "Submit explicit student move"),
+    _action("education.previous_item", BindingContext.EDUCATION_LIST, "Previous education item", "Up"),
+    _action("education.next_item", BindingContext.EDUCATION_LIST, "Next education item", "Down"),
+    _action("education.open_selected", BindingContext.EDUCATION_LIST, "Open selected education item", "Enter"),
     _action("classes.new", BindingContext.DOCUMENT, "New class"),
     _action("classes.open", BindingContext.DOCUMENT, "Open class"),
     _action("classes.student_open", BindingContext.DOCUMENT, "Open student"),
@@ -191,10 +197,6 @@ class FullProductActionRouter:
                 route_id=route_id,
                 focus_target=focus_target,
             )
-        # Delegated domain actions may change the route themselves (for
-        # example Book Reader -> Board). Preserve the invoking element before
-        # delegation so an exact return can restore keyboard/NVDA focus to the
-        # element the user actually left, just as shell-owned route actions do.
         if current_focus_id:
             self._shell.record_focus(current_focus_id)
         value = self._delegate(action_id, dict(payload or {}))
