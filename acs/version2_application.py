@@ -49,6 +49,7 @@ class Version2Application:
     # absent-safe on those valid pre-Training construction paths.
     training_workspace = None
     training = None
+    _pgn_browser_lease_required = False
 
     _BOOK_PROGRESS_COMMANDS = frozenset(
         {
@@ -102,6 +103,7 @@ class Version2Application:
         self.session = None
         self.pgn_board_active = False
         self.pgn = None
+        self._pgn_browser_lease_required = False
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
         self.training_workspace = self.training = None
         self.shell = build_version2_shell(language=language)
@@ -159,6 +161,7 @@ class Version2Application:
             raise ValueError("PGN replacement cancelled")
         projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
         self.session, self.pgn = session, PgnWebViewBridge(projection)
+        self._pgn_browser_lease_required = False
         self.pgn_board_active = False
         self._focus = self.shell.open_route("pgn")
 
@@ -1021,16 +1024,48 @@ class Version2Application:
                 return asdict(value)
             bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
+            pgn_refresh = (
+                area_id == "pgn"
+                and type(command) is str
+                and command == "pgn.refresh"
+            )
+            if (
+                area_id == "pgn"
+                and type(command) is str
+                and not pgn_refresh
+                and self._pgn_browser_lease_required
+                and (
+                    type(payload) is not dict
+                    or "presentation_token" not in payload
+                )
+            ):
+                # A rendered PGN surface has an opaque lease. Missing it is
+                # stale/unbound browser intent: recover presentation only and
+                # never reinterpret the command against newer canonical state.
+                return asdict(bridge.dispatch("pgn.refresh"))
             value = bridge.dispatch(command, payload)
+            if area_id == "pgn" and (
+                pgn_refresh
+                or (
+                    type(payload) is dict
+                    and "presentation_token" in payload
+                )
+            ):
+                self._pgn_browser_lease_required = True
             return asdict(value)
         except Exception:
             return self._error()
 
     def snapshot(self):
         self._assert_thread()
+        pgn_snapshot = None if self.pgn is None else self.pgn.projection.snapshot()
+        if pgn_snapshot is not None:
+            # Host-side snapshots can advance the projection without proving
+            # that the browser/NVDA DOM rendered that newer presentation.
+            self._pgn_browser_lease_required = True
         return {
             **self.adapter.snapshot(),
-            "pgn": None if self.pgn is None else self.pgn.projection.snapshot(),
+            "pgn": pgn_snapshot,
             "library": self.library.projection.snapshot(),
             "books": None if self.books is None else self.books.projection.snapshot(),
             "training": None if self.training_workspace is None else self.training_workspace.snapshot(),
