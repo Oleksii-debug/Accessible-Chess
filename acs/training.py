@@ -10,7 +10,7 @@ from typing import Mapping
 from .chesscore import Board, Move
 
 
-TRAINING_SNAPSHOT_SCHEMA_VERSION = 3
+TRAINING_SNAPSHOT_SCHEMA_VERSION = 4
 _MAX_EXERCISE_STEPS = 2048
 _MAX_ACCEPTED_MOVES_PER_STEP = 64
 _MAX_MOVE_TEXT = 64
@@ -21,7 +21,7 @@ _MAX_EXERCISE_TAGS = 256
 _MAX_EXERCISE_METADATA_ITEMS = 256
 _MAX_SAFE_COUNTER = (1 << 53) - 1
 _MAX_SNAPSHOT_FIELD_NAME = 128
-_TRAINING_SNAPSHOT_V3_FIELDS = frozenset(
+_TRAINING_SNAPSHOT_V4_FIELDS = frozenset(
     {
         "schema_version",
         "exercise_id",
@@ -35,6 +35,7 @@ _TRAINING_SNAPSHOT_V3_FIELDS = frozenset(
         "status",
     }
 )
+_TRAINING_SNAPSHOT_V3_FIELDS = _TRAINING_SNAPSHOT_V4_FIELDS
 _TRAINING_SNAPSHOT_V2_FIELDS = frozenset(
     {
         "schema_version",
@@ -385,12 +386,12 @@ class ExerciseSession:
         self._status = ExerciseStatus.READY
 
     def snapshot(self) -> dict[str, object]:
-        """Return strict schema-v3 progress with deterministic chess identity."""
+        """Return strict schema-v4 progress bound to the full exercise definition."""
         definition = self._bound_definition()
         return {
             "schema_version": TRAINING_SNAPSHOT_SCHEMA_VERSION,
             "exercise_id": definition.exercise_id,
-            "definition_digest": _definition_digest(definition),
+            "definition_digest": _definition_authority_digest(definition),
             "accepted_path": list(self._accepted_path),
             "position_fen": self._board.fen(),
             "step_index": self._step_index,
@@ -432,12 +433,13 @@ class ExerciseSession:
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
-        """Restore schema-v3, or migrate unambiguous schema-v2 progress.
+        """Restore schema-v4 progress or migrate legacy schema-v3/v2 progress.
 
-        Schema v2 lacked the accepted move path/FEN. It is migrated only when
-        every already-completed step resolves to one unique canonical move from
-        the reconstructed position. Distinct alternatives fail closed instead
-        of guessing which position the learner actually reached.
+        Schema v4 binds durable progress to the complete normalized authored
+        definition. Historical schema-v3/v2 snapshots remain readable with the
+        exact legacy chess-semantic digest and upgrade to v4 on the next snapshot.
+        Schema v2 lacked accepted_path/FEN and is still migrated only when every
+        completed step resolves to one unique canonical move.
         """
         definition = _canonical_definition_snapshot(definition)
         field_names = _snapshot_field_names(snapshot)
@@ -446,21 +448,38 @@ class ExerciseSession:
         schema_version = snapshot["schema_version"]
         if type(schema_version) is not int:
             raise TypeError("exercise snapshot schema_version must be an integer")
+        if schema_version == 4:
+            _require_snapshot_field_names(field_names, _TRAINING_SNAPSHOT_V4_FIELDS)
+            return cls._restore_path_snapshot(
+                definition,
+                snapshot,
+                expected_definition_digest=_definition_authority_digest(definition),
+            )
         if schema_version == 3:
             _require_snapshot_field_names(field_names, _TRAINING_SNAPSHOT_V3_FIELDS)
-            return cls._restore_v3(definition, snapshot)
+            return cls._restore_path_snapshot(
+                definition,
+                snapshot,
+                expected_definition_digest=_definition_digest(definition),
+            )
         if schema_version == 2:
             _require_snapshot_field_names(field_names, _TRAINING_SNAPSHOT_V2_FIELDS)
             return cls._restore_v2(definition, snapshot)
         raise ValueError("unsupported exercise snapshot schema_version")
 
     @classmethod
-    def _restore_v3(
+    def _restore_path_snapshot(
         cls,
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
+        *,
+        expected_definition_digest: str,
     ) -> "ExerciseSession":
-        common = _restore_common(definition, snapshot)
+        common = _restore_common(
+            definition,
+            snapshot,
+            expected_definition_digest=expected_definition_digest,
+        )
 
         path_value = snapshot["accepted_path"]
         if type(path_value) is not list:
@@ -513,7 +532,11 @@ class ExerciseSession:
         definition: ExerciseDefinition,
         snapshot: Mapping[str, object],
     ) -> "ExerciseSession":
-        step_index, attempts, mistakes, hints_used, status = _restore_common(definition, snapshot)
+        step_index, attempts, mistakes, hints_used, status = _restore_common(
+            definition,
+            snapshot,
+            expected_definition_digest=_definition_digest(definition),
+        )
 
         board = Board(definition.start_fen)
         accepted_path: list[str] = []
@@ -543,6 +566,8 @@ class ExerciseSession:
 def _restore_common(
     definition: ExerciseDefinition,
     snapshot: Mapping[str, object],
+    *,
+    expected_definition_digest: str,
 ) -> tuple[int, int, int, int, ExerciseStatus]:
     exercise_id = snapshot["exercise_id"]
     if type(exercise_id) is not str:
@@ -553,7 +578,7 @@ def _restore_common(
         raise ValueError("exercise snapshot belongs to a different exercise")
 
     definition_digest = _snapshot_digest(snapshot["definition_digest"])
-    if definition_digest != _definition_digest(definition):
+    if definition_digest != expected_definition_digest:
         raise ValueError("exercise snapshot belongs to a different exercise revision")
 
     step_index = _snapshot_counter(snapshot["step_index"], name="step_index")
@@ -612,6 +637,7 @@ def _snapshot_field_names(snapshot: Mapping[str, object]) -> tuple[str, ...]:
     max_fields = max(
         len(_TRAINING_SNAPSHOT_V2_FIELDS),
         len(_TRAINING_SNAPSHOT_V3_FIELDS),
+        len(_TRAINING_SNAPSHOT_V4_FIELDS),
     )
     try:
         field_names = tuple(islice(iter(snapshot), max_fields + 1))
@@ -620,6 +646,7 @@ def _snapshot_field_names(snapshot: Mapping[str, object]) -> tuple[str, ...]:
     allowed_counts = {
         len(_TRAINING_SNAPSHOT_V2_FIELDS),
         len(_TRAINING_SNAPSHOT_V3_FIELDS),
+        len(_TRAINING_SNAPSHOT_V4_FIELDS),
     }
     if len(field_names) not in allowed_counts:
         raise ValueError("invalid exercise snapshot field count")
