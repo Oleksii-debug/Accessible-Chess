@@ -134,11 +134,19 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_v2_native_thread_runtime_workflow",
             "tests.test_v2_windows_book_board_adapter",
             "tests.test_p0f_starter_training_canonical_legality",
+            "tests.test_p0f_lawful_starter_bundle",
+            "tests.test_p0f_starter_content",
+            "tests.test_p0f_starter_structured_examples",
             "tests.test_full_product_book_command_authority",
             "tests.test_user_library_seed",
             "tests.test_user_library_seed_parent_safety",
             "tests.test_v2_packaged_starter_application",
+            "tests.test_v2_library_source_catalog",
             "tests.test_owner_delivery_uk_docs",
+            "tests.test_stage_p0f_release_content",
+            "tests.test_release_preflight_extended_source_hygiene",
+            "tests.test_slsa_provenance",
+            "tests.test_slsa_provenance_builder_binding",
             "tests.test_version2_package_assembler",
             "tests.test_portable_launcher_contract",
             "tests.test_version2_portable_package",
@@ -179,6 +187,11 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "Owner accessibility and package contracts",
         )
 
+        owner = step_block(
+            "Owner accessibility and package contracts",
+            "Whole product diagnostic",
+        )
+
         for fragment in (
             "tests.test_book_bidirectional_semantic_navigation",
             "tests.test_bookreader_snapshot_bounds",
@@ -187,6 +200,9 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_v2_html_semantic_lists",
             "tests.test_v2_markdown_semantic_lists",
             "tests.test_dev1_books_training_webview_atomicity",
+            "tests.test_p0f_lawful_starter_bundle",
+            "tests.test_p0f_starter_content",
+            "tests.test_p0f_starter_structured_examples",
         ):
             with self.subTest(step="books", fragment=fragment):
                 self.assertIn(fragment, books)
@@ -195,6 +211,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_d07_search_semantic_equivalence",
             "tests.test_v2_library_integrity_repair",
             "tests.test_v2_library_presentation_path_privacy",
+            "tests.test_v2_library_source_catalog",
         ):
             with self.subTest(step="library", fragment=fragment):
                 self.assertIn(fragment, library)
@@ -239,6 +256,15 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(step="accessibility", fragment=fragment):
                 self.assertIn(fragment, accessibility)
 
+        for fragment in (
+            "tests.test_stage_p0f_release_content",
+            "tests.test_release_preflight_extended_source_hygiene",
+            "tests.test_slsa_provenance",
+            "tests.test_slsa_provenance_builder_binding",
+        ):
+            with self.subTest(step="owner", fragment=fragment):
+                self.assertIn(fragment, owner)
+
     def test_successor_workflow_authorities_retrigger_whole_product_gate(self) -> None:
         for path in (
             ".github/workflows/training-snapshot-definition-identity-v4.yml",
@@ -249,6 +275,12 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             ".github/workflows/v2-windows-book-board-adapter.yml",
             ".github/workflows/version2-windows-composition.yml",
             ".github/workflows/w3-p0f-starter-books-training.yml",
+            ".github/workflows/p0f-lawful-starter-corpus.yml",
+            ".github/workflows/p0f-package-staging.yml",
+            ".github/workflows/p0f-packaged-w2-runtime-discovery.yml",
+            ".github/workflows/p0f-starter-content.yml",
+            ".github/workflows/release-preflight-extended-source-hygiene.yml",
+            ".github/workflows/slsa-provenance-v1.yml",
             ".github/workflows/current-user-library-seed.yml",
             ".github/workflows/full-product-book-command-authority.yml",
             ".github/workflows/p0-dynamic-selection-executable.yml",
