@@ -108,6 +108,55 @@ def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         return first_identity == second_identity
 
 
+def _read_stable_regular_file(
+    path: Path,
+    *,
+    label: str,
+    maximum: int,
+    changed_message: str,
+    expected_size: int | None = None,
+) -> bytes:
+    """Read one direct file while binding bytes to the opened file identity.
+
+    Path-only before/after stats are insufficient: a same-size replacement can
+    be installed just before open() and the original pathname restored
+    afterwards. Bind the opened descriptor to the pre-open lstat identity,
+    keep the read bounded to the validated size, and then prove both the open
+    descriptor and pathname still identify the same file.
+    """
+
+    before = _regular_file(path, label=label, maximum=maximum)
+    if expected_size is not None and before.st_size != expected_size:
+        raise UserLibrarySeedError(f"{label} byte size mismatch")
+    try:
+        with path.open("rb") as handle:
+            opened_before = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(opened_before.st_mode)
+                or _is_reparse(opened_before)
+                or opened_before.st_size != before.st_size
+                or not _same_file_identity(before, opened_before)
+            ):
+                raise UserLibrarySeedError(changed_message)
+            payload = handle.read(before.st_size + 1)
+            opened_after = os.fstat(handle.fileno())
+    except UserLibrarySeedError:
+        raise
+    except OSError as exc:
+        raise UserLibrarySeedError(f"{label} cannot be read") from exc
+
+    after = _regular_file(path, label=label, maximum=maximum)
+    if (
+        len(payload) != before.st_size
+        or opened_after.st_size != before.st_size
+        or after.st_size != before.st_size
+        or not _same_file_identity(opened_before, opened_after)
+        or not _same_file_identity(before, after)
+    ):
+        raise UserLibrarySeedError(changed_message)
+    return payload
+
+
 def _direct_directory(path: Path, *, label: str) -> None:
     try:
         st = path.lstat()
@@ -174,26 +223,12 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
     _direct_directory(root.parent, label="user Library seed parent directory")
     _direct_directory(root, label="user Library seed directory")
     manifest_path = root / MANIFEST_NAME
-    manifest_stat = _regular_file(
+    manifest_bytes = _read_stable_regular_file(
         manifest_path,
         label="user Library seed manifest",
         maximum=MAX_MANIFEST_BYTES,
+        changed_message="user Library seed manifest changed while reading",
     )
-    try:
-        manifest_bytes = manifest_path.read_bytes()
-    except OSError as exc:
-        raise UserLibrarySeedError("user Library seed manifest cannot be read") from exc
-    manifest_after = _regular_file(
-        manifest_path,
-        label="user Library seed manifest",
-        maximum=MAX_MANIFEST_BYTES,
-    )
-    if (
-        len(manifest_bytes) != manifest_stat.st_size
-        or manifest_after.st_size != manifest_stat.st_size
-        or not _same_file_identity(manifest_stat, manifest_after)
-    ):
-        raise UserLibrarySeedError("user Library seed manifest changed while reading")
     try:
         manifest_text = manifest_bytes.decode("utf-8-sig", errors="strict")
     except UnicodeDecodeError as exc:
@@ -257,20 +292,14 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
 
 def _verified_source_bytes(manifest: UserLibrarySeedManifest, entry: UserLibrarySeedEntry) -> bytes:
     path = manifest.root / entry.file_name
-    before = _regular_file(path, label="user Library seed PGN", maximum=MAX_SOURCE_BYTES)
-    if before.st_size != entry.size_bytes:
-        raise UserLibrarySeedError("user Library seed PGN byte size mismatch")
-    try:
-        payload = path.read_bytes()
-    except OSError as exc:
-        raise UserLibrarySeedError("user Library seed PGN cannot be read") from exc
-    after = _regular_file(path, label="user Library seed PGN", maximum=MAX_SOURCE_BYTES)
-    if (
-        after.st_size != before.st_size
-        or not _same_file_identity(before, after)
-    ):
-        raise UserLibrarySeedError("user Library seed PGN changed while reading")
-    if len(payload) != entry.size_bytes or hashlib.sha256(payload).hexdigest() != entry.sha256:
+    payload = _read_stable_regular_file(
+        path,
+        label="user Library seed PGN",
+        maximum=MAX_SOURCE_BYTES,
+        changed_message="user Library seed PGN changed while reading",
+        expected_size=entry.size_bytes,
+    )
+    if hashlib.sha256(payload).hexdigest() != entry.sha256:
         raise UserLibrarySeedError("user Library seed PGN identity mismatch")
     return payload
 
