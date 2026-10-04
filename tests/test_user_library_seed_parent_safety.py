@@ -137,21 +137,21 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
             )
             replacement_path.write_bytes(replacement_bytes)
 
-            real_read_bytes = seed_module.Path.read_bytes
+            real_open = seed_module.Path.open
             injected = False
 
-            def swap_before_read(candidate: Path) -> bytes:
+            def swap_before_open(candidate: Path, *args, **kwargs):
                 nonlocal injected
                 if candidate == manifest_path and not injected:
                     os.replace(replacement_path, manifest_path)
                     injected = True
-                return real_read_bytes(candidate)
+                return real_open(candidate, *args, **kwargs)
 
             with mock.patch.object(
                 seed_module.Path,
-                "read_bytes",
+                "open",
                 autospec=True,
-                side_effect=swap_before_read,
+                side_effect=swap_before_open,
             ):
                 with self.assertRaisesRegex(
                     UserLibrarySeedError,
@@ -164,6 +164,68 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
                 "Foreign seed",
                 json.loads(manifest_path.read_text(encoding="utf-8"))["files"][0]["display_name"],
                 "foreign replacement was not preserved after rejection",
+            )
+
+    def test_same_size_pgn_swap_before_open_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "release-content"
+            parent.mkdir()
+            root = parent / "user-library-seed"
+            self._write_seed(root)
+            loaded = load_user_library_seed(root)
+            source_path = root / "book.pgn"
+            original = source_path.read_bytes()
+            replacement_path = root / "replacement.pgn"
+            replacement = original.replace(b"e4", b"d4", 1)
+            self.assertNotEqual(original, replacement)
+            self.assertEqual(
+                len(original),
+                len(replacement),
+                "regression requires a same-size PGN replacement",
+            )
+            replacement_path.write_bytes(replacement)
+
+            real_open = seed_module.Path.open
+            injected = False
+
+            def swap_before_open(candidate: Path, *args, **kwargs):
+                nonlocal injected
+                if candidate == source_path and not injected:
+                    os.replace(replacement_path, source_path)
+                    injected = True
+                return real_open(candidate, *args, **kwargs)
+
+            with mock.patch.object(
+                seed_module.Path,
+                "open",
+                autospec=True,
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    UserLibrarySeedError,
+                    "PGN changed while reading",
+                ):
+                    seed_module._verified_source_bytes(loaded, loaded.entries[0])
+
+            self.assertTrue(injected)
+
+    def test_identity_fallback_compares_only_complete_identities(self) -> None:
+        with mock.patch.object(
+            seed_module.os.path,
+            "samestat",
+            side_effect=OSError("identity unavailable"),
+        ):
+            self.assertTrue(
+                seed_module._same_file_identity(
+                    mock.Mock(st_dev=7, st_ino=11),
+                    mock.Mock(st_dev=7, st_ino=11),
+                )
+            )
+            self.assertFalse(
+                seed_module._same_file_identity(
+                    mock.Mock(st_dev=7, st_ino=11),
+                    mock.Mock(st_dev=7, st_ino=12),
+                )
             )
 
     def test_identity_fallback_fails_closed_without_stable_fields(self) -> None:
