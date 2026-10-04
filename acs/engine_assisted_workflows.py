@@ -13,8 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .analysis_service import AnalysisLine, AnalysisResult, AnalysisService
-from .bookdocument import Exercise as BookExercise
-from .bookdocument import Position, VariationTree
+from .bookdocument import Diagram, Exercise as BookExercise, Position, VariationTree
 from .engine_ports import EngineContractError, EngineContractErrorCode
 from .training import ExerciseSession
 
@@ -259,11 +258,15 @@ class EngineAssistedWorkflowService:
     def book_block_fen(block: object) -> str:
         """Return only an explicit semantic FEN; never derive chess state."""
 
-        if isinstance(block, Position):
+        # Canonical Book semantic blocks are mutable DTOs but their concrete
+        # roots are closed-world. Reject subclasses before reading FEN fields so
+        # provider-defined attribute hooks cannot become a second analysis input
+        # authority above BookDocument/BookReader validation.
+        if type(block) in (Position, Diagram):
             return _request_fen(block.fen)
-        if isinstance(block, VariationTree):
+        if type(block) is VariationTree:
             return _request_fen(block.root_fen)
-        if isinstance(block, BookExercise):
+        if type(block) is BookExercise:
             return _request_fen(block.fen)
         raise EngineContractError(
             "book block does not carry an explicit analyzable FEN",
