@@ -667,6 +667,47 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         )
         self.assertEqual(self.app.reader.snapshot(), canonical.snapshot())
 
+    def test_open_book_durability_unknown_without_canonical_candidate_rolls_back(self):
+        original = self.root / "original-missing-canonical.md"
+        original.write_text("# Original\n\nStable owner.\n", encoding="utf-8")
+        self.app.open_book(original)
+        previous_reader = self.app.reader
+        previous_books = self.app.books
+        previous_workflow = self.app.book_workflow
+        previous_key = self.app.book_key
+        self.app.browser_command("shell", "screen.library")
+        origin_route = self.app.shell.current_route.route_id
+
+        candidate = self.root / "candidate-missing-canonical.md"
+        candidate.write_text("# Candidate\n\nNever published.\n", encoding="utf-8")
+        real_save = self.app.progress_store.save
+
+        def reject_candidate_as_unknown(book_key, reader):
+            if book_key == previous_key:
+                return real_save(book_key, reader)
+            raise BookProgressStoreError(
+                "synthetic ambiguity without canonical publication",
+                code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+            )
+
+        with patch.object(
+            self.app.progress_store,
+            "save",
+            side_effect=reject_candidate_as_unknown,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.app.open_book(candidate)
+
+        self.assertEqual(
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+            caught.exception.code,
+        )
+        self.assertIs(previous_reader, self.app.reader)
+        self.assertIs(previous_books, self.app.books)
+        self.assertIs(previous_workflow, self.app.book_workflow)
+        self.assertEqual(previous_key, self.app.book_key)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+
     def test_training_route_rejection_discards_staged_training_owner(self):
         reader = self._install_training_exercise()
         origin_route = self.app.shell.current_route.route_id
