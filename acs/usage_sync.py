@@ -7,6 +7,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Iterator, Mapping, Protocol, Sequence
@@ -90,6 +91,18 @@ def _decode_stored_counters(value: object) -> Mapping[str, object]:
     if not isinstance(decoded, Mapping):
         raise ValueError("stored aggregate counters must be an object")
     return decoded
+
+
+def _snapshot_acknowledgements(value: object, *, max_count: int) -> tuple[str, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError("sync adapter acknowledgements must be a sequence of event IDs")
+    try:
+        raw_values = tuple(islice(iter(value), max_count + 1))
+    except Exception:
+        raise ValueError("sync adapter acknowledgements could not be read") from None
+    if len(raw_values) > max_count:
+        raise ValueError("sync adapter acknowledged an event outside this batch")
+    return tuple(_normalize_event_id(item) for item in raw_values)
 
 
 @dataclass(frozen=True)
@@ -433,11 +446,10 @@ class UsageEventQueue:
             raw_acknowledged = port.sync_events(events)
         except Exception:
             raise RuntimeError("aggregate usage sync provider failed") from None
-        if isinstance(raw_acknowledged, (str, bytes)) or not isinstance(raw_acknowledged, Sequence):
-            raise ValueError("sync adapter acknowledgements must be a sequence of event IDs")
-        if len(raw_acknowledged) > len(events):
-            raise ValueError("sync adapter acknowledged an event outside this batch")
-        acknowledged = tuple(_normalize_event_id(value) for value in raw_acknowledged)
+        acknowledged = _snapshot_acknowledgements(
+            raw_acknowledged,
+            max_count=len(events),
+        )
         batch_by_id = {event.event_id: event for event in events}
         if len(set(acknowledged)) != len(acknowledged):
             raise ValueError("sync adapter returned duplicate acknowledgements")
