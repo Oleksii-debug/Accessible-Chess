@@ -379,6 +379,64 @@ class PortableTreeTests(unittest.TestCase):
 
             self.assertTrue(injected)
 
+    def test_launcher_pe_semantics_are_bound_to_checksum_bytes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            launcher = root / "AccessibleChess.exe"
+            original = launcher.read_bytes()
+            replacement = b"NZ" + original[2:]
+            self.assertEqual(len(original), len(replacement))
+
+            replacement_digest = hashlib.sha256(replacement).hexdigest()
+            checksum_path = root / CHECKSUMS_NAME
+            lines = checksum_path.read_text(encoding="utf-8").splitlines()
+            rewritten = []
+            replaced = False
+            for line in lines:
+                if line.endswith("  AccessibleChess.exe"):
+                    rewritten.append(
+                        f"{replacement_digest}  AccessibleChess.exe"
+                    )
+                    replaced = True
+                else:
+                    rewritten.append(line)
+            self.assertTrue(replaced)
+            checksum_path.write_text(
+                "\n".join(rewritten) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+
+            real_launcher_identity = portable_module._launcher_identity
+            injected = False
+
+            def identify_then_mutate(path: Path):
+                nonlocal injected
+                identity_digest = real_launcher_identity(path)
+                if path == launcher and not injected:
+                    launcher.write_bytes(replacement)
+                    injected = True
+                return identity_digest
+
+            with mock.patch.object(
+                portable_module,
+                "_launcher_identity",
+                side_effect=identify_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable launcher identity is not bound to checksum inventory",
+                ):
+                    validate_portable_oneclick_tree(
+                        root,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertEqual(launcher.read_bytes(), replacement)
+
     def test_accepts_exact_oneclick_topology_without_prebundled_user_state(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
