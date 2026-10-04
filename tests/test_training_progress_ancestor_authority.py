@@ -109,6 +109,41 @@ class TrainingProgressAncestorAuthorityTests(unittest.TestCase):
 
             self.assertFalse((ancestor / "nested").exists())
 
+    def test_existing_ancestor_identity_swap_during_first_save_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ancestor = root / "configured"
+            replacement = root / "replacement"
+            ancestor.mkdir()
+            replacement.mkdir()
+            store = TrainingProgressStore(
+                ancestor / "nested" / "training-progress.json"
+            )
+            real_lstat = os.lstat
+            replacement_metadata = real_lstat(replacement)
+            ancestor_checks = 0
+
+            def racing_lstat(candidate):
+                nonlocal ancestor_checks
+                if Path(candidate) == ancestor:
+                    ancestor_checks += 1
+                    if ancestor_checks >= 2:
+                        return replacement_metadata
+                return real_lstat(candidate)
+
+            with mock.patch(
+                "acs.training_progress_store.os.lstat",
+                side_effect=racing_lstat,
+            ):
+                with self.assertRaisesRegex(ValueError, "changed during the transaction"):
+                    store.save(
+                        ExerciseSession(self._definition()),
+                        expected_revision=None,
+                    )
+
+            self.assertGreaterEqual(ancestor_checks, 2)
+            self.assertFalse(store.path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
