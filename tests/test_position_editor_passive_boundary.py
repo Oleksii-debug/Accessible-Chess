@@ -77,6 +77,35 @@ class PositionEditorPassiveBoundaryTests(unittest.TestCase):
         with self.assertRaises(PositionValidationError):
             standard_position().with_castling(PassiveText("KQ"))
 
+    def test_rejected_piece_and_square_values_do_not_execute_repr(self) -> None:
+        class HostileValue:
+            touched = False
+
+            def __repr__(self):
+                type(self).touched = True
+                raise AssertionError("hostile repr hook must not execute")
+
+        position = standard_position()
+        hostile = HostileValue()
+
+        with self.assertRaisesRegex(PositionValidationError, "invalid piece symbol"):
+            position.with_piece("a1", hostile)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(PositionValidationError, "invalid square"):
+            position.piece_at(hostile)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(PositionValidationError, "invalid square"):
+            position.with_piece(hostile, "Q")  # type: ignore[arg-type]
+
+        self.assertFalse(HostileValue.touched)
+
+    def test_oversized_integer_square_stays_in_position_error_domain(self) -> None:
+        position = standard_position()
+        oversized = 10 ** 5000
+
+        with self.assertRaisesRegex(PositionValidationError, "invalid square"):
+            position.piece_at(oversized)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(PositionValidationError, "invalid square"):
+            position.with_piece(oversized, "Q")  # type: ignore[arg-type]
+
     def test_exact_builtin_fen_and_castling_inputs_keep_existing_semantics(self) -> None:
         fen = "8/8/8/8/8/8/8/K6k b - - 7 42"
         position = PositionState.from_fen(fen)
