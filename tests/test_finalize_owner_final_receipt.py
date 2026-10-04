@@ -1,0 +1,259 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+from scripts.build_user_sound_pack import EXPECTED_SOURCE_INVENTORY_SHA256
+from scripts.finalize_owner_final_receipt import (
+    OwnerFinalReceiptError,
+    finalize_owner_final_receipt,
+    main,
+)
+
+
+PRODUCT_SHA = "a" * 40
+W4_SHA = "b" * 64
+SEED_SHA = "c" * 64
+FIRST_DOC_SHA = "d" * 64
+SECOND_DOC_SHA = "e" * 64
+SOUND_SHA = "f" * 64
+PACKAGE_SHA = "1" * 64
+
+
+def _receipt(final_zip: Path, **overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "package_root": "owner-oneclick",
+        "archive_path": str(final_zip),
+        "archive_sha256": hashlib.sha256(final_zip.read_bytes()).hexdigest(),
+        "integration_sha": PRODUCT_SHA,
+        "document_sha256": [FIRST_DOC_SHA, SECOND_DOC_SHA],
+        "sound_archive_sha256": SOUND_SHA,
+        "sound_inventory_sha256": EXPECTED_SOURCE_INVENTORY_SHA256,
+        "package_checksum_sha256": PACKAGE_SHA,
+        "sound_wav_count": 330,
+        "seed_source_count": 6,
+        "seed_game_count": 3738,
+        "human_tested": False,
+        "nvda_verified": False,
+        "result": "PASS",
+    }
+    value.update(overrides)
+    return value
+
+
+def _finalize(receipt: Path, final_zip: Path, **overrides: object) -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "expected_product_sha": PRODUCT_SHA,
+        "expected_w4_candidate_sha256": W4_SHA,
+        "expected_seed_archive_sha256": SEED_SHA,
+        "expected_document_sha256": (FIRST_DOC_SHA, SECOND_DOC_SHA),
+        "expected_sound_archive_sha256": SOUND_SHA,
+        "source_w4_run_id": 37174317097,
+        "source_w4_run_attempt": 2,
+        "source_w4_workflow_id": 123456789,
+        "source_w4_workflow_sha": PRODUCT_SHA,
+        "finalizer_run_id": 37180000000,
+        "finalizer_run_attempt": 1,
+    }
+    kwargs.update(overrides)
+    return finalize_owner_final_receipt(receipt, final_zip, **kwargs)
+
+
+class OwnerFinalReceiptTests(unittest.TestCase):
+    def test_finalizes_exact_machine_provenance_deterministically(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "Accessible-Chess-ONECLICK-OWNER-FINAL.zip"
+            final_zip.write_bytes(b"owner-final-zip-bytes")
+            receipt = root / "owner-final-receipt.json"
+            receipt.write_text(
+                json.dumps(_receipt(final_zip), sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            value = _finalize(receipt, final_zip)
+
+            self.assertEqual(value["receipt_schema_version"], 1)
+            self.assertEqual(value["finalizer_product_sha"], PRODUCT_SHA)
+            self.assertEqual(value["finalizer_workflow_sha"], PRODUCT_SHA)
+            self.assertEqual(value["source_w4_product_sha"], PRODUCT_SHA)
+            self.assertEqual(value["source_w4_workflow_sha"], PRODUCT_SHA)
+            self.assertEqual(value["source_w4_run_id"], 37174317097)
+            self.assertEqual(value["source_w4_run_attempt"], 2)
+            self.assertEqual(value["source_w4_workflow_id"], 123456789)
+            self.assertEqual(value["source_w4_candidate_sha256"], W4_SHA)
+            self.assertEqual(value["owner_seed_archive_sha256"], SEED_SHA)
+            self.assertIs(value["machine_root_launch_verified"], True)
+            self.assertIs(value["pre_upload_release_freshness"], True)
+            self.assertIs(value["human_tested"], False)
+            self.assertIs(value["nvda_verified"], False)
+            raw_receipt = receipt.read_text(encoding="utf-8")
+            self.assertEqual(
+                raw_receipt,
+                json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+            )
+
+    def test_cli_finalizes_exact_receipt_and_reports_success(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "Accessible-Chess-ONECLICK-OWNER-FINAL.zip"
+            final_zip.write_bytes(b"owner-final-cli-zip")
+            receipt = root / "owner-final-receipt.json"
+            receipt.write_text(
+                json.dumps(_receipt(final_zip), sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            result = main(
+                [
+                    "--receipt",
+                    str(receipt),
+                    "--final-zip",
+                    str(final_zip),
+                    "--product-sha",
+                    PRODUCT_SHA,
+                    "--w4-candidate-sha256",
+                    W4_SHA,
+                    "--seed-archive-sha256",
+                    SEED_SHA,
+                    "--first-docx-sha256",
+                    FIRST_DOC_SHA,
+                    "--second-docx-sha256",
+                    SECOND_DOC_SHA,
+                    "--sound-archive-sha256",
+                    SOUND_SHA,
+                    "--w4-run-id",
+                    "37174317097",
+                    "--w4-run-attempt",
+                    "2",
+                    "--w4-workflow-id",
+                    "123456789",
+                    "--w4-workflow-sha",
+                    PRODUCT_SHA,
+                    "--finalizer-run-id",
+                    "37180000000",
+                    "--finalizer-run-attempt",
+                    "1",
+                ]
+            )
+            self.assertEqual(result, 0)
+            value = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertEqual(value["source_w4_run_id"], 37174317097)
+            self.assertIs(value["machine_root_launch_verified"], True)
+
+    def test_rejects_duplicate_builder_receipt_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            value = _receipt(final_zip)
+            receipt = root / "receipt.json"
+            serialized = json.dumps(value, sort_keys=True)
+            receipt.write_text(
+                serialized[:-1] + ',"result":"PASS"}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(OwnerFinalReceiptError, "duplicate keys"):
+                _finalize(receipt, final_zip)
+
+    def test_rejects_boolean_counts_and_acceptance_overclaim(self) -> None:
+        cases = (
+            ({"sound_wav_count": True}, "content counts"),
+            ({"seed_source_count": True}, "content counts"),
+            ({"seed_game_count": True}, "content counts"),
+            ({"human_tested": True}, "machine acceptance"),
+            ({"nvda_verified": True}, "machine acceptance"),
+        )
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                final_zip = root / "final.zip"
+                final_zip.write_bytes(b"zip")
+                receipt = root / "receipt.json"
+                receipt.write_text(
+                    json.dumps(_receipt(final_zip, **overrides)),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(OwnerFinalReceiptError, message):
+                    _finalize(receipt, final_zip)
+
+    def test_rejects_wrong_archive_document_sound_or_product_identity(self) -> None:
+        cases = (
+            ({"package_root": "other-root"}, {}, "package root"),
+            ({"archive_path": "other.zip"}, {}, "archive path"),
+            ({"archive_sha256": "9" * 64}, {}, "does not match"),
+            ({"document_sha256": [FIRST_DOC_SHA, "9" * 64]}, {}, "document"),
+            ({"sound_archive_sha256": "9" * 64}, {}, "sound archive"),
+            ({"integration_sha": "9" * 40}, {}, "product SHA mismatch"),
+            (
+                {"sound_inventory_sha256": "9" * 64},
+                {},
+                "sound inventory",
+            ),
+            (
+                {},
+                {"source_w4_workflow_sha": "9" * 40},
+                "not the exact owner release",
+            ),
+        )
+        for receipt_overrides, finalize_overrides, message in cases:
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                final_zip = root / "final.zip"
+                final_zip.write_bytes(b"zip")
+                receipt = root / "receipt.json"
+                receipt.write_text(
+                    json.dumps(_receipt(final_zip, **receipt_overrides)),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(OwnerFinalReceiptError, message):
+                    _finalize(receipt, final_zip, **finalize_overrides)
+
+    def test_rejects_noncanonical_or_boolean_provenance_inputs(self) -> None:
+        cases = (
+            ({"expected_w4_candidate_sha256": W4_SHA.upper()}, "W4 candidate"),
+            ({"source_w4_run_id": True}, "W4 run id"),
+            ({"source_w4_run_attempt": 0}, "W4 run attempt"),
+            ({"source_w4_workflow_id": False}, "W4 workflow id"),
+            ({"finalizer_run_id": 0}, "finalizer run id"),
+            ({"finalizer_run_attempt": True}, "finalizer run attempt"),
+        )
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                final_zip = root / "final.zip"
+                final_zip.write_bytes(b"zip")
+                receipt = root / "receipt.json"
+                receipt.write_text(json.dumps(_receipt(final_zip)), encoding="utf-8")
+                with self.assertRaisesRegex(OwnerFinalReceiptError, message):
+                    _finalize(receipt, final_zip, **overrides)
+
+    def test_publication_failure_keeps_original_receipt_and_cleans_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            original = json.dumps(_receipt(final_zip), sort_keys=True) + "\n"
+            receipt.write_text(original, encoding="utf-8")
+
+            with mock.patch.object(os, "replace", side_effect=OSError("blocked")):
+                with self.assertRaisesRegex(OwnerFinalReceiptError, "could not be published"):
+                    _finalize(receipt, final_zip)
+
+            self.assertEqual(receipt.read_text(encoding="utf-8"), original)
+            self.assertFalse((root / ".receipt.json.publish.tmp").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -9,6 +9,7 @@ on:
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/build_user_sound_pack.py'
       - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'scripts/finalize_owner_final_receipt.py'
       - 'acs/user_library_seed.py'
       - 'acs/version2_package_preflight.py'
       - 'acs/version2_portable_package.py'
@@ -16,6 +17,7 @@ on:
       - 'tests/test_owner_portable_candidate.py'
       - 'tests/test_materialize_owner_library_seed.py'
       - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_finalize_owner_final_receipt.py'
       - 'tests/test_user_library_seed.py'
       - 'tests/test_version2_portable_package.py'
       - 'tests/test_user_sound_pack_builder.py'
@@ -30,6 +32,7 @@ on:
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/build_user_sound_pack.py'
       - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'scripts/finalize_owner_final_receipt.py'
       - 'acs/user_library_seed.py'
       - 'acs/version2_package_preflight.py'
       - 'acs/version2_portable_package.py'
@@ -37,6 +40,7 @@ on:
       - 'tests/test_owner_portable_candidate.py'
       - 'tests/test_materialize_owner_library_seed.py'
       - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_finalize_owner_final_receipt.py'
       - 'tests/test_user_library_seed.py'
       - 'tests/test_version2_portable_package.py'
       - 'tests/test_owner_docx_win32_portability.py'
@@ -78,6 +82,7 @@ jobs:
           scripts/materialize_owner_library_seed.py
           scripts/build_user_sound_pack.py
           scripts/verify_owner_w4_run_provenance.py
+          scripts/finalize_owner_final_receipt.py
           acs/user_library_seed.py
           acs/version2_package_preflight.py
           acs/version2_portable_package.py
@@ -85,6 +90,7 @@ jobs:
           tests/test_owner_docx_win32_portability.py
           tests/test_user_sound_pack_builder.py
           tests/test_verify_owner_w4_run_provenance.py
+          tests/test_finalize_owner_final_receipt.py
           tests/test_user_library_seed.py
           tests/test_version2_portable_package.py
 
@@ -96,6 +102,7 @@ jobs:
           tests.test_materialize_owner_library_seed
           tests.test_owner_portable_candidate
           tests.test_verify_owner_w4_run_provenance
+          tests.test_finalize_owner_final_receipt
           tests.test_user_library_seed
           tests.test_user_sound_pack_builder
           tests.test_version2_portable_package
@@ -115,6 +122,8 @@ jobs:
           assert 'expected_game_count=3738' in workflow
           assert 'sound_wav_count' in workflow
           assert 'from scripts.build_owner_portable_candidate import _owner_docx_filename' in workflow
+          assert 'python -m scripts.finalize_owner_final_receipt' in workflow
+          assert 'OWNER_FINAL_RECEIPT_PROVENANCE_BOUND=PASS' in workflow
           assert '_portable_docx_name' not in workflow
           print('OWNER_FINALIZER_CONTRACT_HYGIENE=PASS')
           PY

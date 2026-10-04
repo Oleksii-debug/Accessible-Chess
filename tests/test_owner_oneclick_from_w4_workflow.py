@@ -186,6 +186,38 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertNotIn("$root=(Resolve-Path 'owner-oneclick').Path", self.text)
         self.assertNotIn("owner-oneclick/launch-report.txt", self.text)
 
+    def test_final_receipt_binds_authenticated_provenance_after_machine_smoke_and_freshness(self) -> None:
+        launch = self.text.index("Fresh-extract and launch exact final ZIP bytes")
+        freshness = self.text.index("Recheck live release apex immediately before publication")
+        finalize = self.text.index("Finalize exact owner receipt provenance")
+        zip_recheck = self.text.index("Recheck final ZIP bytes immediately before artifact upload")
+        upload = self.text.index("Upload exact owner one-click candidate and receipt")
+        self.assertLess(launch, freshness)
+        self.assertLess(freshness, finalize)
+        self.assertLess(finalize, zip_recheck)
+        self.assertLess(zip_recheck, upload)
+
+        for token in (
+            "python -m scripts.finalize_owner_final_receipt",
+            "--receipt owner-final-receipt.json",
+            "--final-zip Accessible-Chess-ONECLICK-OWNER-FINAL.zip",
+            "--product-sha $env:EXACT_PRODUCT_SHA",
+            "--w4-candidate-sha256 $env:W4_CANDIDATE_SHA_INPUT",
+            "--seed-archive-sha256 $env:OWNER_SEED_SHA_INPUT",
+            "--w4-run-id $env:W4_RUN_ID",
+            "${{ steps.w4_run_provenance.outputs.run_attempt }}",
+            "${{ steps.w4_run_provenance.outputs.workflow_id }}",
+            "${{ github.run_id }}",
+            "${{ github.run_attempt }}",
+            "--w4-workflow-sha $env:W4_RUN_WORKFLOW_SHA",
+            "OWNER_FINAL_RECEIPT_PROVENANCE_BOUND=PASS",
+            "OWNER_FINAL_RECEIPT_MACHINE_LAUNCH_MISSING",
+            "OWNER_FINAL_RECEIPT_FRESHNESS_MISSING",
+            "OWNER_FINAL_RECEIPT_OVERCLAIMS_ACCEPTANCE",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.text)
+
     def test_final_outer_package_uses_canonical_owner_gate(self) -> None:
         self.assertIn("scripts/build_owner_portable_candidate.py", self.text)
         self.assertIn("--seed-source-count 6", self.text)
