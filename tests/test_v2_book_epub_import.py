@@ -320,6 +320,51 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_spine_rejects_duplicate_manifest_reference(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='''    <itemref idref="c1"/>
+    <itemref idref="c1"/>''',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Must not be duplicated.</p></body></html>"
+                )
+            },
+        )
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="duplicate-spine-reference.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_spine_requires_at_least_one_linear_item(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="a" href="Text/a.xhtml" media-type="application/xhtml+xml"/>
+    <item id="b" href="Text/b.xhtml" media-type="application/xhtml+xml"/>''',
+                spine='''    <itemref idref="a" linear="no"/>
+    <itemref idref="b" linear="no"/>''',
+            ),
+            entries={
+                "OEBPS/Text/a.xhtml": b"<html><body><p>Aux A.</p></body></html>",
+                "OEBPS/Text/b.xhtml": b"<html><body><p>Aux B.</p></body></html>",
+            },
+        )
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="all-nonlinear.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     def test_spine_linear_yes_is_explicitly_accepted(self) -> None:
         raw = _epub(
             opf=_opf(
