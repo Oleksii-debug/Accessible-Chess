@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from acs.usage_statistics import (
     AggregateUsageStatistics,
@@ -53,7 +56,73 @@ class UsageStatisticsTests(unittest.TestCase):
             other = store.load("install-2")
             self.assertEqual(other.installation_id, "install-2")
             self.assertTrue(store.recovered_invalid_data)
-            self.assertFalse(path.with_name(path.name + ".tmp").exists())
+
+    def test_partial_snapshot_recovers_fail_closed_instead_of_zero_filling_missing_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "installation_id": "install-1",
+                        "sessions_started": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = UsageStatisticsStore(path)
+            recovered = store.load("install-1")
+            self.assertEqual(recovered, UsageStatisticsSnapshot("install-1"))
+            self.assertTrue(store.recovered_invalid_data)
+
+    def test_concurrent_saves_use_independent_atomic_temp_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "stats.json"
+            store = UsageStatisticsStore(path)
+            first = UsageStatisticsSnapshot("install-1", sessions_started=1)
+            second = UsageStatisticsSnapshot("install-1", sessions_started=2)
+            real_replace = os.replace
+            first_replace_entered = threading.Event()
+            release_first_replace = threading.Event()
+            count_lock = threading.Lock()
+            replace_count = 0
+            errors: list[BaseException] = []
+
+            def controlled_replace(source: object, target: object) -> None:
+                nonlocal replace_count
+                with count_lock:
+                    replace_count += 1
+                    current = replace_count
+                if current == 1:
+                    first_replace_entered.set()
+                    if not release_first_replace.wait(5):
+                        raise TimeoutError("timed out waiting to release first statistics publication")
+                real_replace(source, target)
+
+            def save(snapshot: UsageStatisticsSnapshot) -> None:
+                try:
+                    store.save(snapshot)
+                except BaseException as exc:  # preserve exact cross-thread failure for assertion
+                    errors.append(exc)
+
+            with patch("acs.usage_statistics.os.replace", side_effect=controlled_replace):
+                first_thread = threading.Thread(target=save, args=(first,))
+                first_thread.start()
+                self.assertTrue(first_replace_entered.wait(5))
+
+                second_thread = threading.Thread(target=save, args=(second,))
+                second_thread.start()
+                second_thread.join(5)
+                self.assertFalse(second_thread.is_alive())
+
+                release_first_replace.set()
+                first_thread.join(5)
+                self.assertFalse(first_thread.is_alive())
+
+            self.assertEqual(errors, [])
+            self.assertEqual(replace_count, 2)
+            self.assertEqual(store.load("install-1"), first)
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
 
     def test_corrupt_or_unknown_local_payload_recovers_without_content_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
