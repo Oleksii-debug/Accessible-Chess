@@ -1215,6 +1215,91 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_missing_primary_recovery_rejects_same_bytes_backup_inode_replacement_before_publish(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:explicit-backup-inode", reader)
+        reader.go_to(3)
+        self.store.save("book:explicit-backup-inode", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        backup_revision = self.store.validated_backup_revision(
+            "book:explicit-backup-inode",
+            self.original_document(),
+        )
+        self.path.unlink()
+        real_publish = self.store._atomic_publish_bytes_unlocked
+        injected = False
+
+        def publish_after_same_bytes_backup_replacement(target, encoded, **kwargs):
+            nonlocal injected
+            if Path(target) == self.path and not injected:
+                replacement = self.store.backup_path.with_name(
+                    "same-byte-explicit-recovery-backup-replacement.json"
+                )
+                replacement.write_bytes(backup_bytes)
+                os.replace(replacement, self.store.backup_path)
+                injected = True
+            return real_publish(target, encoded, **kwargs)
+
+        with mock.patch.object(
+            self.store,
+            "_atomic_publish_bytes_unlocked",
+            side_effect=publish_after_same_bytes_backup_replacement,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.recover_from_backup(
+                    expected_backup_revision=backup_revision,
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_corrupt_primary_recovery_rejects_same_bytes_primary_inode_replacement_before_publish(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:explicit-primary-inode", reader)
+        reader.go_to(3)
+        self.store.save("book:explicit-primary-inode", reader)
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        self.path.write_bytes(corrupt_primary)
+        backup_bytes = self.store.backup_path.read_bytes()
+        backup_revision = self.store.validated_backup_revision(
+            "book:explicit-primary-inode",
+            self.original_document(),
+        )
+        real_publish = self.store._atomic_publish_bytes_unlocked
+        injected = False
+
+        def publish_after_same_bytes_primary_replacement(target, encoded, **kwargs):
+            nonlocal injected
+            if Path(target) == self.path and not injected:
+                replacement = self.path.with_name(
+                    "same-byte-explicit-recovery-primary-replacement.json"
+                )
+                replacement.write_bytes(corrupt_primary)
+                os.replace(replacement, self.path)
+                injected = True
+            return real_publish(target, encoded, **kwargs)
+
+        with mock.patch.object(
+            self.store,
+            "_atomic_publish_bytes_unlocked",
+            side_effect=publish_after_same_bytes_primary_replacement,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.recover_from_backup(
+                    expected_backup_revision=backup_revision,
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), corrupt_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
     def test_remove_does_not_report_missing_when_orphan_backup_contains_book(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
