@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import acs.book_training as book_training
 from acs.book_training import (
@@ -195,6 +196,37 @@ class BookTrainingPassiveRootsTests(unittest.TestCase):
 
         self.assertFalse(HostilePayload.touched)
 
+    def test_current_material_uses_indexed_document_and_rechecks_live_revision(self) -> None:
+        book = self._book()
+        reader = BookReader(book)
+        real_build = book_training.build_book_training_material
+
+        class HostileBlocks(list):
+            armed = False
+            touched = False
+
+            def __iter__(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("live Book blocks hook must not execute")
+                return super().__iter__()
+
+        def mutate_live_then_build(document, target):
+            self.assertIsNot(document, book)
+            hostile = HostileBlocks(book.blocks)
+            book.blocks = hostile
+            HostileBlocks.armed = True
+            return real_build(document, target)
+
+        with patch.object(
+            book_training,
+            "build_book_training_material",
+            side_effect=mutate_live_then_build,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+                build_current_book_training_material(reader)
+
+        self.assertFalse(HostileBlocks.touched)
     def test_exact_book_training_provenance_round_trip_is_unchanged(self) -> None:
         book = self._book()
         material = build_book_training_material(book, "block:exercise")

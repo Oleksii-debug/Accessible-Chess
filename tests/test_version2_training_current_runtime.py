@@ -10,6 +10,7 @@ from acs.bookreader import BookReader
 from acs.full_product_ui_shell import UILanguage
 from acs.training_progress_store import TrainingProgressConflictError
 from acs.version2_profile import VERSION2_ROUTE_IDS, build_version2_action_registry
+import acs.version2_training_workspace as training_workspace_module
 from acs.version2_training_workspace import Version2BookTrainingWorkspace
 
 
@@ -184,6 +185,44 @@ class Version2TrainingCurrentRuntimeTests(unittest.TestCase):
             }
             self.assertFalse(finished_actions["training.continue"]["enabled"])
 
+    def test_next_exercise_scan_never_traverses_live_blocks_after_indexed_snapshot(self) -> None:
+        document = make_book()
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="accessible-chess-v2-training-indexed-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            workspace.start_current()
+            real_resolve = training_workspace_module.resolve_book_training_origin
+
+            class HostileBlocks(list):
+                armed = False
+                touched = False
+
+                def __iter__(self):
+                    if type(self).armed:
+                        type(self).touched = True
+                        raise AssertionError("live Training scan must not iterate authoring blocks")
+                    return super().__iter__()
+
+            def mutate_live_then_resolve(indexed_document, origin):
+                self.assertIsNot(indexed_document, document)
+                hostile = HostileBlocks(document.blocks)
+                document.blocks = hostile
+                HostileBlocks.armed = True
+                return real_resolve(indexed_document, origin)
+
+            with patch.object(
+                training_workspace_module,
+                "resolve_book_training_origin",
+                side_effect=mutate_live_then_resolve,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+                    workspace._next_exercise_material()
+
+            self.assertFalse(HostileBlocks.touched)
     def test_stale_persistence_conflict_rolls_back_in_memory_session(self) -> None:
         document = make_book()
         first_reader = BookReader(document)
