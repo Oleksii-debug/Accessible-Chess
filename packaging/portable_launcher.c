@@ -6,8 +6,8 @@
  *
  * Runtime contract:
  * - this executable lives at the extracted package root;
- * - the real product executable lives at App\\AccessibleChess.exe;
- * - LOCALAPPDATA is redirected to package-root\\data for the child only;
+ * - the real product executable lives at App\AccessibleChess.exe;
+ * - LOCALAPPDATA is redirected to package-root\data for the child only;
  * - launch-report.txt is created beside this executable for blind-user support;
  * - no shell, PowerShell, Python or installer is required at runtime.
  *
@@ -223,23 +223,53 @@ static BOOL ac_direct_file(const WCHAR *path) {
 
 static HANDLE ac_open_report(void) {
     HANDLE handle;
+    FILE_ATTRIBUTE_TAG_INFO tag_info;
+    LARGE_INTEGER zero;
     DWORD written = 0;
     DWORD attempt;
     DWORD error = ERROR_SUCCESS;
     static const BYTE bom[3] = {0xEF, 0xBB, 0xBF};
 
+    zero.QuadPart = 0;
     for (attempt = 0; attempt <= AC_REPORT_RETRY_COUNT; ++attempt) {
         handle = CreateFileW(
             g_report_path,
             GENERIC_WRITE,
             FILE_SHARE_READ,
             NULL,
-            CREATE_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
             NULL
         );
         if (handle != INVALID_HANDLE_VALUE) {
-            WriteFile(handle, bom, 3, &written, NULL);
+            if (!GetFileInformationByHandleEx(
+                    handle,
+                    FileAttributeTagInfo,
+                    &tag_info,
+                    sizeof(tag_info))) {
+                error = GetLastError();
+                CloseHandle(handle);
+                SetLastError(error);
+                return INVALID_HANDLE_VALUE;
+            }
+            if ((tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                CloseHandle(handle);
+                SetLastError(ERROR_CANT_ACCESS_FILE);
+                return INVALID_HANDLE_VALUE;
+            }
+            if (!SetFilePointerEx(handle, zero, NULL, FILE_BEGIN) || !SetEndOfFile(handle)) {
+                error = GetLastError();
+                CloseHandle(handle);
+                SetLastError(error);
+                return INVALID_HANDLE_VALUE;
+            }
+            if (!WriteFile(handle, bom, 3, &written, NULL) || written != 3) {
+                error = GetLastError();
+                if (error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;
+                CloseHandle(handle);
+                SetLastError(error);
+                return INVALID_HANDLE_VALUE;
+            }
             return handle;
         }
         error = GetLastError();
