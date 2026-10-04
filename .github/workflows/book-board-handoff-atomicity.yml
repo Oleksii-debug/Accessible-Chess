@@ -1,0 +1,102 @@
+name: Book Board Handoff Atomicity
+
+on:
+  push:
+    branches:
+      - fix/book-board-returnpoint-dispatch-atomicity-20261004-ooxple7
+  pull_request:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - 'acs/bookreader.py'
+      - 'acs/full_product_presenters.py'
+      - 'tests/test_bookreader.py'
+      - 'tests/test_book_bidirectional_semantic_navigation.py'
+      - 'tests/test_version2_application.py'
+      - '.github/workflows/book-board-handoff-atomicity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-board-handoff-atomicity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and focused scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          base='cd7656ddf19e528b445f5e21de6cf14912677b9a'
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/book-board-handoff-atomicity.yml' \
+            'acs/bookreader.py' \
+            'acs/full_product_presenters.py' \
+            'tests/test_book_bidirectional_semantic_navigation.py' \
+            'tests/test_bookreader.py' \
+            'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+          echo 'BOOK_BOARD_HANDOFF_SCOPE=PASS'
+
+      - name: Compile affected Python
+        run: >-
+          python -m py_compile
+          acs/bookreader.py
+          acs/full_product_presenters.py
+          tests/test_bookreader.py
+          tests/test_book_bidirectional_semantic_navigation.py
+          tests/test_version2_application.py
+
+      - name: Run BookReader transaction regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader
+          tests.test_book_bidirectional_semantic_navigation
+
+      - name: Run current V2 Book handoff regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_v2_book_training_route_rollback
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_version2_application
+
+      - name: Run Books Training semantic host boundaries
+        run: >-
+          python -m unittest -v
+          tests.test_books_semantic_host_bounds
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_atomicity
+
+      - name: Core selftest
+        run: python -m acs.selftest
