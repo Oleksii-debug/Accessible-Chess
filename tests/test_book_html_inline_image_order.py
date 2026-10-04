@@ -478,5 +478,44 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertTrue(games[1].block_id.endswith("-2"))
 
 
+    def test_invalid_explicit_pgn_drops_internal_slot_and_preserves_following_readable_text(self) -> None:
+        source = """<html><body><pre>{PGN 1}
+[Event "Broken"]
+[White "White"]
+[Black "Black"]
+[Result "*"]
+
+1. e4 e5 2. ThisIsNotAMove *</pre><p>Readable after broken game.</p></body></html>"""
+        result = import_html_book(source, source_name="invalid-pgn-slot.html")
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(any(isinstance(block, Game) for block in result.document.blocks))
+        self.assertEqual(
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+            ["Readable after broken game."],
+        )
+        self.assertTrue(
+            any(
+                "could not be represented canonically" in warning
+                or "did not resolve to exactly one canonical game" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_unmarked_pgn_remains_readable_prose_and_never_creates_source_slot(self) -> None:
+        source = (
+            "<html><body><pre>" + _PGN + "</pre><p>After prose.</p></body></html>"
+        )
+        result = import_html_book(source, source_name="unmarked-pgn-slot.html")
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertFalse(any(isinstance(block, Game) for block in result.document.blocks))
+        paragraphs = [
+            block.text for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertTrue(any('[Event "Source order"]' in text for text in paragraphs))
+        self.assertEqual(paragraphs[-1], "After prose.")
+
+
 if __name__ == "__main__":
     unittest.main()
