@@ -1,12 +1,19 @@
+import contextlib
+import io
 from pathlib import Path
 import re
+import runpy
+import sys
+import types
 import unittest
+from unittest import mock
 
 
 class PortableLauncherSourceContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         root = Path(__file__).resolve().parents[1]
+        cls.root = root
         cls.source = (root / "packaging" / "portable_launcher.c").read_text(encoding="utf-8")
         cls.runtime = (root / "run_accessible_chess.py").read_text(encoding="utf-8")
         cls.workflow = (
@@ -60,6 +67,39 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
                 self.assertIn(name, self.runtime)
         self.assertIn("raise SystemExit(exit_code)", self.runtime)
         self.assertIn("UNKNOWN_EARLY_EXIT", self.source)
+
+    def _run_packaged_bootstrap(self, *, host_ok: bool, server_ok: bool) -> tuple[object, str]:
+        accessibility = types.ModuleType("acs.webview2_accessibility")
+        accessibility.enable_webview2_renderer_accessibility = lambda: None
+        accessibility.install_pywebview_accessibility_host_patch = lambda: host_ok
+        safe_server = types.ModuleType("acs.webview_safe_server")
+        safe_server.install_pywebview_safe_local_server_port = lambda: server_ok
+        stderr = io.StringIO()
+
+        with (
+            mock.patch.dict(
+                sys.modules,
+                {
+                    "acs.webview2_accessibility": accessibility,
+                    "acs.webview_safe_server": safe_server,
+                },
+            ),
+            mock.patch.object(sys, "argv", [str(self.root / "run_accessible_chess.py")]),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            runpy.run_path(str(self.root / "run_accessible_chess.py"), run_name="__main__")
+        return raised.exception.code, stderr.getvalue()
+
+    def test_real_entrypoint_reports_accessibility_host_bootstrap_code(self):
+        code, stderr = self._run_packaged_bootstrap(host_ok=False, server_ok=True)
+        self.assertEqual(code, 71)
+        self.assertIn("Accessible WebView2 host could not be initialized.", stderr)
+
+    def test_real_entrypoint_reports_safe_local_server_bootstrap_code(self):
+        code, stderr = self._run_packaged_bootstrap(host_ok=True, server_ok=False)
+        self.assertEqual(code, 72)
+        self.assertIn("Accessible WebView2 local server could not be initialized.", stderr)
 
     def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
