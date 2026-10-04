@@ -40,7 +40,7 @@ def parse_position_text(text, turn="w", *, language="uk"):
     the pre-existing direct-call Ukrainian diagnostics.
     """
 
-    if language not in {"uk", "en"}:
+    if type(language) is not str or language not in {"uk", "en"}:
         raise ValueError("language must be 'uk' or 'en'")
     try:
         return parse_piece_coordinate_position(text, turn=turn).to_fen()
