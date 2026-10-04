@@ -3,8 +3,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from acs import book_webview_projection
+from acs import book_index, book_webview_projection
 from acs.bookdocument import (
+    MAX_BOOK_IDENTIFIER_CHARS,
     MAX_BOOK_LIST_ITEMS,
     MAX_BOOK_LIST_TOTAL_CHARS,
     MAX_BOOK_PGN_CHARS,
@@ -82,6 +83,27 @@ class BookDocumentScalarBoundsCurrentTests(unittest.TestCase):
 
         self.assertFalse(HostileWarning.touched)
 
+    def test_identifier_bound_matches_durable_target_budget(self) -> None:
+        self.assertEqual(
+            MAX_BOOK_IDENTIFIER_CHARS + len("source:"),
+            book_index._MAX_BOOK_TARGET_KEY_CHARS,
+        )
+
+        with patch("acs.bookdocument.MAX_BOOK_IDENTIFIER_CHARS", 3):
+            with self.assertRaisesRegex(
+                BookDocumentError,
+                "canonical semantic identifier limit",
+            ):
+                Paragraph(text="body", block_id="    ")
+
+            accepted = Paragraph(
+                text="body",
+                block_id="abc",
+                source_anchor="xyz",
+            )
+
+        self.assertEqual(accepted.block_id, "abc")
+        self.assertEqual(accepted.source_anchor, "xyz")
     def test_visible_text_size_rejects_before_whitespace_scan(self) -> None:
         with patch("acs.bookdocument.MAX_BOOK_TEXT_FIELD_CHARS", 3):
             with self.assertRaisesRegex(
