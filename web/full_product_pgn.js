@@ -11,6 +11,7 @@
   const MAX_PGN_COMMENT_TEXT = 8000;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const PGN_DOM_ID_PATTERN = /^pgn-node-[0-9a-f]{20}$/;
+  const PRESENTATION_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
   const ACTIONS = [
     "pgn.previous_game",
     "pgn.next_game",
@@ -128,22 +129,59 @@
     }
 
     requireText(snapshot.error_message, "PGN error message", false, 240);
-    if (snapshot.status !== "empty" && snapshot.status !== "ready") {
+    if (
+      snapshot.status !== "empty" &&
+      snapshot.status !== "ready" &&
+      snapshot.status !== "unavailable"
+    ) {
       throw new TypeError("PGN status is invalid");
     }
-    requireText(snapshot.empty_message, "PGN empty message", true, 720);
+    if (snapshot.presentation_token !== undefined) {
+      requireText(
+        snapshot.presentation_token,
+        "PGN presentation token",
+        false,
+        64
+      );
+      if (!PRESENTATION_TOKEN_PATTERN.test(snapshot.presentation_token)) {
+        throw new TypeError("PGN presentation token is invalid");
+      }
+    }
     requireCommentEditor(snapshot.comment_editor);
 
+    if (!Array.isArray(snapshot.tree) ||
+        snapshot.tree.length > MAX_PGN_TREE_ITEMS) {
+      throw new TypeError("PGN tree exceeds its item-count contract");
+    }
+
+    if (snapshot.status === "unavailable") {
+      requireText(
+        snapshot.unavailable_message,
+        "PGN unavailable message",
+        false,
+        720
+      );
+      requireText(snapshot.refresh_label, "PGN refresh label", false, 120);
+      const game = requireRecord(snapshot.game, "PGN unavailable game");
+      if (
+        Object.keys(game).length !== 0 ||
+        snapshot.tree.length !== 0 ||
+        snapshot.focus_target !== "pgn-refresh-view" ||
+        !Array.isArray(snapshot.actions) ||
+        snapshot.actions.length !== 0 ||
+        snapshot.comment_editor.enabled !== false
+      ) {
+        throw new TypeError("PGN unavailable snapshot is inconsistent");
+      }
+      return snapshot;
+    }
+
+    requireText(snapshot.empty_message, "PGN empty message", true, 720);
     if (typeof snapshot.focus_target !== "string" ||
         snapshot.focus_target.length > 160 ||
         snapshot.focus_target.indexOf("\x00") >= 0 ||
         (snapshot.focus_target && !PGN_DOM_ID_PATTERN.test(snapshot.focus_target))) {
       throw new TypeError("PGN focus target is invalid");
-    }
-
-    if (!Array.isArray(snapshot.tree) ||
-        snapshot.tree.length > MAX_PGN_TREE_ITEMS) {
-      throw new TypeError("PGN tree exceeds its item-count contract");
     }
 
     if (snapshot.status === "empty") {
@@ -365,20 +403,73 @@
     }
   }
 
-  function invokeCommand(root, invoke, announce, command, payload) {
+  function commandPayload(root, payload, omitLease) {
+    const source = payload || {};
+    const result = {};
+    Object.keys(source).forEach(function (key) {
+      result[key] = source[key];
+    });
+    if (!omitLease && root._pgnPresentationToken) {
+      result.presentation_token = root._pgnPresentationToken;
+    }
+    return result;
+  }
+
+  function invokeCommand(root, invoke, announce, command, payload, options) {
+    options = options || {};
+    const epoch = root._pgnRenderEpoch || 0;
+    const active = root._pgnFlight;
+    if (active && active.epoch === epoch) return false;
+
     const focusBefore = document.activeElement;
+    const flight = { epoch: epoch };
+    root._pgnFlight = flight;
+    const outbound = commandPayload(root, payload, options.omitLease === true);
+
     Promise.resolve()
-      .then(function () { return invoke(command, payload || {}); })
+      .then(function () { return invoke(command, outbound); })
       .then(
         function (result) {
+          if (
+            root._pgnRenderEpoch !== epoch ||
+            root._pgnFlight !== flight
+          ) {
+            return;
+          }
           try {
             applyEvent(root, result, invoke, announce);
           } catch (_) {
-            announceRejected(root, announce, focusBefore);
+            if (
+              root._pgnRenderEpoch === epoch &&
+              root._pgnFlight === flight
+            ) {
+              root._pgnFlight = null;
+              announceRejected(root, announce, focusBefore);
+            }
+            return;
+          }
+          if (
+            root._pgnRenderEpoch === epoch &&
+            root._pgnFlight === flight
+          ) {
+            root._pgnFlight = null;
+          }
+          if (typeof options.afterResult === "function") {
+            options.afterResult(result);
           }
         },
-        function () { announceRejected(root, announce, focusBefore); }
+        function () {
+          if (
+            root._pgnRenderEpoch !== epoch ||
+            root._pgnFlight !== flight
+          ) {
+            return;
+          }
+          root._pgnFlight = null;
+          announceRejected(root, announce, focusBefore);
+        }
       );
+    return true;
   }
 
   function renderTree(root, host, snapshot, invoke, announce) {
@@ -389,12 +480,15 @@
     tree.setAttribute("role", "tree");
     tree.setAttribute("aria-label", game.tree_heading);
 
-    snapshot.tree.forEach(function (item) {
+    snapshot.tree.forEach(function (item, itemIndex) {
       const treeItem = node("li");
       treeItem.id = item.dom_id;
       treeItem.setAttribute("role", "treeitem");
       treeItem.setAttribute("aria-level", item.aria_level);
       treeItem.setAttribute("aria-selected", item.selected ? "true" : "false");
+      const next = snapshot.tree[itemIndex + 1];
+      const hasChild = !!next && next.aria_level > item.aria_level;
+      if (hasChild) treeItem.setAttribute("aria-expanded", "true");
       treeItem.dataset.kind = item.kind;
       treeItem.tabIndex = item.selected ? 0 : -1;
       treeItem.style.paddingInlineStart =
@@ -421,20 +515,46 @@
       });
       treeItem.addEventListener("keydown", function (event) {
         if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+
         let command = "";
         let payload = {};
         if (event.key === "ArrowUp") {
-          command = "pgn.move";
-          payload = { delta: -1 };
+          if (itemIndex > 0) {
+            command = "pgn.move";
+            payload = { delta: -1 };
+          }
         } else if (event.key === "ArrowDown") {
-          command = "pgn.move";
-          payload = { delta: 1 };
-        } else if (event.key === "ArrowLeft" && item.has_parent) {
-          command = "pgn.parent";
+          if (itemIndex + 1 < snapshot.tree.length) {
+            command = "pgn.move";
+            payload = { delta: 1 };
+          }
+        } else if (event.key === "ArrowLeft") {
+          if (item.has_parent) command = "pgn.parent";
+        } else if (event.key === "ArrowRight") {
+          if (hasChild) {
+            command = "pgn.select";
+            payload = { node_id: snapshot.tree[itemIndex + 1].node_id };
+          }
+        } else if (event.key === "Home") {
+          if (itemIndex > 0 && snapshot.tree.length) {
+            command = "pgn.select";
+            payload = { node_id: snapshot.tree[0].node_id };
+          }
+        } else if (event.key === "End") {
+          if (itemIndex + 1 < snapshot.tree.length) {
+            command = "pgn.select";
+            payload = {
+              node_id: snapshot.tree[snapshot.tree.length - 1].node_id
+            };
+          }
+        } else {
+          return;
         }
-        if (!command) return;
+
         event.preventDefault();
-        invokeCommand(root, invoke, announce, command, payload);
+        if (command) {
+          invokeCommand(root, invoke, announce, command, payload);
+        }
       });
       tree.appendChild(treeItem);
     });
