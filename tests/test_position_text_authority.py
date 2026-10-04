@@ -148,7 +148,11 @@ class PositionTextAuthorityTests(unittest.TestCase):
             result = api.set_position_text("W: K e1 B: K e8", "b")
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["announcement"], "history rebuild failed")
+        self.assertEqual(
+            result["announcement"],
+            "Не вдалося підготувати історію нової позиції.",
+        )
+        self.assertNotIn("history rebuild failed", result["announcement"])
         self.assertEqual(api.board.fen(), before_fen)
         self.assertEqual(api.start_fen, before_start_fen)
         self.assertEqual(api.sans, before_sans)
@@ -158,6 +162,19 @@ class PositionTextAuthorityTests(unittest.TestCase):
         self.assertIs(api.review_history, before_history)
         self.assertIs(api.review_adapter, before_adapter)
         self.assertEqual(api.live_history_node, before_live_node)
+
+        api_en = AccessibleChessAPI(lang="en")
+        with patch(
+            "acs.webapp.ReviewHistory",
+            side_effect=RuntimeError("private implementation detail"),
+        ):
+            english = api_en.set_position_text("W: K e1 B: K e8", "w")
+        self.assertFalse(english["ok"])
+        self.assertEqual(
+            english["announcement"],
+            "Could not prepare history for the new position.",
+        )
+        self.assertNotIn("private implementation detail", english["announcement"])
 
     def test_non_text_payload_cannot_coerce_into_a_valid_position(self):
         class CoerciblePosition:
