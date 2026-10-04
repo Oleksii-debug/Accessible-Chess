@@ -11,9 +11,9 @@ VALID_CASTLING = frozenset("KQkq")
 MAX_COORDINATE_POSITION_TOKENS = 64 * 2
 MAX_COORDINATE_POSITION_CHARS = 4096
 _POSITION_SECTIONS_RE = re.compile(
-    r"(?is)^\\s*W\\s*:\\s*(?P<white>.*?)\\s*\\bB\\s*:\\s*(?P<black>.*?)\\s*$"
+    r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
 )
-_COORDINATE_TOKEN_RE = re.compile(r"[^,\\s]+")
+_COORDINATE_TOKEN_RE = re.compile(r"[^,\s]+")
 
 
 class PositionValidationError(ValueError):
