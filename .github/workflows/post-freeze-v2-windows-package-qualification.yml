@@ -223,7 +223,7 @@ jobs:
           print('INHERITED_STANDALONE_APPCONFIG_BIND=PASS')
           PY
 
-      - name: Extend inherited package proof with durable Book restart state
+      - name: Extend inherited package proof with durable Book and Training restart state
         shell: bash
         run: |
           set -euo pipefail
@@ -284,6 +284,50 @@ jobs:
           function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
           once(helper_needle, helper_replacement, 'Book persistence helper insertion')
 
+          training_helper_needle = """          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
+          training_helper_replacement = """          function TrainingCounters($report) {
+            $documents=@()
+            foreach($e in @(Rewalk $report)){
+              try {
+                if([string]$e.Current.ControlType.ProgrammaticName -eq 'ControlType.Document' -and [string]$e.Current.Name -eq 'Accessible Chess'){
+                  $documents += ,$e
+                }
+              } catch {}
+            }
+            if($documents.Count -lt 1){throw 'Accessible Chess document unavailable for Training counter proof'}
+            foreach($document in $documents){
+              try {
+                $pattern=$document.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+                if($null -eq $pattern){continue}
+                $text=[string]$pattern.DocumentRange.GetText(-1)
+                $attempt=[regex]::Match($text,'(?is)(?:Спроби|Attempts)\s*([0-9]+)')
+                $mistake=[regex]::Match($text,'(?is)(?:Помилки|Mistakes)\s*([0-9]+)')
+                if($attempt.Success -and $mistake.Success){
+                  return [pscustomobject]@{
+                    attempts=[int]$attempt.Groups[1].Value
+                    mistakes=[int]$mistake.Groups[1].Value
+                  }
+                }
+              } catch {}
+            }
+            throw 'Training attempts/mistakes were not exposed through the Accessible Chess TextPattern'
+          }
+          function WaitTrainingCounters($report,[int]$attempts,[int]$mistakes,[int]$timeoutMs=10000) {
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            $last=''
+            while($watch.ElapsedMilliseconds -lt $timeoutMs){
+              try {
+                $value=TrainingCounters $report
+                $last="attempts=$($value.attempts) mistakes=$($value.mistakes)"
+                if([int]$value.attempts -eq $attempts -and [int]$value.mistakes -eq $mistakes){return $value}
+              } catch {$last=$_.Exception.Message}
+              Start-Sleep -Milliseconds 150
+            }
+            throw "Training counters did not converge to attempts=$attempts mistakes=$mistakes; last=$last"
+          }
+          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
+          once(training_helper_needle, training_helper_replacement, 'Training persistence helper insertion')
+
           pre_needle = """            $course=WaitControl $report '' '(?i)(стартовий офлайн-курс|starter offline course)' ''
             if(-not (AccessibleText $course)){throw 'Packaged starter course heading is empty'}
             Write-Host 'PACKAGED_W3_BOOKS_DISCOVER_OPEN_READ_OFFLINE=PASS'"""
@@ -319,6 +363,33 @@ jobs:
             Write-Host 'PACKAGED_W3_BOOKS_DISCOVER_OPEN_READ_OFFLINE=PASS'"""
           once(pre_needle, pre_replacement, 'Book pre-restart persistence insertion')
 
+          training_pre_needle = """            $hint=WaitControl $report '' '^(Підказка|Hint)$' 'ControlType.Button'
+            $beforeHint=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
+            InvokeControl $hint 'Training hint'
+            $hintText=WaitLiveChange $report $beforeHint
+            if(-not $hintText){throw 'Packaged Training hint did not expose accessible feedback'}
+            Write-Host 'PACKAGED_W3_TRAINING_ENTER_USE_OFFLINE=PASS'"""
+          training_pre_replacement = """            $hint=WaitControl $report '' '^(Підказка|Hint)$' 'ControlType.Button'
+            $beforeHint=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
+            InvokeControl $hint 'Training hint'
+            $hintText=WaitLiveChange $report $beforeHint
+            if(-not $hintText){throw 'Packaged Training hint did not expose accessible feedback'}
+
+            $beforeTrainingCounters=TrainingCounters $report
+            $answer=WaitControl $report 'training-answer' '' 'ControlType.Edit'
+            SetControlValue $answer 'zz' 'Training deliberately-wrong answer'
+            $submit=WaitControl $report '' '^(Перевірити хід|Check move)$' 'ControlType.Button'
+            $beforeSubmit=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
+            InvokeControl $submit 'Submit deliberately-wrong Training answer'
+            $submitText=WaitLiveChange $report $beforeSubmit
+            if(-not $submitText){throw 'Training wrong-answer submission did not expose accessible feedback'}
+            $expectedTrainingAttempts=[int]$beforeTrainingCounters.attempts+1
+            $expectedTrainingMistakes=[int]$beforeTrainingCounters.mistakes+1
+            $afterTrainingCounters=WaitTrainingCounters $report $expectedTrainingAttempts $expectedTrainingMistakes
+            Write-Host "PACKAGED_TRAINING_PROGRESS_PRE_RESTART_STATE=PASS attempts=$expectedTrainingAttempts mistakes=$expectedTrainingMistakes"
+            Write-Host 'PACKAGED_W3_TRAINING_ENTER_USE_OFFLINE=PASS'"""
+          once(training_pre_needle, training_pre_replacement, 'Training pre-restart persistence insertion')
+
           restart_needle = """            $restartBooks=WaitControl $restartReport 'v2-nav-books' '^(Книги|Books)$' 'ControlType.Button'
             InvokeControl $restartBooks 'Restart Books navigation'
             $null=WaitControl $restartReport 'book-bookmark-name' '' 'ControlType.Edit'
@@ -340,6 +411,21 @@ jobs:
             $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'"""
           once(restart_needle, restart_replacement, 'Book restart persistence insertion')
 
+          training_restart_needle = """            $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'
+            InvokeControl $restartTraining 'Restart Training navigation'
+            $null=WaitControl $restartReport 'training-answer' '' 'ControlType.Edit'
+            Write-Host 'PACKAGED_RESTART_REOPEN_UIA_64_BOOKS_TRAINING=PASS'"""
+          training_restart_replacement = """            $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'
+            InvokeControl $restartTraining 'Restart Training navigation'
+            $null=WaitControl $restartReport 'training-answer' '' 'ControlType.Edit'
+            $restartTrainingCounters=WaitTrainingCounters $restartReport $expectedTrainingAttempts $expectedTrainingMistakes
+            if([int]$restartTrainingCounters.attempts -ne $expectedTrainingAttempts -or [int]$restartTrainingCounters.mistakes -ne $expectedTrainingMistakes){
+              throw 'Training counters did not survive restart'
+            }
+            Write-Host "PACKAGED_TRAINING_PROGRESS_RESTART_PERSISTENCE=PASS attempts=$($restartTrainingCounters.attempts) mistakes=$($restartTrainingCounters.mistakes)"
+            Write-Host 'PACKAGED_RESTART_REOPEN_UIA_64_BOOKS_TRAINING=PASS'"""
+          once(training_restart_needle, training_restart_replacement, 'Training restart persistence insertion')
+
           evidence_needle = """              books_discover_open_read_offline=$true
               training_enter_use_offline=$true"""
           evidence_replacement = """              books_discover_open_read_offline=$true
@@ -349,6 +435,11 @@ jobs:
               book_away_block=$awayBookBlock
               book_restart_block_before_restore=$restartAwayBookBlock
               book_restored_block=$restoredBookBlock
+              training_progress_persisted_restart=$true
+              training_attempts_after_wrong_submit=$expectedTrainingAttempts
+              training_mistakes_after_wrong_submit=$expectedTrainingMistakes
+              training_restart_attempts=$restartTrainingCounters.attempts
+              training_restart_mistakes=$restartTrainingCounters.mistakes
               training_enter_use_offline=$true"""
           once(evidence_needle, evidence_replacement, 'Book persistence evidence insertion')
 
@@ -357,12 +448,15 @@ jobs:
               'PACKAGED_BOOK_PROGRESS_RESTART_PERSISTENCE=PASS',
               'book_progress_cursor_persisted_restart=$true',
               'book_bookmark_restore_persisted_restart=$true',
+              'PACKAGED_TRAINING_PROGRESS_PRE_RESTART_STATE=PASS',
+              'PACKAGED_TRAINING_PROGRESS_RESTART_PERSISTENCE=PASS',
+              'training_progress_persisted_restart=$true',
           )
           for token in required:
               if text.count(token) != 1:
                   raise SystemExit(f'Book restart proof token invalid: {token!r} count={text.count(token)}')
           path.write_text(text, encoding='utf-8', newline='\n')
-          print('INHERITED_PACKAGED_BOOK_RESTART_PERSISTENCE_PROOF=BOUND')
+          print('INHERITED_PACKAGED_BOOK_TRAINING_RESTART_PERSISTENCE_PROOF=BOUND')
           PY
 
       - name: Execute pinned immutable qualification template with current probes
@@ -542,8 +636,15 @@ jobs:
           if($saved -eq $away){throw 'Book persistence evidence did not move away from the saved block'}
           if($restart -ne $away){throw 'Book current cursor did not survive restart in readback evidence'}
           if($restored -ne $saved){throw 'Named Book bookmark did not restore the exact saved block in readback evidence'}
-          if([bool]$evidence.human_tested -or [bool]$evidence.nvda_verified){throw 'Machine Book persistence evidence must not claim physical NVDA acceptance'}
-          Write-Host "PACKAGED_BOOK_PROGRESS_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant()) saved=$saved away=$away"
+          if(-not [bool]$evidence.training_progress_persisted_restart){throw 'Training progress persistence across restart was not proven'}
+          $trainingAttempts=[int]$evidence.training_attempts_after_wrong_submit
+          $trainingMistakes=[int]$evidence.training_mistakes_after_wrong_submit
+          $restartAttempts=[int]$evidence.training_restart_attempts
+          $restartMistakes=[int]$evidence.training_restart_mistakes
+          if($trainingAttempts -lt 1 -or $trainingMistakes -lt 1){throw 'Training persistence evidence did not record a real wrong-answer mutation'}
+          if($restartAttempts -ne $trainingAttempts -or $restartMistakes -ne $trainingMistakes){throw 'Training attempts/mistakes did not survive artifact-bound restart evidence'}
+          if([bool]$evidence.human_tested -or [bool]$evidence.nvda_verified){throw 'Machine Book/Training persistence evidence must not claim physical NVDA acceptance'}
+          Write-Host "PACKAGED_BOOK_TRAINING_PROGRESS_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant()) saved=$saved away=$away training_attempts=$trainingAttempts training_mistakes=$trainingMistakes"
 
       - name: Execute inherited post-upload readback and final checkpoint
         shell: pwsh
