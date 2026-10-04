@@ -15,6 +15,7 @@ on:
       - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
       - fix/owner-apex-private-seed-win32-portability-r2-20261004-zftrkmo
       - integration/owner-apex-docx-whole-product-20261004-ooxple7
+      - converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
