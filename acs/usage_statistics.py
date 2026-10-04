@@ -55,6 +55,64 @@ def _require_private_regular(info: os.stat_result, label: str) -> None:
         raise OSError(f"{label} must be one private regular file")
 
 
+def _require_direct_directory(info: os.stat_result, label: str) -> None:
+    if stat.S_ISLNK(info.st_mode) or _reparse(info) or not stat.S_ISDIR(info.st_mode):
+        raise OSError(f"{label} must be a direct non-reparse directory")
+
+
+def _prepare_direct_directory_chain(
+    path: Path,
+    *,
+    label: str,
+) -> tuple[Path, tuple[tuple[Path, tuple[int, int]], ...]]:
+    """Create missing directories without ever traversing a link/reparse ancestor."""
+    absolute = Path(os.path.abspath(path))
+    parts = absolute.parts
+    if not parts:
+        raise OSError(f"{label} has no filesystem anchor")
+
+    current = Path(parts[0])
+    snapshot: list[tuple[Path, tuple[int, int]]] = []
+    for index, part in enumerate(parts):
+        if index:
+            current = current / part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            if index == 0:
+                raise OSError(f"{label} filesystem anchor is missing") from None
+            try:
+                current.mkdir()
+            except FileExistsError:
+                pass
+            except OSError as exc:
+                raise OSError(f"{label} could not be created safely") from exc
+            try:
+                info = current.lstat()
+            except OSError as exc:
+                raise OSError(f"{label} could not be inspected safely") from exc
+        except OSError as exc:
+            raise OSError(f"{label} could not be inspected safely") from exc
+        _require_direct_directory(info, label)
+        snapshot.append((current, _identity(info)))
+    return absolute, tuple(snapshot)
+
+
+def _verify_direct_directory_chain(
+    snapshot: tuple[tuple[Path, tuple[int, int]], ...],
+    *,
+    label: str,
+) -> None:
+    for directory, expected_identity in snapshot:
+        try:
+            current = directory.lstat()
+        except OSError as exc:
+            raise OSError(f"{label} could not be re-inspected safely") from exc
+        _require_direct_directory(current, label)
+        if _identity(current) != expected_identity:
+            raise OSError(f"{label} changed unexpectedly")
+
+
 def _fsync_directory(path: Path) -> None:
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     try:
@@ -369,7 +427,15 @@ class UsageStatisticsStore:
     def save(self, snapshot: UsageStatisticsSnapshot) -> None:
         if type(snapshot) is not UsageStatisticsSnapshot:
             raise ValueError("snapshot must be UsageStatisticsSnapshot")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        parent, directory_snapshot = _prepare_direct_directory_chain(
+            self.path.parent,
+            label="statistics directory",
+        )
+        target = parent / self.path.name
+        _verify_direct_directory_chain(
+            directory_snapshot,
+            label="statistics directory",
+        )
         encoded = json.dumps(
             snapshot.as_dict(),
             ensure_ascii=False,
@@ -379,7 +445,7 @@ class UsageStatisticsStore:
         fd, raw_tmp = tempfile.mkstemp(
             prefix=f".{self.path.name}.",
             suffix=".tmp",
-            dir=self.path.parent,
+            dir=parent,
         )
         tmp: Path | None = Path(raw_tmp)
         temp_identity: tuple[int, int] | None = None
@@ -400,20 +466,32 @@ class UsageStatisticsStore:
                 temp_identity = _identity(prepared)
 
             assert tmp is not None
+            _verify_direct_directory_chain(
+                directory_snapshot,
+                label="statistics directory",
+            )
             current = tmp.lstat()
             _require_private_regular(current, "statistics temporary file")
             if _identity(current) != temp_identity:
                 raise OSError("statistics temporary file changed before publication")
 
-            os.replace(tmp, self.path)
+            os.replace(tmp, target)
             tmp = None
 
-            published = self.path.lstat()
+            _verify_direct_directory_chain(
+                directory_snapshot,
+                label="statistics directory",
+            )
+            published = target.lstat()
             _require_private_regular(published, "statistics publication")
             if _identity(published) != temp_identity:
                 raise OSError("statistics publication changed before durability confirmation")
-            _fsync_directory(self.path.parent)
-            published = self.path.lstat()
+            _fsync_directory(parent)
+            _verify_direct_directory_chain(
+                directory_snapshot,
+                label="statistics directory",
+            )
+            published = target.lstat()
             _require_private_regular(published, "statistics publication")
             if _identity(published) != temp_identity:
                 raise OSError("statistics publication changed before durability confirmation")
