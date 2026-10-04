@@ -189,6 +189,10 @@ os._exit(0)
             self.assertEqual(store.load().revision, replacement_revision)  # type: ignore[union-attr]
 
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open lock pathname is a POSIX adversarial injection",
+    )
     def test_lock_path_swap_after_kernel_acquire_fails_closed_and_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
             root = Path(raw_dir)
