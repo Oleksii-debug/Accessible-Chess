@@ -577,6 +577,96 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertEqual(0, loaded.session.step_index)
             self.assertEqual(revision, loaded.revision)
 
+    def test_same_byte_target_swap_after_publication_identity_is_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            initial = ExerciseSession(definition)
+            revision = store.save(initial, expected_revision=None)
+            original = path.read_bytes()
+
+            advanced = ExerciseSession(definition)
+            advanced.submit("e4")
+            real_identity = store._progress_path_identity
+            identity_checks = 0
+            injected = False
+
+            def swap_after_publication_identity(*, missing_ok: bool):
+                nonlocal identity_checks, injected
+                identity_checks += 1
+                identity = real_identity(missing_ok=missing_ok)
+                if identity_checks == 3 and identity is not None:
+                    replacement = root / "same-byte-after-publication-identity.json"
+                    replacement.write_bytes(original)
+                    os.replace(replacement, path)
+                    injected = True
+                return identity
+
+            with mock.patch.object(
+                store,
+                "_progress_path_identity",
+                side_effect=swap_after_publication_identity,
+            ):
+                with self.assertRaises(TrainingProgressConflictError):
+                    store.save(advanced, expected_revision=revision)
+
+            self.assertTrue(injected)
+            self.assertGreaterEqual(identity_checks, 4)
+            self.assertEqual(original, path.read_bytes())
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(0, loaded.session.step_index)
+            self.assertEqual(revision, loaded.revision)
+
+    def test_missing_target_appearance_after_publication_identity_is_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            session = ExerciseSession(definition)
+            external_payload = json.dumps(
+                {
+                    "schema_version": 1,
+                    "snapshot": session.snapshot(),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+            real_identity = store._progress_path_identity
+            identity_checks = 0
+            injected = False
+
+            def appear_after_publication_identity(*, missing_ok: bool):
+                nonlocal identity_checks, injected
+                identity_checks += 1
+                identity = real_identity(missing_ok=missing_ok)
+                if identity_checks == 3 and identity is None:
+                    path.write_bytes(external_payload)
+                    injected = True
+                return identity
+
+            with mock.patch.object(
+                store,
+                "_progress_path_identity",
+                side_effect=appear_after_publication_identity,
+            ):
+                with self.assertRaises(TrainingProgressConflictError):
+                    store.save(session, expected_revision=None)
+
+            self.assertTrue(injected)
+            self.assertGreaterEqual(identity_checks, 4)
+            self.assertEqual(external_payload, path.read_bytes())
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(0, loaded.session.step_index)
+
     def test_external_change_during_save_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "training-progress.json"
