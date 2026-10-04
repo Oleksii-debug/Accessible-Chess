@@ -22,6 +22,7 @@ on:
       - 'tests/test_full_product_pgn_keybindings.py'
       - 'tests/test_full_product_library_keybindings.py'
       - 'tests/test_full_product_education_keybindings.py'
+      - 'tests/test_terminal_keybinding_surface_wiring.py'
       - 'tests/test_keybindings_current_apex_reconvergence.py'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
   workflow_dispatch:
@@ -91,6 +92,7 @@ jobs:
           tests/test_full_product_pgn_keybindings.py
           tests/test_full_product_library_keybindings.py
           tests/test_full_product_education_keybindings.py
+          tests/test_terminal_keybinding_surface_wiring.py
           tests/test_keybindings_current_apex_reconvergence.py
 
       - name: Parse and execute PGN Library Education DOM contracts
@@ -113,6 +115,7 @@ jobs:
           tests.test_full_product_pgn_keybindings
           tests.test_full_product_library_keybindings
           tests.test_full_product_education_keybindings
+          tests.test_terminal_keybinding_surface_wiring
           tests.test_full_product_native_menu
           tests.test_keybindings_current_apex_reconvergence
           tests.test_keybindings
