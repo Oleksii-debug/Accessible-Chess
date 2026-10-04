@@ -14,7 +14,7 @@
   let profileState = null;
   let mutationPending = false;
   let returnFocusId = "";
-  let featureAvailable = true;
+  let featureAvailable = false;
 
   function api() {
     return global.pywebview && global.pywebview.api;
@@ -58,8 +58,8 @@
     if (typeof stateChanged !== "boolean") return null;
 
     if (result.exists === undefined) {
-      if (result.ok) return null;
-      return { ok: false, stateChanged, announcement, hasState: false };
+      if (result.ok || stateChanged) return null;
+      return { ok: false, stateChanged: false, announcement, hasState: false };
     }
     if (typeof result.exists !== "boolean") return null;
 
@@ -81,6 +81,12 @@
       };
     }
 
+    const fullStatePresent = result.displayName !== undefined &&
+      result.generatedAlias !== undefined && result.recoveryRequired !== undefined;
+    if (!fullStatePresent) {
+      if (result.ok || stateChanged) return null;
+      return { ok: false, stateChanged: false, announcement, hasState: false };
+    }
     const displayName = boundedText(result.displayName, MAX_DISPLAY_NAME, false);
     if (displayName === null || typeof result.generatedAlias !== "boolean" ||
         typeof result.recoveryRequired !== "boolean") return null;
