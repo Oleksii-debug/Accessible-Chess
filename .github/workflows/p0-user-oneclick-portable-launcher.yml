@@ -6,14 +6,20 @@ on:
       - integration/current-main-windows-apex-reconvergence-20261004-sol
     paths:
       - 'packaging/portable_launcher.c'
+      - 'run_accessible_chess.py'
+      - 'acs/webview_safe_server.py'
       - 'acs/version2_portable_package.py'
+      - 'tests/test_webview_safe_server.py'
       - 'tests/test_portable_launcher_contract.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
   pull_request:
     paths:
       - 'packaging/portable_launcher.c'
+      - 'run_accessible_chess.py'
+      - 'acs/webview_safe_server.py'
       - 'acs/version2_portable_package.py'
+      - 'tests/test_webview_safe_server.py'
       - 'tests/test_portable_launcher_contract.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
@@ -45,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m unittest tests.test_portable_launcher_contract tests.test_version2_portable_package -v
+          python -m unittest tests.test_portable_launcher_contract tests.test_webview_safe_server tests.test_version2_portable_package -v
           if ($LASTEXITCODE -ne 0) { throw 'Portable package regressions failed' }
           python -m py_compile acs/version2_portable_package.py
           if ($LASTEXITCODE -ne 0) { throw 'Portable package module compile failed' }
