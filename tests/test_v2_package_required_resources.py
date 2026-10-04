@@ -41,6 +41,14 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 "THIRD_PARTY_NOTICES/Stockfish-18-source.zip",
                 report.inventory,
             )
+            self.assertIn(
+                "AccessibleChess/web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+                report.inventory,
+            )
+            self.assertIn(
+                "AccessibleChess/web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
+                report.inventory,
+            )
 
     def test_preflight_rejects_package_without_release_critical_runtime_resources(self):
         removals = (
@@ -60,6 +68,8 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
     def test_preflight_rejects_each_missing_required_file_family(self):
         removals = (
             "AccessibleChess/web/version2_release_bootstrap.js",
+            "AccessibleChess/web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+            "AccessibleChess/web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "AccessibleChess/assets/sounds/manifest.json",
             "AccessibleChess/assets/sounds/move.wav",
