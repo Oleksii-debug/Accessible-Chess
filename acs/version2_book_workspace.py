@@ -713,21 +713,6 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         snapshot["board_active"] = board_active
         return snapshot
 
-    def _browser_action_enabled(self, command: str) -> bool:
-        """Return the exact published enabled-state for one Book browser action.
-
-        Native/menu compatibility can route the legacy book.open_position
-        action through OPEN_CURRENT on a Game. The browser, however, publishes
-        separate Position and Game controls. Reuse the fully validated snapshot
-        as the authority so a direct WebView command cannot invoke an action
-        that the same snapshot exposed as disabled.
-        """
-        snapshot = self._snapshot_from_block(self._presenter.current())
-        for action in snapshot["actions"]:
-            if action["command"] == command:
-                return action["enabled"]
-        raise ValueError("Book browser action is not present in the snapshot")
-
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
         result = self._dispatch(action, {})
         # A canonical router returns ActionDispatchResult; a composed callback
@@ -751,8 +736,6 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def open_position(self) -> BookWebViewEvent:
         announcement = self._result_announcement("opened")
-        if not self._browser_action_enabled("book.open_position"):
-            return self.generic_error()
         if not self._workflow_action("book.open_position", BookBoardUiEventKind.BOARD_OPENED):
             return self.generic_error()
         return BookWebViewEvent(
@@ -765,8 +748,6 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def open_game(self) -> BookWebViewEvent:
         announcement = self._result_announcement("game_opened")
-        if not self._browser_action_enabled("book.open_game"):
-            return self.generic_error()
         if not self._workflow_action("book.open_game", BookBoardUiEventKind.BOARD_OPENED):
             return self.generic_error()
         return BookWebViewEvent(
