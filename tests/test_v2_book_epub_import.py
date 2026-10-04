@@ -2292,6 +2292,54 @@ class BookEpubImportTests(unittest.TestCase):
     <rootfile full-path="ALT/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>'''
+        alternate_opf = _opf(
+            manifest=(
+                '    <item id="alt" href="chapter.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="alt"/>',
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Primary rendition.</p></body></html>"
+                ),
+                "ALT/content.opf": alternate_opf,
+                "ALT/chapter.xhtml": (
+                    b"<html><body><p>Alternate rendition.</p></body></html>"
+                ),
+            },
+            container=container,
+        )
+        result = import_epub_book(raw, source_name="multi-rendition.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertEqual(
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+            ["Primary rendition."],
+        )
+        self.assertTrue(
+            any(
+                "multiple EPUB package documents" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_secondary_rootfile_must_be_a_valid_package_document(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="ALT/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
         raw = _epub(
             opf=_opf(
                 manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
@@ -2305,10 +2353,135 @@ class BookEpubImportTests(unittest.TestCase):
             },
             container=container,
         )
-        result = import_epub_book(raw, source_name="multi-rendition.epub")
-        self.assertEqual(result.spine_documents, 1)
-        self.assertIn("Primary rendition.", [block.text for block in result.document.blocks if isinstance(block, Paragraph)])
-        self.assertTrue(any("multiple EPUB package documents" in warning for warning in result.warnings))
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="malformed-secondary-rendition.epub")
+
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_all_rootfiles_must_use_the_same_epub_package_version(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="ALT/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        alternate_opf = _opf(
+            manifest=(
+                '    <item id="alt" href="chapter.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="alt"/>',
+        ).replace(
+            b'<package version="3.0"',
+            b'<package version="2.0"',
+            1,
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Primary rendition.</p></body></html>"
+                ),
+                "ALT/content.opf": alternate_opf,
+                "ALT/chapter.xhtml": (
+                    b"<html><body><p>Alternate rendition.</p></body></html>"
+                ),
+            },
+            container=container,
+        )
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="mixed-rendition-version.epub")
+
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_secondary_rootfile_manifest_resources_are_validated(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="ALT/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        alternate_opf = _opf(
+            manifest=(
+                '    <item id="alt" href="missing.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="alt"/>',
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Primary rendition.</p></body></html>"
+                ),
+                "ALT/content.opf": alternate_opf,
+            },
+            container=container,
+        )
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="secondary-missing-resource.epub")
+
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_secondary_rootfile_spine_references_are_validated(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="ALT/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        alternate_opf = _opf(
+            manifest=(
+                '    <item id="alt" href="chapter.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="unknown"/>',
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Primary rendition.</p></body></html>"
+                ),
+                "ALT/content.opf": alternate_opf,
+                "ALT/chapter.xhtml": (
+                    b"<html><body><p>Alternate rendition.</p></body></html>"
+                ),
+            },
+            container=container,
+        )
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="secondary-unknown-spine.epub")
+
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
 
     def test_every_container_rootfile_path_is_validated_before_selection(self) -> None:
         cases = (
