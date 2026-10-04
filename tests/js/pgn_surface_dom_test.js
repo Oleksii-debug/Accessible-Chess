@@ -125,14 +125,14 @@ function pressKey(target, _toolbar, key) {
   listener({
     key: key,
     preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
 
 function findRole(root, role) {
   return root.descendants().find(function (item) {
     return item.getAttribute("role") === role;
   }) || null;
-}
-  });
-  return prevented;
 }
 
 async function run() {
