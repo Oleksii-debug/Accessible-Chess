@@ -421,12 +421,12 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
                 patch.object(store, "save", side_effect=ambiguity),
                 patch.object(store, "load", side_effect=ValueError("canonical state unavailable")),
             ):
-                with self.assertRaisesRegex(
-                    ValueError,
-                    "canonical state unavailable",
-                ):
+                with self.assertRaises(TrainingProgressDurabilityUnknownError) as raised:
                     workspace.dispatch("training.submit", {"answer": "e4"})
 
+            self.assertIsInstance(raised.exception.__cause__, ValueError)
+            self.assertIn("canonical state unavailable", str(raised.exception.__cause__))
+            self.assertEqual(published_revision, raised.exception.published_revision)
             self.assertIs(retained_session, workspace.session)
             self.assertIs(retained_bridge, workspace.bridge)
             self.assertTrue(workspace.session.completed)
