@@ -453,6 +453,73 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(board_focus, self.app.shell.restore_focus_target())
         self.assertEqual(origin, self.app.reader.location())
 
+    def test_set_document_route_rejection_preserves_previous_pgn_owner(self):
+        self._load_pgn_workspace()
+        self.app.browser_command("review", "pgn.open_on_board")
+        previous_session = self.app.session
+        previous_bridge = self.app.pgn
+        self.app.browser_command("shell", "screen.library")
+        origin_route = self.app.shell.current_route.route_id
+
+        candidate = self.root / "replacement.pgn"
+        candidate.write_text(
+            '[Event "Replacement"]\n[Result "*"]\n\n1. d4 *\n',
+            encoding="utf-8",
+        )
+        replacement = open_pgn(candidate)
+        real_open_route = self.app.shell.open_route
+
+        def reject_pgn_route(route_id, *, current_focus_id=""):
+            if route_id == "pgn":
+                raise RuntimeError("synthetic replacement route rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=reject_pgn_route,
+        ):
+            with self.assertRaises(RuntimeError):
+                self.app.set_document(replacement)
+
+        self.assertIs(previous_session, self.app.session)
+        self.assertIs(previous_bridge, self.app.pgn)
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+
+    def test_set_document_partial_route_commit_restores_previous_owner_and_route(self):
+        self._load_pgn_workspace()
+        previous_session = self.app.session
+        previous_bridge = self.app.pgn
+        self.app.browser_command("shell", "screen.library")
+        origin_route = self.app.shell.current_route.route_id
+
+        candidate = self.root / "replacement-partial.pgn"
+        candidate.write_text(
+            '[Event "Replacement partial"]\n[Result "*"]\n\n1. c4 *\n',
+            encoding="utf-8",
+        )
+        replacement = open_pgn(candidate)
+        real_open_route = self.app.shell.open_route
+
+        def fail_after_pgn_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "pgn":
+                raise RuntimeError("synthetic failure after PGN route commit")
+            return focus
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=fail_after_pgn_commit,
+        ):
+            with self.assertRaises(RuntimeError):
+                self.app.set_document(replacement)
+
+        self.assertIs(previous_session, self.app.session)
+        self.assertIs(previous_bridge, self.app.pgn)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+
     def test_book_board_owner_blocks_pgn_open_after_navigate_to_pgn(self):
         self._load_pgn_workspace()
         origin = self._open_board()
