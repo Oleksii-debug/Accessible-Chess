@@ -137,15 +137,26 @@ class MaterialView:
     def __post_init__(self) -> None:
         detached: list[dict[str, int]] = []
         for field_name, values in (("white", self.white), ("black", self.black)):
-            if not isinstance(values, Mapping) or set(values) != set(PIECE_VALUES):
+            if not isinstance(values, Mapping):
                 raise ValueError(f"{field_name} material must contain every canonical piece")
             copied: dict[str, int] = {}
-            for piece, count in values.items():
-                if piece not in PIECE_VALUES or type(count) is not int or count < 0:
+            for piece in values:
+                if type(piece) is not str or piece not in PIECE_VALUES:
+                    raise TypeError(
+                        f"{field_name} material keys must be canonical piece symbols"
+                    )
+                if piece in copied:
+                    raise ValueError(
+                        f"{field_name} material must contain every canonical piece"
+                    )
+                count = values[piece]
+                if type(count) is not int or count < 0:
                     raise TypeError(
                         f"{field_name} material counts must be non-negative integers"
                     )
                 copied[piece] = count
+            if len(copied) != len(PIECE_VALUES):
+                raise ValueError(f"{field_name} material must contain every canonical piece")
             detached.append(copied)
         for field_name, points in (
             ("white_points", self.white_points),
