@@ -134,12 +134,12 @@ jobs:
           @'
           import os
           from pathlib import Path
-          from scripts.build_owner_portable_candidate import _owner_docx_name
+          from scripts.build_owner_portable_candidate import _owner_docx_filename
           names = (
               os.environ['FIRST_DOCX_NAME_INPUT'],
               os.environ['SECOND_DOCX_NAME_INPUT'],
           )
-          validated = tuple(_owner_docx_name(Path(name)) for name in names)
+          validated = tuple(_owner_docx_filename(name) for name in names)
           if len({name.casefold() for name in validated}) != 2:
               raise SystemExit('OWNER_DOCX_NAMES_MUST_BE_DISTINCT')
           path = Path(os.environ['GITHUB_ENV'])
