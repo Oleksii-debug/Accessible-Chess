@@ -145,6 +145,27 @@ def _set_local_zip_field(
     return bytes(damaged)
 
 
+def _insert_precentral_record(raw: bytes, record: bytes) -> bytes:
+    damaged = bytearray(raw)
+    eocd_offset = damaged.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or eocd_offset + 22 > len(damaged):
+        raise AssertionError("fixture EOCD record was not found")
+    central_size = int.from_bytes(
+        damaged[eocd_offset + 12 : eocd_offset + 16],
+        "little",
+    )
+    central_offset = int.from_bytes(
+        damaged[eocd_offset + 16 : eocd_offset + 20],
+        "little",
+    )
+    damaged[central_offset:central_offset] = record
+    new_eocd_offset = eocd_offset + len(record)
+    damaged[
+        new_eocd_offset + 12 : new_eocd_offset + 16
+    ] = (central_size + len(record)).to_bytes(4, "little")
+    return bytes(damaged)
+
+
 def _set_eocd_field(
     raw: bytes,
     *,
@@ -395,6 +416,27 @@ class BookEpubImportTests(unittest.TestCase):
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         with self.assertRaises(BookEpubImportError) as raised:
             import_epub_book(b"MZ-preface" + raw, source_name="prefixed.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_archive_extra_data_record_is_rejected_before_zip_processing(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        archive_extra = b"PK\x06\x08" + (4).to_bytes(4, "little") + b"cert"
+        damaged = _insert_precentral_record(raw, archive_extra)
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="archive-extra-data.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_unexpected_precentral_record_is_rejected(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        damaged = _insert_precentral_record(raw, b"prohibited-record")
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="precentral-record.epub")
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
