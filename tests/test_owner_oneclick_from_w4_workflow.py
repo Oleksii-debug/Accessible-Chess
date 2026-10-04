@@ -36,6 +36,17 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_EXACT_ARTIFACT_BINDING=PASS", self.text)
         self.assertIn("validate_version2_package_tree(", self.text)
 
+    def test_w4_extraction_reuses_canonical_windows_path_authority(self) -> None:
+        self.assertIn("Version2PackagePreflightError", self.text)
+        self.assertIn("_relative_token", self.text)
+        self.assertIn("token = _relative_token(token, label='W4 ZIP member')", self.text)
+        self.assertIn("W4_ZIP_MEMBER_PATH_INVALID", self.text)
+        for unsafe in ("C:evil", "file:stream", "CON", "name.", "name "):
+            with self.subTest(unsafe=unsafe):
+                from acs.version2_package_preflight import Version2PackagePreflightError, _relative_token
+                with self.assertRaises(Version2PackagePreflightError):
+                    _relative_token(unsafe, label="W4 ZIP member")
+
     def test_owner_external_inputs_are_explicit_https_and_sha_bound(self) -> None:
         for token in (
             "owner_seed_url:",
