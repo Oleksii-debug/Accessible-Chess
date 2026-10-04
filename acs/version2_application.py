@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
+import hashlib
+import hmac
+import json
 from pathlib import Path
 import threading
 
@@ -43,6 +46,10 @@ from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEven
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
 
 
+class _BookBrowserLeaseRejected(ValueError):
+    """Rendered Books presentation no longer owns canonical Book intent."""
+
+
 class Version2Application:
     # Some canonical shutdown/recovery tests deliberately construct a minimal
     # application via __new__ instead of __init__. Keep optional Training state
@@ -50,6 +57,8 @@ class Version2Application:
     training_workspace = None
     training = None
     _pgn_browser_lease_required = False
+    _book_browser_lease_required = False
+    _book_browser_dispatch_token = None
 
     _BOOK_PROGRESS_COMMANDS = frozenset(
         {
@@ -104,6 +113,8 @@ class Version2Application:
         self.pgn_board_active = False
         self.pgn = None
         self._pgn_browser_lease_required = False
+        self._book_browser_lease_required = False
+        self._book_browser_dispatch_token = None
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
         self.training_workspace = self.training = None
         self.shell = build_version2_shell(language=language)
@@ -123,6 +134,136 @@ class Version2Application:
     def _assert_thread(self):
         if threading.get_ident() != self._thread:
             raise RuntimeError("V2 application requires the native UI thread")
+
+    @staticmethod
+    def _valid_book_browser_token(value):
+        if type(value) is not str or len(value) != 64:
+            return False
+        return all(character in "0123456789abcdef" for character in value)
+
+    def _book_presentation_token(self):
+        """Bind browser intent to one exact Book owner and presentation state."""
+
+        if self.reader is None or self.books is None:
+            raise ValueError("no Book presentation is available")
+        if (
+            type(self.book_key) is not str
+            or not self.book_key
+            or len(self.book_key) > 4096
+            or "\x00" in self.book_key
+        ):
+            raise ValueError("Book presentation identity is invalid")
+        language = self.books.projection.language
+        bookmark_name = self.books.projection.bookmark_name
+        if not isinstance(language, UILanguage) or type(bookmark_name) is not str:
+            raise ValueError("Book presentation state is invalid")
+        material = {
+            "schema": 1,
+            "book_key": self.book_key,
+            # Object identities make same-key owner replacement stale while the
+            # digest keeps raw process addresses outside the browser contract.
+            "reader_owner": id(self.reader),
+            "bridge_owner": id(self.books),
+            "language": language.value,
+            "bookmark_name": bookmark_name,
+            "reader": self.reader.snapshot(),
+        }
+        encoded = json.dumps(
+            material,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _lease_book_snapshot(self, snapshot):
+        if type(snapshot) is not dict:
+            raise TypeError("Book browser snapshot must be a built-in mapping")
+        leased = dict(snapshot)
+        leased["presentation_token"] = self._book_presentation_token()
+        # Merely producing a host snapshot does not prove that the current JS
+        # surface rendered it. Lease enforcement becomes sticky after the browser
+        # actually echoes one token back; current web assets always do so.
+        return leased
+
+    def _lease_book_result(self, result):
+        if type(result) is not dict:
+            raise TypeError("Book browser result must be a built-in mapping")
+        if result.get("kind") != "render":
+            return result
+        payload = result.get("payload")
+        if type(payload) is not dict:
+            raise TypeError("Book browser render payload must be a built-in mapping")
+        snapshot = payload.get("snapshot")
+        if type(snapshot) is not dict:
+            raise TypeError("Book browser render snapshot must be a built-in mapping")
+        projected_payload = dict(payload)
+        projected_payload["snapshot"] = self._lease_book_snapshot(snapshot)
+        projected = dict(result)
+        projected["payload"] = projected_payload
+        return projected
+
+    def _authorize_book_browser_payload(self, payload):
+        token_present = type(payload) is dict and "presentation_token" in payload
+        if type(payload) is dict:
+            forwarded = dict(payload)
+            token = forwarded.pop("presentation_token", None)
+        else:
+            forwarded = payload
+            token = None
+
+        if self._book_browser_lease_required or token_present:
+            if not token_present or not self._valid_book_browser_token(token):
+                raise _BookBrowserLeaseRejected("Book presentation lease is missing")
+            try:
+                current = self._book_presentation_token()
+            except Exception as exc:
+                raise _BookBrowserLeaseRejected(
+                    "Book presentation lease cannot be verified"
+                ) from exc
+            if not hmac.compare_digest(token, current):
+                raise _BookBrowserLeaseRejected("Book presentation lease is stale")
+            self._book_browser_lease_required = True
+            return forwarded, token
+
+        # Preserve the pre-render compatibility boundary: native/bootstrap tests
+        # may issue the first Book command before any browser snapshot exists.
+        return forwarded, None
+
+    def _book_browser_recovery_result(self):
+        if self.books is None or self.reader is None:
+            return self._error()
+        try:
+            snapshot = self._lease_book_snapshot(self.books.projection.snapshot())
+            block = snapshot["block"]
+            if type(block) is not dict or type(block.get("dom_id")) is not str:
+                raise ValueError("Book recovery focus is unavailable")
+            return {
+                "kind": "render",
+                "payload": {
+                    "snapshot": snapshot,
+                    "focus_target": block["dom_id"],
+                    "announcement": "",
+                },
+            }
+        except Exception:
+            return self._error()
+
+    def _require_book_browser_dispatch_authority(self, expected_token):
+        if expected_token is None:
+            return
+        if not self._valid_book_browser_token(expected_token):
+            raise _BookBrowserLeaseRejected("Book presentation lease is invalid")
+        try:
+            current = self._book_presentation_token()
+        except Exception as exc:
+            raise _BookBrowserLeaseRejected(
+                "Book presentation owner changed before dispatch"
+            ) from exc
+        if not hmac.compare_digest(expected_token, current):
+            raise _BookBrowserLeaseRejected(
+                "Book presentation owner changed before dispatch"
+            )
 
     def bind_files(self, runtime):
         self._assert_thread()
@@ -576,7 +717,13 @@ class Version2Application:
                 raise
         return result
 
-    def _dispatch_book_surface_command(self, command, payload=None):
+    def _dispatch_book_surface_command(
+        self,
+        command,
+        payload=None,
+        *,
+        expected_browser_token=None,
+    ):
         """Publish mutating Book commands only after durable progress succeeds."""
         command_id = (
             command.strip()
@@ -596,6 +743,24 @@ class Version2Application:
         )
         if self.books is None or self.reader is None:
             raise ValueError("no book is open")
+        books_owner = self.books
+        reader_owner = self.reader
+
+        def dispatch_owned(command_value, payload_value):
+            previous_token = self._book_browser_dispatch_token
+            self._book_browser_dispatch_token = expected_browser_token
+            try:
+                result = books_owner.dispatch(command_value, payload_value)
+            finally:
+                self._book_browser_dispatch_token = previous_token
+            if expected_browser_token is not None and (
+                self.books is not books_owner or self.reader is not reader_owner
+            ):
+                raise _BookBrowserLeaseRejected(
+                    "Book owner changed while browser command was in flight"
+                )
+            return result
+
         if is_language:
             # Language is presentation-only, but the Book-local WebView must still
             # own the visible route/focus before it may mutate projection state.
@@ -604,7 +769,7 @@ class Version2Application:
                 or self.shell.active_dialog_id is not None
             ):
                 return self.books.projection.generic_error()
-            return self.books.dispatch(command_id, payload)
+            return dispatch_owned(command_id, payload)
         if is_board_open:
             # Native menu actions are globally reachable even though Book Board
             # opening belongs to the visible Book Reader. Never open a hidden
@@ -623,13 +788,13 @@ class Version2Application:
             # browser, native-menu and NVDA ingress. Do not pre-save here: the
             # Book WebView dispatches its open through that same delegate, and a
             # second write would advance BookProgress twice for one transition.
-            return self.books.dispatch(command_id, payload)
+            return dispatch_owned(command_id, payload)
         if is_return_from_board:
             # The canonical workflow unwinds through the shared router delegate,
             # which re-publishes the exact Book origin once after safe Return.
             # Keeping persistence in that one owner also makes browser/native
             # failure behavior identical.
-            return self.books.dispatch(command_id, payload)
+            return dispatch_owned(command_id, payload)
         if is_progress:
             # Native menu actions are globally reachable even though the keymap
             # correctly scopes these commands to BOOK_READER. Never mutate the
@@ -648,7 +813,7 @@ class Version2Application:
             before = self.reader.snapshot()
             language = self.books.projection.language
             bookmark_name = self.books.projection.bookmark_name
-            result = self.books.dispatch(command_id, payload)
+            result = dispatch_owned(command_id, payload)
             if result.kind == "error":
                 # Projection can fail after canonical reader/bookmark state moved.
                 # Restore the exact pre-command state only when mutation occurred;
@@ -694,7 +859,7 @@ class Version2Application:
                 )
                 return self.books.projection.generic_error()
             return result
-        result = self.books.dispatch(command_id, payload)
+        result = dispatch_owned(command_id, payload)
         if result.kind != "error":
             self.save_book_progress()
         return result
@@ -845,6 +1010,14 @@ class Version2Application:
         if action.startswith("book."):
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
+                # Browser Book commands carry an opaque presentation lease. Recheck
+                # it at the final shared delegate boundary so a re-entrant owner
+                # replacement cannot reinterpret stale DOM intent against a newer
+                # reader between outer authorization and canonical Board mutation.
+                if self._book_browser_dispatch_token is not None:
+                    self._require_book_browser_dispatch_authority(
+                        self._book_browser_dispatch_token
+                    )
                 # Modal focus owns the application while open. Reject every Book
                 # Board transition before workflow dispatch so open/navigation/
                 # analysis/return cannot partially mutate state behind the dialog.
@@ -1019,8 +1192,20 @@ class Version2Application:
                         "payload": {"message": self._training_error_message()},
                     }
             if area_id == "books":
-                value = self._dispatch_book_surface_command(command, payload)
-                return asdict(value)
+                try:
+                    forwarded_payload, expected_token = (
+                        self._authorize_book_browser_payload(payload)
+                    )
+                    value = self._dispatch_book_surface_command(
+                        command,
+                        forwarded_payload,
+                        expected_browser_token=expected_token,
+                    )
+                    return self._lease_book_result(asdict(value))
+                except _BookBrowserLeaseRejected:
+                    # Stale browser intent is a presentation-recovery request only.
+                    # Never reinterpret it against the current Book owner.
+                    return self._book_browser_recovery_result()
             bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
             pgn_refresh = (
@@ -1062,11 +1247,14 @@ class Version2Application:
             # Host-side snapshots can advance the projection without proving
             # that the browser/NVDA DOM rendered that newer presentation.
             self._pgn_browser_lease_required = True
+        book_snapshot = None if self.books is None else self.books.projection.snapshot()
+        if book_snapshot is not None:
+            book_snapshot = self._lease_book_snapshot(book_snapshot)
         return {
             **self.adapter.snapshot(),
             "pgn": pgn_snapshot,
             "library": self.library.projection.snapshot(),
-            "books": None if self.books is None else self.books.projection.snapshot(),
+            "books": book_snapshot,
             "training": None if self.training_workspace is None else self.training_workspace.snapshot(),
             "book_board_active": self.book_workflow is not None and self.book_workflow.active,
             "pgn_board_active": self.pgn_board_active,
