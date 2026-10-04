@@ -90,8 +90,8 @@ jobs:
           tests.test_book_training_passive_roots_current
           tests.test_dev1_books_training_webview_projection
           tests.test_v2_book_text_import
-          tests.test_v2_book_real_html_content
-          tests.test_v2_book_epub_semantic_ingress
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
           tests.test_v2_book_board_workflow
           tests.test_version2_application
 
