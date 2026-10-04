@@ -69,7 +69,7 @@ jobs:
           candidate_package_contract_test="$(git rev-parse "HEAD:$package_contract_test_path")"
           package_identity_successor_parser='1e3bf95ee4754287fc5628d0853de3270ef563a2'
           package_identity_successor_parser_test='de189065192ca1c0bd30ce1ecec559e8f61cc1bc'
-          package_identity_successor_contract_test='938fd4ed5a336b4ccadba21731d653f6c1c3f89f'
+          package_identity_successor_contract_test='d76dfa5233865d6611f7c74f6bc431be44c07aec'
 
           if test "$candidate_parser" = "$product_parser" && \
              test "$candidate_parser_test" = "$product_parser_test"; then

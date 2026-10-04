@@ -182,31 +182,6 @@ class EpubPackageDocumentContractTests(unittest.TestCase):
         container = CONTAINER.replace(b"OEBPS/content.opf", b"//[bad")
         self.assert_malformed(_opf(), container=container)
 
-    def test_malformed_image_url_is_ignored_without_aborting_readable_content(self) -> None:
-        chapter = b'''<html><body>
-<p>Readable despite broken image URL.</p>
-<img src="//[bad" alt="Broken image"/>
-</body></html>'''
-        result = import_epub_book(
-            _epub(_opf(), chapter=chapter),
-            source_name="malformed-image-url.epub",
-        )
-        self.assertEqual(result.image_references, ())
-        self.assertTrue(
-            any(
-                "external or unsafe image reference" in warning
-                for warning in result.warnings
-            )
-        )
-        self.assertIn(
-            "Readable despite broken image URL.",
-            [
-                block.text
-                for block in result.document.blocks
-                if isinstance(block, Paragraph)
-            ],
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

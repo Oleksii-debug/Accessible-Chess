@@ -50,7 +50,7 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            "package_identity_successor_contract_test='938fd4ed5a336b4ccadba21731d653f6c1c3f89f'",
+            "package_identity_successor_contract_test='d76dfa5233865d6611f7c74f6bc431be44c07aec'",
             self.workflow,
         )
         self.assertIn(
