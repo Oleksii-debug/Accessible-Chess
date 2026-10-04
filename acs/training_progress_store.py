@@ -263,8 +263,14 @@ def _sync_published_path(path: Path) -> None:
     """Confirm the published Training-progress namespace entry reached stable storage."""
 
     if os.name == "nt":
-        with path.open("r+b") as handle:
-            os.fsync(handle.fileno())
+        # Re-open the published file through the same no-reparse authority used
+        # by reads/locks. A path swap after atomic publication must not redirect
+        # the durability barrier through a junction/symlink-like reparse point.
+        descriptor = _open_no_reparse(path, create=False)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
         return
 
     flags = os.O_RDONLY
