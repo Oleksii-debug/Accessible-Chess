@@ -16,6 +16,8 @@ from .acsdb import AcsDatabase
 from .analysis_service import AnalysisService
 from .book_progress_store import BookProgressStore
 from .continuous_analysis import ContinuousAnalysisService
+from .child_coaching_application import ChildCoachingApplication
+from .child_coaching_store import ChildCoachingTemplateStore
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
@@ -473,6 +475,19 @@ def create_version2_release_application(
             if callable(progress_binder):
                 progress_binder(
                     StudentProgressStore(layout.root / "student-progress.json")
+                )
+            child_coaching_binder = getattr(
+                candidate,
+                "bind_child_coaching_application",
+                None,
+            )
+            if callable(child_coaching_binder):
+                child_coaching_binder(
+                    ChildCoachingApplication(
+                        ChildCoachingTemplateStore(
+                            layout.root / "child-coaching.json"
+                        )
+                    )
                 )
             resume_coordinator.restore(candidate)
             _share_v2_action_registry(api, candidate)
