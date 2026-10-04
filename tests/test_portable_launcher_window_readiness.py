@@ -39,9 +39,20 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
         self.assertIn("USER_WINDOW_PROVEN: YES", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
 
+    def test_transient_window_must_remain_stable_before_success(self):
+        for token in (
+            "DWORD ready_elapsed = 0;",
+            "ready_elapsed += AC_STARTUP_POLL_MS;",
+            "ready_elapsed = 0;",
+            "AC_STARTUP_READY_STABILITY_MS - AC_STARTUP_POLL_MS",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
+
     def test_startup_observation_is_bounded_and_fail_closed(self):
         for token in (
             "#define AC_STARTUP_POLL_MS 100",
+            "#define AC_STARTUP_READY_STABILITY_MS 500",
             "#define AC_STARTUP_WINDOW_TIMEOUT_MS 30000",
             "WaitForSingleObject(g_process.hProcess, AC_STARTUP_POLL_MS)",
             "STATUS: FAILED_STARTUP_TIMEOUT",
@@ -67,11 +78,20 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "STATUS: STARTUP_WINDOW_READY",
             "USER_WINDOW_PROVEN: YES",
             "ACS_SMOKE_NO_WINDOW",
+            "ACS_SMOKE_FLASH_WINDOW",
             "STATUS: FAILED_STARTUP_TIMEOUT",
             "CHILD_LEFT_RUNNING: YES",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.workflow)
+
+    def test_windows_gate_checks_out_and_proves_exact_candidate(self):
+        self.assertIn(
+            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            self.workflow,
+        )
+        self.assertIn("Prove exact candidate", self.workflow)
+        self.assertIn("git rev-parse HEAD", self.workflow)
 
 
 if __name__ == "__main__":
