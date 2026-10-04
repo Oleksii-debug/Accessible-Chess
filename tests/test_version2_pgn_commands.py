@@ -261,6 +261,36 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertNotIn("d4", copied[0])
         self.assertEqual(second.workspace.current_game().line.moves[0].san, "d4")
 
+    def test_browser_item_navigation_rejects_same_record_document_replacement(self):
+        first = PgnDocumentSession.from_text(
+            '[Event "Same"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "First Tail"]\n[Result "*"]\n\n1. c4 *\n'
+        )
+        second = PgnDocumentSession.from_text(
+            '[Event "Same"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "Second Tail"]\n[Result "*"]\n\n1. Nf3 *\n'
+        )
+        first_view = first.workspace.view()
+        second_view = second.workspace.view()
+        self.assertEqual(first_view.current_record_digest, second_view.current_record_digest)
+        self.assertEqual(first_view.content_revision, second_view.content_revision)
+        self.assertNotEqual(first_view.content_digest, second_view.content_digest)
+
+        payload = {
+            "game_index": 0,
+            "line_path": (),
+            "move_index": 0,
+            "expected_record_digest": first_view.current_record_digest,
+            "expected_content_digest": first_view.content_digest,
+            "content_revision": first_view.content_revision,
+        }
+        before = second.workspace.view()
+
+        with self.assertRaisesRegex(ValueError, "PGN document is stale"):
+            Version2PgnCommands(lambda: second)("pgn.select_item", payload)
+
+        self.assertEqual(second.workspace.view(), before)
+
     def test_stale_mutation_rejection_is_bound_and_side_effect_free(self):
         first = PgnDocumentSession.from_text("1. e4 *")
         second = PgnDocumentSession.from_text("1. d4 *")
