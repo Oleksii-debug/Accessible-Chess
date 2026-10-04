@@ -107,7 +107,7 @@ class ExerciseSessionTests(unittest.TestCase):
         session.submit("Nf3")
         session.submit("e2e4")
         snapshot = session.snapshot()
-        self.assertEqual(snapshot["schema_version"], 3)
+        self.assertEqual(snapshot["schema_version"], 4)
         self.assertEqual(snapshot["accepted_path"], ["e4"])
         restored = ExerciseSession.restore(definition, snapshot)
         self.assertEqual(restored.step_index, 1)
