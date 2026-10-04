@@ -1,6 +1,16 @@
 name: Library Browser Event Boundary
 
 on:
+  push:
+    branches:
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
+    paths:
+      - 'web/full_product_library.js'
+      - 'tests/js/library_event_boundary_test.js'
+      - 'acs/library_webview_projection.py'
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - '.github/workflows/library-event-boundary.yml'
   pull_request:
     paths:
       - 'web/full_product_library.js'
