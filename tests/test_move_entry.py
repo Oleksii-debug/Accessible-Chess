@@ -89,6 +89,15 @@ class MoveEntryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "W: and B:"):
             parse_move_entry("W: K e1")
 
+    def test_black_section_header_cannot_fall_through_to_alias_or_move(self):
+        registry = ActionRegistry()
+        registry.set_alias("move.undo", "b:")
+
+        with self.assertRaisesRegex(ValueError, "W: and B:"):
+            parse_move_entry("B: K e8", registry)
+        with self.assertRaisesRegex(ValueError, "W: and B:"):
+            parse_move_entry("  b : K e8  ", registry)
+
 
 if __name__ == "__main__":
     unittest.main()
