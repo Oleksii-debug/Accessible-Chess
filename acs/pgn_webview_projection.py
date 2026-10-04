@@ -167,7 +167,7 @@ class PgnWebViewProjection:
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(presenter, PgnTreePresenter):
+        if type(presenter) is not PgnTreePresenter:
             raise TypeError("presenter must be PgnTreePresenter")
         if not callable(dispatch):
             raise TypeError("PGN dispatcher must be callable")
