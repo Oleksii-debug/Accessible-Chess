@@ -617,6 +617,10 @@ class Version2Application:
             language=language,
         )
         restored_books.projection.restore_bookmark_name(bookmark_name)
+        # Recovery/reload is a staged owner replacement just like initial Book
+        # install/import. Prove the replacement bridge can render its exact
+        # semantic WebView contract before publishing any canonical owner.
+        restored_books.projection.snapshot()
         self.reader = restored_reader
         self.book_workflow = restored_workflow
         self.book_delegate = restored_delegate

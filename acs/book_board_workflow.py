@@ -135,7 +135,7 @@ class BookBoardWorkflow:
         *,
         game_lookup: BookGameLookup | None = None,
     ) -> None:
-        if not isinstance(reader, BookReader):
+        if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
         if not isinstance(engine_assistance, EngineAssistedWorkflowService):
             raise TypeError("engine_assistance must be EngineAssistedWorkflowService")
