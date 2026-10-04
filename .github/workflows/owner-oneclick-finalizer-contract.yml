@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/owner-oneclick-from-w4.yml'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
@@ -27,6 +28,7 @@ on:
       - qualification/owner-portable-candidate-20261004-sol6f2
     paths:
       - '.github/workflows/owner-oneclick-from-w4.yml'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
