@@ -296,6 +296,7 @@ class TrainingProgressStore:
             raise ValueError("path must identify a progress file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
         self._active_storage_directory_identity: os.stat_result | None = None
+        self._active_lock_descriptor: int | None = None
 
     @staticmethod
     def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
@@ -353,6 +354,7 @@ class TrainingProgressStore:
             raise ValueError("training progress storage is not a regular file")
 
     def _read_progress_bytes(self, *, missing_ok: bool) -> bytes | None:
+        self._require_active_lock()
         directory_identity = self._bound_storage_directory(missing_ok=missing_ok)
         if directory_identity is None:
             return None
@@ -387,6 +389,7 @@ class TrainingProgressStore:
                     "training progress file exceeds the resource limit"
                 )
             self._require_storage_directory(directory_identity)
+            self._require_active_lock()
             return data
         except OSError as exc:
             raise ValueError("training progress file could not be read") from exc
@@ -473,6 +476,28 @@ class TrainingProgressStore:
             os.close(descriptor)
             raise
 
+    def _require_lock_descriptor_current(self, descriptor: int) -> None:
+        """Bind an acquired OS lock to the current canonical lock pathname."""
+
+        try:
+            opened = os.fstat(descriptor)
+            current = os.lstat(self._lock_path)
+        except OSError as exc:
+            raise TrainingProgressBusyError(
+                "training progress lock changed while held"
+            ) from exc
+        self._require_regular_lock(opened)
+        self._require_regular_lock(current)
+        if not self._same_file_identity(opened, current):
+            raise TrainingProgressBusyError(
+                "training progress lock changed while held"
+            )
+
+    def _require_active_lock(self) -> None:
+        descriptor = self._active_lock_descriptor
+        if descriptor is not None:
+            self._require_lock_descriptor_current(descriptor)
+
     @staticmethod
     def _lock_descriptor(descriptor: int) -> None:
         try:
@@ -513,14 +538,19 @@ class TrainingProgressStore:
         )
         acquired = False
         previous_directory_identity = self._active_storage_directory_identity
+        previous_lock_descriptor = self._active_lock_descriptor
         try:
             self._lock_descriptor(descriptor)
             acquired = True
+            self._require_lock_descriptor_current(descriptor)
             self._require_storage_directory(directory_identity)
             self._active_storage_directory_identity = directory_identity
+            self._active_lock_descriptor = descriptor
             yield
+            self._require_active_lock()
             self._require_storage_directory(directory_identity)
         finally:
+            self._active_lock_descriptor = previous_lock_descriptor
             self._active_storage_directory_identity = previous_directory_identity
             if acquired:
                 self._unlock_descriptor(descriptor)
@@ -566,6 +596,7 @@ class TrainingProgressStore:
 
                 active_directory = self._active_storage_directory_identity
                 assert active_directory is not None
+                self._require_active_lock()
                 self._require_storage_directory(active_directory)
                 fd, raw_path = tempfile.mkstemp(
                     prefix=f".{self.path.name}.",
@@ -579,6 +610,7 @@ class TrainingProgressStore:
                         handle.flush()
                         os.fsync(handle.fileno())
                     self._require_storage_directory(active_directory)
+                    self._require_active_lock()
                 except Exception:
                     if temporary.exists():
                         temporary.unlink()
@@ -594,6 +626,7 @@ class TrainingProgressStore:
                         "training progress changed during publication"
                     )
 
+                self._require_active_lock()
                 self._require_storage_directory(active_directory)
                 _replace_published_path(temporary, self.path)
                 temporary = None
@@ -602,14 +635,17 @@ class TrainingProgressStore:
                 # barrier.  If publication is visible but stable-storage
                 # confirmation fails, propagate the failure instead of falsely
                 # acknowledging a durable save.
+                self._require_active_lock()
                 self._require_storage_directory(active_directory)
                 _sync_published_path(self.path)
+                self._require_active_lock()
                 self._require_storage_directory(active_directory)
                 visible = self._read_progress_bytes(missing_ok=False)
                 if visible != data:
                     raise TrainingProgressConflictError(
                         "training progress changed after publication"
                     )
+                self._require_active_lock()
                 return new_revision
             finally:
                 if temporary is not None and temporary.exists():
