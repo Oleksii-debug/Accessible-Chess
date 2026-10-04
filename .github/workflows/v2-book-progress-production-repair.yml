@@ -65,6 +65,9 @@ jobs:
       POST_PUBLICATION_GUARD_STORE_BLOB: c526555195c60c8837e891c6808aaddfbe6db98a
       POST_PUBLICATION_GUARD_BASE_TEST_BLOB: 6d704de1441f0a8b553c8b76e64c8287fad9b7d3
       POST_PUBLICATION_GUARD_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      REVISION_BOUND_RECOVERY_STORE_BLOB: 21909ed36723bf2bf38fbc36cc6f49c6e490fcae
+      REVISION_BOUND_RECOVERY_BASE_TEST_BLOB: 1670b2672e5e06dbb58e1bfe8ff0f495ca1f8a02
+      REVISION_BOUND_RECOVERY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -322,6 +325,10 @@ jobs:
             && [ "$candidate_base_test" = "$POST_PUBLICATION_GUARD_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$POST_PUBLICATION_GUARD_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=POST_PUBLICATION_GUARD_SUCCESSOR'
+          elif [ "$candidate_store" = "$REVISION_BOUND_RECOVERY_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$REVISION_BOUND_RECOVERY_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$REVISION_BOUND_RECOVERY_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=REVISION_BOUND_RECOVERY_SUCCESSOR'
           else
             printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
               "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2
