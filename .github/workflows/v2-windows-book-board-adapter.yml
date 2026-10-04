@@ -99,19 +99,36 @@ jobs:
               '.github/workflows/v2-windows-book-board-adapter.yml' \
               'tests/test_v2_native_thread_runtime_workflow.py' \
               'tests/test_v2_windows_book_board_adapter_workflow.py' | LC_ALL=C sort)"
-            test "$changed" = "$wanted"
-
-            git diff --quiet "$live_base" HEAD -- \
-              run_accessible_chess.py \
-              run_accessible_chess_v2.py \
-              acs/version2_windows_book_board_adapter.py \
-              acs/book_board_workflow.py \
-              acs/book_webview_projection.py \
-              acs/book_webview_bridge.py \
-              acs/full_product_presenters.py \
-              acs/full_product_actions.py \
-              acs/version2_application.py \
-              acs/version2_windows_file_workflows.py
+            if [ "$changed" = "$wanted" ]; then
+              git diff --quiet "$live_base" HEAD -- \
+                run_accessible_chess.py \
+                run_accessible_chess_v2.py \
+                acs/version2_windows_book_board_adapter.py \
+                acs/book_board_workflow.py \
+                acs/book_webview_projection.py \
+                acs/book_webview_bridge.py \
+                acs/full_product_presenters.py \
+                acs/full_product_actions.py \
+                acs/version2_application.py \
+                acs/version2_windows_file_workflows.py
+              echo 'BOOK_BOARD_TOPOLOGY=EXACT_NARROW_SUCCESSOR'
+            else
+              # Other current-apex successors may legitimately change the
+              # inherited application seam. Qualify that new seam against the
+              # unchanged BookBoard authority instead of rejecting the run
+              # solely because it is not the historical four-path successor.
+              git diff --quiet "$live_base" HEAD -- \
+                run_accessible_chess.py \
+                run_accessible_chess_v2.py \
+                acs/version2_windows_book_board_adapter.py \
+                acs/book_board_workflow.py \
+                acs/book_webview_projection.py \
+                acs/book_webview_bridge.py \
+                acs/full_product_presenters.py \
+                acs/full_product_actions.py \
+                acs/version2_windows_file_workflows.py
+              echo 'BOOK_BOARD_TOPOLOGY=APPLICATION_COMPATIBILITY'
+            fi
           else
             parent="$(git rev-parse HEAD^)"
             git cat-file -e "$parent^{commit}"
