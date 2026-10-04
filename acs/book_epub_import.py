@@ -17,6 +17,7 @@ import posixpath
 import re
 import stat
 import unicodedata
+import zlib
 from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
@@ -56,6 +57,10 @@ _PACKAGE_TAG = f"{{{_OPF_NAMESPACE}}}package"
 _METADATA_TAG = f"{{{_OPF_NAMESPACE}}}metadata"
 _MANIFEST_TAG = f"{{{_OPF_NAMESPACE}}}manifest"
 _SPINE_TAG = f"{{{_OPF_NAMESPACE}}}spine"
+_GUIDE_TAG = f"{{{_OPF_NAMESPACE}}}guide"
+_BINDINGS_TAG = f"{{{_OPF_NAMESPACE}}}bindings"
+_COLLECTION_TAG = f"{{{_OPF_NAMESPACE}}}collection"
+_TOURS_TAG = f"{{{_OPF_NAMESPACE}}}tours"
 _ITEM_TAG = f"{{{_OPF_NAMESPACE}}}item"
 _ITEMREF_TAG = f"{{{_OPF_NAMESPACE}}}itemref"
 _ID_BEARING_OPF_TAGS = frozenset(
@@ -284,6 +289,11 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 "EPUB package file metadata contradicts its entry name",
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
+        if info.flag_bits & 0x1:
+            raise _error(
+                "EPUB uses ZIP encryption, which OCF does not permit",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
         if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
             raise _error(
                 "EPUB uses an unsupported ZIP compression method",
@@ -330,7 +340,7 @@ def _read_entry(
         )
     try:
         data = archive.read(info)
-    except (RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:
+    except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
         raise _error(
             "EPUB package entry could not be read safely",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
@@ -519,6 +529,29 @@ def _validate_package_document(package: ET.Element) -> None:
     ):
         raise _error(
             "EPUB package required sections must be the first three OPF children in canonical order",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    trailing = structural_children[3:]
+    if version == "3.0":
+        index = 0
+        if index < len(trailing) and trailing[index] == _GUIDE_TAG:
+            index += 1
+        if index < len(trailing) and trailing[index] == _BINDINGS_TAG:
+            index += 1
+        while index < len(trailing) and trailing[index] == _COLLECTION_TAG:
+            index += 1
+        valid_trailing_structure = index == len(trailing)
+    else:
+        index = 0
+        if index < len(trailing) and trailing[index] == _TOURS_TAG:
+            index += 1
+        if index < len(trailing) and trailing[index] == _GUIDE_TAG:
+            index += 1
+        valid_trailing_structure = index == len(trailing)
+    if not valid_trailing_structure:
+        raise _error(
+            "EPUB package contains an invalid OPF top-level element or ordering",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
@@ -1165,6 +1198,11 @@ def import_epub_book(
         if infos[0].filename != "mimetype" or infos[0].compress_type != zipfile.ZIP_STORED:
             raise _error(
                 "EPUB mimetype entry must be the first uncompressed package entry",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        if infos[0].extra:
+            raise _error(
+                "EPUB mimetype entry must not contain a ZIP extra field",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
         mimetype = _read_entry(archive, index, "mimetype", limit=128)
