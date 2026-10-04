@@ -435,6 +435,107 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_invalid_versioned_opf_top_level_tail_fails_closed(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        closing = b"  </spine>\n</package>"
+        cases = (
+            base.replace(
+                closing,
+                b'''  </spine>
+  <item id="rogue" href="Text/rogue.xhtml" media-type="application/xhtml+xml"/>
+</package>''',
+                1,
+            ),
+            base.replace(
+                closing,
+                b'''  </spine>
+  <collection role="preview"><link href="Text/ch1.xhtml"/></collection>
+  <guide><reference type="toc" title="Contents" href="Text/ch1.xhtml"/></guide>
+</package>''',
+                1,
+            ),
+            base.replace(
+                closing,
+                b'''  </spine>
+  <guide><reference type="toc" title="Contents" href="Text/ch1.xhtml"/></guide>
+  <guide><reference type="text" title="Text" href="Text/ch1.xhtml"/></guide>
+</package>''',
+                1,
+            ),
+            base.replace(b'version="3.0"', b'version="2.0"', 1).replace(
+                closing,
+                b'''  </spine>
+  <collection role="preview"><link href="Text/ch1.xhtml"/></collection>
+</package>''',
+                1,
+            ),
+        )
+        for opf in cases:
+            with self.subTest(opf=opf):
+                raw = _epub(
+                    opf=opf,
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                        "OEBPS/Text/rogue.xhtml": (
+                            b"<html><body><p>Rogue.</p></body></html>"
+                        ),
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="invalid-package-tail.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_versioned_opf_top_level_optional_order_is_preserved(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        closing = b"  </spine>\n</package>"
+        epub3 = base.replace(
+            closing,
+            b'''  </spine>
+  <guide><reference type="toc" title="Contents" href="Text/ch1.xhtml"/></guide>
+  <collection role="preview"><link href="Text/ch1.xhtml"/></collection>
+</package>''',
+            1,
+        )
+        epub2 = base.replace(b'version="3.0"', b'version="2.0"', 1).replace(
+            closing,
+            b'''  </spine>
+  <tours><tour id="tour1" title="Tour"><site title="Start" href="Text/ch1.xhtml"/></tour></tours>
+  <guide><reference type="toc" title="Contents" href="Text/ch1.xhtml"/></guide>
+</package>''',
+            1,
+        )
+        for opf in (epub3, epub2):
+            with self.subTest(opf=opf):
+                result = import_epub_book(
+                    _epub(
+                        opf=opf,
+                        entries={
+                            "OEBPS/Text/ch1.xhtml": (
+                                b"<html><body><p>Readable.</p></body></html>"
+                            ),
+                        },
+                    ),
+                    source_name="valid-package-tail.epub",
+                )
+                self.assertEqual(result.spine_documents, 1)
+
     def test_all_recognized_epub_ids_reject_empty_or_whitespace_values(self) -> None:
         base = _opf(
             manifest=(
