@@ -11,6 +11,7 @@ from acs.user_library_seed import (
     BUNDLE_KIND,
     SCHEMA_VERSION,
     UserLibrarySeedError,
+    _portable_name,
     import_user_library_seed,
     load_user_library_seed,
 )
@@ -147,6 +148,7 @@ class UserLibrarySeedTests(unittest.TestCase):
             "LPT¹.pgn",
             "lpt².PGN",
             "LpT³.pgn",
+            "😀" * 126 + ".pgn",
         )
         for unsafe_name in unsafe_names:
             with self.subTest(name=unsafe_name):
@@ -164,6 +166,10 @@ class UserLibrarySeedTests(unittest.TestCase):
                         "filename is unsafe",
                     ):
                         load_user_library_seed(root)
+
+    def test_unpaired_surrogate_filename_is_rejected_before_path_use(self) -> None:
+        with self.assertRaisesRegex(UserLibrarySeedError, "filename is unsafe"):
+            _portable_name("\ud800.pgn")
 
     def test_byte_tampering_fails_before_library_publication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -13,12 +13,14 @@ on:
       - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
       - fix/w4-sound-byte-readback-20261004-sol56
       - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
+      - fix/owner-apex-private-seed-win32-portability-r2-20261004-zftrkmo
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
       - integration/current-main-windows-apex-reconvergence-20261004-sol
       - integration/owner-equal-sha-release-convergence-20261004-ooxple7
       - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
+      - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
       - main
     paths:
       - 'acs/**'
