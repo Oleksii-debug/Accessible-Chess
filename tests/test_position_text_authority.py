@@ -347,6 +347,31 @@ class PositionTextAuthorityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "^language must be 'uk' or 'en'$"):
                     parse_position_text(text, language=language)  # type: ignore[arg-type]
 
+    def test_stage1_successfully_replaces_all_live_history_state(self):
+        api = AccessibleChessAPI(lang="uk")
+        self.assertTrue(api.make_move("e4")["ok"])
+        self.assertTrue(api.undo()["ok"])
+        self.assertTrue(api.redo_meta)
+        self.assertTrue(api.board.redo_stack)
+
+        result = api.set_position_text("W: K e1 Q d1 B: K e8", "b")
+        expected_fen = "4k3/8/8/8/8/8/8/3QK3 b - - 0 1"
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(api.board.fen(), expected_fen)
+        self.assertEqual(api.start_fen, expected_fen)
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+        self.assertEqual(api.redo_meta, [])
+        self.assertIsNone(api.selected_source)
+        self.assertEqual(api.board.undo_stack, [])
+        self.assertEqual(api.board.redo_stack, [])
+        self.assertIsNone(api.board.last_move)
+        self.assertEqual(api.review_history.cursor_node_id, api.live_history_node)
+        self.assertEqual(len(api.review_history.tree_nodes()), 1)
+        self.assertEqual(api.review_adapter.current().fen, expected_fen)
+        self.assertEqual(api.review_adapter.current().ply, 0)
+
     def test_stage1_user_flow_accepts_canonical_position(self):
         api = AccessibleChessAPI(lang="uk")
         result = api.set_position_text("W: K e1 Q d1 B: K e8", "b")
