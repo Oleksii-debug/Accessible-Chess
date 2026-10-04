@@ -653,6 +653,143 @@ class PortableTreeTests(unittest.TestCase):
             self.assertFalse((output / "data").exists())
             self.assertEqual(report.integration_sha, _SHA)
 
+    def test_assembler_rejects_launcher_rewrite_after_input_qualification(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            canonical = work / "canonical"
+            _pe(canonical / "AccessibleChess" / "AccessibleChess.exe")
+            (canonical / "THIRD_PARTY_NOTICES").mkdir(parents=True)
+            (canonical / "THIRD_PARTY_NOTICES" / "NOTICE.txt").write_text(
+                "notice",
+                encoding="utf-8",
+            )
+            (canonical / MANIFEST_NAME).write_text(
+                json.dumps(
+                    {
+                        "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
+                        "product": "Accessible Chess",
+                        "package_profile": V2_PACKAGE_PROFILE,
+                        "integration_sha": _SHA,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(canonical)
+            launcher = work / "launcher.exe"
+            _pe(launcher)
+            first = work / "Посібник.docx"
+            second = work / "Опис.docx"
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            output = work / "portable"
+
+            real_identity = portable_module._launcher_identity
+            injected = False
+
+            def qualify_then_mutate(path: Path):
+                nonlocal injected
+                digest = real_identity(path)
+                if path == launcher and not injected:
+                    payload = launcher.read_bytes()
+                    launcher.write_bytes(b"MZ" + b"X" * (len(payload) - 2))
+                    injected = True
+                return digest
+
+            with mock.patch(
+                "acs.version2_portable_package.validate_version2_package_tree",
+                return_value=object(),
+            ), mock.patch.object(
+                portable_module,
+                "_launcher_identity",
+                side_effect=qualify_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable launcher source changed after qualification",
+                ):
+                    assemble_portable_oneclick_tree(
+                        canonical,
+                        launcher,
+                        (first, second),
+                        output,
+                        integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(output.exists())
+
+    def test_assembler_rejects_docx_rewrite_after_input_qualification(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            canonical = work / "canonical"
+            _pe(canonical / "AccessibleChess" / "AccessibleChess.exe")
+            (canonical / "THIRD_PARTY_NOTICES").mkdir(parents=True)
+            (canonical / "THIRD_PARTY_NOTICES" / "NOTICE.txt").write_text(
+                "notice",
+                encoding="utf-8",
+            )
+            (canonical / MANIFEST_NAME).write_text(
+                json.dumps(
+                    {
+                        "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
+                        "product": "Accessible Chess",
+                        "package_profile": V2_PACKAGE_PROFILE,
+                        "integration_sha": _SHA,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(canonical)
+            launcher = work / "launcher.exe"
+            _pe(launcher)
+            first = work / "Посібник.docx"
+            second = work / "Опис.docx"
+            first.write_bytes(b"owner-doc-one")
+            second.write_bytes(b"owner-doc-two")
+            output = work / "portable"
+
+            real_digest = portable_module._stable_digest
+            injected = False
+
+            def qualify_then_mutate(path: Path, *args, **kwargs):
+                nonlocal injected
+                digest = real_digest(path, *args, **kwargs)
+                if (
+                    path == first
+                    and kwargs.get("label") == "portable Word document source"
+                    and not injected
+                ):
+                    first.write_bytes(b"changed-doc!!")
+                    injected = True
+                return digest
+
+            with mock.patch(
+                "acs.version2_portable_package.validate_version2_package_tree",
+                return_value=object(),
+            ), mock.patch.object(
+                portable_module,
+                "_stable_digest",
+                side_effect=qualify_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable Word document source changed after qualification",
+                ):
+                    assemble_portable_oneclick_tree(
+                        canonical,
+                        launcher,
+                        (first, second),
+                        output,
+                        integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(output.exists())
+
     def test_assembler_cleans_private_snapshot_if_staging_setup_fails(self):
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
