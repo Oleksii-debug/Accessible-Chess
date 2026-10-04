@@ -530,6 +530,15 @@ def _validate_package_document(package: ET.Element) -> None:
             "EPUB metadata contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    for child in metadata:
+        if _is_opf_namespace_tag(child.tag) and child.tag not in {
+            f"{{{_OPF_NAMESPACE}}}meta",
+            f"{{{_OPF_NAMESPACE}}}link",
+        }:
+            raise _error(
+                "EPUB metadata contains an invalid OPF element",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
     _validate_package_ids_unique(package, metadata)
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
     for element in metadata:
@@ -658,6 +667,14 @@ def _package_rootfile(
     ):
         raise _error(
             "EPUB container metadata has an invalid root element or version",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    if (container.text or "").strip() or any(
+        (child.tail or "").strip() for child in container
+    ):
+        raise _error(
+            "EPUB container contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
