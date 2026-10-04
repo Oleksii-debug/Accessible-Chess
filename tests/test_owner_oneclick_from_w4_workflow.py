@@ -310,7 +310,22 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
             "$childPath=(Resolve-Path (Join-Path $root 'App\\AccessibleChess.exe')).Path",
             self.text,
         )
+        self.assertIn("$baselineChildPids=@(", self.text)
         self.assertIn("try { $_.Path -eq $childPath } catch { $false }", self.text)
+        self.assertIn("$candidateId=[int]$_.Id", self.text)
+        self.assertIn(
+            "$candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId",
+            self.text,
+        )
+        baseline_index = self.text.index("$baselineChildPids=@(")
+        launch_index = self.text.index(
+            "$proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru"
+        )
+        cleanup_index = self.text.index(
+            "$candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId"
+        )
+        self.assertLess(baseline_index, launch_index)
+        self.assertLess(launch_index, cleanup_index)
         self.assertNotIn(
             "Get-Process AccessibleChess -ErrorAction SilentlyContinue | Stop-Process -Force",
             self.text,
