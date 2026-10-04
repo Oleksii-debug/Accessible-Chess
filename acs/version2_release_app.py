@@ -482,7 +482,7 @@ def create_version2_release_application(
 
     def native_runtime_factory(owner_control: object) -> Version2WindowsFileWorkflowRuntime:
         if owner_control is None:
-            raise RuntimeError("Version 2 Windows UI owner control is unavailable")
+            raise RuntimeError("Version 2 Windows owner control is unavailable")
         if application is None:
             raise RuntimeError("Version 2 application must be constructed on the native UI first")
         application._assert_thread()
@@ -510,6 +510,9 @@ def create_version2_release_application(
             book_dialogs,
             before_shutdown=resume_coordinator.prepare_shutdown,
         )
+        # Publish every owner-bound application callback only after the native
+        # runtime and FormClosing guard are both live. Failed startup must leave
+        # no callback pointing at a retired/unowned Form.
         application.open_book_dialog = book_dialogs.open_book
         application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
