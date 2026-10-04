@@ -15,6 +15,7 @@ from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
+from .input_limits import MAX_FEN_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san
 from .position_text import parse_position_text
@@ -79,6 +80,12 @@ class AccessibleChessAPI:
             "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
             "move_text_type": "Текст ходу має бути текстовим значенням.",
             "move_text_too_long": "Текст ходу занадто довгий.",
+            "move_invalid": "Хід не розпізнано або він нелегальний.",
+            "square_invalid": "Неправильне поле.",
+            "fen_text_type": "FEN має бути текстовим значенням.",
+            "fen_text_too_long": "FEN занадто довгий.",
+            "fen_invalid": "Некоректний FEN.",
+            "position_invalid": "Некоректна позиція.",
             "position_history_failed": "Не вдалося підготувати історію нової позиції.",
             "fen_history_failed": "Не вдалося підготувати історію FEN-позиції.",
             "editor_history_failed": "Не вдалося підготувати історію зміненої позиції.",
@@ -99,6 +106,12 @@ class AccessibleChessAPI:
             "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
             "move_text_type": "Move text must be a text value.",
             "move_text_too_long": "Move text is too long.",
+            "move_invalid": "Move is unrecognized or illegal.",
+            "square_invalid": "Invalid square.",
+            "fen_text_type": "FEN must be a text value.",
+            "fen_text_too_long": "FEN is too long.",
+            "fen_invalid": "Invalid FEN.",
+            "position_invalid": "Invalid position.",
             "position_history_failed": "Could not prepare history for the new position.",
             "fen_history_failed": "Could not prepare history for the FEN position.",
             "editor_history_failed": "Could not prepare history for the edited position.",
@@ -479,9 +492,22 @@ class AccessibleChessAPI:
         try:
             side = self.board.turn if turn is None else turn
             fen = parse_position_text(text, side, language=self.lang)
-            candidate_board = Board(fen)
-        except Exception as exc:
+        except ValueError as exc:
+            # The position-text adapter owns localized, presentation-safe
+            # diagnostics for expected parse failures.
             return self._error(str(exc))
+        except Exception:
+            return self._error(self._t("position_invalid"))
+
+        try:
+            candidate_board = Board(fen)
+        except ValueError as exc:
+            # Core chess validation is historically Ukrainian. Preserve those
+            # useful details in Ukrainian mode, but never make NVDA read them
+            # inside an English interface.
+            return self._error(str(exc) if self.lang == "uk" else self._t("position_invalid"))
+        except Exception:
+            return self._error(self._t("position_invalid"))
 
         try:
             prepared = self._prepare_root_state(candidate_board)
@@ -526,8 +552,10 @@ class AccessibleChessAPI:
             return self._error(self._t("move_history_failed"))
         try:
             san = candidate_board.push_text(text)
-        except Exception as exc:
-            return self._error(str(exc))
+        except ValueError as exc:
+            return self._error(str(exc) if self.lang == "uk" else self._t("move_invalid"))
+        except Exception:
+            return self._error(self._t("move_history_failed"))
         try:
             candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
             candidate_sans = list(self.sans)
@@ -567,8 +595,10 @@ class AccessibleChessAPI:
             return self._error(self._t("review_before_move"))
         try:
             target = parse_sq(square)
-        except Exception as exc:
-            return self._error(str(exc))
+        except ValueError as exc:
+            return self._error(str(exc) if self.lang == "uk" else self._t("square_invalid"))
+        except Exception:
+            return self._error(self._t("square_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
         p = self.board.board[target]
@@ -598,8 +628,10 @@ class AccessibleChessAPI:
             return self._error(self._t("move_history_failed"))
         try:
             san = candidate_board.push(move)
-        except Exception as exc:
-            return self._error(str(exc))
+        except Exception:
+            # A move selected from legal_moves() failing here is an internal
+            # synchronization failure, not user-authored diagnostic text.
+            return self._error(self._t("move_history_failed"))
         try:
             candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
             candidate_sans = list(self.sans)
@@ -760,10 +792,16 @@ class AccessibleChessAPI:
         return self._ok(self._t("white_turn") if color == "w" else self._t("black_turn"))
 
     def set_fen(self, fen: str) -> dict[str, Any]:
+        if type(fen) is not str:
+            return self._error(self._t("fen_text_type"))
+        if len(fen) > MAX_FEN_CHARS:
+            return self._error(self._t("fen_text_too_long"))
         try:
             candidate_board = Board(fen)
-        except Exception as exc:
-            return self._error(str(exc))
+        except ValueError as exc:
+            return self._error(str(exc) if self.lang == "uk" else self._t("fen_invalid"))
+        except Exception:
+            return self._error(self._t("fen_invalid"))
 
         try:
             prepared = self._prepare_root_state(candidate_board)
