@@ -1108,6 +1108,15 @@ class Version2Application:
                 raise
             return None
         if action.startswith("pgn.") and action not in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
+            # All Board-owned PGN actions returned above. The remaining PGN
+            # document/navigation commands belong to the visible PGN workspace;
+            # central native/menu dispatch must not bypass the same route/modal
+            # authority fence enforced for the WebView.
+            if (
+                self.shell.current_route.route_id != "pgn"
+                or self.shell.active_dialog_id is not None
+            ):
+                raise ValueError("PGN command requires the visible PGN workspace")
             if not payload and self.pgn is not None and action == "pgn.copy_selection":
                 return self.pgn.dispatch(action)
             return self.pgn_commands(action, payload)
