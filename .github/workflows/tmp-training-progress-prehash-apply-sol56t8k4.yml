@@ -1,0 +1,69 @@
+name: Temporary apply TrainingProgress prehash bounds
+
+on:
+  push:
+    branches:
+      - fix/training-progress-json-prehash-bounds-20261004-sol56t8k4
+    paths:
+      - '.github/workflows/tmp-training-progress-prehash-apply-sol56t8k4.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/training-progress-json-prehash-bounds-20261004-sol56t8k4
+          fetch-depth: 0
+      - name: Apply bounded persisted JSON repair and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('acs/training_progress_store.py')
+          source = source_path.read_text(encoding='utf-8')
+          old_constants = '''TRAINING_PROGRESS_STORE_SCHEMA_VERSION = 1\nMAX_TRAINING_PROGRESS_BYTES = 1 * 1024 * 1024\n_ENVELOPE_FIELDS = frozenset({"schema_version", "snapshot"})\n'''
+          new_constants = '''TRAINING_PROGRESS_STORE_SCHEMA_VERSION = 1\nMAX_TRAINING_PROGRESS_BYTES = 1 * 1024 * 1024\nMAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS = 64\nMAX_TRAINING_PROGRESS_JSON_KEY_CHARS = 128\n_ENVELOPE_FIELDS = frozenset({"schema_version", "snapshot"})\n'''
+          assert source.count(old_constants) == 1, 'unexpected TrainingProgress constants topology'
+          source = source.replace(old_constants, new_constants, 1)
+
+          old_hook = '''def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:\n    result: dict[str, Any] = {}\n    for key, value in pairs:\n        if key in result:\n            raise ValueError("training progress contains duplicate JSON object keys")\n        result[key] = value\n    return result\n'''
+          new_hook = '''def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:\n    # object_pairs_hook receives the parser's unhashed pair list. Bound both the\n    # member count and every key before the first dict lookup/insertion so a\n    # malformed persisted file cannot amplify its bounded bytes into unbounded\n    # hash work. Current Training envelopes/snapshots use far fewer members and\n    # field names already obey the canonical 128-character snapshot-field bound.\n    if len(pairs) > MAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS:\n        raise TrainingProgressResourceError(\n            "training progress JSON object contains too many members"\n        )\n    result: dict[str, Any] = {}\n    for key, value in pairs:\n        if len(key) > MAX_TRAINING_PROGRESS_JSON_KEY_CHARS:\n            raise TrainingProgressResourceError(\n                "training progress JSON object key exceeds the resource limit"\n            )\n        if key in result:\n            raise ValueError("training progress contains duplicate JSON object keys")\n        result[key] = value\n    return result\n'''
+          assert source.count(old_hook) == 1, 'unexpected duplicate-object hook topology'
+          source = source.replace(old_hook, new_hook, 1)
+          source_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('tests/test_w2_training_progress_crash_recovery.py')
+          tests = test_path.read_text(encoding='utf-8')
+          old_import = '''from acs.training_progress_store import (\n    MAX_TRAINING_PROGRESS_BYTES,\n'''
+          new_import = '''from acs.training_progress_store import (\n    MAX_TRAINING_PROGRESS_BYTES,\n    MAX_TRAINING_PROGRESS_JSON_KEY_CHARS,\n    MAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS,\n'''
+          assert tests.count(old_import) == 1, 'unexpected TrainingProgress test import topology'
+          tests = tests.replace(old_import, new_import, 1)
+
+          marker = '''    def test_progress_symlink_is_not_followed_or_replaced(self) -> None:\n'''
+          additions = '''    def test_oversized_json_object_key_is_bounded_before_duplicate_detection(self) -> None:\n        with tempfile.TemporaryDirectory() as td:\n            path = Path(td) / "training-progress.json"\n            hostile_key = "k" * (MAX_TRAINING_PROGRESS_JSON_KEY_CHARS + 1)\n            raw = (\n                "{" + json.dumps(hostile_key) + ":0}"\n            ).encode("utf-8")\n            self.assertLess(len(raw), MAX_TRAINING_PROGRESS_BYTES)\n            path.write_bytes(raw)\n\n            with self.assertRaisesRegex(\n                TrainingProgressResourceError,\n                "object key exceeds the resource limit",\n            ):\n                TrainingProgressStore(path).load(self._definition())\n\n            self.assertEqual(raw, path.read_bytes())\n\n    def test_json_object_member_count_is_bounded_before_duplicate_detection(self) -> None:\n        with tempfile.TemporaryDirectory() as td:\n            path = Path(td) / "training-progress.json"\n            members = ",".join(\n                f'"k{index}":0'\n                for index in range(MAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS + 1)\n            )\n            raw = ("{" + members + "}").encode("utf-8")\n            self.assertLess(len(raw), MAX_TRAINING_PROGRESS_BYTES)\n            path.write_bytes(raw)\n\n            with self.assertRaisesRegex(\n                TrainingProgressResourceError,\n                "object contains too many members",\n            ):\n                TrainingProgressStore(path).load(self._definition())\n\n            self.assertEqual(raw, path.read_bytes())\n\n'''
+          assert tests.count(marker) == 1, 'unexpected TrainingProgress test insertion topology'
+          tests = tests.replace(marker, additions + marker, 1)
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+          python3 -m compileall -q acs/training_progress_store.py tests/test_w2_training_progress_crash_recovery.py
+          python3 -m unittest -v \
+            tests.test_w2_training_progress_crash_recovery.TrainingProgressCrashRecoveryTests.test_oversized_json_object_key_is_bounded_before_duplicate_detection \
+            tests.test_w2_training_progress_crash_recovery.TrainingProgressCrashRecoveryTests.test_json_object_member_count_is_bounded_before_duplicate_detection \
+            tests.test_w2_training_progress_crash_recovery.TrainingProgressCrashRecoveryTests.test_duplicate_json_object_keys_are_rejected
+          git diff --check
+          git diff --name-only | sort
+          test "$(git diff --name-only | sort)" = "$(printf '%s\n' acs/training_progress_store.py tests/test_w2_training_progress_crash_recovery.py | sort)"
+          git config user.name 'Accessible Chess automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git rm .github/workflows/tmp-training-progress-prehash-apply-sol56t8k4.yml
+          git add acs/training_progress_store.py tests/test_w2_training_progress_crash_recovery.py
+          git commit -m 'Training: bound persisted JSON prehash work'
+          git push origin HEAD:fix/training-progress-json-prehash-bounds-20261004-sol56t8k4
