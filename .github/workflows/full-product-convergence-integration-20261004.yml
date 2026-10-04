@@ -122,6 +122,7 @@ jobs:
           node --check web/full_product_books_training.js
           node --check web/version2_release_bootstrap.js
           node --check web/full_product_library.js
+          node --check web/full_product_pgn.js
           node --check web/p0_accessibility_runtime.js
           node --check web/version2_final_product_bootstrap.js
           node --check tests/js/p0_accessibility_runtime_test.js
@@ -132,9 +133,11 @@ jobs:
           node --check tests/js/books_training_surface_dom_test.js
           node --check tests/js/version2_release_bootstrap_dom_test.js
           node --check tests/js/library_surface_dom_test.js
+          node --check tests/js/pgn_surface_dom_test.js
           node tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
           node tests/js/library_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
           node tests/js/p0_accessibility_runtime_test.js
           node tests/js/p0_dynamic_selection_runtime_test.js
           node tests/js/p0_accessibility_partial_replacement_test.js
@@ -206,6 +209,7 @@ jobs:
           python -m unittest -v
           tests.test_bookdocument
           tests.test_d06_pgn_roundtrip
+          tests.test_dev1_pgn_webview_projection
           tests.test_gametree
           tests.test_v2_book_html_head_metadata_semantics
           tests.test_v2_book_html_import
