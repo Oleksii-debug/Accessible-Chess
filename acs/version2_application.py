@@ -1133,8 +1133,22 @@ class Version2Application:
                 action_id = payload.get("action_id")
                 announcement_key = {
                     "book.open_position": "opened",
+                    "book.open_game": "game_opened",
                     "book.return": "returned",
                 }.get(action_id)
+                if action_id == "book.open_position" and self.reader is not None:
+                    # Legacy native/keymap ingress keeps book.open_position as
+                    # OPEN_CURRENT compatibility even on a Game. The visible
+                    # browser has a separate Game action, so make NVDA/native
+                    # feedback describe the semantic item that actually opened.
+                    try:
+                        if self.reader.location().kind == "Game":
+                            announcement_key = "game_opened"
+                    except Exception:
+                        # Delegation already succeeded. If the read-only semantic
+                        # probe is unavailable, preserve the established generic
+                        # position announcement instead of breaking event delivery.
+                        announcement_key = "opened"
                 if announcement_key is not None:
                     # FullProductWebViewAdapter intentionally drops trusted domain
                     # DTOs at this browser boundary. Reattach only the bounded,
