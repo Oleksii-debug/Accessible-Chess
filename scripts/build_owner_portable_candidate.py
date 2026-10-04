@@ -28,6 +28,8 @@ from acs.user_library_seed import (
 )
 from acs.version2_portable_package import (
     Version2PortablePackageError,
+    _stable_bytes,
+    _stable_digest,
     assemble_portable_oneclick_tree,
     validate_portable_oneclick_tree,
     write_portable_oneclick_zip,
@@ -42,6 +44,7 @@ from scripts.build_user_sound_pack import (
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_OWNER_JSON_MAX_BYTES = 1024 * 1024
 
 
 class OwnerPortableCandidateError(RuntimeError):
@@ -93,16 +96,12 @@ def _sha256_value(value: object, *, label: str) -> str:
 
 
 def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
-    except OSError as exc:
+        return _stable_digest(path, label=f"owner candidate file {path.name}")
+    except Version2PortablePackageError as exc:
         raise OwnerPortableCandidateError(
-            f"candidate file cannot be hashed: {path.name}"
+            f"candidate file cannot be hashed safely: {path.name}"
         ) from exc
-    return digest.hexdigest()
 
 
 def _strict_json_object(path: Path, *, label: str) -> dict[str, object]:
@@ -115,11 +114,18 @@ def _strict_json_object(path: Path, *, label: str) -> dict[str, object]:
         return result
 
     try:
-        text = path.read_text(encoding="utf-8-sig", errors="strict")
+        payload = _stable_bytes(
+            path,
+            label=label,
+            maximum=_OWNER_JSON_MAX_BYTES,
+        )
+        text = payload.decode("utf-8-sig", errors="strict")
         value = json.loads(text, object_pairs_hook=unique_pairs)
     except OwnerPortableCandidateError:
         raise
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+    except Version2PortablePackageError as exc:
+        raise OwnerPortableCandidateError(f"{label} cannot be read safely") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
         raise OwnerPortableCandidateError(f"{label} is invalid") from exc
     if not isinstance(value, dict):
         _fail(f"{label} must be an object")
@@ -251,10 +257,19 @@ def _validate_owner_sound_pack(
             _fail("owner sound tree contains a WAV not declared by inventory")
         _name, expected_digest, expected_size = metadata
         try:
-            actual_size = path.stat().st_size
-        except OSError as exc:
-            raise OwnerPortableCandidateError("owner sound WAV cannot be inspected") from exc
-        if actual_size != expected_size or _file_sha256(path) != expected_digest:
+            payload = _stable_bytes(
+                path,
+                label="owner sound WAV",
+                maximum=expected_size,
+            )
+        except Version2PortablePackageError as exc:
+            raise OwnerPortableCandidateError(
+                "owner sound WAV cannot be read safely"
+            ) from exc
+        if (
+            len(payload) != expected_size
+            or hashlib.sha256(payload).hexdigest() != expected_digest
+        ):
             _fail("owner sound WAV bytes do not match inventory")
 
     if actual_names != set(declared):
