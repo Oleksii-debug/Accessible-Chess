@@ -28,6 +28,8 @@ MAX_BOOK_PGN_CHARS = 64 * 1024 * 1024
 MAX_BOOK_LIST_ITEMS = 65_536
 MAX_BOOK_LIST_TOTAL_CHARS = 12 * 1024 * 1024
 MAX_BOOK_WARNING_TOTAL_CHARS = 12 * 1024 * 1024
+# Longest durable target prefix is "source:" (7 chars) inside a 4096-char key.
+MAX_BOOK_IDENTIFIER_CHARS = 4_089
 
 
 class BookDocumentErrorCode(str, Enum):
@@ -74,6 +76,11 @@ def _optional_text(value: object, field_name: str) -> str | None:
 
 
 def _optional_identifier(value: object, field_name: str) -> str | None:
+    if type(value) is str and len(value) > MAX_BOOK_IDENTIFIER_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical semantic identifier limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
     text = _optional_text(value, field_name)
     return None if text is None else text.strip()
 
