@@ -443,6 +443,51 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertEqual(loaded.revision, raised.exception.published_revision)
             self.assertIsInstance(raised.exception.__cause__, OSError)
 
+    def test_missing_target_appearance_after_publication_read_is_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            session = ExerciseSession(definition)
+            external_payload = json.dumps(
+                {
+                    "schema_version": 1,
+                    "snapshot": session.snapshot(),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+            real_read = store._read_progress_bytes
+            calls = 0
+            injected = False
+
+            def appear_after_publication_read(*, missing_ok: bool):
+                nonlocal calls, injected
+                calls += 1
+                raw = real_read(missing_ok=missing_ok)
+                if calls == 2 and raw is None:
+                    path.write_bytes(external_payload)
+                    injected = True
+                return raw
+
+            with mock.patch.object(
+                store,
+                "_read_progress_bytes",
+                side_effect=appear_after_publication_read,
+            ):
+                with self.assertRaises(TrainingProgressConflictError):
+                    store.save(session, expected_revision=None)
+
+            self.assertTrue(injected)
+            self.assertEqual(external_payload, path.read_bytes())
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(0, loaded.session.step_index)
+
     def test_same_byte_target_swap_before_initial_read_is_a_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
