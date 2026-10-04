@@ -11,7 +11,7 @@ from acs.book_html_import import (
     BookHtmlImportErrorCode,
     import_html_book,
 )
-from acs.bookdocument import Diagram, Note, Paragraph
+from acs.bookdocument import Diagram, Note, Paragraph, Position
 from acs.chesscore import Board
 
 
@@ -275,6 +275,68 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
             [
                 ("Paragraph", "Before"),
                 ("ImageNote", "Board"),
+                ("Paragraph", "After"),
+            ],
+        )
+
+
+    def test_nested_semantic_after_inline_image_keeps_close_time_order_and_legacy_outer_id(self) -> None:
+        baseline = import_html_book(
+            '<html><body><p id="outer">Before<blockquote id="inner">Inner</blockquote>After</p></body></html>',
+            source_name="nested-after-baseline.html",
+        )
+        baseline_outer = next(
+            block
+            for block in baseline.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+
+        result = import_html_book(
+            '<html><body><p id="outer">Before<img src="board.png" alt="Board">'
+            '<blockquote id="inner">Inner</blockquote>After</p></body></html>',
+            source_name="nested-after-inline.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Before"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Inner"),
+                ("Paragraph", "Inner After"),
+            ],
+        )
+        outer = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+        self.assertEqual(outer.block_id, baseline_outer.block_id)
+
+    def test_explicit_position_after_inline_image_is_not_jumped_by_trailing_text(self) -> None:
+        result = import_html_book(
+            f'<html><body><p>Before<img src="illustration.png" alt="Illustration">'
+            f'<span data-acs-fen="{Board.START}"></span>After</p></body></html>',
+            source_name="inline-before-position.html",
+            available_assets={"illustration.png"},
+        )
+
+        projected = []
+        for block in result.document.blocks:
+            if isinstance(block, Paragraph):
+                projected.append(("Paragraph", block.text))
+            elif isinstance(block, Note) and block.note_type == "image":
+                projected.append(("ImageNote", block.text))
+            elif isinstance(block, Position) and not isinstance(block, Diagram):
+                projected.append(("Position", Board(block.fen).fen()))
+
+        self.assertEqual(
+            projected,
+            [
+                ("Paragraph", "Before"),
+                ("ImageNote", "Illustration"),
+                ("Position", Board.START),
                 ("Paragraph", "After"),
             ],
         )
