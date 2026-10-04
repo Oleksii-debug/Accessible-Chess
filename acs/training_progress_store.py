@@ -676,12 +676,19 @@ class TrainingProgressStore:
             if expected_directory_identity is not None:
                 self._require_storage_directory(expected_directory_identity)
             try:
-                descriptor = _open_no_reparse(
-                    self._lock_path,
-                    create=existing is None,
-                    writable=True,
-                    exclusive=existing is None,
-                )
+                if existing is None:
+                    descriptor = _open_no_reparse(
+                        self._lock_path,
+                        create=True,
+                        writable=True,
+                        exclusive=True,
+                    )
+                else:
+                    descriptor = _open_no_reparse(
+                        self._lock_path,
+                        create=False,
+                        writable=True,
+                    )
                 break
             except FileExistsError:
                 if attempt == 249:
