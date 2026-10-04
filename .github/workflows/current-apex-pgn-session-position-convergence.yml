@@ -74,7 +74,7 @@ jobs:
 
           git diff --check "$live_base" HEAD
           changed="$(git diff --name-only "$live_base" HEAD | LC_ALL=C sort)"
-          wanted="$(printf '%s\n' '.github/workflows/current-apex-pgn-session-position-convergence.yml' 'acs/pgn_document.py' 'acs/version2_pgn_commands.py' 'tests/test_pgn_document_new_game_position_integrity.py' 'tests/test_version2_pgn_commands.py' | LC_ALL=C sort)"
+          wanted="$(printf '%s\n' '.github/workflows/current-apex-pgn-session-position-convergence.yml' 'acs/pgn_document.py' 'tests/test_pgn_document_new_game_position_integrity.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 
           test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = 'd449d2352644c859774562628505f88d86acdea2'
