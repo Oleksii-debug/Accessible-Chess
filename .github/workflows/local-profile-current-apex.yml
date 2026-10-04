@@ -6,7 +6,7 @@ on:
       - converge/local-profile-current-apex-20261004-q7f2a9
   pull_request:
     branches:
-      - converge/books-persistence-coaching-current-apex-20261004-hy6ez0h
+      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - ".github/workflows/local-profile-current-apex.yml"
       - "acs/local_profile.py"
@@ -39,7 +39,7 @@ jobs:
       PYTHONUTF8: "1"
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      BASE_REF: converge/books-persistence-coaching-current-apex-20261004-hy6ez0h
+      BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
     steps:
       - name: Checkout exact profile head
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
