@@ -254,6 +254,184 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_manifest_media_type_is_not_repaired_by_whitespace(self) -> None:
+        entries = {
+            "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>"
+        }
+        for media_type in (
+            " application/xhtml+xml",
+            "application/xhtml+xml ",
+            "application/ xhtml+xml",
+            "application/xhtml +xml",
+        ):
+            with self.subTest(media_type=media_type):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            f'media-type="{media_type}"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries=entries,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="media-type-whitespace.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_manifest_media_type_matching_remains_case_insensitive(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="APPLICATION/XHTML+XML"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Case-insensitive MIME type.</p></body></html>"
+                )
+            },
+        )
+        result = import_epub_book(raw, source_name="media-type-case.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Case-insensitive MIME type.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_package_and_metadata_mixed_text_fail_closed(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        cases = (
+            base.replace(b"  <metadata>", b"package-text\n  <metadata>", 1),
+            base.replace(b"<metadata>", b"<metadata>metadata-text", 1),
+            base.replace(b"</dc:title>", b"</dc:title>metadata-tail", 1),
+        )
+        for opf in cases:
+            with self.subTest(opf=opf):
+                raw = _epub(
+                    opf=opf,
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="mixed-package-text.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_required_opf_sections_must_be_first_three_opf_children(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        cases = (
+            base.replace(
+                b"  <metadata>",
+                b"  <guide/>\n  <metadata>",
+                1,
+            ),
+            base.replace(
+                b"  </metadata>\n  <manifest>",
+                b"  </metadata>\n  <guide/>\n  <manifest>",
+                1,
+            ),
+            base.replace(
+                b"  </manifest>\n  <spine>",
+                b"  </manifest>\n  <guide/>\n  <spine>",
+                1,
+            ),
+        )
+        for opf in cases:
+            with self.subTest(opf=opf):
+                raw = _epub(
+                    opf=opf,
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="misordered-package.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_all_recognized_epub_ids_reject_empty_or_whitespace_values(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        cases = (
+            base.replace(
+                b'<package version="3.0"',
+                b'<package id=" bad " version="3.0"',
+                1,
+            ),
+            base.replace(
+                b"<dc:title>",
+                b'<dc:title id="">',
+                1,
+            ),
+            base.replace(
+                b"<manifest>",
+                b'<manifest id="bad id">',
+                1,
+            ),
+            base.replace(
+                b"<spine>",
+                b'<spine id=" bad">',
+                1,
+            ),
+            base.replace(
+                b'<itemref idref="c1"/>',
+                b'<itemref id="bad id" idref="c1"/>',
+                1,
+            ),
+        )
+        for opf in cases:
+            with self.subTest(opf=opf):
+                raw = _epub(
+                    opf=opf,
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="malformed-package-id.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
     def test_unicode_package_identifier_without_whitespace_remains_supported(self) -> None:
         raw = _epub(
             opf=_opf(
