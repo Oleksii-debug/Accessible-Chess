@@ -4,9 +4,11 @@ on:
   pull_request:
     paths:
       - 'scripts/build_owner_portable_candidate.py'
+      - 'acs/version2_package_preflight.py'
       - 'acs/version2_portable_package.py'
       - 'tests/test_owner_docx_win32_portability.py'
       - 'tests/test_owner_portable_candidate_docx_binding.py'
+      - 'tests/test_version2_package_preflight.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/owner-docx-win32-portability.yml'
   push:
@@ -16,9 +18,11 @@ on:
       - converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb
     paths:
       - 'scripts/build_owner_portable_candidate.py'
+      - 'acs/version2_package_preflight.py'
       - 'acs/version2_portable_package.py'
       - 'tests/test_owner_docx_win32_portability.py'
       - 'tests/test_owner_portable_candidate_docx_binding.py'
+      - 'tests/test_version2_package_preflight.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/owner-docx-win32-portability.yml'
   workflow_dispatch:
@@ -57,9 +61,11 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             scripts/build_owner_portable_candidate.py \
+            acs/version2_package_preflight.py \
             acs/version2_portable_package.py \
             tests/test_owner_docx_win32_portability.py \
             tests/test_owner_portable_candidate_docx_binding.py \
+            tests/test_version2_package_preflight.py \
             tests/test_version2_portable_package.py
           echo 'OWNER_DOCX_WIN32_COMPILE=PASS'
 
@@ -71,6 +77,10 @@ jobs:
             tests.test_owner_docx_win32_portability \
             tests.test_owner_portable_candidate_docx_binding \
             tests.test_owner_portable_candidate \
+            tests.test_version2_package_preflight.Version2PackagePreflightTests.test_relative_token_enforces_exact_win32_utf16_component_boundary \
+            tests.test_version2_package_preflight.Version2PackagePreflightTests.test_relative_token_rejects_malformed_win32_unicode \
+            tests.test_version2_package_preflight.Version2PackagePreflightTests.test_relative_token_rejects_extended_and_trimmed_win32_device_aliases \
+            tests.test_version2_package_preflight.Version2PackagePreflightTests.test_zip_rejects_overlong_win32_component_before_readback \
             tests.test_version2_portable_package
           echo 'OWNER_DOCX_WIN32_PORTABILITY=PASS'
 
@@ -82,6 +92,7 @@ jobs:
           from pathlib import Path
 
           source = Path('scripts/build_owner_portable_candidate.py').read_text(encoding='utf-8')
+          preflight = Path('acs/version2_package_preflight.py').read_text(encoding='utf-8')
           portable = Path('acs/version2_portable_package.py').read_text(encoding='utf-8')
           required = (
               '_owner_docx_filename',
@@ -95,13 +106,30 @@ jobs:
           for token in (
               '_portable_docx_filename',
               '_portable_docx_name',
-              '_WIN32_FORBIDDEN_FILENAME_CHARS',
-              '_WIN32_RESERVED_DEVICE_NAMES',
-              'utf-16-le',
+              '_relative_token',
+              'portable Word document filename',
           ):
               assert token in portable, token
+          for forbidden in (
+              '_WIN32_FORBIDDEN_FILENAME_CHARS',
+              '_WIN32_RESERVED_DEVICE_NAMES',
+          ):
+              assert forbidden not in portable, forbidden
+          for token in (
+              'utf-16-le',
+              '255 UTF-16 code-unit component limit',
+              'CONIN          print('OWNER_DOCX_WIN32_AUTHORITY_BOUNDARY=PASS')
+          PY
+,
+              'CONOUT          print('OWNER_DOCX_WIN32_AUTHORITY_BOUNDARY=PASS')
+          PY
+,
+              'rstrip(" .")',
+          ):
+              assert token in preflight, token
           for forbidden in ('parse_pgn_text', 'chess.Board', 'python-chess'):
               assert forbidden not in source, forbidden
+              assert forbidden not in preflight, forbidden
               assert forbidden not in portable, forbidden
           print('OWNER_DOCX_WIN32_AUTHORITY_BOUNDARY=PASS')
           PY
