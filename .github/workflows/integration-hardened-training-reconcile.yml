@@ -1,0 +1,104 @@
+name: Integration Hardened Training Reconcile
+
+on:
+  push:
+    branches:
+      - integration/hardened-training-reconcile-20261004
+  pull_request:
+    branches:
+      - integration/hardened-clean-product-transfer-20261004
+    paths:
+      - 'acs/book_webview_projection.py'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/training_webview_projection.py'
+      - 'acs/version2_training_workspace.py'
+      - '.github/workflows/integration-hardened-training-reconcile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-hardened-training-reconcile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and reconciliation identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          parent='44b1cd66abd436628d6ebae33c38c1143d638d1f'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-hardened-training-reconcile.yml' \
+            'acs/book_webview_projection.py' \
+            'acs/full_product_ui_shell.py' \
+            'acs/training_webview_projection.py' \
+            'acs/version2_training_workspace.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '7bb116ea0587de51a191560cd39070aac9ead014'
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = 'd048fc83829a86b27f4412d7d183a04235b691d7'
+          test "$(git rev-parse HEAD:acs/version2_training_workspace.py)" = '00be0f3c2561ce6695c7fe1ffc141a29f201828c'
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '84f6add4c51aecda5288761420fb0964491ddef6'
+
+          # Route focus must resolve to an actually rendered Training control.
+          grep -q 'default_focus_id="training-answer"' acs/full_product_ui_shell.py
+          ! grep -q 'default_focus_id="training-prompt"' acs/full_product_ui_shell.py
+
+          echo 'HARDENED_TRAINING_RECONCILE_SCOPE=PASS'
+
+      - name: Compile reconciled Python surfaces
+        run: >-
+          python -m compileall -q
+          acs/book_webview_projection.py
+          acs/full_product_ui_shell.py
+          acs/training_webview_projection.py
+          acs/version2_training_workspace.py
+
+      - name: Run Training authority and rollback regressions
+        run: >-
+          python -m unittest -v
+          tests.test_training_authority_convergence
+          tests.test_training
+          tests.test_version2_training_current_runtime
+          tests.test_v2_book_training_route_rollback
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_books_semantic_host_bounds
+          tests.test_dev1_full_product_ui_packages
+          tests.test_version2_application
+
+      - name: Run Books Training DOM regression
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest

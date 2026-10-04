@@ -1,0 +1,115 @@
+name: Integration Library Browser Contract Successor
+
+on:
+  push:
+    branches:
+      - fix/integration-library-browser-contract-successor-20261004
+  pull_request:
+    branches:
+      - fix/integration-stale-write-rebind-20261004
+    paths:
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - 'acs/library_webview_projection.py'
+      - 'tests/test_d07_library_export_webview.py'
+      - 'tests/test_dev1_library_webview_projection.py'
+      - '.github/workflows/integration-library-browser-contract-successor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-library-browser-contract-successor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent, clean transfer and browser authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='86ba20314fa3a8a89763e27f7d4e9e924a759ab3'
+          source='5397658847c2c59620417745475c9d35b844dc04'
+          git cat-file -e "$parent^{commit}"
+          git cat-file -e "$source^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-library-browser-contract-successor.yml' \
+            'acs/library_export_webview_projection.py' \
+            'acs/library_webview_bridge.py' \
+            'acs/library_webview_projection.py' \
+            'tests/test_d07_library_export_webview.py' \
+            'tests/test_dev1_library_webview_projection.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = 'a80fec91f5cebc206fe9049595149c62481f281e'
+          test "$(git rev-parse HEAD:acs/library_webview_bridge.py)" = 'e71be4a556888881d35855c0706344d4b43b9198'
+          test "$(git rev-parse HEAD:acs/library_export_webview_projection.py)" = 'cb0cb41f95b59de7407e72f5442225872c81e631'
+          test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = 'c202c2a27596d8e3dc93bd0c9ac9a2d3f60c23e9'
+          test "$(git rev-parse HEAD:tests/test_d07_library_export_webview.py)" = '699861878c5c20eea0c9b0872c725cbc29599ac8'
+
+          # Preserve the newer integrated browser surface and the stale-write authority.
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = 'e102301b75e211b718462ce15ade749742dd0a30'
+          test "$(git rev-parse HEAD:tests/js/library_surface_dom_test.js)" = '7f69c17619f73d7c001392ea43e037933d75a50b'
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = '6fd87a6f128d227cbe263a9efe72b6b3d938935f'
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = 'b4fc6c22fcfb47e051afbd80fa9f6a3315c43456'
+
+          echo 'INTEGRATION_LIBRARY_BROWSER_CONTRACT_SCOPE=PASS'
+
+      - name: Validate current Library browser surface
+        run: |
+          node --check web/full_product_library.js
+          node --check tests/js/library_surface_dom_test.js
+          node tests/js/library_surface_dom_test.js
+
+      - name: Validate Library producer, bridge and export boundaries
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_library_webview_projection
+          tests.test_d07_library_export_webview
+          tests.test_d07_library_import_service
+
+      - name: Validate integrated application and persistence authority
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_v2_book_training_route_rollback
+          tests.test_v2_book_transaction_current_runtime
+
+      - name: Validate Library search, privacy and package preflight adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_v2_library_search_service_v4
+          tests.test_v2_shared_presentation_path_privacy
+          tests.test_version2_package_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest

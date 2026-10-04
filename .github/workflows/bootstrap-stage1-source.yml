@@ -1,0 +1,21 @@
+name: Bootstrap Stage1 Source
+
+# The Stage 1 source snapshot is private on Google Drive. GitHub-hosted
+# runners do not have the user's authenticated Drive session, so anonymous
+# gdown/curl bootstrap attempts are intentionally disabled.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notice:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Source bootstrap handled by connected pipeline
+        shell: bash
+        run: |
+          echo "Stage 1 bootstrap is intentionally not performed by GitHub Actions."
+          echo "The private Drive baseline is fetched through the connected Google Drive pipeline."
+          echo "This workflow is manual-only and exits successfully to avoid false failure notifications."

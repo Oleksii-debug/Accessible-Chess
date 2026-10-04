@@ -1,0 +1,154 @@
+name: V2 D07 Canonical PGN Ingress Current
+
+on:
+  push:
+    branches:
+      - work/v2-d07-canonical-ingress-repair-20260901
+      - work/d07-player-identity-normalization-20260907
+    paths:
+      - 'acs/acsdb.py'
+      - 'acs/duplicate_detection.py'
+      - 'tests/test_d07_canonical_ingress_current.py'
+      - 'tests/test_dev4_import_history_error_privacy.py'
+      - '.github/workflows/v2-d07-canonical-ingress-current.yml'
+  pull_request:
+    paths:
+      - 'acs/acsdb.py'
+      - 'acs/duplicate_detection.py'
+      - 'tests/test_d07_canonical_ingress_current.py'
+      - 'tests/test_dev4_import_history_error_privacy.py'
+      - '.github/workflows/v2-d07-canonical-ingress-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-d07-canonical-ingress-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CANONICAL_INGRESS_INTEGRATION: b45822f875be62b414595f09f7f6c07a96667351
+  ORIGINAL_REPAIR_HEAD: 6f2343e6dc0b95974c6302ea8674a02b45a2e4dc
+  ORIGINAL_AUDIT_HEAD: 9673ae84b5887a8f05c6ca078d4103f75a294033
+  ORIGINAL_AUDIT_TEST_BLOB: 06f650e8db4baf23d26ef81de4113dcadcc470cc
+  DUPLICATE_DETECTION_BLOB: c64735554ed1e4bb230ca82e291e8e1eee7e01ef
+  CANONICAL_TEST_BLOB: 385b87bcae7d08b6f9c12e202863bbe8346a497a
+  PRIVACY_GATE_BLOB: d7debb951c1d279f92fbc6325d7e0c799d3fb120
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove retained canonical-ingress authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          for commit in "$CANONICAL_INGRESS_INTEGRATION" "$ORIGINAL_REPAIR_HEAD" "$ORIGINAL_AUDIT_HEAD"; do
+            git cat-file -e "${commit}^{commit}" || git fetch --no-tags origin "$commit"
+          done
+          git merge-base --is-ancestor "$CANONICAL_INGRESS_INTEGRATION" HEAD
+          git merge-base --is-ancestor "$ORIGINAL_REPAIR_HEAD" HEAD
+          git diff --check "$CANONICAL_INGRESS_INTEGRATION" HEAD
+          test "$(git rev-parse HEAD:acs/duplicate_detection.py)" = "$DUPLICATE_DETECTION_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d07_canonical_ingress_current.py)" = "$CANONICAL_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_import_history_error_privacy.py)" = "$PRIVACY_GATE_BLOB"
+
+      - name: Prove canonical Library ingress remains semantic owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path("acs/acsdb.py").read_text(encoding="utf-8")
+          start = source.index("    def import_pgn_text(")
+          end = source.index("\n    def get_game(", start)
+          body = source[start:end]
+          if "parse_pgn_text(text, strict=False)" not in body:
+              raise SystemExit("AcsDatabase.import_pgn_text no longer delegates to canonical parse_pgn_text(..., strict=False)")
+          if "parse_games(" in body:
+              raise SystemExit("AcsDatabase.import_pgn_text regressed to lower-level parse_games")
+
+          duplicate = Path("acs/duplicate_detection.py").read_text(encoding="utf-8")
+          if "parse_pgn_text(" not in duplicate:
+              raise SystemExit("duplicate detection no longer uses canonical parse_pgn_text ingress")
+          PY
+
+      - name: Materialize immutable historical Audit-B oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$ORIGINAL_AUDIT_HEAD:tests/test_v2_d07_ingress_convergence_after_dedupe_audit.py")" = "$ORIGINAL_AUDIT_TEST_BLOB"
+          mkdir -p _audit_b
+          git cat-file blob "$ORIGINAL_AUDIT_TEST_BLOB" > _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py
+          test "$(git hash-object _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py)" = "$ORIGINAL_AUDIT_TEST_BLOB"
+
+      - name: Syntax and imports
+        run: >-
+          python -m compileall -q
+          acs/acsdb.py
+          acs/duplicate_detection.py
+          tests/test_d07_canonical_ingress_current.py
+          tests/test_dev4_import_history_error_privacy.py
+          _audit_b
+
+      - name: Current focused canonical-ingress regressions
+        run: >-
+          python -m pytest -q
+          tests/test_d07_canonical_ingress_current.py
+          tests/test_acsdb.py
+          tests/test_duplicate_detection.py
+          tests/test_d06_pgn_roundtrip.py
+          tests/test_dev4_import_history_error_privacy.py
+
+      - name: Replay immutable historical Audit-B oracle
+        shell: bash
+        run: PYTHONPATH="$PWD" python _audit_b/test_v2_d07_ingress_convergence_after_dedupe_audit.py
+
+      - name: Product diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
+
+      - name: Broad repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad repository pytest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q tests
+
+      - name: Emit retained canonical-ingress authority
+        shell: bash
+        run: |
+          echo "CANONICAL_INGRESS_INTEGRATION=$CANONICAL_INGRESS_INTEGRATION"
+          echo "QUALIFIED_HEAD=$(git rev-parse HEAD)"
+          echo "HUMAN_TESTED=NO"
+          echo "NVDA_VERIFIED=NO"
