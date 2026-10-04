@@ -1012,6 +1012,22 @@ class TrainingProgressStore:
 
                 self._require_storage_directory(active_directory)
                 self._require_active_lock()
+                pre_replace_identity = self._progress_path_identity(missing_ok=True)
+                if (
+                    (transaction_identity is None)
+                    != (pre_replace_identity is None)
+                    or (
+                        transaction_identity is not None
+                        and pre_replace_identity is not None
+                        and not self._same_file_identity(
+                            transaction_identity,
+                            pre_replace_identity,
+                        )
+                    )
+                ):
+                    raise TrainingProgressConflictError(
+                        "training progress changed during publication"
+                    )
                 _replace_published_path(temporary, self.path)
                 temporary = None
 
