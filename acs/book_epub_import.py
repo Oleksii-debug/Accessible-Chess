@@ -476,6 +476,23 @@ def _is_container_namespace_tag(tag: object) -> bool:
     return type(tag) is str and tag.startswith(f"{{{_CONTAINER_NAMESPACE}}}")
 
 
+def _validate_container_attributes(
+    element: ET.Element,
+    allowed: frozenset[str],
+    *,
+    context: str,
+) -> None:
+    for attribute_name in element.attrib:
+        if attribute_name.startswith("{"):
+            # OCF validation removes foreign-namespace attributes first.
+            continue
+        if attribute_name not in allowed:
+            raise _error(
+                f"EPUB {context} contains an invalid attribute",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
+
 def _is_opf_namespace_tag(tag: object) -> bool:
     return type(tag) is str and tag.startswith(f"{{{_OPF_NAMESPACE}}}")
 
@@ -728,6 +745,11 @@ def _package_rootfiles(
     warnings: _Warnings,
     archive_index: dict[str, zipfile.ZipInfo],
 ) -> tuple[str, ...]:
+    _validate_container_attributes(
+        container,
+        frozenset({"version"}),
+        context="container element",
+    )
     if (
         container.tag != _CONTAINER_TAG
         or container.attrib.get("version") != "1.0"
@@ -766,6 +788,11 @@ def _package_rootfiles(
         )
 
     rootfiles = structural_children[0]
+    _validate_container_attributes(
+        rootfiles,
+        frozenset(),
+        context="rootfiles element",
+    )
     if (rootfiles.text or "").strip() or any(
         (child.tail or "").strip() for child in rootfiles
     ):
@@ -785,6 +812,11 @@ def _package_rootfiles(
                 "EPUB rootfiles section contains an invalid container element",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        _validate_container_attributes(
+            element,
+            frozenset({"full-path", "media-type"}),
+            context="rootfile element",
+        )
         if (element.text or "").strip():
             raise _error(
                 "EPUB rootfile element must be empty",
@@ -829,6 +861,11 @@ def _package_rootfiles(
 
     if len(structural_children) == 2:
         links = structural_children[1]
+        _validate_container_attributes(
+            links,
+            frozenset(),
+            context="links element",
+        )
         if (links.text or "").strip() or any(
             (child.tail or "").strip() for child in links
         ):
@@ -846,6 +883,11 @@ def _package_rootfiles(
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
             link_count += 1
+            _validate_container_attributes(
+                element,
+                frozenset({"href", "media-type", "rel"}),
+                context="container link element",
+            )
             if (element.text or "").strip():
                 raise _error(
                     "EPUB container link element must be empty",
