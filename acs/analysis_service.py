@@ -18,6 +18,7 @@ from .engine_ports import (
     EngineContractErrorCode,
     RawAnalysisLine,
 )
+from .input_limits import MAX_FEN_CHARS
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,16 @@ class AnalysisResult:
     error: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        # Keep result publication behind the same raw representation budget as
+        # canonical Board FEN ingress. Reject active str subclasses and oversized
+        # exact text before strip() can execute or scan unbounded input.
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+            raise EngineContractError(
+                "analysis result FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
             raise EngineContractError(
                 "analysis result FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -104,7 +114,7 @@ class AnalysisResult:
                 "stale or failed analysis cannot carry lines",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -222,12 +232,20 @@ class AnalysisService:
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
-        if not isinstance(fen, str) or not fen.strip():
+        # This is a representation/resource boundary, not a chess-rules parser.
+        # Match canonical Board's shared FEN budget before any normalization.
+        if type(fen) is not str or len(fen) > MAX_FEN_CHARS:
             raise EngineContractError(
                 "analysis FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        return fen.strip()
+        normalized = fen.strip()
+        if not normalized:
+            raise EngineContractError(
+                "analysis FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return normalized
 
     @staticmethod
     def _normalize_limits(multipv: int, depth: int) -> tuple[int, int]:
