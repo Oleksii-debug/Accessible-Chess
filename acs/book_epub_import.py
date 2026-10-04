@@ -45,6 +45,14 @@ _ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
 _ROOTFILE_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfile"
 _LINKS_TAG = f"{{{_CONTAINER_NAMESPACE}}}links"
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
+_OPF_NAMESPACE = "http://www.idpf.org/2007/opf"
+_PACKAGE_TAG = f"{{{_OPF_NAMESPACE}}}package"
+_METADATA_TAG = f"{{{_OPF_NAMESPACE}}}metadata"
+_MANIFEST_TAG = f"{{{_OPF_NAMESPACE}}}manifest"
+_SPINE_TAG = f"{{{_OPF_NAMESPACE}}}spine"
+_ITEM_TAG = f"{{{_OPF_NAMESPACE}}}item"
+_ITEMREF_TAG = f"{{{_OPF_NAMESPACE}}}itemref"
+_SUPPORTED_PACKAGE_VERSIONS = frozenset({"2.0", "3.0"})
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
@@ -369,9 +377,9 @@ def _local_name(tag: object) -> str:
 
 
 def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
-    wanted = name.casefold()
+    wanted = f"{{{_OPF_NAMESPACE}}}{name}"
     for child in parent:
-        if _local_name(child.tag) == wanted:
+        if child.tag == wanted:
             return child
     return None
 
@@ -381,12 +389,8 @@ def _required_unique_direct_child(
     name: str,
 ) -> ET.Element:
     """Return the only direct OPF section with this local name."""
-    wanted = name.casefold()
-    matches = [
-        child
-        for child in parent
-        if _local_name(child.tag) == wanted
-    ]
+    wanted = f"{{{_OPF_NAMESPACE}}}{name}"
+    matches = [child for child in parent if child.tag == wanted]
     if len(matches) != 1:
         raise _error(
             f"EPUB package must contain exactly one {name} section",
@@ -411,6 +415,64 @@ def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
 
 def _is_container_namespace_tag(tag: object) -> bool:
     return type(tag) is str and tag.startswith(f"{{{_CONTAINER_NAMESPACE}}}")
+
+
+def _is_opf_namespace_tag(tag: object) -> bool:
+    return type(tag) is str and tag.startswith(f"{{{_OPF_NAMESPACE}}}")
+
+
+def _validate_package_document(package: ET.Element) -> None:
+    if package.tag != _PACKAGE_TAG:
+        raise _error(
+            "EPUB package metadata has an invalid OPF root element or namespace",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    version = package.attrib.get("version")
+    if version not in _SUPPORTED_PACKAGE_VERSIONS:
+        raise _error(
+            "EPUB package metadata has an invalid package version",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    unique_identifier = package.attrib.get("unique-identifier")
+    if (
+        type(unique_identifier) is not str
+        or not unique_identifier
+        or unique_identifier != unique_identifier.strip()
+        or any(character.isspace() for character in unique_identifier)
+    ):
+        raise _error(
+            "EPUB package metadata has a missing or malformed unique identifier",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    structural_children = [
+        child.tag for child in package if _is_opf_namespace_tag(child.tag)
+    ]
+    required = (
+        (_METADATA_TAG, "metadata"),
+        (_MANIFEST_TAG, "manifest"),
+        (_SPINE_TAG, "spine"),
+    )
+    positions: list[int] = []
+    for tag, name in required:
+        matches = [
+            index
+            for index, child_tag in enumerate(structural_children)
+            if child_tag == tag
+        ]
+        if len(matches) != 1:
+            raise _error(
+                f"EPUB package must contain exactly one {name} section",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        positions.append(matches[0])
+    if positions != sorted(positions):
+        raise _error(
+            "EPUB package required sections are out of canonical order",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
 
 
 def _resolve_package_href(
@@ -560,7 +622,12 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
     output: dict[str, _ManifestItem] = {}
     resource_owners: dict[str, str] = {}
     for element in manifest:
-        if _local_name(element.tag) != "item":
+        if element.tag != _ITEM_TAG:
+            if _local_name(element.tag) == "item":
+                raise _error(
+                    "EPUB manifest item uses a non-OPF namespace",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
             continue
         raw_item_id = element.attrib.get("id")
         media_type = (element.attrib.get("media-type") or "").strip().casefold()
@@ -622,7 +689,12 @@ def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
     spine = _required_unique_direct_child(package, "spine")
     ids: list[str] = []
     for element in spine:
-        if _local_name(element.tag) != "itemref":
+        if element.tag != _ITEMREF_TAG:
+            if _local_name(element.tag) == "itemref":
+                raise _error(
+                    "EPUB spine itemref uses a non-OPF namespace",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
             continue
         raw_item_id = element.attrib.get("idref")
         if (
@@ -766,6 +838,7 @@ def import_epub_book(
             _read_entry(archive, index, opf_name, limit=MAX_EPUB_XML_BYTES),
             "package metadata",
         )
+        _validate_package_document(package)
         opf_dir = posixpath.dirname(opf_name)
         manifest = _manifest_items(package, opf_dir)
         spine = _spine_ids(package, warnings)
