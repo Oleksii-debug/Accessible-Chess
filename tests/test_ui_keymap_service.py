@@ -175,6 +175,42 @@ def test_capture_shortcut_rejects_modifier_only_event(tmp_path):
     assert "non-modifier" in result["message"]
 
 
+def test_successful_mutations_return_post_mutation_snapshot_atomically(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path)
+
+    saved = service.save("history.go_to_move", "Alt+J")
+    assert saved["ok"] is True
+    saved_by_id = {item["id"]: item for item in saved["snapshot"]["actions"]}
+    assert saved_by_id["history.go_to_move"]["binding"] == "Alt+J"
+
+    reset = service.reset_action("history.go_to_move")
+    assert reset["ok"] is True
+    reset_by_id = {item["id"]: item for item in reset["snapshot"]["actions"]}
+    assert reset_by_id["history.go_to_move"]["binding"] == "Ctrl+G"
+
+    payload = json.loads(service.export_profile())
+    payload["bindings"]["history.go_to_move"] = "Alt+J"
+    imported = service.import_profile(json.dumps(payload))
+    assert imported["ok"] is True
+    imported_by_id = {item["id"]: item for item in imported["snapshot"]["actions"]}
+    assert imported_by_id["history.go_to_move"]["binding"] == "Alt+J"
+
+    all_reset = service.reset_all()
+    assert all_reset["ok"] is True
+    all_reset_by_id = {item["id"]: item for item in all_reset["snapshot"]["actions"]}
+    assert all_reset_by_id["history.go_to_move"]["binding"] == "Ctrl+G"
+
+
+def test_failed_mutation_never_returns_authority_snapshot(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json")
+
+    rejected = service.save("history.previous", "Shift+D")
+
+    assert rejected["ok"] is False
+    assert "snapshot" not in rejected
+
+
 def test_live_binding_resolution_tracks_remap_immediately(tmp_path):
     service = KeymapService(tmp_path / "keymap.json")
 
