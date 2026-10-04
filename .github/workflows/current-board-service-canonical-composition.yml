@@ -83,7 +83,7 @@ jobs:
           tests.test_stage1_move_history_atomicity_current
           tests.test_stage1_review_navigation_atomicity_current
           tests.test_v2_windows_book_board_adapter
-          tests.test_current_history_context_passive_ingress
+          tests.test_history_tree_passive_boundary
 
       - name: Core selftest
         run: python -m acs.selftest
