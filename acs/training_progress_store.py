@@ -29,8 +29,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import stat
 import tempfile
+import time
 from typing import Any, Iterator, Mapping
 
 from .training import ExerciseDefinition, ExerciseSession
@@ -101,7 +103,13 @@ def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, An
     return result
 
 
-def _windows_open_no_reparse(path: Path, *, create: bool, writable: bool = False) -> int:
+def _windows_open_no_reparse(
+    path: Path,
+    *,
+    create: bool,
+    writable: bool = False,
+    exclusive: bool = False,
+) -> int:
     """Open one Windows disk file without following a reparse point.
 
     ``FILE_FLAG_OPEN_REPARSE_POINT`` makes the opened handle, not a prior pathname
@@ -118,6 +126,7 @@ def _windows_open_no_reparse(path: Path, *, create: bool, writable: bool = False
     FILE_SHARE_READ = 0x00000001
     FILE_SHARE_WRITE = 0x00000002
     FILE_SHARE_DELETE = 0x00000004
+    CREATE_NEW = 1
     OPEN_EXISTING = 3
     OPEN_ALWAYS = 4
     FILE_ATTRIBUTE_NORMAL = 0x00000080
@@ -164,12 +173,14 @@ def _windows_open_no_reparse(path: Path, *, create: bool, writable: bool = False
     close_handle.argtypes = [wintypes.HANDLE]
     close_handle.restype = wintypes.BOOL
 
+    if exclusive and not create:
+        raise ValueError("exclusive open requires create=True")
     handle = create_file(
         str(path),
         GENERIC_READ | (GENERIC_WRITE if create or writable else 0),
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         None,
-        OPEN_ALWAYS if create else OPEN_EXISTING,
+        CREATE_NEW if exclusive else (OPEN_ALWAYS if create else OPEN_EXISTING),
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
         None,
     )
@@ -211,13 +222,28 @@ def _windows_open_no_reparse(path: Path, *, create: bool, writable: bool = False
             close_handle(handle)
 
 
-def _open_no_reparse(path: Path, *, create: bool, writable: bool = False) -> int:
+def _open_no_reparse(
+    path: Path,
+    *,
+    create: bool,
+    writable: bool = False,
+    exclusive: bool = False,
+) -> int:
+    if exclusive and not create:
+        raise ValueError("exclusive open requires create=True")
     if os.name == "nt":
-        return _windows_open_no_reparse(path, create=create, writable=writable)
+        return _windows_open_no_reparse(
+            path,
+            create=create,
+            writable=writable,
+            exclusive=exclusive,
+        )
 
     flags = os.O_RDWR if create or writable else os.O_RDONLY
     if create:
         flags |= os.O_CREAT
+        if exclusive:
+            flags |= os.O_EXCL
     flags |= getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     return os.open(path, flags, 0o600) if create else os.open(path, flags)
@@ -296,6 +322,7 @@ class TrainingProgressStore:
             raise ValueError("path must identify a progress file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
         self._active_storage_directory_identity: os.stat_result | None = None
+        self._active_lock_descriptor: int | None = None
 
     @staticmethod
     def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
@@ -351,15 +378,94 @@ class TrainingProgressStore:
             or not stat.S_ISREG(metadata.st_mode)
         ):
             raise ValueError("training progress storage is not a regular file")
+        if int(getattr(metadata, "st_nlink", 1)) != 1:
+            raise ValueError("training progress storage is not private")
+
+    @staticmethod
+    def _require_private_temp(metadata: os.stat_result) -> None:
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISREG(metadata.st_mode)
+            or int(getattr(metadata, "st_nlink", 1)) != 1
+        ):
+            raise ValueError("training progress temporary file is not private")
+
+    @classmethod
+    def _quarantine_owned_path(
+        cls,
+        path: Path,
+        expected: os.stat_result | None,
+        *,
+        lock_file: bool,
+    ) -> None:
+        """Vacate an owned pathname without check-then-unlink deletion."""
+        if expected is None:
+            return
+        validator = cls._require_regular_lock if lock_file else cls._require_private_temp
+        try:
+            current = os.lstat(path)
+            validator(current)
+        except (FileNotFoundError, OSError, ValueError, TrainingProgressBusyError):
+            return
+        if not cls._same_file_identity(expected, current):
+            return
+
+        quarantine: Path | None = None
+        for _ in range(8):
+            candidate = path.parent / (
+                f".{path.name}.cleanup-quarantine-{secrets.token_hex(8)}"
+            )
+            try:
+                os.lstat(candidate)
+            except FileNotFoundError:
+                quarantine = candidate
+                break
+            except OSError:
+                return
+        if quarantine is None:
+            return
+        try:
+            os.replace(path, quarantine)
+        except OSError:
+            return
+        try:
+            moved = os.lstat(quarantine)
+            validator(moved)
+        except (FileNotFoundError, OSError, ValueError, TrainingProgressBusyError):
+            return
+        # Retain quarantine even when it is still our inode. A second
+        # check-then-unlink would recreate the substitution race.
+        if not cls._same_file_identity(expected, moved):
+            return
+
+    def _require_active_lock(self) -> None:
+        descriptor = self._active_lock_descriptor
+        if descriptor is not None:
+            self._require_lock_descriptor_current(descriptor)
 
     def _read_progress_bytes(self, *, missing_ok: bool) -> bytes | None:
         directory_identity = self._bound_storage_directory(missing_ok=missing_ok)
         if directory_identity is None:
             return None
+        self._require_active_lock()
+        try:
+            before = os.lstat(self.path)
+        except FileNotFoundError:
+            before = None
+        except OSError as exc:
+            raise ValueError("training progress file could not be inspected") from exc
+        if before is not None:
+            self._require_regular_progress(before)
+            if before.st_size > MAX_TRAINING_PROGRESS_BYTES:
+                raise TrainingProgressResourceError(
+                    "training progress file exceeds the resource limit"
+                )
         try:
             descriptor = _open_no_reparse(self.path, create=False)
         except FileNotFoundError:
             self._require_storage_directory(directory_identity)
+            self._require_active_lock()
             if missing_ok:
                 return None
             raise ValueError("training progress file is unavailable")
@@ -367,12 +473,24 @@ class TrainingProgressStore:
             raise ValueError("training progress file could not be inspected") from exc
 
         try:
-            metadata = os.fstat(descriptor)
-            self._require_regular_progress(metadata)
-            if metadata.st_size > MAX_TRAINING_PROGRESS_BYTES:
+            opened = os.fstat(descriptor)
+            self._require_regular_progress(opened)
+            if opened.st_size > MAX_TRAINING_PROGRESS_BYTES:
                 raise TrainingProgressResourceError(
                     "training progress file exceeds the resource limit"
                 )
+            if before is not None and not self._same_file_identity(before, opened):
+                raise ValueError("training progress storage changed while being opened")
+            try:
+                after_open = os.lstat(self.path)
+            except OSError as exc:
+                raise ValueError(
+                    "training progress storage changed while being opened"
+                ) from exc
+            self._require_regular_progress(after_open)
+            if not self._same_file_identity(opened, after_open):
+                raise ValueError("training progress storage changed while being opened")
+
             chunks: list[bytes] = []
             remaining = MAX_TRAINING_PROGRESS_BYTES + 1
             while remaining:
@@ -386,12 +504,61 @@ class TrainingProgressStore:
                 raise TrainingProgressResourceError(
                     "training progress file exceeds the resource limit"
                 )
+
+            if os.name == "nt":
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                confirmed_chunks: list[bytes] = []
+                remaining = MAX_TRAINING_PROGRESS_BYTES + 1
+                while remaining:
+                    chunk = os.read(descriptor, min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    confirmed_chunks.append(chunk)
+                    remaining -= len(chunk)
+                if b"".join(confirmed_chunks) != data:
+                    raise ValueError("training progress storage changed while being read")
+
+            final_metadata = os.fstat(descriptor)
+            cross_descriptor_changed = (
+                not self._same_file_identity(opened, final_metadata)
+                or final_metadata.st_size != opened.st_size
+                or getattr(final_metadata, "st_mtime_ns", None)
+                != getattr(opened, "st_mtime_ns", None)
+                or getattr(final_metadata, "st_ctime_ns", None)
+                != getattr(opened, "st_ctime_ns", None)
+            )
+            if cross_descriptor_changed:
+                raise ValueError("training progress storage changed while being read")
+            try:
+                after_read = os.lstat(self.path)
+            except OSError as exc:
+                raise ValueError(
+                    "training progress storage changed while being read"
+                ) from exc
+            self._require_regular_progress(after_read)
+            cross_interface_ctime_changed = (
+                os.name != "nt"
+                and getattr(after_read, "st_ctime_ns", None)
+                != getattr(final_metadata, "st_ctime_ns", None)
+            )
+            if (
+                not self._same_file_identity(opened, after_read)
+                or after_read.st_size != final_metadata.st_size
+                or getattr(after_read, "st_mtime_ns", None)
+                != getattr(final_metadata, "st_mtime_ns", None)
+                or cross_interface_ctime_changed
+            ):
+                raise ValueError("training progress storage changed while being read")
             self._require_storage_directory(directory_identity)
+            self._require_active_lock()
             return data
         except OSError as exc:
             raise ValueError("training progress file could not be read") from exc
         finally:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
     def load(self, definition: ExerciseDefinition) -> LoadedTrainingProgress | None:
         data = self._read_progress_bytes(missing_ok=True)
@@ -427,7 +594,29 @@ class TrainingProgressStore:
             stat.S_ISLNK(metadata.st_mode)
             or _is_reparse_point(metadata)
             or not stat.S_ISREG(metadata.st_mode)
+            or int(getattr(metadata, "st_nlink", 1)) != 1
         ):
+            raise TrainingProgressBusyError("training progress store is busy")
+
+    def _require_lock_descriptor_current(self, descriptor: int) -> None:
+        try:
+            metadata = os.fstat(descriptor)
+            current_path = os.lstat(self._lock_path)
+        except OSError as exc:
+            raise TrainingProgressBusyError("training progress store is busy") from exc
+        self._require_regular_lock(metadata)
+        self._require_regular_lock(current_path)
+        if (
+            not self._same_file_identity(metadata, current_path)
+            or metadata.st_size != 1
+        ):
+            raise TrainingProgressBusyError("training progress store is busy")
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            marker = os.read(descriptor, 2)
+        except OSError as exc:
+            raise TrainingProgressBusyError("training progress store is busy") from exc
+        if marker != b"\0":
             raise TrainingProgressBusyError("training progress store is busy")
 
     def _open_lock_descriptor(
@@ -437,36 +626,140 @@ class TrainingProgressStore:
     ) -> int:
         if expected_directory_identity is not None:
             self._require_storage_directory(expected_directory_identity)
-        # The precheck is only an early diagnostic.  The opened descriptor/handle
-        # below is authoritative and is revalidated before any write.
-        try:
-            existing = os.lstat(self._lock_path)
-        except FileNotFoundError:
-            existing = None
-        except OSError as exc:
-            raise TrainingProgressBusyError("training progress store is busy") from exc
-        if existing is not None:
-            self._require_regular_lock(existing)
 
-        if expected_directory_identity is not None:
-            self._require_storage_directory(expected_directory_identity)
-        try:
-            descriptor = _open_no_reparse(self._lock_path, create=True)
-        except OSError as exc:
-            raise TrainingProgressBusyError("training progress store is busy") from exc
+        descriptor = -1
+        existing: os.stat_result | None = None
+        initializing_identity: os.stat_result | None = None
+        for attempt in range(250):
+            try:
+                existing = os.lstat(self._lock_path)
+            except FileNotFoundError:
+                existing = None
+            except OSError as exc:
+                raise TrainingProgressBusyError(
+                    "training progress store is busy"
+                ) from exc
+            if existing is not None:
+                self._require_regular_lock(existing)
+                if (
+                    initializing_identity is not None
+                    and not self._same_file_identity(initializing_identity, existing)
+                ):
+                    raise TrainingProgressBusyError("training progress store is busy")
+                if existing.st_size == 0:
+                    if initializing_identity is None:
+                        initializing_identity = existing
+                    if attempt == 249:
+                        raise TrainingProgressBusyError(
+                            "training progress store is busy"
+                        )
+                    time.sleep(0.002)
+                    continue
+
+            if expected_directory_identity is not None:
+                self._require_storage_directory(expected_directory_identity)
+            try:
+                descriptor = _open_no_reparse(
+                    self._lock_path,
+                    create=existing is None,
+                    writable=True,
+                    exclusive=existing is None,
+                )
+                break
+            except FileExistsError:
+                if attempt == 249:
+                    raise TrainingProgressBusyError(
+                        "training progress store is busy"
+                    ) from None
+                time.sleep(0.002)
+                continue
+            except OSError as exc:
+                raise TrainingProgressBusyError(
+                    "training progress store is busy"
+                ) from exc
+
+        if descriptor < 0:
+            raise TrainingProgressBusyError("training progress store is busy")
+
+        created_identity: os.stat_result | None = None
         try:
             metadata = os.fstat(descriptor)
             self._require_regular_lock(metadata)
-            if expected_directory_identity is not None:
-                self._require_storage_directory(expected_directory_identity)
-            if metadata.st_size == 0:
-                os.write(descriptor, b"\0")
-                os.fsync(descriptor)
+            if existing is None:
+                created_identity = metadata
+            elif not self._same_file_identity(existing, metadata):
+                raise TrainingProgressBusyError("training progress store is busy")
+
+            try:
+                current_path = os.lstat(self._lock_path)
+            except OSError as exc:
+                raise TrainingProgressBusyError(
+                    "training progress store is busy"
+                ) from exc
+            self._require_regular_lock(current_path)
+            if not self._same_file_identity(metadata, current_path):
+                raise TrainingProgressBusyError("training progress store is busy")
+
+            if existing is None:
+                current_descriptor = os.fstat(descriptor)
+                self._require_regular_lock(current_descriptor)
+                if (
+                    current_descriptor.st_size != 0
+                    or not self._same_file_identity(metadata, current_descriptor)
+                ):
+                    raise TrainingProgressBusyError("training progress store is busy")
+                try:
+                    written = os.write(descriptor, b"\0")
+                    if written != 1:
+                        raise OSError("short Training-progress lock marker write")
+                    os.fsync(descriptor)
+                except OSError as exc:
+                    raise TrainingProgressBusyError(
+                        "training progress store is busy"
+                    ) from exc
+                initialized = os.fstat(descriptor)
+                self._require_regular_lock(initialized)
+                if (
+                    initialized.st_size != 1
+                    or not self._same_file_identity(metadata, initialized)
+                ):
+                    raise TrainingProgressBusyError("training progress store is busy")
+            else:
+                if metadata.st_size != 1:
+                    raise TrainingProgressBusyError("training progress store is busy")
+                try:
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    marker = os.read(descriptor, 2)
+                except OSError as exc:
+                    raise TrainingProgressBusyError(
+                        "training progress store is busy"
+                    ) from exc
+                if marker != b"\0":
+                    raise TrainingProgressBusyError("training progress store is busy")
+
+            try:
+                final_path = os.lstat(self._lock_path)
+            except OSError as exc:
+                raise TrainingProgressBusyError(
+                    "training progress store is busy"
+                ) from exc
+            self._require_regular_lock(final_path)
+            if not self._same_file_identity(metadata, final_path):
+                raise TrainingProgressBusyError("training progress store is busy")
             if expected_directory_identity is not None:
                 self._require_storage_directory(expected_directory_identity)
             return descriptor
         except BaseException:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            if existing is None:
+                self._quarantine_owned_path(
+                    self._lock_path,
+                    created_identity,
+                    lock_file=True,
+                )
             raise
 
     @staticmethod
@@ -509,18 +802,26 @@ class TrainingProgressStore:
         )
         acquired = False
         previous_directory_identity = self._active_storage_directory_identity
+        previous_lock_descriptor = self._active_lock_descriptor
         try:
             self._lock_descriptor(descriptor)
             acquired = True
+            self._require_lock_descriptor_current(descriptor)
             self._require_storage_directory(directory_identity)
             self._active_storage_directory_identity = directory_identity
+            self._active_lock_descriptor = descriptor
             yield
+            self._require_active_lock()
             self._require_storage_directory(directory_identity)
         finally:
+            self._active_lock_descriptor = previous_lock_descriptor
             self._active_storage_directory_identity = previous_directory_identity
             if acquired:
                 self._unlock_descriptor(descriptor)
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
     def save(
         self,
@@ -533,6 +834,7 @@ class TrainingProgressStore:
         expected = _validate_revision(expected_revision)
 
         temporary: Path | None = None
+        temporary_identity: os.stat_result | None = None
         with self._exclusive_access():
             try:
                 current_data = self._read_progress_bytes(missing_ok=True)
@@ -571,14 +873,25 @@ class TrainingProgressStore:
                 temporary = Path(raw_path)
                 try:
                     with os.fdopen(fd, "wb") as handle:
+                        created_identity = os.fstat(handle.fileno())
+                        temporary_identity = created_identity
+                        self._require_private_temp(created_identity)
                         handle.write(data)
                         handle.flush()
                         os.fsync(handle.fileno())
+                        final_temp_identity = os.fstat(handle.fileno())
+                        self._require_private_temp(final_temp_identity)
+                        if not self._same_file_identity(
+                            created_identity,
+                            final_temp_identity,
+                        ):
+                            raise ValueError(
+                                "training progress temporary file changed while being prepared"
+                            )
+                        temporary_identity = final_temp_identity
                     self._require_storage_directory(active_directory)
+                    self._require_active_lock()
                 except Exception:
-                    if temporary.exists():
-                        temporary.unlink()
-                    temporary = None
                     raise
 
                 publication_base = self._read_progress_bytes(missing_ok=True)
@@ -590,23 +903,70 @@ class TrainingProgressStore:
                         "training progress changed during publication"
                     )
 
+                try:
+                    current_temp = os.lstat(temporary)
+                except OSError as exc:
+                    raise ValueError(
+                        "training progress temporary file changed before publication"
+                    ) from exc
+                self._require_private_temp(current_temp)
+                if (
+                    temporary_identity is None
+                    or not self._same_file_identity(
+                        temporary_identity,
+                        current_temp,
+                    )
+                ):
+                    raise ValueError(
+                        "training progress temporary file changed before publication"
+                    )
+
                 self._require_storage_directory(active_directory)
+                self._require_active_lock()
                 _replace_published_path(temporary, self.path)
                 temporary = None
 
-                # Revalidate the exact parent on both sides of the durability
-                # barrier.  If publication is visible but stable-storage
-                # confirmation fails, propagate the failure instead of falsely
-                # acknowledging a durable save.
+                # A successful acknowledgement is bound to the exact fsynced
+                # temp inode, not merely to equivalent bytes at the canonical
+                # pathname. This closes same-byte substitution around the
+                # durability barrier.
+                self._require_active_lock()
+                published_identity = os.lstat(self.path)
+                self._require_regular_progress(published_identity)
+                if (
+                    temporary_identity is None
+                    or not self._same_file_identity(
+                        temporary_identity,
+                        published_identity,
+                    )
+                ):
+                    raise TrainingProgressConflictError(
+                        "training progress changed after publication"
+                    )
+
                 self._require_storage_directory(active_directory)
                 _sync_published_path(self.path)
                 self._require_storage_directory(active_directory)
+                self._require_active_lock()
                 visible = self._read_progress_bytes(missing_ok=False)
-                if visible != data:
+                final_published_identity = os.lstat(self.path)
+                self._require_regular_progress(final_published_identity)
+                if (
+                    temporary_identity is None
+                    or not self._same_file_identity(
+                        temporary_identity,
+                        final_published_identity,
+                    )
+                    or visible != data
+                ):
                     raise TrainingProgressConflictError(
                         "training progress changed after publication"
                     )
                 return new_revision
             finally:
-                if temporary is not None and temporary.exists():
-                    temporary.unlink()
+                if temporary is not None:
+                    self._quarantine_owned_path(
+                        temporary,
+                        temporary_identity,
+                        lock_file=False,
+                    )
