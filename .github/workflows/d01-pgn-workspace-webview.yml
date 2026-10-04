@@ -298,7 +298,7 @@ jobs:
 
           dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
           case "$dom_test_actual" in
-            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d)
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|036fbc3378cf7c0cca57c2630910e56a95177a7f)
               ;;
             *)
               printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
@@ -329,6 +329,12 @@ jobs:
               ;;
           esac
 
+          tree_keyboard_test_actual="$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)"
+          test "$tree_keyboard_test_actual" = "3ec326e766110eba04228bcda92cc1d3dfea011a" || {
+            printf 'Feature blob mismatch: tests/js/pgn_tree_keyboard_dom_test.js actual=%s\n' "$tree_keyboard_test_actual" >&2
+            exit 1
+          }
+
           workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
           case "$workspace_actual" in
             "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB")
@@ -340,7 +346,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e)|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2
