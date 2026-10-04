@@ -91,6 +91,46 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
+    def test_dc_metadata_successor_is_pinned_and_current_owner_apex_is_qualified(self) -> None:
+        self.assertIn(
+            "- converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb",
+            self.workflow,
+        )
+        self.assertIn(
+            "- converge/book-html-epub-semantics-20261004-c2mbezb",
+            self.workflow,
+        )
+        self.assertIn(
+            "dc_metadata_test_path='tests/test_epub_dc_metadata_identity.py'",
+            self.workflow,
+        )
+        self.assertIn(
+            "dc_metadata_successor_parser='9eaef49ac61ede991733a53611ac8f933d86990c'",
+            self.workflow,
+        )
+        self.assertIn(
+            "dc_metadata_successor_parser_test='2af1740b289d0c231f1618acf9a3c25b409f5fb7'",
+            self.workflow,
+        )
+        self.assertIn(
+            "dc_metadata_successor_contract_test='134cf79cf81037f4412b1eacb8e2358ddfe38163'",
+            self.workflow,
+        )
+        self.assertIn(
+            "dc_metadata_successor_test='a59c4ac174dba43ce64962c1d780b6e9f49d95a6'",
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_dc_metadata_test" = "$dc_metadata_successor_test"',
+            self.workflow,
+        )
+        self.assertIn("EPUB_DC_METADATA_IDENTITY_SUCCESSOR=EXACT", self.workflow)
+        self.assertGreaterEqual(
+            self.workflow.count("tests/test_epub_dc_metadata_identity.py"),
+            3,
+        )
+        self.assertIn("tests.test_epub_dc_metadata_identity", self.workflow)
+
     def test_shared_application_and_dialog_files_are_regressed_not_blob_frozen(self) -> None:
         marker = "protected_paths=("
         start = self.workflow.index(marker)
