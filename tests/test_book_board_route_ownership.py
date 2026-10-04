@@ -774,6 +774,54 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(projected_before, tuple(self.projected_positions))
         self.assertEqual(origin, self.app.reader.location())
 
+    def test_hidden_pgn_webview_cannot_edit_canonical_document(self):
+        self._load_pgn_workspace()
+        selected = self.app.browser_command(
+            "pgn",
+            "pgn.select",
+            {"node_id": "g0:main/m0"},
+        )
+        self.assertNotEqual("error", selected["kind"])
+        self.assertFalse(self.app.session.dirty)
+        self.app.browser_command("shell", "screen.library")
+
+        result = self.app.browser_command(
+            "pgn",
+            "pgn.comment_edit",
+            {"text": "hidden stale edit"},
+        )
+
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(self.app.session.dirty)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+    def test_modal_blocks_pgn_webview_edit_before_document_mutation(self):
+        self._load_pgn_workspace()
+        selected = self.app.browser_command(
+            "pgn",
+            "pgn.select",
+            {"node_id": "g0:main/m0"},
+        )
+        self.assertNotEqual("error", selected["kind"])
+        self.assertFalse(self.app.session.dirty)
+        opened = self.app.adapter.open_dialog(
+            "pgn-edit-modal",
+            opener_focus_id="pgn-game-list",
+            initial_focus_id="pgn-edit-modal-confirm",
+        )
+        self.assertEqual("dialog-open", opened.kind)
+
+        result = self.app.browser_command(
+            "pgn",
+            "pgn.comment_edit",
+            {"text": "modal-hidden edit"},
+        )
+
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(self.app.session.dirty)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertEqual("pgn-edit-modal", self.app.shell.active_dialog_id)
+
     def test_hidden_pgn_board_navigation_cannot_mutate_cursor(self):
         self._load_pgn_workspace()
         self.assertEqual(
