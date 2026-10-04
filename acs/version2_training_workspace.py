@@ -162,7 +162,34 @@ class Version2BookTrainingWorkspace:
         # The store owns compare-and-swap authority even for byte-identical
         # snapshots. It can elide the physical rewrite only after confirming
         # under its peer lock that the expected durable revision still exists.
-        revision = self._store.save(self.session, expected_revision=self._revision)
+        try:
+            revision = self._store.save(
+                self.session,
+                expected_revision=self._revision,
+            )
+        except TrainingProgressDurabilityUnknownError as error:
+            # This error exists only after atomic publication returned success.
+            # Never move the live session back to a pre-publication snapshot.
+            # Bind to the just-published revision first, then prefer a validated
+            # reread in case a non-cooperating writer changed canonical state
+            # after our replace but before durability confirmation completed.
+            self._revision = error.published_revision
+            try:
+                loaded = self._store.load(self.material.definition)
+            except Exception as reconcile_error:
+                raise TrainingProgressDurabilityUnknownError(
+                    "training progress was published but canonical state could not be reloaded",
+                    published_revision=error.published_revision,
+                ) from reconcile_error
+            if loaded is not None:
+                self.bridge.projection.restore_state(
+                    loaded.session.snapshot(),
+                    language=self.language,
+                    message="",
+                    message_key=None,
+                )
+                self._revision = loaded.revision
+            raise
         self._revision = revision
         return revision
 
@@ -355,31 +382,10 @@ class Version2BookTrainingWorkspace:
             return event
         try:
             self.save()
-        except TrainingProgressDurabilityUnknownError as error:
-            # Atomic publication already succeeded before this error class can be
-            # raised. Rolling back to the pre-command snapshot would therefore put
-            # memory behind the canonical pathname and force a stale next revision.
-            # Re-read canonical state and restore it in place so retained session
-            # and bridge references stay authoritative. If canonical storage cannot
-            # itself be re-read, keep the just-published in-memory state and bind
-            # the optimistic revision to the bytes this process published; a later
-            # external change will then fail the next CAS safely.
-            self._revision = error.published_revision
-            try:
-                loaded = self._store.load(material.definition)
-            except Exception as reconcile_error:
-                raise TrainingProgressDurabilityUnknownError(
-                    "training progress was published but canonical state could not be reloaded",
-                    published_revision=error.published_revision,
-                ) from reconcile_error
-            if loaded is not None:
-                bridge.projection.restore_state(
-                    loaded.session.snapshot(),
-                    language=before_language,
-                    message="",
-                    message_key=None,
-                )
-                self._revision = loaded.revision
+        except TrainingProgressDurabilityUnknownError:
+            # save() has already reconciled from canonical storage in place (or
+            # retained the definitely-published state with its publication
+            # revision when canonical reread failed). Never apply stale rollback.
             raise
         except Exception:
             # A pre-publication stale/busy/error write leaves durable truth at the
