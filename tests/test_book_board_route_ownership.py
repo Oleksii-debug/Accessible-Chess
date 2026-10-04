@@ -474,14 +474,27 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
                 raise RuntimeError("synthetic Books route rejection")
             return real_open_route(route_id, current_focus_id=current_focus_id)
 
-        with patch.object(
-            self.app.shell,
-            "open_route",
-            side_effect=reject_books_route,
+        real_save = self.app.progress_store.save
+        with (
+            patch.object(
+                self.app.shell,
+                "open_route",
+                side_effect=reject_books_route,
+            ),
+            patch.object(
+                self.app.progress_store,
+                "save",
+                wraps=real_save,
+            ) as save,
         ):
             with self.assertRaises(RuntimeError):
                 self.app.open_book(candidate)
 
+        self.assertEqual(
+            [call.args[0] for call in save.call_args_list],
+            [previous_key],
+            "rejected Books route must not persist staged candidate progress",
+        )
         self.assertIs(previous_reader, self.app.reader)
         self.assertIs(previous_books, self.app.books)
         self.assertIs(previous_workflow, self.app.book_workflow)
@@ -510,19 +523,75 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
                 raise RuntimeError("synthetic failure after Books route commit")
             return focus
 
-        with patch.object(
-            self.app.shell,
-            "open_route",
-            side_effect=fail_after_books_commit,
+        real_save = self.app.progress_store.save
+        with (
+            patch.object(
+                self.app.shell,
+                "open_route",
+                side_effect=fail_after_books_commit,
+            ),
+            patch.object(
+                self.app.progress_store,
+                "save",
+                wraps=real_save,
+            ) as save,
         ):
             with self.assertRaises(RuntimeError):
                 self.app.open_book(candidate)
 
+        self.assertEqual(
+            [call.args[0] for call in save.call_args_list],
+            [previous_key],
+            "partial Books route commit must roll back before candidate persistence",
+        )
         self.assertIs(previous_reader, self.app.reader)
         self.assertIs(previous_books, self.app.books)
         self.assertIs(previous_workflow, self.app.book_workflow)
         self.assertEqual(previous_key, self.app.book_key)
         self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+
+    def test_open_book_candidate_progress_runs_only_after_books_route_is_owned(self):
+        original = self.root / "original-persistence-owner.md"
+        original.write_text("# Original\n\nStable owner.\n", encoding="utf-8")
+        self.app.open_book(original)
+        previous_reader = self.app.reader
+        previous_books = self.app.books
+        previous_workflow = self.app.book_workflow
+        previous_key = self.app.book_key
+        self.app.browser_command("shell", "screen.library")
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app.shell.restore_focus_target()
+
+        candidate = self.root / "candidate-persistence-owner.md"
+        candidate.write_text("# Candidate\n\nStaged owner.\n", encoding="utf-8")
+        real_save = self.app.progress_store.save
+        candidate_save_routes = []
+
+        def fail_candidate_save(book_key, reader):
+            if book_key == previous_key:
+                return real_save(book_key, reader)
+            candidate_save_routes.append(self.app.shell.current_route.route_id)
+            raise RuntimeError("synthetic candidate persistence failure")
+
+        with patch.object(
+            self.app.progress_store,
+            "save",
+            side_effect=fail_candidate_save,
+        ):
+            with self.assertRaises(RuntimeError):
+                self.app.open_book(candidate)
+
+        self.assertEqual(
+            ["books"],
+            candidate_save_routes,
+            "candidate persistence must not run until Books route ownership commits",
+        )
+        self.assertIs(previous_reader, self.app.reader)
+        self.assertIs(previous_books, self.app.books)
+        self.assertIs(previous_workflow, self.app.book_workflow)
+        self.assertEqual(previous_key, self.app.book_key)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+        self.assertEqual(origin_focus, self.app.shell.restore_focus_target())
 
     def test_set_document_route_rejection_preserves_previous_pgn_owner(self):
         self._load_pgn_workspace()
