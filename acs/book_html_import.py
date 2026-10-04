@@ -333,10 +333,36 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _emit_list(self, captured: _ListCapture) -> None:
         items = [item for item in captured.items if item]
-        if not items:
-            return
+        identity_items = [item for item in captured.identity_items if item]
         ordered = captured.tag == "ol"
         start, start_valid = self._ordered_start(captured.attrs) if ordered else (None, True)
+
+        if (
+            captured.inline_semantic_fallback
+            and not captured.structural_unsupported
+            and captured.legacy_identity_block is not None
+            and identity_items
+        ):
+            # Preserve the exact pre-split canonical ListBlock target so durable
+            # BookProgress restores to the beginning of a list whose text is
+            # unchanged but whose rich inline semantics now require flattening.
+            legacy_identity = (
+                ("ordered" if ordered else "unordered")
+                + "\0"
+                + (str(start) if start is not None else "")
+                + "\0"
+                + "\0".join(identity_items)
+            )
+            captured.legacy_identity_block.block_id = self._block_id(
+                "List",
+                legacy_identity,
+            )
+            captured.legacy_identity_block.source_anchor = (
+                captured.attrs.get("id") or None
+            )
+
+        if not items:
+            return
         unsupported = captured.unsupported or not start_valid
 
         if unsupported:
@@ -814,6 +840,9 @@ class _SemanticHtmlParser(HTMLParser):
         )
 
         if captured_list is not None:
+            logical_text = _compact("".join(capture.parts))
+            if logical_text:
+                captured_list.identity_items.append(logical_text)
             captured_list.unsupported = True
             captured_list.inline_semantic_fallback = True
             # Plain items preceding this rich item are still buffered in the
@@ -823,14 +852,17 @@ class _SemanticHtmlParser(HTMLParser):
             first_event = events[0]
             for item in [item for item in captured_list.items if item]:
                 fallback_text = f"• {item}"
+                fallback = Paragraph(
+                    text=fallback_text,
+                    block_id=self._block_id("Paragraph", fallback_text),
+                    source_anchor=captured_list.attrs.get("id") or None,
+                )
                 self._insert_block(
                     self._block_identity_index(first_event.block),
-                    Paragraph(
-                        text=fallback_text,
-                        block_id=self._block_id("Paragraph", fallback_text),
-                        source_anchor=captured_list.attrs.get("id") or None,
-                    ),
+                    fallback,
                 )
+                if captured_list.legacy_identity_block is None:
+                    captured_list.legacy_identity_block = fallback
             captured_list.items.clear()
 
         cursor = 0
@@ -857,14 +889,39 @@ class _SemanticHtmlParser(HTMLParser):
                 identity_kind = (
                     "Paragraph" if not item_text_started else "ListInlineFragment"
                 )
+                fragment = Paragraph(
+                    text=projected,
+                    block_id=self._block_id(identity_kind, projected),
+                    source_anchor=source_anchor if not item_text_started else None,
+                )
                 self._insert_block(
                     self._block_identity_index(event.block),
-                    Paragraph(
-                        text=projected,
-                        block_id=self._block_id(identity_kind, projected),
-                        source_anchor=source_anchor if not item_text_started else None,
-                    ),
+                    fragment,
                 )
+                if (
+                    captured_list is not None
+                    and captured_list.legacy_identity_block is None
+                ):
+                    captured_list.legacy_identity_block = fragment
+                item_text_started = True
+            elif not item_text_started:
+                # A rich list item may begin with an image/position. Preserve an
+                # explicit list-membership marker before that semantic block
+                # rather than letting it appear outside the item in reading order.
+                marker = Paragraph(
+                    text="•",
+                    block_id=self._block_id("ListInlineItemMarker", "•"),
+                    source_anchor=source_anchor,
+                )
+                self._insert_block(
+                    self._block_identity_index(event.block),
+                    marker,
+                )
+                if (
+                    captured_list is not None
+                    and captured_list.legacy_identity_block is None
+                ):
+                    captured_list.legacy_identity_block = marker
                 item_text_started = True
             cursor = resume_part_index
 
@@ -872,13 +929,17 @@ class _SemanticHtmlParser(HTMLParser):
         if trailing:
             projected = f"• {trailing}" if not item_text_started else trailing
             identity_kind = "Paragraph" if not item_text_started else "ListInlineFragment"
-            self._append_block(
-                Paragraph(
-                    text=projected,
-                    block_id=self._block_id(identity_kind, projected),
-                    source_anchor=source_anchor if not item_text_started else None,
-                )
+            fragment = Paragraph(
+                text=projected,
+                block_id=self._block_id(identity_kind, projected),
+                source_anchor=source_anchor if not item_text_started else None,
             )
+            self._append_block(fragment)
+            if (
+                captured_list is not None
+                and captured_list.legacy_identity_block is None
+            ):
+                captured_list.legacy_identity_block = fragment
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
@@ -954,6 +1015,7 @@ class _SemanticHtmlParser(HTMLParser):
         if capture.kind == "list_item":
             if self._lists and capture.list_depth == len(self._lists):
                 self._lists[-1].items.append(text)
+                self._lists[-1].identity_items.append(text)
                 return
             self._list_warning(
                 "HTML list item occurred outside a representable list container and was preserved as readable text"
