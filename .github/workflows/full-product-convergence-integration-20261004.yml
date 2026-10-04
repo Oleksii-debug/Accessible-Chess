@@ -86,6 +86,19 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS base=$event_base"
             echo "FULL_PRODUCT_LIVE_BASE_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "integration/current-main-windows-apex-reconvergence-20261004-sol" ]; then
+            # A direct push/dispatch on the canonical current-main integration
+            # branch has no pull_request.base fields. It must still prove that
+            # the candidate contains the *live* main head; otherwise an old
+            # push run could turn green after main advances and be mistaken for
+            # current-main qualification.
+            live_base_ref='main'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_MAIN_NON_PR_ANCESTRY=PASS base=$live_base"
           fi
           echo 'FULL_PRODUCT_CANONICAL_ANCESTRY=PASS'
 
