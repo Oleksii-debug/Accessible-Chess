@@ -31,6 +31,17 @@ on:
       - '.github/workflows/w6-v2-package-assembler.yml'
       - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
       - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+      - '.github/workflows/books-semantic-durable-board-convergence.yml'
+      - '.github/workflows/v2-accessible-book-core.yml'
+      - '.github/workflows/v2-book-epub-semantic-ingress.yml'
+      - '.github/workflows/v2-markdown-semantic-lists-convergence.yml'
+      - '.github/workflows/d06-pgn-nested-comment-recovery.yml'
+      - '.github/workflows/d06-pgn-semantic-fidelity.yml'
+      - '.github/workflows/pgn-context-atomicity.yml'
+      - '.github/workflows/v2-pgn-stream-source-binding.yml'
+      - '.github/workflows/w2-training-progress-windows-missing-parent.yml'
+      - '.github/workflows/v2-windows-nvda-ui.yml'
+      - '.github/workflows/integration-accessibility-successors.yml'
   workflow_dispatch:
 
 permissions:
@@ -159,6 +170,12 @@ jobs:
           tests.test_dev1_books_training_webview_bridge
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_full_product_webview_adapter
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_bookreader_snapshot_bounds
+          tests.test_v2_accessible_book_core
+          tests.test_v2_book_epub_import
+          tests.test_v2_html_semantic_lists
+          tests.test_v2_markdown_semantic_lists
           tests.test_books_semantic_host_bounds
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
@@ -205,6 +222,7 @@ jobs:
           tests.test_v2_data_upgrade
           tests.test_v2_data_upgrade_v6
           tests.test_d08_training_canonical_resume
+          tests.test_w2_training_progress_crash_recovery
           tests.test_training_snapshot_definition_identity_v4
           tests.test_training
 
@@ -214,6 +232,11 @@ jobs:
           tests.test_bookdocument
           tests.test_d06_pgn_roundtrip
           tests.test_dev1_pgn_webview_projection
+          tests.test_v2_pgn_nested_comment_recovery
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document_setup_fen_integrity
+          tests.test_pgn_stream_source_binding
           tests.test_gametree
           tests.test_v2_book_html_head_metadata_semantics
           tests.test_v2_book_html_import
@@ -238,6 +261,8 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_application
+          tests.test_nvda_p0_contract
+          tests.test_version2_accessibility_convergence
           tests.test_version2_import_terminal_ui
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_native_thread_runtime_workflow
