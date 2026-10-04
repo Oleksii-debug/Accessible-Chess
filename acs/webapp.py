@@ -83,6 +83,7 @@ class AccessibleChessAPI:
             "fen_history_failed": "Не вдалося підготувати історію FEN-позиції.",
             "editor_history_failed": "Не вдалося підготувати історію зміненої позиції.",
             "language_change_failed": "Не вдалося змінити мову інтерфейсу.",
+            "move_history_failed": "Не вдалося синхронізувати дошку та історію ходів.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -101,6 +102,7 @@ class AccessibleChessAPI:
             "fen_history_failed": "Could not prepare history for the FEN position.",
             "editor_history_failed": "Could not prepare history for the edited position.",
             "language_change_failed": "Could not change interface language.",
+            "move_history_failed": "Could not synchronize the board and move history.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -246,6 +248,47 @@ class AccessibleChessAPI:
         candidate_board = copy.deepcopy(self.board)
         prepared = self._prepare_root_state(candidate_board)
         self._publish_root_state(candidate_board, prepared)
+
+    def _clone_live_transaction(self) -> tuple[Board, ReviewHistory]:
+        """Clone the mutable Board/history owners without publishing either."""
+        candidate_board = copy.deepcopy(self.board)
+        candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
+        return candidate_board, candidate_history
+
+    def _prepare_live_presentation(
+        self,
+        candidate_board: Board,
+        candidate_history: ReviewHistory,
+    ) -> tuple[ReviewPresentationAdapter, int]:
+        """Validate one candidate Board/history pair before publication."""
+        candidate_adapter = ReviewPresentationAdapter(
+            candidate_history,
+            language=self.lang,
+        )
+        view = candidate_adapter.current()
+        if view.fen != candidate_board.fen():
+            raise RuntimeError("candidate board/history FEN mismatch")
+        return candidate_adapter, candidate_history.cursor_node_id
+
+    def _publish_live_transaction(
+        self,
+        candidate_board: Board,
+        candidate_history: ReviewHistory,
+        candidate_adapter: ReviewPresentationAdapter,
+        candidate_live_node: int,
+        *,
+        sans: list[str],
+        move_sides: list[str],
+        redo_meta: list[tuple[str, str]],
+    ) -> None:
+        self.board = candidate_board
+        self.sans = sans
+        self.move_sides = move_sides
+        self.redo_meta = redo_meta
+        self.selected_source = None
+        self.review_history = candidate_history
+        self.review_adapter = candidate_adapter
+        self.live_history_node = candidate_live_node
 
     def _at_history_end(self) -> bool:
         return self.review_history.cursor_node_id == self.live_history_node
@@ -413,17 +456,48 @@ class AccessibleChessAPI:
             return self._error(self._t("review_before_move"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
+        side = self.board.turn
         try:
-            side = self.board.turn
-            san = self.board.push_text(text)
-            self.sans.append(san)
-            self.move_sides.append(side)
-            self.redo_meta.clear()
-            self.selected_source = None
-            self._record_position_after_move(san, side)
-            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + format_accessible_compact_san(san, self.lang))
+            candidate_board = copy.deepcopy(self.board)
+        except Exception:
+            return self._error(self._t("move_history_failed"))
+        try:
+            san = candidate_board.push_text(text)
         except Exception as exc:
             return self._error(str(exc))
+        try:
+            candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
+            candidate_sans = list(self.sans)
+            candidate_sides = list(self.move_sides)
+            candidate_sans.append(san)
+            candidate_sides.append(side)
+            selection = candidate_history.append(
+                candidate_board.fen(),
+                san=san,
+                side=side,
+                last_move=san,
+            )
+            candidate_adapter, candidate_live_node = self._prepare_live_presentation(
+                candidate_board,
+                candidate_history,
+            )
+            if selection.node_id != candidate_live_node:
+                raise RuntimeError("candidate move cursor mismatch")
+        except Exception:
+            return self._error(self._t("move_history_failed"))
+        self._publish_live_transaction(
+            candidate_board,
+            candidate_history,
+            candidate_adapter,
+            candidate_live_node,
+            sans=candidate_sans,
+            move_sides=candidate_sides,
+            redo_meta=[],
+        )
+        return self._ok(
+            ("Зіграно: " if self.lang == "uk" else "Played: ")
+            + format_accessible_compact_san(san, self.lang)
+        )
 
     def activate_square(self, square: str) -> dict[str, Any]:
         if not self._at_history_end():
@@ -454,17 +528,48 @@ class AccessibleChessAPI:
                 return self._ok(f"{self.square_label(target, self.board)}, {self._t('selected')}")
             return self._error(self._t("illegal"))
         move = next((m for m in candidates if m.promotion == "Q"), candidates[0])
+        side = self.board.turn
         try:
-            side = self.board.turn
-            san = self.board.push(move)
-            self.sans.append(san)
-            self.move_sides.append(side)
-            self.redo_meta.clear()
-            self.selected_source = None
-            self._record_position_after_move(san, side)
-            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + format_accessible_compact_san(san, self.lang))
+            candidate_board = copy.deepcopy(self.board)
+        except Exception:
+            return self._error(self._t("move_history_failed"))
+        try:
+            san = candidate_board.push(move)
         except Exception as exc:
             return self._error(str(exc))
+        try:
+            candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
+            candidate_sans = list(self.sans)
+            candidate_sides = list(self.move_sides)
+            candidate_sans.append(san)
+            candidate_sides.append(side)
+            selection = candidate_history.append(
+                candidate_board.fen(),
+                san=san,
+                side=side,
+                last_move=san,
+            )
+            candidate_adapter, candidate_live_node = self._prepare_live_presentation(
+                candidate_board,
+                candidate_history,
+            )
+            if selection.node_id != candidate_live_node:
+                raise RuntimeError("candidate move cursor mismatch")
+        except Exception:
+            return self._error(self._t("move_history_failed"))
+        self._publish_live_transaction(
+            candidate_board,
+            candidate_history,
+            candidate_adapter,
+            candidate_live_node,
+            sans=candidate_sans,
+            move_sides=candidate_sides,
+            redo_meta=[],
+        )
+        return self._ok(
+            ("Зіграно: " if self.lang == "uk" else "Played: ")
+            + format_accessible_compact_san(san, self.lang)
+        )
 
     def cancel_selection(self) -> dict[str, Any]:
         self.selected_source = None
@@ -475,41 +580,105 @@ class AccessibleChessAPI:
             return self._error(self._t("review_before_move"))
         if not self.sans:
             return self._error(self._t("undo_none"))
-        records = {record.node_id: record for record in self.review_history.tree_nodes()}
-        parent_id = records[self.live_history_node].parent_id
-        if parent_id is None:
-            return self._error(self._t("undo_none"))
-        san = self.board.undo()
-        if san is None:
-            return self._error(self._t("undo_none"))
-        side = self.move_sides.pop()
-        self.sans.pop()
-        self.redo_meta.append((san, side))
-        self.review_history.select_node(parent_id)
-        self.live_history_node = parent_id
-        self.selected_source = None
-        return self._ok(("Скасовано: " if self.lang == "uk" else "Undone: ") + format_accessible_compact_san(san, self.lang))
+        try:
+            candidate_board, candidate_history = self._clone_live_transaction()
+            records = {
+                record.node_id: record
+                for record in candidate_history.tree_nodes()
+            }
+            parent_id = records[self.live_history_node].parent_id
+            if parent_id is None:
+                return self._error(self._t("undo_none"))
+            candidate_sans = list(self.sans)
+            candidate_sides = list(self.move_sides)
+            candidate_redo = list(self.redo_meta)
+            expected_san = candidate_sans[-1]
+            side = candidate_sides[-1]
+            san = candidate_board.undo()
+            if san is None:
+                return self._error(self._t("undo_none"))
+            if san != expected_san:
+                raise RuntimeError("candidate undo SAN mismatch")
+            candidate_sans.pop()
+            candidate_sides.pop()
+            candidate_redo.append((san, side))
+            selection = candidate_history.select_node(parent_id)
+            if selection.snapshot.fen != candidate_board.fen():
+                raise RuntimeError("candidate undo FEN mismatch")
+            candidate_adapter, candidate_live_node = self._prepare_live_presentation(
+                candidate_board,
+                candidate_history,
+            )
+            if selection.node_id != candidate_live_node:
+                raise RuntimeError("candidate undo cursor mismatch")
+        except Exception:
+            return self._error(self._t("move_history_failed"))
+        self._publish_live_transaction(
+            candidate_board,
+            candidate_history,
+            candidate_adapter,
+            candidate_live_node,
+            sans=candidate_sans,
+            move_sides=candidate_sides,
+            redo_meta=candidate_redo,
+        )
+        return self._ok(
+            ("Скасовано: " if self.lang == "uk" else "Undone: ")
+            + format_accessible_compact_san(san, self.lang)
+        )
 
     def redo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
         if not self.redo_meta:
             return self._error(self._t("redo_none"))
-        records = {record.node_id: record for record in self.review_history.tree_nodes()}
-        child_id = records[self.live_history_node].active_child
-        if child_id is None:
-            return self._error(self._t("redo_none"))
-        san = self.board.redo()
-        if san is None:
-            self.redo_meta.clear()
-            return self._error(self._t("redo_none"))
-        meta_san, side = self.redo_meta.pop()
-        self.sans.append(meta_san)
-        self.move_sides.append(side)
-        self.review_history.select_node(child_id)
-        self.live_history_node = child_id
-        self.selected_source = None
-        return self._ok(("Повторено: " if self.lang == "uk" else "Redone: ") + format_accessible_compact_san(meta_san, self.lang))
+        try:
+            candidate_board, candidate_history = self._clone_live_transaction()
+            records = {
+                record.node_id: record
+                for record in candidate_history.tree_nodes()
+            }
+            child_id = records[self.live_history_node].active_child
+            if child_id is None:
+                return self._error(self._t("redo_none"))
+            candidate_sans = list(self.sans)
+            candidate_sides = list(self.move_sides)
+            candidate_redo = list(self.redo_meta)
+            meta_san, side = candidate_redo[-1]
+            san = candidate_board.redo()
+            if san is None:
+                return self._error(self._t("redo_none"))
+            if san != meta_san:
+                raise RuntimeError("candidate redo SAN mismatch")
+            candidate_redo.pop()
+            candidate_sans.append(meta_san)
+            candidate_sides.append(side)
+            selection = candidate_history.select_node(child_id)
+            if selection.snapshot.fen != candidate_board.fen():
+                raise RuntimeError("candidate redo FEN mismatch")
+            if selection.snapshot.san not in (None, meta_san):
+                raise RuntimeError("candidate redo history SAN mismatch")
+            candidate_adapter, candidate_live_node = self._prepare_live_presentation(
+                candidate_board,
+                candidate_history,
+            )
+            if selection.node_id != candidate_live_node:
+                raise RuntimeError("candidate redo cursor mismatch")
+        except Exception:
+            return self._error(self._t("move_history_failed"))
+        self._publish_live_transaction(
+            candidate_board,
+            candidate_history,
+            candidate_adapter,
+            candidate_live_node,
+            sans=candidate_sans,
+            move_sides=candidate_sides,
+            redo_meta=candidate_redo,
+        )
+        return self._ok(
+            ("Повторено: " if self.lang == "uk" else "Redone: ")
+            + format_accessible_compact_san(meta_san, self.lang)
+        )
 
     def set_turn(self, color: str) -> dict[str, Any]:
         if not self._at_history_end():
