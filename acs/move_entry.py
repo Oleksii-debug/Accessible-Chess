@@ -30,7 +30,7 @@ class MoveEntryIntent:
     position: PositionState | None = None
 
 
-_POSITION_HEADER_RE = re.compile(r"(?is)^\s*W\s*:")
+_POSITION_HEADER_RE = re.compile(r"(?is)^\s*[WB]\s*:")
 
 
 def parse_move_entry(
