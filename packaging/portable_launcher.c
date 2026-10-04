@@ -9,8 +9,8 @@
  * - the real product executable lives at App\AccessibleChess.exe;
  * - LOCALAPPDATA is redirected to package-root\data for the child only;
  * - launch-report.txt is created beside this executable for blind-user support;
- * - startup succeeds only after the real child owns a visible top-level
- *   "Accessible Chess" window; merely keeping a process alive is not success;
+ * - startup succeeds only after the real child owns a responsive visible
+ *   top-level "Accessible Chess" window; process/window liveness alone is not success;
  * - no shell, PowerShell, Python or installer is required at runtime.
  *
  * The release workflow links this file without the CRT. Keep this source on the
@@ -369,7 +369,7 @@ static void ac_fail_startup_timeout(HANDLE report) {
     ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
     ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
-    ac_write_line(report, L"DETAIL: Accessible Chess did not expose its real visible application window before the startup deadline.");
+    ac_write_line(report, L"DETAIL: Accessible Chess did not expose a stable responsive visible application window before the startup deadline.");
     ac_write_line(report, L"NEXT: close any stuck Accessible Chess process, keep launch-report.txt, and retry once from the extracted package root");
     FlushFileBuffers(report);
 
@@ -378,7 +378,7 @@ static void ac_fail_startup_timeout(HANDLE report) {
         AC_PATH_CAP + 2048,
         L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
         L"Процес залишено запущеним, щоб не перервати можливе відновлення даних.\r\n"
-        L"Якщо вікно так і не з'явиться, закрийте завислий процес і збережіть звіт:\r\n"
+        L"Якщо вікно не реагує або так і не з'явиться, закрийте завислий процес і збережіть звіт:\r\n"
     );
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
