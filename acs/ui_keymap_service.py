@@ -101,6 +101,53 @@ class KeymapService:
         data["writeBlocked"] = self._profile_write_blocked
         return data
 
+    def adopt_registry(self, registry: ActionRegistry) -> ActionRegistry:
+        """Adopt a wider registry without dropping persisted non-Stage1 actions.
+
+        The Stage1 API is constructed before the Version 2 application. A saved
+        full-product profile therefore passes through an initially narrower
+        registry whose constructor intentionally ignores unknown action IDs.
+        Re-read the already validated persisted envelope when it is usable, then
+        validate the whole profile against the wider definition set before
+        replacing live values. This preserves full-product remaps across restart
+        and also supports valid binding swaps without transient replay conflicts.
+        """
+
+        if not isinstance(registry, ActionRegistry):
+            raise TypeError("registry must be ActionRegistry")
+
+        source_profile = self.editor.registry.to_profile()
+        profile: Mapping[str, object] = source_profile
+
+        if (
+            self.path.exists()
+            and self.recovery_message is None
+            and not self._profile_write_blocked
+        ):
+            try:
+                profile = _decode_user_keymap_profile(
+                    self.path.read_text(encoding="utf-8")
+                )
+            except Exception:
+                profile = source_profile
+                self.recovery_message = "invalid keymap profile"
+
+        try:
+            registry.replace_profile(profile)
+        except Exception:
+            # A profile that was valid for the narrower Stage1 definition set can
+            # become invalid after wider Product actions are introduced (for
+            # example because a new default collides with an old user binding).
+            # Fail closed to the wider defaults without rewriting the source file;
+            # the recovery state remains visible until the user explicitly saves,
+            # resets all, or imports a compatible profile.
+            defaults = ActionRegistry(registry.definitions())
+            registry.replace_profile(defaults.to_profile())
+            self.recovery_message = "invalid keymap profile"
+
+        self.editor.registry = registry
+        return registry
+
     def search(self, query: str = "", context: str | None = None) -> list[dict[str, Any]]:
         parsed_context = BindingContext(context) if context else None
         return [row.__dict__.copy() for row in self.editor.rows(query=query, context=parsed_context)]
