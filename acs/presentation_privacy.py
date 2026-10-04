@@ -43,6 +43,20 @@ _WINDOWS_LOCAL_PATH = re.compile(
     r")"
 )
 
+# Windows current-drive rooted paths can omit a drive letter, for example
+# ``\Users\Name\file``. Restrict this form to workstation/system roots so
+# notation such as ``\alpha\beta`` remains ordinary content.
+_WINDOWS_ROOTED_LOCAL_PATH = re.compile(
+    r"(?i)(?<![A-Za-z0-9_\\\\])\\\\(?:users|programdata|windows|temp|appdata)\\\\[^\\r\\n\\t]*"
+)
+
+# POSIX home shorthand remains local before shell expansion. Require ``~/`` or
+# a conventional named-user token so approximation prose such as ``~1/2`` is
+# not misclassified as a path.
+_HOME_LOCAL_PATH = re.compile(
+    r"(?i)(?<![\\w])~(?:[a-z_][a-z0-9._-]{0,63})?[/\\\\][^\\r\\n\\t]*"
+)
+
 # Internal POSIX roots require a following slash. Bare prose tokens such as
 # ``/home`` or ``/var`` are not sufficient evidence of a workstation path.
 _POSIX_LOCAL_PATH = re.compile(
@@ -54,6 +68,8 @@ _POSIX_LOCAL_PATH = re.compile(
 def _redact_non_web_text(text: str, replacement: str) -> str:
     text = _FILE_LOCAL_URI.sub(replacement, text)
     text = _WINDOWS_LOCAL_PATH.sub(replacement, text)
+    text = _WINDOWS_ROOTED_LOCAL_PATH.sub(replacement, text)
+    text = _HOME_LOCAL_PATH.sub(replacement, text)
     return _POSIX_LOCAL_PATH.sub(replacement, text)
 
 

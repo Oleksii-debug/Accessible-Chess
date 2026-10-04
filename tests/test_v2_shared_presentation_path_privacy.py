@@ -66,6 +66,9 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         r"\\server\private-share\PrivateUser\study.pgn",
         r"\\?\C:\Users\PrivateUser\Documents\study.pgn",
         r"\\?\UNC\server\private-share\PrivateUser\study.pgn",
+        r"\\Users\\PrivateUser\\Documents\\study.pgn",
+        "~/PrivateUser/study.pgn",
+        "~PrivateUser/private/study.pgn",
         "file:///C:/Users/PrivateUser/Documents/study.pgn",
         "file:/home/PrivateUser/study.pgn",
         "/home/PrivateUser/study.pgn",
@@ -90,6 +93,8 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
         "Chapter C: White/Black to move after 1. e4 e5.",
         "A file: appendix label and file:appendix token are ordinary prose.",
+        "~1/2 is approximation prose, not a home path.",
+        r"\\alpha\\beta is notation, not a Windows rooted system path.",
         "Evaluation: +0.35; план: король і пішак — звичайний текст.",
     )
 

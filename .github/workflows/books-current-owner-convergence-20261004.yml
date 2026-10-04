@@ -85,6 +85,7 @@ jobs:
           acs/training_progress_store.py
           acs/ui_keymap_service.py
           acs/full_product_presenters.py
+          acs/presentation_privacy.py
           acs/version2_application.py
           acs/version2_starter_content_application.py
           acs/child_coaching.py
@@ -99,6 +100,7 @@ jobs:
           tests/test_bookdocument.py
           tests/test_bookreader.py
           tests/test_book_document_warning_accessibility.py
+          tests/test_v2_shared_presentation_path_privacy.py
           tests/test_version2_application.py
           tests/test_v2_book_progress_store.py
           tests/test_v2_book_progress_store_production.py
@@ -147,10 +149,12 @@ jobs:
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_books_training_webview_atomicity
 
-      - name: Qualify retained document warning accessibility
+      - name: Qualify retained document warning accessibility and privacy
         shell: bash
         run: |
-          python -m unittest -v tests.test_book_document_warning_accessibility
+          python -m unittest -v \
+            tests.test_book_document_warning_accessibility \
+            tests.test_v2_shared_presentation_path_privacy
           node --check tests/js/book_document_warning_accessibility_dom_test.js
           node tests/js/book_document_warning_accessibility_dom_test.js
 
