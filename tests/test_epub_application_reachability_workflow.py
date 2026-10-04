@@ -133,6 +133,10 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             pull_request_block,
         )
         self.assertIn(
+            "- fix/owner-final-post-upload-apex-freshness-20261004-a7f3c9",
+            pull_request_block,
+        )
+        self.assertIn(
             "dc_metadata_test_path='tests/test_epub_dc_metadata_identity.py'",
             self.workflow,
         )
