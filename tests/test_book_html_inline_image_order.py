@@ -1073,6 +1073,34 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsInstance(restored_block, Paragraph)
         self.assertEqual(restored_block.text, "• Before")
 
+    def test_rich_list_fallback_does_not_shift_following_paragraph_identity(self) -> None:
+        baseline = import_html_book(
+            '<html><body><ul><li>BeforeAfter</li><li>Last</li></ul>'
+            '<p id="after">• Last</p></body></html>',
+            source_name="list-following-id-baseline.html",
+        )
+        baseline_after = next(
+            block
+            for block in baseline.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "after"
+        )
+
+        changed = import_html_book(
+            '<html><body><ul><li>Before'
+            '<img src="board.png" alt="Board">After</li><li>Last</li></ul>'
+            '<p id="after">• Last</p></body></html>',
+            source_name="list-following-id-changed.html",
+            available_assets={"board.png"},
+        )
+        changed_after = next(
+            block
+            for block in changed.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "after"
+        )
+
+        self.assertEqual(changed_after.block_id, baseline_after.block_id)
+        self.assertEqual(changed_after.text, "• Last")
+
     def test_list_inline_position_uses_canonical_board_and_true_source_order(self) -> None:
         result = import_html_book(
             f'<html><body><ul><li>Before'
