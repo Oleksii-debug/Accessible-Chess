@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 15
     env:
       W4_VERIFIER_BLOB_SHA: 50056ca618abc42450512d7cb0dbc3efa9442809
-      W4_CURRENT_VERIFIER_BLOB_SHA: 25f4f4a2205d6651c84fdaa32756fc1c3bd58c17
+      W4_CURRENT_VERIFIER_BLOB_SHA: e3722b39f585e54bbc37fcc79ae595ce57d13f8a
       W4_SOUND_INVENTORY_VERIFIER_BLOB_SHA: 43b018ce6f7954e795b979658044394c7acb3532
     steps:
       - name: Checkout exact default-branch workflow authority from completed run
