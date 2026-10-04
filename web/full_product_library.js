@@ -405,6 +405,34 @@
     return result.payload;
   }
 
+  function requireLibraryDelegatedEvent(result) {
+    requireExactFields(result, ["kind", "payload"], "Library event");
+    if (result.kind !== "delegated") {
+      throw new TypeError("Library delegated event kind is invalid");
+    }
+    const payload = result.payload;
+    if (plainObject(payload) && payload.action === "library.export") {
+      requireExactFields(payload, ["action", "scope"], "Library delegated payload");
+      if (payload.scope !== "selected" && payload.scope !== "filtered") {
+        throw new TypeError("Library export delegated scope is invalid");
+      }
+      return payload;
+    }
+    requireExactFields(payload, ["action"], "Library delegated payload");
+    if (payload.action !== "library.import" && payload.action !== "library.open_game") {
+      throw new TypeError("Library delegated action is invalid");
+    }
+    return payload;
+  }
+
+  function requireLibraryErrorEvent(result) {
+    requireExactFields(result, ["kind", "payload"], "Library event");
+    if (result.kind !== "error") throw new TypeError("Library error event kind is invalid");
+    requireExactFields(result.payload, ["message"], "Library error payload");
+    requireBoundedText(result.payload.message, "Library error message", true, 500);
+    return result.payload;
+  }
+
   function node(tag, text) {
     const element = document.createElement(tag);
     if (text !== undefined && text !== null) element.textContent = String(text);
@@ -431,8 +459,8 @@
   }
 
   function applyEvent(root, result, invoke, announce) {
-    if (!result || typeof result !== "object") return;
-    const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
+    if (result == null) return;
+    if (!plainObject(result)) throw new TypeError("Library event must be an object");
     if (result.kind === "render") {
       const renderPayload = requireLibraryRenderEvent(result);
       renderLibrarySurface(
@@ -472,8 +500,16 @@
       if (importPayload.announcement) announce(importPayload.announcement);
       return;
     }
-    if (payload.announcement) announce(String(payload.announcement));
-    if (result.kind === "error" && payload.message) announce(String(payload.message));
+    if (result.kind === "delegated") {
+      requireLibraryDelegatedEvent(result);
+      return;
+    }
+    if (result.kind === "error") {
+      const errorPayload = requireLibraryErrorEvent(result);
+      if (errorPayload.message) announce(errorPayload.message);
+      return;
+    }
+    throw new TypeError("Library event kind is invalid");
   }
 
   function invokeCommand(root, invoke, announce, snapshot, command, payload) {
