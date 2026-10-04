@@ -274,8 +274,8 @@ class BookWebViewProjection:
         return BookWebViewEvent("render", {"snapshot": snapshot, "focus_target": ""})
 
     def _snapshot_from_block(self, block: BookBlockView) -> dict[str, object]:
-        if not isinstance(block, BookBlockView):
-            raise TypeError("BookReaderPresenter must return BookBlockView")
+        if type(block) is not BookBlockView:
+            raise TypeError("BookReaderPresenter must return exact BookBlockView")
         if (
             type(block.index) is not int
             or block.index < 0
