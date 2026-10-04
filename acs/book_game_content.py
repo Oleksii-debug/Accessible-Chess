@@ -22,7 +22,10 @@ from typing import Protocol
 from .bookdocument import BookDocumentError, Game, VariationTree
 from .chesscore import Board
 from .gametree import (
+    MAX_TREE_NODES,
+    MAX_VARIATION_DEPTH,
     Comment,
+    CommentStyle,
     GameTreeSerializationError,
     MoveNode,
     PgnGame,
@@ -145,6 +148,109 @@ def _one_embedded_game(pgn: str) -> PgnGame:
     return game
 
 
+def _assert_passive_provider_graph(game: PgnGame) -> None:
+    """Reject provider-defined executable graph types before GameTree traversal.
+
+    The Library lookup is outside the Books trust boundary. serialize_game remains
+    the semantic PGN/GameTree authority, but it deliberately accepts subclasses
+    via isinstance. Books therefore performs only a passive runtime-type/shape
+    preflight before serialization so nested provider objects cannot run hooks.
+
+    Semantic SAN/NAG/comment/result validation is intentionally left to
+    serialize_game; this function only proves serializer traversal will touch
+    built-in containers, exact DTOs and passive scalar values.
+    """
+
+    if type(game.tags) is not dict:
+        raise TypeError("game tags must use the built-in dictionary")
+    for key, value in game.tags.items():
+        if type(key) is not str or type(value) is not str:
+            raise TypeError("game tags must contain exact text")
+    if type(game.source_index) is not int or game.source_index < 0:
+        raise TypeError("game source_index must be a non-negative exact integer")
+    if type(game.warnings) is not list or any(
+        type(warning) is not str for warning in game.warnings
+    ):
+        raise TypeError("game warnings must be a built-in list of exact text")
+
+    seen: set[int] = set()
+    active_lines: set[int] = set()
+    count = 0
+
+    def claim(value: object) -> None:
+        nonlocal count
+        identity = id(value)
+        if identity in seen:
+            raise ValueError("canonical GameTree reuses a graph object")
+        seen.add(identity)
+        count += 1
+        if count > MAX_TREE_NODES:
+            raise ValueError("canonical GameTree exceeds the node safety limit")
+
+    def check_comment(comment: object) -> None:
+        if type(comment) is not Comment:
+            raise TypeError("canonical comments must use exact Comment values")
+        claim(comment)
+        if type(comment.text) is not str:
+            raise TypeError("canonical comment text must be exact text")
+        if type(comment.style) not in {CommentStyle, str}:
+            raise TypeError("canonical comment style must be passive scalar data")
+
+    def check_comments(value: object) -> None:
+        if type(value) is not list:
+            raise TypeError("canonical comment containers must be built-in lists")
+        for comment in value:
+            check_comment(comment)
+
+    def check_line(line: object, *, depth: int) -> None:
+        if type(line) is not VariationLine:
+            raise TypeError(
+                "canonical variation lines must use exact VariationLine values"
+            )
+        if depth > MAX_VARIATION_DEPTH:
+            raise ValueError(
+                "canonical GameTree exceeds the variation depth safety limit"
+            )
+        line_id = id(line)
+        if line_id in active_lines:
+            raise ValueError("canonical GameTree contains a variation cycle")
+        claim(line)
+        active_lines.add(line_id)
+        try:
+            if type(line.moves) is not list:
+                raise TypeError("canonical move containers must be built-in lists")
+            check_comments(line.leading_comments)
+            check_comments(line.trailing_comments)
+            if line.result is not None and type(line.result) is not str:
+                raise TypeError("canonical variation result must be exact text")
+
+            for move in line.moves:
+                if type(move) is not MoveNode:
+                    raise TypeError("canonical moves must use exact MoveNode values")
+                claim(move)
+                if type(move.san) is not str:
+                    raise TypeError("canonical SAN must be exact text")
+                if move.move_number is not None and type(move.move_number) is not str:
+                    raise TypeError("canonical move number must be exact text")
+                if type(move.nags) is not list or any(
+                    type(nag) is not str for nag in move.nags
+                ):
+                    raise TypeError(
+                        "canonical NAGs must be a built-in list of exact text"
+                    )
+                check_comments(move.comments_before)
+                check_comments(move.comments_after)
+                if type(move.variations) is not list:
+                    raise TypeError(
+                        "canonical variation containers must be built-in lists"
+                    )
+                for variation in move.variations:
+                    check_line(variation, depth=depth + 1)
+        finally:
+            active_lines.remove(line_id)
+
+    check_line(game.line, depth=0)
+
 def _detached_comment(comment: Comment) -> Comment:
     return Comment(text=comment.text, style=comment.style)
 
@@ -178,12 +284,10 @@ def _canonical_copy(game: object) -> PgnGame:
             code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
     try:
-        # Validate graph/container/PGN representability once through the existing
-        # GameTree authority. Then rebuild the already-validated fields into the
-        # exact canonical DTO classes. This keeps the prior deepcopy semantics
-        # (including absent Result tags / None line results) without invoking a
-        # nested provider subclass's __copy__/__deepcopy__ hooks and without
-        # adding a second chess or PGN validator to Books.
+        # Prove the provider graph is passive before the canonical serializer
+        # touches any nested field. Then validate PGN/GameTree semantics once
+        # through the existing authority and rebuild exact detached DTO classes.
+        _assert_passive_provider_graph(game)
         serialize_game(game)
         detached = PgnGame(
             tags=dict(game.tags),

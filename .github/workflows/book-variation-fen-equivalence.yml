@@ -10,6 +10,7 @@ on:
       - fix/current-product-fen-history-atomicity-20261004-c2mbezb
       - fix/current-product-user-facing-engine-status-20261004-sol56f9k2
       - converge/current-product-position-root-atomicity-20261004-hy6ez0h
+      - fix/books-nested-copy-hook-20261004-sol56k8m2
     paths:
       - 'acs/book_game_content.py'
       - 'tests/test_v2_book_game_content.py'
@@ -74,7 +75,7 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             upstream="$live_base"
           else
-            base_ref="converge/current-product-position-root-atomicity-20261004-hy6ez0h"
+            base_ref="fix/books-nested-copy-hook-20261004-sol56k8m2"
             git fetch --no-tags origin "$base_ref"
             upstream="$(git rev-parse "origin/$base_ref")"
           fi
