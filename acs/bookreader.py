@@ -173,13 +173,24 @@ class BookReader:
             raise TypeError("BookDocument blocks must remain a built-in list")
         if any(type(block) not in _SEMANTIC_BLOCK_TYPES for block in blocks):
             raise TypeError("BookDocument blocks must remain canonical semantic blocks")
-        payload = json.dumps(
-            [block.as_dict() for block in blocks],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
+        # Preserve the exact historical canonical JSON-array byte stream while
+        # hashing it incrementally. Large books therefore do not require an
+        # additional whole-document list-of-dicts, JSON string and UTF-8 bytes
+        # allocation on every keyboard/persistence revision barrier.
+        digest = hashlib.sha256()
+        digest.update(b"[")
+        for index, block in enumerate(blocks):
+            if index:
+                digest.update(b",")
+            payload = json.dumps(
+                block.as_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            digest.update(payload)
+        digest.update(b"]")
+        return digest.hexdigest()
 
     def _document_revision_digest(self) -> str:
         """Fingerprint the current live authoring blocks."""
