@@ -19,6 +19,9 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         cls.workflow = (
             root / ".github" / "workflows" / "p0-user-oneclick-portable-launcher.yml"
         ).read_text(encoding="utf-8")
+        report_start = cls.source.index("static HANDLE ac_open_report(void)")
+        report_end = cls.source.index("static void ac_prepare_paths(void)", report_start)
+        cls.report_open = cls.source[report_start:report_end]
 
     def test_uses_native_child_process_and_package_local_appdata(self):
         for token in (
@@ -246,6 +249,48 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.source)
         self.assertIn("attempt <= AC_REPORT_RETRY_COUNT", self.source)
+
+    def test_report_open_rejects_aliases_before_truncating_existing_bytes(self):
+        for token in (
+            "OPEN_ALWAYS",
+            "FILE_FLAG_OPEN_REPARSE_POINT",
+            "FileAttributeTagInfo",
+            "tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT",
+            "BY_HANDLE_FILE_INFORMATION file_info",
+            "GetFileInformationByHandle(handle, &file_info)",
+            "file_info.nNumberOfLinks != 1",
+            "ERROR_CANT_ACCESS_FILE",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.report_open)
+        self.assertNotIn("CREATE_ALWAYS", self.report_open)
+
+        opened = self.report_open.index("CreateFileW(")
+        reparse_inspected = self.report_open.index("GetFileInformationByHandleEx(")
+        reparse_rejected = self.report_open.index(
+            "tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT"
+        )
+        link_inspected = self.report_open.index("GetFileInformationByHandle(handle, &file_info)")
+        link_rejected = self.report_open.index("file_info.nNumberOfLinks != 1")
+        truncated = self.report_open.index("SetEndOfFile(handle)")
+        bom = self.report_open.index("WriteFile(handle, bom")
+        self.assertLess(opened, reparse_inspected)
+        self.assertLess(reparse_inspected, reparse_rejected)
+        self.assertLess(reparse_rejected, link_inspected)
+        self.assertLess(link_inspected, link_rejected)
+        self.assertLess(link_rejected, truncated)
+        self.assertLess(truncated, bom)
+
+    def test_report_reset_and_bom_write_fail_closed(self):
+        for token in (
+            "SetFilePointerEx(handle, zero, NULL, FILE_BEGIN)",
+            "SetEndOfFile(handle)",
+            "written != 3",
+            "ERROR_WRITE_FAULT",
+            "SetLastError(error)",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.report_open)
 
     def test_windows_workflow_exercises_overlapping_root_launchers(self):
         for token in (
