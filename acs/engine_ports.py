@@ -104,15 +104,12 @@ class EngineMoveRequest:
                 "engine move request FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        if not isinstance(self.level, int) or isinstance(self.level, bool):
+        if type(self.level) is not int:
             raise EngineContractError(
                 "engine move request level must be an integer",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        if self.movetime_ms is not None and (
-            not isinstance(self.movetime_ms, int)
-            or isinstance(self.movetime_ms, bool)
-        ):
+        if self.movetime_ms is not None and type(self.movetime_ms) is not int:
             raise EngineContractError(
                 "engine move request movetime_ms must be an integer or None",
                 code=EngineContractErrorCode.INVALID_REQUEST,
@@ -128,15 +125,14 @@ class EngineMoveResult:
 
     def __post_init__(self) -> None:
         if self.move is not None:
-            if not isinstance(self.move, str) or not self.move.strip():
+            if type(self.move) is not str or not self.move.strip():
                 raise EngineContractError(
                     "engine move result must contain non-empty move text or None",
                     code=EngineContractErrorCode.INVALID_RESULT,
                 )
             object.__setattr__(self, "move", self.move.strip())
         if (
-            not isinstance(self.level, int)
-            or isinstance(self.level, bool)
+            type(self.level) is not int
             or not 1 <= self.level <= 10
         ):
             raise EngineContractError(
@@ -144,8 +140,7 @@ class EngineMoveResult:
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if (
-            not isinstance(self.movetime_ms, int)
-            or isinstance(self.movetime_ms, bool)
+            type(self.movetime_ms) is not int
             or self.movetime_ms < 50
         ):
             raise EngineContractError(
