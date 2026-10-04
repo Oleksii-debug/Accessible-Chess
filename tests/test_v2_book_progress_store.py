@@ -138,6 +138,22 @@ class BookProgressStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, "No saved reading progress"):
             self.store.restore("book:two", self.original_document())
 
+    def test_oversized_json_integer_uses_stable_corrupt_store_error(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        raw = (
+            '{"schema_version":2,"generation":'
+            + ("9" * 5000)
+            + ',"entries":{}}'
+        ).encode("utf-8")
+        self.assertLess(len(raw), MAX_BOOK_PROGRESS_STORE_BYTES)
+        self.path.write_bytes(raw)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:oversized-integer")
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.CORRUPT_STORE)
+        self.assertEqual(self.path.read_bytes(), raw)
+
     def test_corrupt_store_fails_closed_and_save_does_not_overwrite_it(self) -> None:
         self.path.parent.mkdir(parents=True)
         original = b'{"schema_version":1,"entries":'
