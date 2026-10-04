@@ -56,6 +56,21 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_owner_final_apex_is_registered_for_exact_head_whole_product_qualification(self) -> None:
+        required = (
+            "      - qualification/consolidated-completion-contract-20261004-ooxple7",
+            "      - qualification/owner-portable-candidate-20261004-sol6f2",
+            'elif [ "${GITHUB_REF_NAME:-}" = "qualification/owner-portable-candidate-20261004-sol6f2" ]; then',
+            "live_base_ref=\'qualification/consolidated-completion-contract-20261004-ooxple7\'",
+            'git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"',
+            'git merge-base --is-ancestor "$live_base" HEAD',
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            "FULL_PRODUCT_LIVE_OWNER_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_consolidated_completion_push_late_binds_live_parent(self) -> None:
         required = (
             "      - qualification/consolidated-completion-contract-20261004-ooxple7",
@@ -397,6 +412,32 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(f"      - '{path}'", self.text)
+
+    def test_owner_final_authorities_retrigger_and_execute_in_whole_product_gate(self) -> None:
+        retriggers = (
+            ".github/workflows/owner-library-seed-ingress.yml",
+            ".github/workflows/owner-oneclick-finalizer-contract.yml",
+            ".github/workflows/owner-oneclick-from-w4.yml",
+            ".github/workflows/owner-portable-final-candidate-contract.yml",
+            ".github/workflows/w4-v2-p0-fresh-windows-candidate.yml",
+            "scripts/build_owner_portable_candidate.py",
+            "scripts/materialize_owner_library_seed.py",
+            "packaging/portable_launcher.c",
+        )
+        for path in retriggers:
+            with self.subTest(path=path):
+                self.assertIn(f"      - \'{path}\'", self.text)
+
+        contracts = (
+            "tests.test_owner_portable_candidate",
+            "tests.test_owner_portable_candidate_stable_reads",
+            "tests.test_materialize_owner_library_seed",
+            "tests.test_owner_oneclick_from_w4_workflow",
+            "tests.test_w4_v2_p0_fresh_candidate_workflow",
+        )
+        for contract in contracts:
+            with self.subTest(contract=contract):
+                self.assertIn(contract, self.text)
 
     def test_narrow_owner_gates_are_safe_on_whole_product_main_rollup(self) -> None:
         bookdocument = BOOKDOCUMENT_WORKFLOW.read_text(encoding="utf-8")
