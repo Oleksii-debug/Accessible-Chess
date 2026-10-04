@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout exact candidate
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
@@ -66,6 +66,11 @@ jobs:
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           FOCUSED_BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
           INTEGRATED_HEAD: 4530fcbc90a7ef83d35e5be632a742ebdae8f142
+          PLUS_MINUS_HEAD: dbfa010ed872f66c4cffb97b0e880f750847c2ad
+          PLUS_MINUS_SERVICE_BLOB: 19d3a406f9c94bb1aba8052e46c9d676b5a8dbc9
+          PLUS_MINUS_SERVICE_TEST_BLOB: fe69226d35901b67a6fcbdf96e3c03534b3bb7d4
+          PLUS_MINUS_DOM_TEST_BLOB: d3f7009665f51b04608605c695c760fcdcff304e
+          PLUS_MINUS_WEB_INDEX_BLOB: 6ab77d5bbbe78fc9bcf9e9895118f92c70007d3a
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -84,53 +89,63 @@ jobs:
           git merge-base --is-ancestor "$live_base" HEAD
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
           git diff --check "$live_base"...HEAD
+          test "$(git hash-object acs/ui_keymap_service.py)" = "$PLUS_MINUS_SERVICE_BLOB"
+          test "$(git hash-object tests/test_ui_keymap_service.py)" = "$PLUS_MINUS_SERVICE_TEST_BLOB"
+          test "$(git hash-object tests/js/stage1_terminal_keymap_dom_test.js)" = "$PLUS_MINUS_DOM_TEST_BLOB"
+          test "$(git hash-object web/index.html)" = "$PLUS_MINUS_WEB_INDEX_BLOB"
 
-          if [ "${EVENT_BASE_REF:-}" = "$FOCUSED_BASE_REF" ]; then
-            changed="$(git diff --name-only "$live_base"...HEAD | sort)"
-            expected="$(printf '%s\n' \
-              '.github/workflows/keybindings-current-apex-core.yml' \
-              '.github/workflows/keybindings-current-apex-dom-native.yml' \
-              'acs/full_product_actions.py' \
-              'acs/full_product_native_menu.py' \
-              'acs/version2_release_app.py' \
-              'acs/keybindings.py' \
-              'acs/ui_keymap_adapter.py' \
-              'acs/ui_keymap_editor.py' \
-              'acs/ui_keymap_service.py' \
-              'tests/js/education_surface_dom_test.js' \
-              'tests/js/library_surface_dom_test.js' \
-              'tests/js/pgn_surface_dom_test.js' \
-              'tests/js/pgn_tree_boundary_key_ownership_test.js' \
-              'tests/js/stage1_board_rerender_keymap_integration_test.js' \
-              'tests/js/stage1_terminal_keymap_dom_test.js' \
-              'tests/js/v2_remapped_keyboard_native_editing_test.js' \
-              'tests/test_full_product_education_keybindings.py' \
-              'tests/test_full_product_library_keybindings.py' \
-              'tests/test_full_product_native_menu.py' \
-              'tests/test_full_product_pgn_keybindings.py' \
-              'tests/test_keybindings_current_apex_reconvergence.py' \
-              'tests/test_ui_keymap_service.py' \
-              'tests/test_terminal_keybinding_surface_wiring.py' \
-              'web/full_product_education.js' \
-              'web/full_product_library.js' \
-              'web/full_product_pgn.js' \
-              'web/index.html' \
-              'web/keybindings.json' \
-              'web/stage1_board_actions.js' \
-              'web/stage1_release_bootstrap.js' | sort)"
-            test "$changed" = "$expected" || {
-              printf 'Unexpected keybinding convergence scope:\n%s\n' "$changed" >&2
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          focused_expected="$(printf '%s\n' \
+            '.github/workflows/keybindings-current-apex-core.yml' \
+            '.github/workflows/keybindings-current-apex-dom-native.yml' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_native_menu.py' \
+            'acs/version2_release_app.py' \
+            'acs/keybindings.py' \
+            'acs/ui_keymap_adapter.py' \
+            'acs/ui_keymap_editor.py' \
+            'acs/ui_keymap_service.py' \
+            'tests/js/education_surface_dom_test.js' \
+            'tests/js/library_surface_dom_test.js' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'tests/js/pgn_tree_boundary_key_ownership_test.js' \
+            'tests/js/stage1_board_rerender_keymap_integration_test.js' \
+            'tests/js/stage1_terminal_keymap_dom_test.js' \
+            'tests/js/v2_remapped_keyboard_native_editing_test.js' \
+            'tests/test_full_product_education_keybindings.py' \
+            'tests/test_full_product_library_keybindings.py' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_full_product_pgn_keybindings.py' \
+            'tests/test_keybindings_current_apex_reconvergence.py' \
+            'tests/test_ui_keymap_service.py' \
+            'tests/test_terminal_keybinding_surface_wiring.py' \
+            'web/full_product_education.js' \
+            'web/full_product_library.js' \
+            'web/full_product_pgn.js' \
+            'web/index.html' \
+            'web/keybindings.json' \
+            'web/stage1_board_actions.js' \
+            'web/stage1_release_bootstrap.js' | sort)"
+
+          if [ "${EVENT_BASE_REF:-}" = "$FOCUSED_BASE_REF" ] \
+            && [ "$changed" = "$focused_expected" ]; then
+            echo 'KEYBINDINGS_TOPOLOGY=FOCUSED_SCOPE'
+          elif [ "${EVENT_BASE_REF:-}" = "$FOCUSED_BASE_REF" ]; then
+            git cat-file -e "$INTEGRATED_HEAD^{commit}"
+            git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
+            unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$focused_expected"))"
+            test -z "$unexpected" || {
+              printf 'Unexpected keybinding path outside focused authority:\n%s\n' "$unexpected" >&2
               exit 1
             }
-
-            echo 'KEYBINDINGS_TOPOLOGY=FOCUSED_SCOPE'
+            echo 'KEYBINDINGS_TOPOLOGY=OWNER_FOCUSED_SUBSET'
           else
             git cat-file -e "$INTEGRATED_HEAD^{commit}"
             git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
             echo 'KEYBINDINGS_TOPOLOGY=CONVERGED_SUCCESSOR'
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
 
