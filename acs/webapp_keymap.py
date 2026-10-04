@@ -51,6 +51,18 @@ def _canonical_controllers(board: Board, target: int) -> tuple[int, ...]:
 class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
     """Complete the central board action surface declared by ActionRegistry."""
 
+    def make_move(self, text: str) -> dict[str, Any]:
+        # Canonical null moves are a notation/import pseudo-move, not a legal
+        # end-user gameplay action. Keep the frozen Stage1 core and canonical
+        # Board replay semantics intact while fencing ordinary Move Entry.
+        if isinstance(text, str) and self.board.norm_san(text) == "--":
+            return self._error(
+                "Нульовий хід не можна грати вручну."
+                if self.lang == "uk"
+                else "A null move cannot be played manually."
+            )
+        return super().make_move(text)
+
     def _board_query_board(self) -> Board:
         exploration = self.analysis_ui.exploration
         if exploration is not None and self._analysis_origin_matches():
