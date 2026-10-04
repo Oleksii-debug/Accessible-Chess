@@ -140,7 +140,9 @@ class Version2WindowsBookBoardActionDelegate:
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
     ) -> None:
-        if not isinstance(workflow, BookBoardWorkflow):
+        # Keep one canonical BookBoard workflow authority. Reject subclasses
+        # before later active/view/dispatch calls can resolve provider hooks.
+        if type(workflow) is not BookBoardWorkflow:
             raise TypeError("workflow must be BookBoardWorkflow")
         if not callable(event_sink):
             raise TypeError("event_sink must be callable")
@@ -190,7 +192,7 @@ class Version2WindowsBookBoardActionDelegate:
     def _mapping(payload: Mapping[str, object] | None) -> dict[str, object]:
         if payload is None:
             return {}
-        if not isinstance(payload, Mapping):
+        if type(payload) is not dict:
             raise TypeError("book board action payload must be a mapping")
         if len(payload) > 3:
             raise ValueError("book board action payload has too many fields")
@@ -343,8 +345,22 @@ class Version2WindowsBookBoardActionDelegate:
         action_id: str,
         payload: Mapping[str, object] | None = None,
     ) -> Any:
+        # Never hash/equality-dispatch an active str subclass through the owned
+        # action set. Action IDs are host protocol text and must be exact.
+        if type(action_id) is not str:
+            raise TypeError("book board action_id must be text")
         if action_id not in self.OWNED_ACTIONS:
-            return self._next_delegate(action_id, dict(payload or {}))
+            # This adapter does not own foreign action schemas. Preserve exact
+            # dict copy isolation, but pass custom Mapping providers through
+            # untouched so this layer never executes their hooks before the
+            # downstream delegate that actually owns that action.
+            if payload is None:
+                forwarded_payload: Mapping[str, object] = {}
+            elif type(payload) is dict:
+                forwarded_payload = payload.copy()
+            else:
+                forwarded_payload = payload
+            return self._next_delegate(action_id, forwarded_payload)
 
         previous_focus = self._focus()
         try:
