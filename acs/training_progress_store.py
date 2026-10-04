@@ -50,6 +50,15 @@ class TrainingProgressBusyError(RuntimeError):
     """Raised when another writer currently owns the peer publication lock."""
 
 
+class TrainingProgressDurabilityUnknownError(RuntimeError):
+    """Raised after atomic publication when durable/canonical confirmation fails."""
+
+    def __init__(self, message: str, *, published_revision: str) -> None:
+        super().__init__(message)
+        self.published_revision = _validate_revision(published_revision)
+        assert self.published_revision is not None
+
+
 class TrainingProgressResourceError(ValueError):
     """Raised when durable progress exceeds the supported storage bounds."""
 
@@ -934,42 +943,53 @@ class TrainingProgressStore:
                 _replace_published_path(temporary, self.path)
                 temporary = None
 
-                # A successful acknowledgement is bound to the exact fsynced
-                # temp inode, not merely to equivalent bytes at the canonical
-                # pathname. This closes same-byte substitution around the
-                # durability barrier.
-                self._require_active_lock()
-                published_identity = os.lstat(self.path)
-                self._require_regular_progress(published_identity)
-                if (
-                    temporary_identity is None
-                    or not self._same_file_identity(
-                        temporary_identity,
-                        published_identity,
-                    )
-                ):
-                    raise TrainingProgressConflictError(
-                        "training progress changed after publication"
-                    )
+                # From this point the canonical pathname has been atomically
+                # replaced. Any later failure is not a pre-commit conflict:
+                # callers must assume the new bytes may already be visible and
+                # reconcile from canonical storage instead of rolling memory
+                # back to the stale pre-command snapshot.
+                try:
+                    # A successful acknowledgement is bound to the exact fsynced
+                    # temp inode, not merely to equivalent bytes at the canonical
+                    # pathname. This closes same-byte substitution around the
+                    # durability barrier.
+                    self._require_active_lock()
+                    published_identity = os.lstat(self.path)
+                    self._require_regular_progress(published_identity)
+                    if (
+                        temporary_identity is None
+                        or not self._same_file_identity(
+                            temporary_identity,
+                            published_identity,
+                        )
+                    ):
+                        raise TrainingProgressConflictError(
+                            "training progress changed after publication"
+                        )
 
-                self._require_storage_directory(active_directory)
-                _sync_published_path(self.path)
-                self._require_storage_directory(active_directory)
-                self._require_active_lock()
-                visible = self._read_progress_bytes(missing_ok=False)
-                final_published_identity = os.lstat(self.path)
-                self._require_regular_progress(final_published_identity)
-                if (
-                    temporary_identity is None
-                    or not self._same_file_identity(
-                        temporary_identity,
-                        final_published_identity,
-                    )
-                    or visible != data
-                ):
-                    raise TrainingProgressConflictError(
-                        "training progress changed after publication"
-                    )
+                    self._require_storage_directory(active_directory)
+                    _sync_published_path(self.path)
+                    self._require_storage_directory(active_directory)
+                    self._require_active_lock()
+                    visible = self._read_progress_bytes(missing_ok=False)
+                    final_published_identity = os.lstat(self.path)
+                    self._require_regular_progress(final_published_identity)
+                    if (
+                        temporary_identity is None
+                        or not self._same_file_identity(
+                            temporary_identity,
+                            final_published_identity,
+                        )
+                        or visible != data
+                    ):
+                        raise TrainingProgressConflictError(
+                            "training progress changed after publication"
+                        )
+                except Exception as exc:
+                    raise TrainingProgressDurabilityUnknownError(
+                        "training progress was published but durable canonical storage could not be confirmed",
+                        published_revision=new_revision,
+                    ) from exc
                 return new_revision
             finally:
                 if temporary is not None:
