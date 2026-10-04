@@ -13,7 +13,7 @@ from acs.book_epub_import import (
     SUPPORTED_EPUB_BOOK_CAPABILITY,
     import_epub_book,
 )
-from acs.bookdocument import Diagram, Game, Heading, ListBlock, Paragraph
+from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph
 from acs.chesscore import Board
 
 
