@@ -12,6 +12,7 @@ from acs.book_progress_store import (
     BOOK_PROGRESS_STORE_SCHEMA_VERSION,
     MAX_BOOK_KEY_CHARS,
     MAX_BOOK_PROGRESS_JSON_KEY_CHARS,
+    MAX_BOOK_PROGRESS_STORE_BYTES,
     MAX_BOOK_SNAPSHOT_BYTES,
     BookProgressStore,
     BookProgressStoreError,
