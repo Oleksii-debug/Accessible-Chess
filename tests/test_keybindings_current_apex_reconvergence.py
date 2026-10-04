@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import unittest
 
 from acs.full_product_actions import build_full_product_action_registry
 from acs.keybindings import ActionRegistry, BindingContext, normalize_binding
 from acs.ui_keymap_adapter import build_web_keymap
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class CurrentApexKeybindingReconvergenceTests(unittest.TestCase):
@@ -34,6 +38,10 @@ class CurrentApexKeybindingReconvergenceTests(unittest.TestCase):
         for action_id, binding in expected.items():
             with self.subTest(action_id=action_id):
                 self.assertEqual(registry.get_binding(action_id), binding)
+
+    def test_static_web_fallback_matches_stage1_canonical_projection(self) -> None:
+        fallback = json.loads((ROOT / "web" / "keybindings.json").read_text(encoding="utf-8"))
+        self.assertEqual(fallback, build_web_keymap(ActionRegistry()))
 
     def test_full_product_terminal_contexts_are_registry_owned(self) -> None:
         registry = build_full_product_action_registry()
