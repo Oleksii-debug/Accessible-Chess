@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - fix/current-pgn-presenter-passive-root-20261004-zftrkmo
+      - main
     paths:
       - 'acs/library_webview_bridge.py'
       - 'tests/test_dev1_library_webview_projection.py'
