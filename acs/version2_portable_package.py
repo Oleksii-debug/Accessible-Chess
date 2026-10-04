@@ -92,6 +92,7 @@ class Version2PortablePackageReport:
     total_bytes: int
     archive_path: Path | None = None
     archive_sha256: str | None = None
+    checksum_sha256: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -101,6 +102,7 @@ class Version2PortablePackageReport:
             "total_bytes": self.total_bytes,
             "archive_path": None if self.archive_path is None else str(self.archive_path),
             "archive_sha256": self.archive_sha256,
+            "checksum_sha256": self.checksum_sha256,
             "human_tested": False,
             "nvda_verified": False,
             "result": "PASS",
@@ -312,6 +314,80 @@ def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str
     return digest.hexdigest()
 
 
+def _same_identity_and_size(first: os.stat_result, second: os.stat_result) -> bool:
+    return (
+        _complete_file_identity(first, second)
+        and getattr(first, "st_size", None) == getattr(second, "st_size", None)
+    )
+
+
+def _fsync_file_snapshot(
+    path: Path,
+    *,
+    expected: os.stat_result,
+    label: str,
+) -> os.stat_result:
+    """Flush one exact regular-file inode without accepting a pathname swap."""
+
+    try:
+        with path.open("r+b") as handle:
+            opened = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or not _same_identity_and_size(expected, opened)
+            ):
+                _fail(f"{label} changed before durability confirmation")
+            handle.flush()
+            os.fsync(handle.fileno())
+            flushed = os.fstat(handle.fileno())
+    except Version2PortablePackageError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} could not be synchronized: {type(exc).__name__}")
+    after = _safe_info(path, label=label, directory=False)
+    if (
+        not _same_identity_and_size(expected, flushed)
+        or not _same_identity_and_size(expected, after)
+    ):
+        _fail(f"{label} changed during durability confirmation")
+    return after
+
+
+def _sync_published_zip_namespace(
+    path: Path,
+    *,
+    expected: os.stat_result,
+) -> os.stat_result:
+    """Durably confirm the exact ZIP inode published at *path*.
+
+    POSIX requires a parent-directory fsync for a new hard-link namespace entry.
+    On Windows the repository's persistence contract uses FlushFileBuffers on
+    the exact published regular file as the post-publication durability barrier.
+    """
+
+    if os.name == "nt":
+        return _fsync_file_snapshot(
+            path,
+            expected=expected,
+            label="portable ZIP publication",
+        )
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(os.fspath(path.parent), flags)
+        os.fsync(descriptor)
+    except OSError as exc:
+        _fail(f"portable ZIP publication directory could not be synchronized: {type(exc).__name__}")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    after = _safe_info(path, label="portable ZIP publication", directory=False)
+    if not _same_identity_and_size(expected, after):
+        _fail("portable ZIP publication changed during durability confirmation")
+    return after
+
+
 def _stable_bytes(path: Path, *, label: str, maximum: int) -> bytes:
     before = _safe_info(path, label=label, directory=False)
     if before.st_size > maximum:
@@ -458,13 +534,18 @@ def _validate_preflighted_source_binding(
 
 
 
-def _checksum_inventory(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
+def _checksum_inventory(
+    root: Path,
+    inventory: tuple[str, ...],
+) -> tuple[dict[str, str], str]:
+    payload = _stable_bytes(
+        root / CHECKSUMS_NAME,
+        label="portable checksum inventory",
+        maximum=16 * 1024 * 1024,
+    )
+    checksum_sha256 = hashlib.sha256(payload).hexdigest()
     entries = _checksum_entries(
-        _stable_bytes(
-            root / CHECKSUMS_NAME,
-            label="portable checksum inventory",
-            maximum=16 * 1024 * 1024,
-        ),
+        payload,
         label="portable checksum inventory",
     )
     expected_files = tuple(item for item in inventory if item != CHECKSUMS_NAME)
@@ -479,7 +560,7 @@ def _checksum_inventory(root: Path, inventory: tuple[str, ...]) -> dict[str, str
         if _stable_digest(path, label="portable package checksum member") != expected_digest:
             _fail("portable package checksum verification failed")
         result[relative.casefold()] = expected_digest
-    return result
+    return result, checksum_sha256
 
 
 def validate_portable_oneclick_tree(
@@ -564,7 +645,7 @@ def validate_portable_oneclick_tree(
         manifest=value,
         inventory=inventory,
     )
-    checksums = _checksum_inventory(root, inventory)
+    checksums, checksum_sha256 = _checksum_inventory(root, inventory)
     if checksums.get(MANIFEST_NAME.casefold()) != manifest_identity_digest:
         _fail("portable release manifest semantics are not bound to checksum inventory")
     for relative, identity_digest in launcher_identities.items():
@@ -579,6 +660,7 @@ def validate_portable_oneclick_tree(
         integration_sha=sha,
         inventory=inventory,
         total_bytes=total_bytes,
+        checksum_sha256=checksum_sha256,
     )
 
 
@@ -790,6 +872,7 @@ def assemble_portable_oneclick_tree(
             integration_sha=report.integration_sha,
             inventory=report.inventory,
             total_bytes=report.total_bytes,
+            checksum_sha256=report.checksum_sha256,
         )
     finally:
         if staged is not None:
@@ -804,16 +887,35 @@ def write_portable_oneclick_zip(
     *,
     expected_integration_sha: str,
     require_user_seed: bool = False,
+    expected_checksum_sha256: str | None = None,
 ) -> Version2PortablePackageReport:
     root = Path(package_root)
     target = Path(zip_path)
+    expected_checksum = None
+    if expected_checksum_sha256 is not None:
+        if type(expected_checksum_sha256) is not str:
+            _fail("expected portable checksum SHA-256 is invalid")
+        expected_checksum = expected_checksum_sha256.strip().casefold()
+        if (
+            len(expected_checksum) != 64
+            or any(character not in "0123456789abcdef" for character in expected_checksum)
+        ):
+            _fail("expected portable checksum SHA-256 is invalid")
     report = validate_portable_oneclick_tree(
         root,
         expected_integration_sha=expected_integration_sha,
         require_user_seed=require_user_seed,
     )
-    expected_member_digests = _checksum_inventory(root, report.inventory)
-    checksum_file_digest = _stable_digest(root / CHECKSUMS_NAME, label="portable checksum inventory")
+    if report.checksum_sha256 is None:
+        _fail("portable checksum snapshot is unavailable after validation")
+    if expected_checksum is not None and report.checksum_sha256 != expected_checksum:
+        _fail("portable checksum inventory changed after external qualification")
+    expected_member_digests, checksum_file_digest = _checksum_inventory(
+        root,
+        report.inventory,
+    )
+    if checksum_file_digest != report.checksum_sha256:
+        _fail("portable checksum inventory changed during ZIP preparation")
     if _path_entry_exists(target, label="portable ZIP output"):
         _fail("portable ZIP output must not already exist")
     try:
@@ -864,20 +966,109 @@ def write_portable_oneclick_zip(
                 if expected_digest is None or digest.hexdigest() != expected_digest:
                     _fail("portable ZIP byte readback failed")
 
-        try:
-            os.link(temporary, target)
-            temporary.unlink()
-        except OSError as exc:
-            _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")
-        archive_sha = _sha256(target)
-        return Version2PortablePackageReport(
-            package_root=root,
-            integration_sha=report.integration_sha,
-            inventory=report.inventory,
-            total_bytes=report.total_bytes,
-            archive_path=target,
-            archive_sha256=archive_sha,
+        # Bind the archive readback to one durable temp-file snapshot before
+        # creating the public hard link.  The final digest must later equal
+        # these exact bytes; hashing only the public pathname after os.link()
+        # would otherwise accept a same-inode post-link rewrite.
+        prepared = _safe_info(
+            temporary,
+            label="verified portable ZIP archive",
+            directory=False,
         )
+        prepared = _fsync_file_snapshot(
+            temporary,
+            expected=prepared,
+            label="verified portable ZIP archive",
+        )
+        verified_before_digest = _safe_info(
+            temporary,
+            label="verified portable ZIP archive",
+            directory=False,
+        )
+        verified_archive_sha = _stable_digest(
+            temporary,
+            label="verified portable ZIP archive",
+        )
+        verified_snapshot = _safe_info(
+            temporary,
+            label="verified portable ZIP archive",
+            directory=False,
+        )
+        if not _same_file_snapshot(verified_before_digest, verified_snapshot):
+            _fail("verified portable ZIP archive changed after readback")
+
+        published_identity: os.stat_result | None = None
+        publication_accepted = False
+        try:
+            try:
+                os.link(temporary, target)
+            except OSError as exc:
+                _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")
+
+            linked_temporary = _safe_info(
+                temporary,
+                label="verified portable ZIP archive",
+                directory=False,
+            )
+            linked_target = _safe_info(
+                target,
+                label="portable ZIP publication",
+                directory=False,
+            )
+            if (
+                not _same_identity_and_size(verified_snapshot, linked_temporary)
+                or not _same_identity_and_size(linked_temporary, linked_target)
+            ):
+                _fail("portable ZIP publication is not the verified archive inode")
+            published_identity = linked_target
+
+            temporary.unlink()
+            published = _safe_info(
+                target,
+                label="portable ZIP publication",
+                directory=False,
+            )
+            if not _same_identity_and_size(published_identity, published):
+                _fail("portable ZIP publication changed before durability confirmation")
+            published = _sync_published_zip_namespace(
+                target,
+                expected=published,
+            )
+
+            archive_sha = _stable_digest(
+                target,
+                label="published portable ZIP archive",
+            )
+            published_after_digest = _safe_info(
+                target,
+                label="portable ZIP publication",
+                directory=False,
+            )
+            if (
+                not _same_file_snapshot(published, published_after_digest)
+                or archive_sha != verified_archive_sha
+            ):
+                _fail("published portable ZIP bytes differ from the verified archive")
+            publication_accepted = True
+            return Version2PortablePackageReport(
+                package_root=root,
+                integration_sha=report.integration_sha,
+                inventory=report.inventory,
+                total_bytes=report.total_bytes,
+                archive_path=target,
+                archive_sha256=archive_sha,
+                checksum_sha256=checksum_file_digest,
+            )
+        finally:
+            if not publication_accepted and published_identity is not None:
+                try:
+                    current = target.lstat()
+                    if _complete_file_identity(published_identity, current):
+                        target.unlink()
+                except OSError:
+                    # Never let cleanup obscure the fail-closed publication
+                    # error, and never remove a raced-in foreign inode.
+                    pass
     finally:
         try:
             temporary.unlink()

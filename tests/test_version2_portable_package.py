@@ -946,6 +946,136 @@ class PortableTreeTests(unittest.TestCase):
             self.assertEqual((work / "first.zip").read_bytes(), (work / "second.zip").read_bytes())
             self.assertNotIn(CHECKSUMS_NAME + "/", first.inventory)
 
+    def test_zip_publication_rejects_checksum_rewrite_after_external_qualification(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            qualification = validate_portable_oneclick_tree(
+                root,
+                expected_integration_sha=_SHA,
+            )
+            self.assertIsNotNone(qualification.checksum_sha256)
+            (root / "Посібник.docx").write_bytes(
+                b"changed-after-owner-qualification"
+            )
+            _write_checksums(root)
+            target = work / "candidate.zip"
+            with self.assertRaisesRegex(
+                Version2PortablePackageError,
+                "changed after external qualification",
+            ):
+                write_portable_oneclick_zip(
+                    root,
+                    target,
+                    expected_integration_sha=_SHA,
+                    expected_checksum_sha256=qualification.checksum_sha256,
+                )
+            self.assertFalse(target.exists())
+
+    def test_zip_publication_rejects_same_inode_mutation_after_link(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_link = os.link
+            injected = False
+
+            def link_then_mutate(source, destination, *args, **kwargs):
+                nonlocal injected
+                real_link(source, destination, *args, **kwargs)
+                if Path(destination) == target and not injected:
+                    with target.open("r+b") as handle:
+                        first = handle.read(1)
+                        handle.seek(0)
+                        handle.write(b"X" if first != b"X" else b"Y")
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    injected = True
+
+            with mock.patch.object(
+                portable_module.os,
+                "link",
+                side_effect=link_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "published portable ZIP bytes differ from the verified archive",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+
+    def test_zip_publication_rejects_same_byte_foreign_inode_after_link(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_link = os.link
+            injected = False
+
+            def link_then_replace(source, destination, *args, **kwargs):
+                nonlocal injected
+                real_link(source, destination, *args, **kwargs)
+                if Path(destination) == target and not injected:
+                    payload = Path(source).read_bytes()
+                    target.unlink()
+                    target.write_bytes(payload)
+                    injected = True
+
+            with mock.patch.object(
+                portable_module.os,
+                "link",
+                side_effect=link_then_replace,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "not the verified archive inode",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            # The raced-in foreign inode is deliberately preserved; cleanup is
+            # allowed to remove only the exact inode published by this writer.
+            self.assertTrue(target.exists())
+
+    def test_zip_publication_uses_durability_barrier_before_return(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_sync = portable_module._sync_published_zip_namespace
+
+            with mock.patch.object(
+                portable_module,
+                "_sync_published_zip_namespace",
+                wraps=real_sync,
+            ) as sync:
+                report = write_portable_oneclick_zip(
+                    root,
+                    target,
+                    expected_integration_sha=_SHA,
+                )
+
+            self.assertEqual(sync.call_count, 1)
+            self.assertEqual(report.archive_sha256, hashlib.sha256(target.read_bytes()).hexdigest())
+
     def test_zip_output_cannot_mutate_the_package_tree(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"

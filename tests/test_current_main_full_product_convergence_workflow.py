@@ -58,14 +58,22 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
 
     def test_owner_final_apex_is_registered_for_exact_head_whole_product_qualification(self) -> None:
         required = (
-            "      - qualification/consolidated-completion-contract-20261004-ooxple7",
             "      - qualification/owner-portable-candidate-20261004-sol6f2",
             'elif [ "${GITHUB_REF_NAME:-}" = "qualification/owner-portable-candidate-20261004-sol6f2" ]; then',
-            "live_base_ref=\'qualification/consolidated-completion-contract-20261004-ooxple7\'",
-            'git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"',
-            'git merge-base --is-ancestor "$live_base" HEAD',
-            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            "live_base_ref='qualification/consolidated-completion-contract-20261004-ooxple7'",
             "FULL_PRODUCT_LIVE_OWNER_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
+    def test_owner_convergence_successor_late_binds_live_snapshot_parent(self) -> None:
+        required = (
+            "      - qualification/owner-apex-whole-product-gate-v2-20261004-c2mbezb",
+            "      - fix/owner-portable-qualification-snapshot-pin-20261004-sol56",
+            'elif [ "${GITHUB_REF_NAME:-}" = "qualification/owner-apex-whole-product-gate-v2-20261004-c2mbezb" ]; then',
+            "live_base_ref='fix/owner-portable-qualification-snapshot-pin-20261004-sol56'",
+            "FULL_PRODUCT_LIVE_OWNER_CONVERGENCE_PARENT_ANCESTRY=PASS",
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -80,6 +88,17 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_base" HEAD',
             'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
             "FULL_PRODUCT_LIVE_QUALIFICATION_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
+    def test_owner_snapshot_successor_push_late_binds_live_parent(self) -> None:
+        required = (
+            "      - fix/owner-portable-qualification-snapshot-pin-20261004-sol56",
+            'elif [ "${GITHUB_REF_NAME:-}" = "fix/owner-portable-qualification-snapshot-pin-20261004-sol56" ]; then',
+            "live_base_ref='qualification/owner-portable-candidate-20261004-sol6f2'",
+            "FULL_PRODUCT_LIVE_OWNER_SNAPSHOT_PARENT_ANCESTRY=PASS",
         )
         for fragment in required:
             with self.subTest(fragment=fragment):

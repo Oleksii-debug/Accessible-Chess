@@ -8,12 +8,12 @@ on:
       - integration/current-main-windows-apex-reconvergence-20261004-sol
       - qualification/consolidated-completion-contract-20261004-ooxple7
       - qualification/owner-portable-candidate-20261004-sol6f2
+      - fix/owner-portable-qualification-snapshot-pin-20261004-sol56
+      - qualification/owner-apex-whole-product-gate-v2-20261004-c2mbezb
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
       - integration/current-main-windows-apex-reconvergence-20261004-sol
-      - qualification/consolidated-completion-contract-20261004-ooxple7
-      - qualification/owner-portable-candidate-20261004-sol6f2
       - main
     paths:
       - 'acs/**'
@@ -179,6 +179,22 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_QUALIFICATION_PARENT_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "fix/owner-portable-qualification-snapshot-pin-20261004-sol56" ]; then
+            live_base_ref='qualification/owner-portable-candidate-20261004-sol6f2'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_OWNER_SNAPSHOT_PARENT_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "qualification/owner-apex-whole-product-gate-v2-20261004-c2mbezb" ]; then
+            live_base_ref='fix/owner-portable-qualification-snapshot-pin-20261004-sol56'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_OWNER_CONVERGENCE_PARENT_ANCESTRY=PASS base=$live_base"
           fi
           echo 'FULL_PRODUCT_CANONICAL_ANCESTRY=PASS'
 
