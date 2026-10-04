@@ -380,7 +380,25 @@ class Version2Application:
         origin_route = self.shell.current_route.route_id
         try:
             route_focus = self.shell.open_route("books")
-            self._persist_book_progress(imported.book_key, reader)
+            try:
+                self._persist_book_progress(imported.book_key, reader)
+            except BookProgressStoreError as error:
+                if error.code is not BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
+                    raise
+                # Atomic replacement already succeeded before this code can be
+                # reported. Storage, not the speculative caller, decides whether
+                # rollback is safe: accept the staged owner only when the current
+                # canonical primary rereads as the exact staged snapshot.
+                try:
+                    canonical = self.progress_store.restore_primary(
+                        imported.book_key,
+                        imported.document,
+                    )
+                    canonical_matches = canonical.snapshot() == reader.snapshot()
+                except Exception:
+                    canonical_matches = False
+                if not canonical_matches:
+                    raise error
         except Exception:
             # Version2ShellState.open_route() writes its route before restoring
             # focus. Persistence is also fallible after route acquisition. In
