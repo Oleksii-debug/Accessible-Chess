@@ -14,6 +14,7 @@ on:
       - 'acs/gametree_resume.py'
       - 'acs/education_workspace_store.py'
       - 'acs/version2_final_product_application.py'
+      - 'tests/test_settings_read_identity_current.py'
       - 'tests/test_version2_upgrade.py'
       - 'tests/test_v2_upgrade_sound_artifact_control.py'
       - 'tests/test_v2_upgrade_root_writer_artifact_grammar.py'
@@ -86,6 +87,7 @@ jobs:
             acs/version2_upgrade.py \
             acs/version2_upgrade_base.py \
             acs/legacy_library_migration.py \
+            tests/test_settings_read_identity_current.py \
             tests/test_v2_upgrade_current_acsdb_identity_audit.py \
             tests/test_v2_upgrade_publish_race_audit.py \
             tests/test_v2_upgrade_tracked_writer_conflict.py \
@@ -108,7 +110,7 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/settings.py=3d0dfe1b6765128a970543ff57e533620a80e5fc
+          acs/settings.py=73941bf0191ec05896dcc6967932e4cfc0ca08cd
           acs/book_progress_store.py=3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
           acs/gametree_resume.py=e22a406a8f4c1f00c3d36390109d53f3088d332b
           acs/version2_release_app.py=426355896fc3d18c143e245876291d6ae01dec4f
@@ -141,6 +143,7 @@ jobs:
       - name: Focused V1 to V2 upgrade, schema-0, and D07 v6 integrity regressions
         run: >-
           python -m unittest -v
+          tests.test_settings_read_identity_current
           tests.test_v2_upgrade_schema0_integration
           tests.test_v2_upgrade_current_acsdb_identity_audit
           tests.test_v2_upgrade_v6_successor

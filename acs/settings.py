@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 
 SCHEMA_VERSION = 2
+_MAX_SETTINGS_BYTES = 1024 * 1024
 
 DEFAULTS: dict[str, Any] = {
     "language": "uk",
@@ -86,6 +87,97 @@ def _require_private_regular(info: os.stat_result, label: str) -> None:
         or int(getattr(info, "st_nlink", 1)) != 1
     ):
         raise SettingsError(f"{label} must be one private regular file")
+
+
+def _require_private_directory(info: os.stat_result, label: str) -> None:
+    if stat.S_ISLNK(info.st_mode) or _reparse(info) or not stat.S_ISDIR(info.st_mode):
+        raise SettingsError(f"{label} must be one private directory")
+
+
+def _same_file_version(first: os.stat_result, second: os.stat_result) -> bool:
+    return (
+        _same_file_identity(first, second)
+        and int(first.st_size) == int(second.st_size)
+        and int(getattr(first, "st_mtime_ns", 0))
+        == int(getattr(second, "st_mtime_ns", 0))
+        and int(getattr(first, "st_ctime_ns", 0))
+        == int(getattr(second, "st_ctime_ns", 0))
+    )
+
+
+def _read_private_settings_text(path: Path) -> str | None:
+    """Read one stable private settings snapshot without following redirects."""
+    try:
+        parent_before = path.parent.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise SettingsError("settings directory could not be inspected safely") from exc
+    _require_private_directory(parent_before, "settings directory")
+
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise SettingsError("settings file could not be inspected safely") from exc
+    _require_private_regular(before, "settings file")
+    if int(before.st_size) > _MAX_SETTINGS_BYTES:
+        raise SettingsError("settings file is too large")
+
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOINHERIT", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise SettingsError("settings file could not be opened safely") from exc
+
+    try:
+        opened = os.fstat(descriptor)
+        _require_private_regular(opened, "settings file")
+        if not _same_file_identity(before, opened):
+            raise SettingsError("settings file changed while opening")
+        if int(opened.st_size) > _MAX_SETTINGS_BYTES:
+            raise SettingsError("settings file is too large")
+
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(descriptor, min(65536, _MAX_SETTINGS_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > _MAX_SETTINGS_BYTES:
+                raise SettingsError("settings file is too large")
+
+        after = os.fstat(descriptor)
+        _require_private_regular(after, "settings file")
+        if not _same_file_version(opened, after) or total != int(after.st_size):
+            raise SettingsError("settings file changed while reading")
+
+        try:
+            parent_after = path.parent.lstat()
+            current = path.lstat()
+        except OSError as exc:
+            raise SettingsError("settings file changed while reading") from exc
+        _require_private_directory(parent_after, "settings directory")
+        if not _same_file_identity(parent_before, parent_after):
+            raise SettingsError("settings directory changed while reading")
+        _require_private_regular(current, "settings file")
+        if not _same_file_version(after, current):
+            raise SettingsError("settings file changed while reading")
+        payload = b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SettingsError("settings file is not valid UTF-8") from exc
 
 
 def _fsync_directory(path: Path) -> None:
@@ -168,10 +260,25 @@ class _SettingsSaveLock:
         self.path = settings_path.parent / ".v2-upgrade.lock"
         self.handle = None
         self.identity: tuple[int, int] | None = None
+        self.parent_identity: tuple[int, int] | None = None
+
+    def _require_current_parent(self) -> os.stat_result:
+        try:
+            current = self.path.parent.lstat()
+        except OSError as exc:
+            raise SettingsError("settings directory changed during save") from exc
+        try:
+            _require_private_directory(current, "settings directory")
+        except SettingsError as exc:
+            raise SettingsError("settings directory changed during save") from exc
+        if self.parent_identity is not None and _identity(current) != self.parent_identity:
+            raise SettingsError("settings directory changed during save")
+        return current
 
     def _require_current_handle(self) -> os.stat_result:
         if self.handle is None:
             raise SettingsError("settings upgrade lock is not open")
+        self._require_current_parent()
         opened = os.fstat(self.handle.fileno())
         _require_private_regular(opened, "settings upgrade lock")
         try:
@@ -196,6 +303,7 @@ class _SettingsSaveLock:
         self._require_current_handle()
 
     def _open_handle(self) -> None:
+        self._require_current_parent()
         try:
             before = self.path.lstat()
         except FileNotFoundError:
@@ -241,6 +349,9 @@ class _SettingsSaveLock:
 
     def __enter__(self) -> "_SettingsSaveLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        parent = self.path.parent.lstat()
+        _require_private_directory(parent, "settings directory")
+        self.parent_identity = _identity(parent)
         self._open_handle()
         assert self.handle is not None
         try:
@@ -274,12 +385,14 @@ class _SettingsSaveLock:
             self.handle.close()
             self.handle = None
             self.identity = None
+            self.parent_identity = None
             raise
 
     def __exit__(self, exc_type, exc, tb) -> None:
         handle = self.handle
         self.handle = None
         self.identity = None
+        self.parent_identity = None
         if handle is None:
             return
 
@@ -416,10 +529,11 @@ class Settings:
     def load(self) -> None:
         self.data = dict(DEFAULTS)
         self.warning = None
-        if not self.path.exists():
-            return
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            text = _read_private_settings_text(self.path)
+            if text is None:
+                return
+            raw = json.loads(text)
             if not isinstance(raw, Mapping):
                 raise SettingsError("settings file must contain a JSON object")
             values, migration_warnings = _migrate(raw)
