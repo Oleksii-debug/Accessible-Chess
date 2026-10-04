@@ -670,6 +670,21 @@ class _SemanticHtmlParser(HTMLParser):
             self._hidden_tags.pop()
             return
         if tag == "head":
+            # A malformed unclosed <title> must not survive the explicit end of
+            # metadata. Otherwise handle_data() keeps treating later BODY text as
+            # title metadata and omits it from the semantic document.
+            title_index = next(
+                (
+                    index
+                    for index in range(len(self._captures) - 1, -1, -1)
+                    if self._captures[index].kind == "title"
+                ),
+                None,
+            )
+            if title_index is not None:
+                while len(self._captures) > title_index:
+                    capture = self._captures.pop()
+                    self._finish_capture_and_record_parent(capture, recovered=True)
             if self._head_depth:
                 self._head_depth -= 1
             return
