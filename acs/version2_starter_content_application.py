@@ -20,6 +20,7 @@ from .starter_books_training_release import (
     starter_release_manifest,
 )
 from .starter_books_training_runtime import build_training_ready_starter_course
+from .version2_application import _BookBrowserLeaseRejected
 from .version2_book_workspace import build_version2_book_webview
 from .version2_education_mutation_application import Version2EducationMutationApplication
 from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate
@@ -301,6 +302,9 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._assert_thread()
         if area == "books" and command == "book.open_starter_material":
             try:
+                forwarded_payload, _expected_token = (
+                    self._authorize_book_browser_payload(payload)
+                )
                 # The Books WebView may remain alive while another shell route is
                 # visible. Reject stale/hidden catalogue activation before it can
                 # replace the canonical reader or publish a new Books route.
@@ -308,9 +312,19 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                     raise ValueError("starter material requires the visible Books route")
                 if self.shell.active_dialog_id is not None:
                     raise ValueError("close the active dialog before replacing the starter material")
-                if not isinstance(payload, Mapping) or set(payload) != {"material_id"}:
+                if (
+                    type(forwarded_payload) is not dict
+                    or set(forwarded_payload) != {"material_id"}
+                ):
                     raise ValueError("starter material request is invalid")
-                return self._open_starter_material(payload["material_id"])
+                result = self._open_starter_material(
+                    forwarded_payload["material_id"]
+                )
+                return self._lease_book_result(result)
+            except _BookBrowserLeaseRejected:
+                return self._decorate_book_result(
+                    self._book_browser_recovery_result()
+                )
             except Exception:
                 return self._error()
 
