@@ -252,10 +252,11 @@ def _share_v2_action_registry(
 ):
     """Make Stage 1 keymap editing and V2 routing use one persisted registry.
 
-    Existing Stage 1 remaps are copied into the wider V2 registry first.  The
-    KeymapService then points at that exact object, so keyboard resolution,
-    WebView commands and the native Windows menu cannot drift into parallel
-    command maps during the V2 release.
+    Production ``KeymapService`` re-adopts the persisted profile against the
+    wider V2/Product definition set before it points at that exact registry.
+    This preserves Product-only remaps across restart (including valid binding
+    swaps that cannot be replayed incrementally) while keeping keyboard
+    resolution, WebView commands and the native Windows menu on one authority.
     """
 
     registry = application.adapter.registry
