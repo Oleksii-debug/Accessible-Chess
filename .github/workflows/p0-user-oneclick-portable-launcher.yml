@@ -160,10 +160,29 @@ jobs:
           New-Item -ItemType Directory -Force $app | Out-Null
           Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe (Join-Path $app 'AccessibleChess.exe')
-          $process = Start-Process -FilePath $launcher -WorkingDirectory $root -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Portable launcher smoke failed with exit code $($process.ExitCode)" }
+          $first = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+          Start-Sleep -Milliseconds 100
+          $second = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+
+          if (-not $first.WaitForExit(10000)) {
+            $first.Kill()
+            throw 'First overlapping portable launcher invocation did not exit within 10 seconds'
+          }
+          if ($first.ExitCode -ne 0) {
+            throw "Overlapping first portable launcher smoke failed with exit code $($first.ExitCode)"
+          }
+          if (-not $second.WaitForExit(10000)) {
+            $second.Kill()
+            throw 'Second overlapping portable launcher invocation did not exit within 10 seconds'
+          }
+          if ($second.ExitCode -ne 0) {
+            throw "Overlapping second portable launcher smoke failed with exit code $($second.ExitCode)"
+          }
+
           $report = Join-Path $root 'launch-report.txt'
-          if (-not (Test-Path -LiteralPath $report -PathType Leaf)) { throw 'Package-local launch report was not created' }
+          if (-not (Test-Path -LiteralPath $report -PathType Leaf)) {
+            throw 'Launch report missing after overlapping launchers'
+          }
           $text = Get-Content -LiteralPath $report -Raw -Encoding utf8
           foreach ($required in @(
             'PREFLIGHT: PASS',
@@ -174,9 +193,8 @@ jobs:
             if (-not $text.Contains($required)) { throw "Launch report missing: $required" }
           }
 
-          # The first smoke child is intentionally still running here. The report
-          # must be fully launcher-local: prove both exclusive access and a real
-          # second root-launcher invocation while that first child remains alive.
+          # Both root launchers have exited, while their smoke children may still
+          # be alive. The latest report must now be exclusively reopenable.
           $exclusive = [IO.File]::Open(
             $report,
             [IO.FileMode]::Open,
@@ -184,24 +202,6 @@ jobs:
             [IO.FileShare]::None
           )
           $exclusive.Dispose()
-
-          $second = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
-          if (-not $second.WaitForExit(10000)) {
-            $second.Kill()
-            throw 'Second portable launcher invocation did not exit within 10 seconds'
-          }
-          if ($second.ExitCode -ne 0) {
-            throw "Second portable launcher smoke failed with exit code $($second.ExitCode)"
-          }
-          $secondText = Get-Content -LiteralPath $report -Raw -Encoding utf8
-          foreach ($required in @(
-            'PREFLIGHT: PASS',
-            'PROCESS_CREATED: YES',
-            'STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION',
-            'USER_NVDA_PROVEN: NO'
-          )) {
-            if (-not $secondText.Contains($required)) { throw "Second launch report missing: $required" }
-          }
 
           $data = Join-Path $root 'data'
           if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
