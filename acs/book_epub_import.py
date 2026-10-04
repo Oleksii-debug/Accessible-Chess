@@ -593,12 +593,15 @@ def _validate_local_zip_header(
         if needs_zip64_compressed
         else local_compressed_size
     )
-    if (
-        zip64_uncompressed is not None
-        and zip64_uncompressed != info.file_size
-    ) or (
-        zip64_compressed is not None
-        and zip64_compressed != info.compress_size
+    if not (local_flags & (1 << 3)) and (
+        (
+            zip64_uncompressed is not None
+            and zip64_uncompressed != info.file_size
+        )
+        or (
+            zip64_compressed is not None
+            and zip64_compressed != info.compress_size
+        )
     ):
         raise _error(
             "EPUB local and central ZIP64 size metadata is inconsistent",
