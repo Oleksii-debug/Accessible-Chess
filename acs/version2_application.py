@@ -50,6 +50,7 @@ class Version2Application:
     training_workspace = None
     training = None
     _pgn_browser_lease_required = False
+    _book_browser_lease_required = False
 
     _BOOK_PROGRESS_COMMANDS = frozenset(
         {
@@ -104,6 +105,7 @@ class Version2Application:
         self.pgn_board_active = False
         self.pgn = None
         self._pgn_browser_lease_required = False
+        self._book_browser_lease_required = False
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
         self.training_workspace = self.training = None
         self.shell = build_version2_shell(language=language)
@@ -1024,21 +1026,28 @@ class Version2Application:
                 if type(command) is not str or len(command) > 64:
                     raise ValueError("invalid Books browser command")
                 if command == "book.refresh":
-                    return asdict(self.books.dispatch("book.refresh"))
-                if (
-                    type(payload) is not dict
-                    or "presentation_token" not in payload
-                ):
-                    # A browser command without the opaque lease is unbound to
-                    # the rendered/NVDA-visible Book state. Refresh only; never
-                    # reinterpret it against the current canonical reader.
-                    return asdict(self.books.dispatch("book.refresh"))
-                guarded = self.books.projection.browser_presentation_guard(
-                    payload.get("presentation_token")
+                    value = self.books.dispatch("book.refresh")
+                    self._book_browser_lease_required = True
+                    return asdict(value)
+                has_book_lease = (
+                    type(payload) is dict
+                    and "presentation_token" in payload
                 )
-                if guarded is not None:
-                    return asdict(guarded)
+                if self._book_browser_lease_required and not has_book_lease:
+                    # Once a Books snapshot has reached browser authority, an
+                    # unleased command is stale/unbound intent. Resync only and
+                    # never reinterpret it against newer canonical reader state.
+                    return asdict(self.books.dispatch("book.refresh"))
+                if has_book_lease:
+                    guarded = self.books.projection.browser_presentation_guard(
+                        payload.get("presentation_token")
+                    )
+                    self._book_browser_lease_required = True
+                    if guarded is not None:
+                        return asdict(guarded)
                 value = self._dispatch_book_surface_command(command, payload)
+                if value.kind == "render":
+                    self._book_browser_lease_required = True
                 return asdict(value)
             bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
@@ -1081,11 +1090,16 @@ class Version2Application:
             # Host-side snapshots can advance the projection without proving
             # that the browser/NVDA DOM rendered that newer presentation.
             self._pgn_browser_lease_required = True
+        book_snapshot = None if self.books is None else self.books.projection.snapshot()
+        if book_snapshot is not None:
+            # Mirror PGN authority: once a Books snapshot can be rendered, old
+            # DOM intent must carry the exact opaque lease it was rendered with.
+            self._book_browser_lease_required = True
         return {
             **self.adapter.snapshot(),
             "pgn": pgn_snapshot,
             "library": self.library.projection.snapshot(),
-            "books": None if self.books is None else self.books.projection.snapshot(),
+            "books": book_snapshot,
             "training": None if self.training_workspace is None else self.training_workspace.snapshot(),
             "book_board_active": self.book_workflow is not None and self.book_workflow.active,
             "pgn_board_active": self.pgn_board_active,
