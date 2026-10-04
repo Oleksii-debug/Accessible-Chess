@@ -1,0 +1,200 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+
+const source = fs.readFileSync('web/stage1_board_actions.js', 'utf8');
+
+class FakeNode {
+    constructor(id = '') {
+        this.id = id;
+        this.dataset = {};
+        this.value = '';
+        this.listeners = new Map();
+        this.children = [];
+    }
+
+    addEventListener(type, listener, options = false) {
+        const rows = this.listeners.get(type) || [];
+        rows.push({listener, capture: options === true || Boolean(options && options.capture)});
+        this.listeners.set(type, rows);
+    }
+
+    removeEventListener(type, listener) {
+        const rows = this.listeners.get(type) || [];
+        this.listeners.set(type, rows.filter(row => row.listener !== listener));
+    }
+
+    querySelectorAll(selector) {
+        return selector === '[role=gridcell]' ? this.children : [];
+    }
+
+    closest(selector) {
+        return selector === '[role=gridcell]' ? this : null;
+    }
+}
+
+function eventFor(key, target) {
+    return {
+        key,
+        target,
+        currentTarget: target,
+        altKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        metaKey: false,
+        prevented: false,
+        stopped: false,
+        immediateStopped: false,
+        preventDefault() { this.prevented = true; },
+        stopPropagation() { this.stopped = true; },
+        stopImmediatePropagation() { this.immediateStopped = true; this.stopped = true; },
+    };
+}
+
+(async () => {
+    const boardGrid = new FakeNode('board-grid');
+    const cell = new FakeNode('sq-e2');
+    cell.dataset.square = 'e2';
+    boardGrid.children.push(cell);
+    const moveInput = new FakeNode('move-input');
+    const historyInput = new FakeNode('history-input');
+    historyInput.value = '17';
+    const body = {dataset: {}};
+    const elements = new Map([
+        ['board-grid', boardGrid],
+        ['move-input', moveInput],
+        ['history-input', historyInput],
+    ]);
+
+    let baseBoardCalls = 0;
+    const baseOnBoardKey = async () => { baseBoardCalls += 1; };
+    cell.addEventListener('keydown', baseOnBoardKey);
+
+    const apiCalls = [];
+    const focusCalls = [];
+    const announcements = [];
+    let exitCalls = 0;
+    let submitCalls = 0;
+
+    const context = {
+        console,
+        Set,
+        Array,
+        Math,
+        RegExp,
+        state: {board: [{square: 'e2'}], analysisViewingTemporaryPosition: false},
+        boardIndex: 0,
+        apiAction: async (...args) => { apiCalls.push(args); return {ok: true}; },
+        jumpBoardFocus: () => {},
+        focusBoardIndex: index => { focusCalls.push(index); context.boardIndex = index; },
+        exitBoard: () => { exitCalls += 1; },
+        announceUserAction: message => { announcements.push(message); },
+        submitMove: () => { submitCalls += 1; },
+        executeAction: () => {},
+        renderHelp: () => {},
+        onBoardKey: baseOnBoardKey,
+        keymap: [],
+        document: {
+            body,
+            documentElement: {lang: 'en'},
+            getElementById(id) { return elements.get(id) || null; },
+            createElement() { return new FakeNode(); },
+        },
+    };
+    context.window = context;
+    vm.createContext(context);
+    vm.runInContext(source, context, {filename: 'stage1_board_actions.js'});
+
+    assert.strictEqual(body.dataset.stage1BoardActionBridgeReady, 'true');
+    assert.notStrictEqual(context.onBoardKey, baseOnBoardKey);
+    const installedBoardRows = cell.listeners.get('keydown') || [];
+    assert.strictEqual(installedBoardRows.some(row => row.listener === baseOnBoardKey), false);
+    assert.strictEqual(installedBoardRows.some(row => row.listener === context.onBoardKey), true);
+
+    // Before the canonical keymap is ready, retain only the frozen bootstrap behavior.
+    context.accessibleChessKeymapAction = () => null;
+    await context.onBoardKey(eventFor('ArrowDown', cell));
+    assert.strictEqual(baseBoardCalls, 1);
+
+    // After readiness, an old default that is no longer bound must not execute.
+    context.accessibleChessKeymapAction = event => event.key === 'J' ? 'board.cursor_down' : '';
+    const oldDown = eventFor('ArrowDown', cell);
+    await context.onBoardKey(oldDown);
+    assert.strictEqual(baseBoardCalls, 1);
+    assert.deepStrictEqual(focusCalls, []);
+    assert.strictEqual(oldDown.prevented, false);
+
+    const remappedDown = eventFor('J', cell);
+    await context.onBoardKey(remappedDown);
+    assert.deepStrictEqual(focusCalls, [8]);
+    assert.strictEqual(remappedDown.prevented, true);
+    assert.strictEqual(remappedDown.stopped, true);
+
+    // Activation obeys the remap and preserves the temporary-analysis mutation guard.
+    context.boardIndex = 0;
+    context.accessibleChessKeymapAction = event => event.key === 'K' ? 'board.activate' : '';
+    await context.onBoardKey(eventFor('Enter', cell));
+    assert.deepStrictEqual(apiCalls, []);
+    await context.onBoardKey(eventFor('K', cell));
+    assert.deepStrictEqual(apiCalls, [['activate_square', 'e2']]);
+
+    context.state.analysisViewingTemporaryPosition = true;
+    await context.onBoardKey(eventFor('K', cell));
+    assert.strictEqual(apiCalls.length, 1);
+    assert.strictEqual(announcements.length, 1);
+    assert.match(announcements[0], /temporary variation/i);
+    context.state.analysisViewingTemporaryPosition = false;
+
+    context.accessibleChessKeymapAction = event => event.key === 'Q' ? 'board.exit' : '';
+    await context.onBoardKey(eventFor('Escape', cell));
+    assert.strictEqual(exitCalls, 0);
+    await context.onBoardKey(eventFor('Q', cell));
+    assert.strictEqual(exitCalls, 1);
+
+    const moveCapture = (moveInput.listeners.get('keydown') || []).find(row => row.capture);
+    const historyCapture = (historyInput.listeners.get('keydown') || []).find(row => row.capture);
+    assert.ok(moveCapture, 'move input remap capture handler installed');
+    assert.ok(historyCapture, 'history input remap capture handler installed');
+
+    context.accessibleChessKeymapAction = (event, uiContext) => {
+        if (uiContext === 'move_entry' && event.key === 'F2') return 'move.submit';
+        if (uiContext === 'history' && event.key === 'F3') return 'history.commit_go_to_move';
+        return '';
+    };
+
+    const oldMoveEnter = eventFor('Enter', moveInput);
+    moveCapture.listener(oldMoveEnter);
+    assert.strictEqual(oldMoveEnter.immediateStopped, true);
+    assert.strictEqual(submitCalls, 0);
+
+    const newMoveSubmit = eventFor('F2', moveInput);
+    moveCapture.listener(newMoveSubmit);
+    assert.strictEqual(newMoveSubmit.prevented, true);
+    assert.strictEqual(newMoveSubmit.immediateStopped, true);
+    assert.strictEqual(submitCalls, 1);
+
+    const oldHistoryEnter = eventFor('Enter', historyInput);
+    historyCapture.listener(oldHistoryEnter);
+    assert.strictEqual(oldHistoryEnter.immediateStopped, true);
+    assert.strictEqual(apiCalls.length, 1);
+
+    const newHistoryCommit = eventFor('F3', historyInput);
+    historyCapture.listener(newHistoryCommit);
+    await Promise.resolve();
+    assert.strictEqual(newHistoryCommit.prevented, true);
+    assert.strictEqual(newHistoryCommit.immediateStopped, true);
+    assert.deepStrictEqual(apiCalls[1], ['go_to_move', '17']);
+
+    // Bootstrap fallback leaves the historical Enter listener reachable.
+    context.accessibleChessKeymapAction = () => null;
+    const bootstrapMoveEnter = eventFor('Enter', moveInput);
+    moveCapture.listener(bootstrapMoveEnter);
+    assert.strictEqual(bootstrapMoveEnter.immediateStopped, false);
+
+    console.log('stage1 terminal keymap DOM regression: ok');
+})().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+});
