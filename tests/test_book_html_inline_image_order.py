@@ -919,6 +919,60 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         )
 
 
+    def test_nested_heading_inside_heading_is_structural_boundary_when_outer_inline_semantic_splits(self) -> None:
+        result = import_html_book(
+            '<html><body><h2 id="outer">A<h3 id="inner">B</h3>C'
+            '<img src="board.png" alt="Board">D</h2></body></html>',
+            source_name="nested-heading-owner-split.html",
+            available_assets={"board.png"},
+        )
+
+        projected = []
+        for block in result.document.blocks:
+            if isinstance(block, Heading):
+                projected.append(("Heading", block.text))
+            elif isinstance(block, Paragraph):
+                projected.append(("Paragraph", block.text))
+            elif isinstance(block, Note) and block.note_type == "image":
+                projected.append(("ImageNote", block.text))
+
+        self.assertEqual(
+            projected,
+            [
+                ("Heading", "A"),
+                ("Heading", "B"),
+                ("Paragraph", "C"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "D"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("B")
+                for block in result.document.blocks
+                if isinstance(block, (Heading, Paragraph))
+            ),
+            1,
+        )
+
+    def test_nested_heading_inside_heading_without_inline_semantic_keeps_legacy_projection(self) -> None:
+        result = import_html_book(
+            '<html><body><h2 id="outer">A<h3 id="inner">B</h3>C</h2></body></html>',
+            source_name="nested-heading-owner-legacy.html",
+        )
+
+        self.assertEqual(
+            [
+                (block.kind, block.text)
+                for block in result.document.blocks
+                if isinstance(block, (Heading, Paragraph))
+            ],
+            [
+                ("Heading", "B"),
+                ("Heading", "A B C"),
+            ],
+        )
+
     def test_malformed_nested_list_inline_event_does_not_escape_to_outer_owner(self) -> None:
         result = import_html_book(
             '<html><body><p id="outer">A<ul><li>B'
