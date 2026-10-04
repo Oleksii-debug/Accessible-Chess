@@ -114,6 +114,8 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
                 raise AssertionError("hostile material-key equality must not execute")
 
         class MaterialMapping(Mapping):
+            value_read = False
+
             def __init__(self, first_key):
                 self.first_key = first_key
 
@@ -125,6 +127,7 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
                 return 6
 
             def __getitem__(self, key):
+                type(self).value_read = True
                 return 0
 
         hostile = HostileText("P")
@@ -133,6 +136,7 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "material keys must be canonical"):
             MaterialView(MaterialMapping(hostile), exact, 0, 0)
         self.assertFalse(HostileText.touched)
+        self.assertFalse(MaterialMapping.value_read)
 
         with self.assertRaisesRegex(ValueError, "contain every canonical piece"):
             MaterialView({piece: 0 for piece in "PNBRQ"}, exact, 0, 0)
