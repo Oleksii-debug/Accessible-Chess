@@ -62,6 +62,8 @@ on:
       - 'scripts/build_user_sound_pack.py'
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'tools/optional/libcbh_json_bridge.cpp'
+      - '.github/workflows/chessbase-libcbh-semantic-fidelity-current.yml'
       - 'packaging/portable_launcher.c'
       - '.github/workflows/p0-packaged-acceptance-orchestrator.yml'
       - '.github/workflows/p0-packaged-document-copy-probe-contract.yml'
