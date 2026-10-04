@@ -145,6 +145,53 @@ def _set_local_zip_field(
     return bytes(damaged)
 
 
+def _with_zip64_end_records(
+    raw: bytes,
+    *,
+    version_needed: int = 45,
+    declared_record_size: int = 44,
+    extensible_data: bytes = b"",
+) -> bytes:
+    damaged = bytearray(raw)
+    eocd_offset = damaged.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or eocd_offset + 22 > len(damaged):
+        raise AssertionError("fixture EOCD record was not found")
+    central_size = int.from_bytes(
+        damaged[eocd_offset + 12 : eocd_offset + 16],
+        "little",
+    )
+    central_offset = int.from_bytes(
+        damaged[eocd_offset + 16 : eocd_offset + 20],
+        "little",
+    )
+    total_entries = int.from_bytes(
+        damaged[eocd_offset + 10 : eocd_offset + 12],
+        "little",
+    )
+    zip64_offset = eocd_offset
+    record = (
+        b"PK\x06\x06"
+        + declared_record_size.to_bytes(8, "little")
+        + (45).to_bytes(2, "little")
+        + version_needed.to_bytes(2, "little")
+        + (0).to_bytes(4, "little")
+        + (0).to_bytes(4, "little")
+        + total_entries.to_bytes(8, "little")
+        + total_entries.to_bytes(8, "little")
+        + central_size.to_bytes(8, "little")
+        + central_offset.to_bytes(8, "little")
+        + extensible_data
+    )
+    locator = (
+        b"PK\x06\x07"
+        + (0).to_bytes(4, "little")
+        + zip64_offset.to_bytes(8, "little")
+        + (1).to_bytes(4, "little")
+    )
+    damaged[eocd_offset:eocd_offset] = record + locator
+    return bytes(damaged)
+
+
 def _insert_precentral_record(raw: bytes, record: bytes) -> bytes:
     damaged = bytearray(raw)
     eocd_offset = damaged.rfind(b"PK\x05\x06")
@@ -311,6 +358,45 @@ class BookEpubImportTests(unittest.TestCase):
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         with self.assertRaises(BookEpubImportError) as raised:
             import_epub_book(b"MZ-preface" + raw, source_name="prefixed.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_zip64_version_1_end_records_remain_supported(self) -> None:
+        raw = _simple_epub(
+            b"<html><body><p>ZIP64 Version 1.</p></body></html>"
+        )
+        zip64 = _with_zip64_end_records(raw)
+        result = import_epub_book(zip64, source_name="zip64-v1.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "ZIP64 Version 1.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_zip64_version_2_end_record_is_rejected(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        zip64_v2 = _with_zip64_end_records(raw, version_needed=62)
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(zip64_v2, source_name="zip64-v2.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_zip64_record_size_must_end_exactly_at_locator(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        malformed = _with_zip64_end_records(
+            raw,
+            declared_record_size=45,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(malformed, source_name="zip64-layout.epub")
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
