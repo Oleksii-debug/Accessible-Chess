@@ -111,9 +111,12 @@ class _ListCapture:
     tag: str
     attrs: dict[str, str]
     items: list[str] = field(default_factory=list)
+    identity_items: list[str] = field(default_factory=list)
     unsupported: bool = False
+    structural_unsupported: bool = False
     nested: bool = False
     inline_semantic_fallback: bool = False
+    legacy_identity_block: object | None = field(default=None, repr=False, compare=False)
 
 
 _BLOCK_BOUNDARY_TAGS = frozenset(
@@ -562,6 +565,7 @@ class _SemanticHtmlParser(HTMLParser):
             nested = bool(self._lists)
             if nested:
                 self._lists[-1].unsupported = True
+                self._lists[-1].structural_unsupported = True
             unsupported = nested or "reversed" in attrs
             if tag == "ol":
                 _, start_valid = self._ordered_start(attrs)
@@ -571,6 +575,7 @@ class _SemanticHtmlParser(HTMLParser):
                     tag=tag,
                     attrs=attrs,
                     unsupported=unsupported,
+                    structural_unsupported=unsupported,
                     nested=nested,
                 )
             )
@@ -579,6 +584,7 @@ class _SemanticHtmlParser(HTMLParser):
         if kind is not None:
             if kind == "list_item" and self._lists and "value" in attrs:
                 self._lists[-1].unsupported = True
+                self._lists[-1].structural_unsupported = True
             if kind == "list_item" and self._lists:
                 for capture in self._captures:
                     if capture.kind == "list_item" and capture.list_depth < len(self._lists):
@@ -1035,6 +1041,7 @@ class _SemanticHtmlParser(HTMLParser):
         while self._lists:
             captured = self._lists.pop()
             captured.unsupported = True
+            captured.structural_unsupported = True
             self._emit_list(captured)
 
 
