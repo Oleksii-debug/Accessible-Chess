@@ -1,0 +1,89 @@
+name: Native Book Game Announcement
+
+on:
+  push:
+    branches:
+      - fix/native-book-game-announcement-20261004-ooxple7
+  pull_request:
+    branches:
+      - fix/bookdocument-malformed-ingress-20261004-ooxple7
+    paths:
+      - 'acs/version2_application.py'
+      - 'tests/test_version2_application.py'
+      - '.github/workflows/native-book-game-announcement.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-book-game-announcement-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked parent and focused scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          base='be2061e8193fe953efdf5536548a7e964bfd829b'
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/native-book-game-announcement.yml' \
+            'acs/version2_application.py' \
+            'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+          echo 'NATIVE_BOOK_GAME_ANNOUNCEMENT_SCOPE=PASS'
+
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          acs/version2_application.py
+          tests/test_version2_application.py
+
+      - name: Run V2 application Book and NVDA regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_accessibility_convergence
+          tests.test_nvda_p0_contract
+          tests.test_full_product_native_menu
+
+      - name: Run keyboard and Book board regressions
+        run: >-
+          python -m unittest -v
+          tests.test_keybindings
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_windows_book_board_adapter
+          tests.test_v2_book_board_workflow
+
+      - name: Core selftest
+        run: python -m acs.selftest
