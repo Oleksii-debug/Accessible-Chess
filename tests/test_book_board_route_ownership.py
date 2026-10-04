@@ -648,6 +648,37 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(origin_route, self.app.shell.current_route.route_id)
         self.assertEqual(origin_focus, self.app.shell.restore_focus_target())
 
+    def test_training_reentry_route_rejection_preserves_retained_owner_internals(self):
+        self._install_training_exercise()
+        opened = self.app.browser_command("shell", "screen.training")
+        self.assertEqual("route", opened["kind"])
+        retained_workspace = self.app.training_workspace
+        retained_bridge = self.app.training
+        retained_session = retained_workspace.session
+        self.app.browser_command("shell", "screen.books")
+        origin_focus = self.app.shell.restore_focus_target()
+        real_open_route = self.app.shell.open_route
+
+        def reject_training_route(route_id, *, current_focus_id=""):
+            if route_id == "training":
+                raise RuntimeError("synthetic Training re-entry route rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=reject_training_route,
+        ):
+            result = self.app.browser_command("shell", "screen.training")
+
+        self.assertEqual("error", result["kind"])
+        self.assertIs(retained_workspace, self.app.training_workspace)
+        self.assertIs(retained_bridge, self.app.training)
+        self.assertIs(retained_bridge, retained_workspace.bridge)
+        self.assertIs(retained_session, retained_workspace.session)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin_focus, self.app.shell.restore_focus_target())
+
     def test_training_partial_route_commit_restores_books_and_discards_stage(self):
         reader = self._install_training_exercise()
         origin_route = self.app.shell.current_route.route_id
