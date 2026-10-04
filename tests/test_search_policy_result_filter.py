@@ -4,6 +4,7 @@ import unittest
 
 from acs.acsdb import AcsDatabase
 from acs.search_policy import normalize_search_result
+from acs.search_service import GameSearchQuery
 
 
 class SearchResultFilterPolicyTests(unittest.TestCase):
@@ -16,7 +17,7 @@ class SearchResultFilterPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported chess result"):
             normalize_search_result("draw")
 
-    def test_text_subclass_is_rejected_before_hashing(self) -> None:
+    def test_text_subclass_is_rejected_before_hashing_at_all_public_ingress(self) -> None:
         class HashForbiddenString(str):
             def __hash__(self):
                 raise AssertionError("untrusted string subclass must not be hashed")
@@ -24,6 +25,9 @@ class SearchResultFilterPolicyTests(unittest.TestCase):
         hostile = HashForbiddenString("1-0")
         with self.assertRaisesRegex(TypeError, "result must be text"):
             normalize_search_result(hostile)
+
+        with self.assertRaisesRegex(TypeError, "result must be text"):
+            GameSearchQuery(result=hostile).normalized()  # type: ignore[arg-type]
 
         with AcsDatabase() as database:
             with self.assertRaisesRegex(TypeError, "result must be text"):
@@ -40,6 +44,9 @@ class SearchResultFilterPolicyTests(unittest.TestCase):
         hostile = HostileScalar()
         with self.assertRaisesRegex(TypeError, "result must be text"):
             normalize_search_result(hostile)
+
+        with self.assertRaisesRegex(TypeError, "result must be text"):
+            GameSearchQuery(result=hostile).normalized()  # type: ignore[arg-type]
 
         with AcsDatabase() as database:
             with self.assertRaisesRegex(TypeError, "result must be text"):
