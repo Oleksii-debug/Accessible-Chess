@@ -52,6 +52,7 @@ jobs:
           acs/version2_packaged_starter_application.py
           tests/test_user_library_seed.py
           tests/test_user_library_seed_parent_safety.py
+          tests/test_current_main_full_product_convergence_workflow.py
           tests/test_v2_packaged_starter_application.py
 
       - name: Seed security, semantic and startup integration
@@ -59,6 +60,7 @@ jobs:
           python -m unittest -v
           tests.test_user_library_seed
           tests.test_user_library_seed_parent_safety
+          tests.test_current_main_full_product_convergence_workflow
           tests.test_v2_packaged_starter_application
 
       - name: Exact whitespace check
