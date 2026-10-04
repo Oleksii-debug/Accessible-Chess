@@ -31,6 +31,14 @@ MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
 MAX_SOURCE_COUNT = 64
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>"|?*')
+_WINDOWS_RESERVED_BASENAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+    | {f"com{digit}" for digit in "¹²³"}
+    | {f"lpt{digit}" for digit in "¹²³"}
+)
 
 
 class UserLibrarySeedError(RuntimeError):
@@ -213,14 +221,18 @@ def _portable_name(value: object) -> str:
     if type(value) is not str:
         raise UserLibrarySeedError("user Library seed filename is invalid")
     name = value
+    windows_basename = name.split(".", 1)[0].rstrip(" .").casefold()
     if (
         not name
         or name != name.strip()
+        or name.endswith(".")
         or len(name) > 255
         or name in {".", ".."}
         or "/" in name
         or "\\" in name
         or ":" in name
+        or any(character in _WINDOWS_FORBIDDEN_FILENAME_CHARS for character in name)
+        or windows_basename in _WINDOWS_RESERVED_BASENAMES
         or any(ord(character) < 32 or ord(character) == 0x7F for character in name)
         or Path(name).name != name
         or not name.casefold().endswith(".pgn")
