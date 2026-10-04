@@ -72,6 +72,7 @@ _SUPPORTED_PACKAGE_VERSIONS = frozenset({"2.0", "3.0"})
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
+_MIME_TSPECIALS = frozenset('()<>@,;:\\"/[]?=')
 
 
 class BookEpubImportErrorCode(str, Enum):
@@ -407,6 +408,28 @@ def _is_exact_identifier(value: object) -> bool:
     )
 
 
+def _is_mime_token(value: str) -> bool:
+    return bool(value) and all(
+        0x21 <= ord(character) <= 0x7E and character not in _MIME_TSPECIALS
+        for character in value
+    )
+
+
+def _normalized_manifest_media_type(value: object) -> str:
+    if type(value) is not str or value != value.strip():
+        raise _error(
+            "EPUB manifest item media type is malformed",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    parts = value.split("/")
+    if len(parts) != 2 or not all(_is_mime_token(part) for part in parts):
+        raise _error(
+            "EPUB manifest item media type is malformed",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    return value.casefold()
+
+
 def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
     wanted = f"{{{_OPF_NAMESPACE}}}{name}"
     for child in parent:
@@ -642,6 +665,11 @@ def _resolve_package_href(
             "EPUB package href contains surrounding whitespace",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_href):
+        raise _error(
+            "EPUB package href contains an ASCII control character",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     try:
         parts = urlsplit(raw_href)
     except ValueError as exc:
@@ -676,6 +704,11 @@ def _resolve_package_href(
             "EPUB package href contains invalid UTF-8 percent encoding",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in decoded):
+        raise _error(
+            "EPUB package href decodes to an ASCII control character",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     if not decoded or "\x00" in decoded or "\\" in decoded or decoded.startswith("/") or _DRIVE_RE.match(decoded):
         raise _error(
             "EPUB manifest contains an unsafe reading href",
@@ -690,11 +723,11 @@ def _resolve_package_href(
     return joined
 
 
-def _package_rootfile(
+def _package_rootfiles(
     container: ET.Element,
     warnings: _Warnings,
     archive_index: dict[str, zipfile.ZipInfo],
-) -> str:
+) -> tuple[str, ...]:
     if (
         container.tag != _CONTAINER_TAG
         or container.attrib.get("version") != "1.0"
@@ -831,6 +864,11 @@ def _package_rootfile(
                     "EPUB container link href is missing or malformed",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
+            if any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_href):
+                raise _error(
+                    "EPUB container link href contains an ASCII control character",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
             try:
                 href_parts = urlsplit(raw_href)
             except ValueError as exc:
@@ -865,7 +903,7 @@ def _package_rootfile(
 
     if len(candidates) > 1:
         warnings.add("multiple EPUB package documents were present; the first supported rootfile was used")
-    return candidates[0]
+    return tuple(candidates)
 
 
 def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
@@ -905,19 +943,13 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
         href = element.attrib.get("href")
         raw_fallback = element.attrib.get("fallback")
         raw_media_overlay = element.attrib.get("media-overlay")
-        if (
-            not _is_exact_identifier(raw_item_id)
-            or type(raw_media_type) is not str
-            or not raw_media_type
-            or raw_media_type != raw_media_type.strip()
-            or any(character.isspace() for character in raw_media_type)
-        ):
+        if not _is_exact_identifier(raw_item_id):
             raise _error(
                 "EPUB manifest item is missing or has malformed required identity",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         item_id = raw_item_id
-        media_type = raw_media_type.casefold()
+        media_type = _normalized_manifest_media_type(raw_media_type)
         if raw_fallback is None:
             fallback = None
         elif not _is_exact_identifier(raw_fallback):
@@ -1030,13 +1062,13 @@ def _validate_manifest_fallback_graph(
 def _validate_manifest_resources(
     manifest: dict[str, _ManifestItem],
     *,
-    package_entry_name: str,
+    package_entry_names: frozenset[str],
     archive_index: dict[str, zipfile.ZipInfo],
 ) -> None:
     for item in manifest.values():
         entry_name = item.entry_name
         if (
-            entry_name == package_entry_name
+            entry_name in package_entry_names
             or entry_name == "mimetype"
             or entry_name == "META-INF"
             or entry_name.startswith("META-INF/")
@@ -1289,20 +1321,65 @@ def import_epub_book(
             _read_entry(archive, index, "META-INF/container.xml", limit=MAX_EPUB_XML_BYTES),
             "container metadata",
         )
-        opf_name = _package_rootfile(container, warnings, index)
-        package = _xml_root(
-            _read_entry(archive, index, opf_name, limit=MAX_EPUB_XML_BYTES),
-            "package metadata",
-        )
-        _validate_package_document(package)
-        opf_dir = posixpath.dirname(opf_name)
-        manifest = _manifest_items(package, opf_dir)
-        _validate_manifest_resources(
-            manifest,
-            package_entry_name=opf_name,
-            archive_index=index,
-        )
-        spine = _spine_ids(package, warnings, manifest)
+        opf_names = _package_rootfiles(container, warnings, index)
+        package_entry_names = frozenset(opf_names)
+        renditions: list[
+            tuple[str, ET.Element, dict[str, _ManifestItem], list[str]]
+        ] = []
+        selected_version: str | None = None
+        for rendition_index, rendition_name in enumerate(opf_names, start=1):
+            rendition_package = _xml_root(
+                _read_entry(
+                    archive,
+                    index,
+                    rendition_name,
+                    limit=MAX_EPUB_XML_BYTES,
+                ),
+                "package metadata",
+            )
+            _validate_package_document(rendition_package)
+            rendition_version = rendition_package.attrib["version"]
+            if selected_version is None:
+                selected_version = rendition_version
+            elif rendition_version != selected_version:
+                raise _error(
+                    "EPUB container rootfiles use different package versions",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+            rendition_dir = posixpath.dirname(rendition_name)
+            rendition_manifest = _manifest_items(
+                rendition_package,
+                rendition_dir,
+            )
+            _validate_manifest_resources(
+                rendition_manifest,
+                package_entry_names=package_entry_names,
+                archive_index=index,
+            )
+            rendition_warnings = (
+                warnings if rendition_index == 1 else _Warnings()
+            )
+            rendition_spine = _spine_ids(
+                rendition_package,
+                rendition_warnings,
+                rendition_manifest,
+            )
+            for rendition_item_id in rendition_spine:
+                _supported_manifest_item(
+                    rendition_item_id,
+                    rendition_manifest,
+                )
+            renditions.append(
+                (
+                    rendition_name,
+                    rendition_package,
+                    rendition_manifest,
+                    rendition_spine,
+                )
+            )
+
+        opf_name, package, manifest, spine = renditions[0]
         manifest_by_resource = {
             item.entry_name: item
             for item in manifest.values()
