@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import re, copy
+from .input_limits import MAX_FEN_CHARS
 from .squares import FILES, parse_square, square_name
 
 PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий слон','R':'біла тура','Q':'білий ферзь','K':'білий король',
@@ -63,6 +64,8 @@ class Board:
         """
         if type(fen) is not str:
             raise ValueError('FEN має бути текстом')
+        if len(fen) > MAX_FEN_CHARS:
+            raise ValueError('FEN занадто довгий')
         if type(clear_history) is not bool:
             raise ValueError('clear_history має бути логічним значенням')
         parts=fen.strip().split()
