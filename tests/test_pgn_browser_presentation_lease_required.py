@@ -144,6 +144,50 @@ class PgnBrowserPresentationLeaseRequiredTests(unittest.TestCase):
         self.assertEqual(0, replacement.workspace.cursor.next_move_index)
         self.assertEqual(replacement.workspace.view(), replacement_view)
 
+    def test_document_replacement_during_game_navigation_is_rejected_by_full_digest_cas(self) -> None:
+        visible = self.app.snapshot()["pgn"]
+        assert visible is not None
+        original_session = self.app.session
+        original_view = original_session.workspace.view()
+        replacement = PgnDocumentSession.from_text(REPLACEMENT_DOCUMENT)
+        replacement_view = replacement.workspace.view()
+        self.assertEqual(
+            original_view.current_record_digest,
+            replacement_view.current_record_digest,
+        )
+        self.assertEqual(
+            original_view.content_revision,
+            replacement_view.content_revision,
+        )
+        self.assertNotEqual(original_view.content_digest, replacement_view.content_digest)
+
+        original_dispatch = self.app.router.dispatch
+        swapped = False
+
+        def replace_then_dispatch(action_id, payload=None, **kwargs):
+            nonlocal swapped
+            if not swapped:
+                swapped = True
+                self.app.set_document(replacement)
+            return original_dispatch(action_id, payload, **kwargs)
+
+        with patch.object(
+            self.app.router,
+            "dispatch",
+            side_effect=replace_then_dispatch,
+        ):
+            rejected = self.app.browser_command(
+                "pgn",
+                "pgn.next_game",
+                {"presentation_token": visible["presentation_token"]},
+            )
+
+        self.assertTrue(swapped)
+        self.assertEqual("error", rejected["kind"])
+        self.assertIs(self.app.session, replacement)
+        self.assertEqual(0, replacement.workspace.selected_game_index)
+        self.assertEqual(replacement.workspace.view(), replacement_view)
+
     def test_refresh_remains_token_free_recovery_path(self) -> None:
         self.app.snapshot()
         refreshed = self.app.browser_command("pgn", "pgn.refresh", {})
