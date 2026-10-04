@@ -405,10 +405,20 @@ function installNewGameVisualSequence() {
         ) {
             // Chromium owns Ctrl+N unless the application suppresses it before
             // the asynchronous central keymap resolver returns. Suppress the
-            // browser window command, then honour the *current* remappable
-            // binding instead of hard-coding file.new.
+            // browser window command everywhere, but do not let this early
+            // browser guard bypass the canonical editable-control policy:
+            // typed controls keep native editing semantics and only the main
+            // document handler may admit its reviewed Help exception.
             event.preventDefault();
             event.stopPropagation();
+            const target = event.target;
+            const editing = typeof editableShortcutTarget === 'function'
+                ? editableShortcutTarget(target)
+                : !!(target && (
+                    ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+                    || target.isContentEditable
+                ));
+            if (editing) return;
             const chord = typeof eventChord === 'function' ? eventChord(event) : 'Ctrl+N';
             if (typeof resolveBinding === 'function') {
                 void resolveBinding(chord, 'document', 'document').then(action => {

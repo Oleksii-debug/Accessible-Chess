@@ -646,15 +646,40 @@
         invokeCommand(root, invoke, announce, snapshot, "library.select", { game_id: row.game_id });
       });
       option.addEventListener("keydown", function (event) {
-        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-          event.preventDefault();
-          invokeCommand(root, invoke, announce, snapshot, "library.move", {
-            delta: event.key === "ArrowUp" ? -1 : 1
-          });
-        } else if (event.key === "Enter") {
-          event.preventDefault();
-          invokeCommand(root, invoke, announce, snapshot, "library.open_game", {});
+        const resolve = global.accessibleChessKeymapAction;
+        let actionId = "";
+        let resolverReady = false;
+        if (typeof resolve === "function") {
+          const resolved = resolve(event, "library_results");
+          if (resolved !== null && resolved !== undefined) {
+            resolverReady = true;
+            actionId = typeof resolved === "string" ? resolved : "";
+          }
         }
+        if (
+          !resolverReady &&
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
+        ) {
+          if (event.key === "ArrowUp") actionId = "library.previous_result";
+          else if (event.key === "ArrowDown") actionId = "library.next_result";
+          else if (event.key === "Enter") actionId = "library.open_game";
+        }
+
+        let command = "";
+        let payload = {};
+        if (actionId === "library.previous_result") {
+          command = "library.move";
+          payload = { delta: -1 };
+        } else if (actionId === "library.next_result") {
+          command = "library.move";
+          payload = { delta: 1 };
+        } else if (actionId === "library.open_game") {
+          command = "library.open_game";
+        }
+        if (!command) return;
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        invokeCommand(root, invoke, announce, snapshot, command, payload);
       });
       list.appendChild(option);
     });

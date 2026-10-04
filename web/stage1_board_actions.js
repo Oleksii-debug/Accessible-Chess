@@ -5,6 +5,7 @@ if (window.__accessibleChessStage1BoardActions) return;
 
 const baseExecuteAction = window.executeAction;
 const baseRenderHelp = window.renderHelp;
+const baseOnBoardKey = window.onBoardKey;
 // Keep accepted DEV1 dependency semantics: the bridge is retryable until the
 // frozen bootstrap and Python API bridge are both available, and it never
 // claims readiness without a real document body.
@@ -56,6 +57,147 @@ window.executeAction = async function(id) {
     if (boardPythonActions.has(id)) return executeBoardPythonAction(id);
     return baseExecuteAction(id);
 };
+
+function liveKeymapAction(event, context) {
+    const resolver = window.accessibleChessKeymapAction;
+    if (typeof resolver !== 'function') return null;
+    return resolver(event, context);
+}
+
+function liveExactRegistryAction(event, registryContext, uiContext) {
+    const readiness = liveKeymapAction(event, uiContext);
+    if (readiness === null) return null;
+    if (
+        typeof keymap === 'undefined' || !Array.isArray(keymap)
+        || typeof eventChord !== 'function' || typeof normalizeChord !== 'function'
+    ) return '';
+    const chord = normalizeChord(eventChord(event));
+    const item = keymap.find(action =>
+        action && action.registryContext === registryContext
+        && action.binding && normalizeChord(action.binding) === chord
+    );
+    return item ? item.id : '';
+}
+
+function stopOwnedEvent(event) {
+    event.preventDefault();
+    event.stopPropagation();
+}
+
+function boardCellForEvent(event) {
+    const target = event && event.target;
+    if (!target || typeof target.closest !== 'function') return null;
+    return target.closest('[role=gridcell]');
+}
+
+async function executeRemappedBoardAction(id, event) {
+    const index = typeof boardIndex === 'number' ? boardIndex : 0;
+    const row = Math.floor(index / 8);
+    const col = index % 8;
+    if (id === 'board.exit') {
+        if (typeof exitBoard === 'function') exitBoard();
+        return;
+    }
+    if (id === 'board.activate' || id === 'board.activate_alternative') {
+        if (state && state.analysisViewingTemporaryPosition) {
+            announceUserAction(
+                document.documentElement.lang === 'en'
+                    ? 'Return from the temporary variation before changing the board.'
+                    : 'Поверніться з тимчасового варіанта перед зміною дошки.'
+            );
+            return;
+        }
+        const cell = boardCellForEvent(event);
+        if (cell && cell.dataset && cell.dataset.square) {
+            return apiAction('activate_square', cell.dataset.square);
+        }
+        return;
+    }
+    if (id === 'board.cursor_left') {
+        if (typeof focusBoardIndex === 'function') focusBoardIndex(row * 8 + Math.max(0, col - 1));
+        return;
+    }
+    if (id === 'board.cursor_right') {
+        if (typeof focusBoardIndex === 'function') focusBoardIndex(row * 8 + Math.min(7, col + 1));
+        return;
+    }
+    if (id === 'board.cursor_up') {
+        if (typeof focusBoardIndex === 'function') focusBoardIndex(Math.max(0, row - 1) * 8 + col);
+        return;
+    }
+    if (id === 'board.cursor_down') {
+        if (typeof focusBoardIndex === 'function') focusBoardIndex(Math.min(7, row + 1) * 8 + col);
+        return;
+    }
+    return window.executeAction(id);
+}
+
+async function remappableOnBoardKey(event) {
+    const projectedAction = liveKeymapAction(event, 'board');
+    // null means the canonical keymap is not ready yet. Preserve the frozen
+    // Stage 1 literal defaults only during that bounded bootstrap window.
+    if (projectedAction === null) {
+        if (typeof baseOnBoardKey === 'function') return baseOnBoardKey(event);
+        return;
+    }
+    // Once ready, use the existing canonical resolver so BOARD keeps the
+    // accepted exact-context -> GLOBAL fallback order. The synchronous projected
+    // action is only a same-snapshot fallback if the async resolver is absent.
+    let actionId = projectedAction;
+    if (typeof resolveBinding === 'function' && typeof eventChord === 'function') {
+        const resolved = await resolveBinding(eventChord(event), 'board', 'board');
+        actionId = resolved && resolved.actionId ? resolved.actionId : '';
+    }
+    // Empty means the keymap is ready but this chord is not bound for BOARD or
+    // GLOBAL. Do not fall back to historical literal Arrow/Enter/Escape defaults.
+    if (!actionId) return;
+    stopOwnedEvent(event);
+    return executeRemappedBoardAction(actionId, event);
+}
+
+function installBoardKeyHandler() {
+    if (typeof baseOnBoardKey !== 'function') return;
+    window.onBoardKey = remappableOnBoardKey;
+    const grid = document.getElementById('board-grid');
+    if (!grid || typeof grid.querySelectorAll !== 'function') return;
+    for (const cell of grid.querySelectorAll('[role=gridcell]')) {
+        if (typeof cell.removeEventListener === 'function') {
+            cell.removeEventListener('keydown', baseOnBoardKey);
+        }
+        if (typeof cell.addEventListener === 'function') {
+            cell.addEventListener('keydown', remappableOnBoardKey);
+        }
+    }
+}
+
+function installCommitKeyHandler(elementId, registryContext, uiContext, actionId, invoke) {
+    const node = document.getElementById(elementId);
+    if (!node || typeof node.addEventListener !== 'function') return;
+    node.addEventListener('keydown', event => {
+        const resolved = liveExactRegistryAction(event, registryContext, uiContext);
+        // Let the existing literal Enter handler remain the bootstrap fallback.
+        if (resolved === null) return;
+        if (resolved === actionId) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            invoke(event);
+            return;
+        }
+        // Once the keymap is ready, the old literal Enter must not survive a
+        // remap. Keep ordinary typing and unrelated input shortcuts untouched.
+        if (event.key === 'Enter') event.stopImmediatePropagation();
+    }, {capture: true});
+}
+
+installBoardKeyHandler();
+installCommitKeyHandler('move-input', 'move_entry', 'move-entry', 'move.submit', () => submitMove());
+installCommitKeyHandler(
+    'history-input',
+    'history',
+    'document',
+    'history.commit_go_to_move',
+    event => apiAction('go_to_move', event.target.value)
+);
 
 function liveKeymapLine(id) {
     const activeKeymap = typeof keymap !== 'undefined' && Array.isArray(keymap) ? keymap : [];

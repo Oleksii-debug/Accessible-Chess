@@ -43,7 +43,23 @@ global.document = {
 global.window = {};
 vm.runInThisContext(fs.readFileSync("web/full_product_pgn.js", "utf8"), { filename: "full_product_pgn.js" });
 
+const pgnBindings = {
+  ArrowUp: "pgn.previous_item",
+  ArrowDown: "pgn.next_item",
+  ArrowLeft: "pgn.parent_variation"
+};
+window.accessibleChessKeymapAction = function (event, context) {
+  if (context !== "pgn_tree") return "";
+  if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return "";
+  return pgnBindings[event.key] || "";
+};
+
 function check(condition, message) { if (!condition) throw new Error(message); }
+const shellSource = fs.readFileSync("web/index.html", "utf8");
+check(
+  shellSource.includes("window.accessibleChessKeymapAction=keymapActionForEvent"),
+  "shipping shell does not export the current-keymap event resolver"
+);
 function snapshot(selectedId) {
   return {
     document: { lang: "en", landmark: "main" },
@@ -272,6 +288,47 @@ async function run() {
   check(items.length === 2, "semantic tree items missing");
   check(document.activeElement && document.activeElement.id === "pgn-node-aaaaaaaaaaaaaaaaaaaa", "initial tree focus missing");
 
+  const liveResolver = window.accessibleChessKeymapAction;
+  window.accessibleChessKeymapAction = function () { return null; };
+  const startupCalls = [];
+  const startupRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    startupRoot,
+    snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+    (command, payload) => {
+      startupCalls.push([command, payload || {}]);
+      if (command === "pgn.move") {
+        return {
+          kind: "selection",
+          payload: {
+            snapshot: snapshot("pgn-node-bbbbbbbbbbbbbbbbbbbb"),
+            focus_target: "pgn-node-bbbbbbbbbbbbbbbbbbbb",
+            announcement: ""
+          }
+        };
+      }
+      throw new Error("unexpected startup command " + command);
+    },
+    () => {},
+    "pgn-node-aaaaaaaaaaaaaaaaaaaa"
+  );
+  const startupItem = startupRoot.querySelectorAll('[role="treeitem"]')[0];
+  let startupPrevented = false;
+  startupItem.listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { startupPrevented = true; },
+    stopPropagation: () => {}
+  });
+  await flush();
+  await flush();
+  check(startupPrevented, "not-ready PGN resolver suppressed default ArrowDown");
+  check(
+    startupCalls.length === 1 &&
+      startupCalls[0][0] === "pgn.move" &&
+      startupCalls[0][1].delta === 1,
+    "not-ready PGN resolver did not preserve default navigation"
+  );
+  window.accessibleChessKeymapAction = liveResolver;
 
   const firstToolbar = findRole(root, "toolbar");
   check(firstToolbar !== null, "PGN action toolbar missing");
@@ -304,6 +361,38 @@ async function run() {
   check(prevented, "ArrowDown did not use semantic tree navigation");
   check(calls[0][0] === "pgn.move" && calls[0][1].delta === 1, "ArrowDown used wrong bridge command");
   check(document.activeElement && document.activeElement.id === "pgn-node-bbbbbbbbbbbbbbbbbbbb", "tree focus was not restored after navigation");
+
+  delete pgnBindings.ArrowDown;
+  pgnBindings.j = "pgn.next_item";
+  const remapTarget = root.querySelectorAll('[role="treeitem"]')[0];
+  const remapStart = calls.length;
+  let stalePrevented = false;
+  remapTarget.listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { stalePrevented = true; },
+    stopPropagation: () => {}
+  });
+  await flush();
+  check(!stalePrevented, "old ArrowDown binding survived the live PGN remap");
+  check(calls.length === remapStart, "old ArrowDown binding still dispatched PGN navigation");
+
+  let remapPrevented = false;
+  let remapStopped = false;
+  remapTarget.listeners.keydown({
+    key: "j",
+    preventDefault: () => { remapPrevented = true; },
+    stopPropagation: () => { remapStopped = true; }
+  });
+  await flush();
+  check(remapPrevented && remapStopped, "remapped PGN navigation was not locally owned");
+  check(calls.length === remapStart + 1, "remapped PGN navigation did not dispatch exactly once");
+  check(
+    calls[calls.length - 1][0] === "pgn.move" &&
+      calls[calls.length - 1][1].delta === 1,
+    "remapped PGN key used the wrong trusted bridge command"
+  );
+  pgnBindings.ArrowDown = "pgn.next_item";
+  delete pgnBindings.j;
 
   for (const modifier of ["altKey", "ctrlKey", "shiftKey", "metaKey"]) {
     const beforeModified = calls.length;

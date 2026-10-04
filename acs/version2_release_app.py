@@ -252,20 +252,27 @@ def _share_v2_action_registry(
 ):
     """Make Stage 1 keymap editing and V2 routing use one persisted registry.
 
-    Existing Stage 1 remaps are copied into the wider V2 registry first.  The
-    KeymapService then points at that exact object, so keyboard resolution,
-    WebView commands and the native Windows menu cannot drift into parallel
-    command maps during the V2 release.
+    Production ``KeymapService`` re-adopts the persisted profile against the
+    wider V2/Product definition set before it points at that exact registry.
+    This preserves Product-only remaps across restart (including valid binding
+    swaps that cannot be replayed incrementally) while keeping keyboard
+    resolution, WebView commands and the native Windows menu on one authority.
     """
 
+    registry = application.adapter.registry
+    adopt = getattr(api.keymap_service, "adopt_registry", None)
+    if callable(adopt):
+        return adopt(registry)
+
+    # Compatibility for narrow test doubles/embedders that expose the historical
+    # editor-only service shape. Production KeymapService always takes the
+    # validated adopt_registry path above.
     source = api.keymap_service.editor.registry
     profile = source.to_profile()
     bindings = profile.get("bindings", {})
     aliases = profile.get("aliases", {})
     if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
         raise ValueError("stored keymap profile is invalid")
-
-    registry = application.adapter.registry
     for action_id, value in bindings.items():
         try:
             registry.definition(action_id)
@@ -278,7 +285,6 @@ def _share_v2_action_registry(
         except KeyError:
             continue
         registry.set_alias(action_id, value)
-
     api.keymap_service.editor.registry = registry
     return registry
 

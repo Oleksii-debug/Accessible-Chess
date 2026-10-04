@@ -1,0 +1,192 @@
+name: Keybindings Current Apex DOM and Native
+
+on:
+  pull_request:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - 'acs/full_product_native_menu.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/keybindings.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'acs/ui_keymap_editor.py'
+      - 'acs/ui_keymap_service.py'
+      - 'web/index.html'
+      - 'web/keybindings.json'
+      - 'web/stage1_board_actions.js'
+      - 'web/stage1_release_bootstrap.js'
+      - 'web/full_product_pgn.js'
+      - 'web/full_product_library.js'
+      - 'web/full_product_education.js'
+      - 'tests/js/stage1_terminal_keymap_dom_test.js'
+      - 'tests/js/v2_remapped_keyboard_native_editing_test.js'
+      - 'tests/js/pgn_surface_dom_test.js'
+      - 'tests/js/pgn_tree_keyboard_dom_test.js'
+      - 'tests/js/pgn_tree_boundary_key_ownership_test.js'
+      - 'tests/js/library_surface_dom_test.js'
+      - 'tests/js/education_surface_dom_test.js'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_full_product_pgn_keybindings.py'
+      - 'tests/test_full_product_library_keybindings.py'
+      - 'tests/test_full_product_education_keybindings.py'
+      - 'tests/test_terminal_keybinding_surface_wiring.py'
+      - 'tests/test_keybindings_current_apex_reconvergence.py'
+      - 'tests/test_ui_keymap_service.py'
+      - '.github/workflows/keybindings-current-apex-dom-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keybindings-current-apex-dom-native-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact head and live canonical ancestry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          base_ref="${EVENT_BASE_REF:-converge/books-training-owner-current-20261004-zftrkmo}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          git cat-file -e "$live_base^{commit}"
+
+          if [ -n "$EVENT_BASE_SHA" ]; then
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+          fi
+
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/keybindings-current-apex-core.yml' \
+            '.github/workflows/keybindings-current-apex-dom-native.yml' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_native_menu.py' \
+            'acs/version2_release_app.py' \
+            'acs/keybindings.py' \
+            'acs/ui_keymap_adapter.py' \
+            'acs/ui_keymap_editor.py' \
+            'acs/ui_keymap_service.py' \
+            'tests/js/education_surface_dom_test.js' \
+            'tests/js/library_surface_dom_test.js' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'tests/js/pgn_tree_boundary_key_ownership_test.js' \
+            'tests/js/stage1_terminal_keymap_dom_test.js' \
+            'tests/js/v2_remapped_keyboard_native_editing_test.js' \
+            'tests/test_full_product_education_keybindings.py' \
+            'tests/test_full_product_library_keybindings.py' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_full_product_pgn_keybindings.py' \
+            'tests/test_keybindings_current_apex_reconvergence.py' \
+            'tests/test_ui_keymap_service.py' \
+            'tests/test_terminal_keybinding_surface_wiring.py' \
+            'web/full_product_education.js' \
+            'web/full_product_library.js' \
+            'web/full_product_pgn.js' \
+            'web/index.html' \
+            'web/keybindings.json' \
+            'web/stage1_board_actions.js' \
+            'web/stage1_release_bootstrap.js' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected keybinding convergence scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile current keybinding and native boundary
+        run: >-
+          python -m py_compile
+          acs/full_product_native_menu.py
+          acs/version2_release_app.py
+          acs/full_product_actions.py
+          acs/keybindings.py
+          acs/ui_keymap_adapter.py
+          acs/ui_keymap_editor.py
+          acs/ui_keymap_service.py
+          tests/test_full_product_native_menu.py
+          tests/test_full_product_pgn_keybindings.py
+          tests/test_full_product_library_keybindings.py
+          tests/test_full_product_education_keybindings.py
+          tests/test_terminal_keybinding_surface_wiring.py
+          tests/test_keybindings_current_apex_reconvergence.py
+
+      - name: Parse and execute terminal PGN Library Education DOM contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/stage1_board_actions.js
+          node --check web/stage1_release_bootstrap.js
+          node --check web/full_product_pgn.js
+          node --check web/full_product_library.js
+          node --check web/full_product_education.js
+          node --check tests/js/stage1_terminal_keymap_dom_test.js
+          node --check tests/js/v2_remapped_keyboard_native_editing_test.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
+          node --check tests/js/pgn_tree_boundary_key_ownership_test.js
+          node --check tests/js/library_surface_dom_test.js
+          node --check tests/js/education_surface_dom_test.js
+          node tests/js/stage1_terminal_keymap_dom_test.js
+          node tests/js/v2_remapped_keyboard_native_editing_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
+          node tests/js/pgn_tree_boundary_key_ownership_test.js
+          node tests/js/library_surface_dom_test.js
+          node tests/js/education_surface_dom_test.js
+
+      - name: Execute remappable domain and native menu regressions
+        run: >-
+          python -m unittest -v
+          tests.test_full_product_pgn_keybindings
+          tests.test_full_product_library_keybindings
+          tests.test_full_product_education_keybindings
+          tests.test_terminal_keybinding_surface_wiring
+          tests.test_full_product_native_menu
+          tests.test_keybindings_current_apex_reconvergence
+          tests.test_keybindings
+          tests.test_ui_keymap_adapter
+          tests.test_ui_keymap_service
+          tests.test_ui_keymap_editor
+          tests.test_webview_keymap_bridge_contract
+
+      - name: Execute adjacent keyboard and accessibility regressions
+        run: >-
+          python -m unittest -v
+          tests.test_stage1_board_action_integration
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_nvda_p0_contract
+          tests.test_version2_accessibility_convergence
+
+      - name: Core selftest
+        run: python -m acs.selftest
