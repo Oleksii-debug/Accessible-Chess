@@ -305,6 +305,11 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     total_uncompressed = 0
     for info in infos:
         local_extra_length = _validate_local_zip_header(archive, info)
+        if info.volume != 0:
+            raise _error(
+                "EPUB uses a multi-disk ZIP entry, which OCF does not permit",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
         name = _safe_entry_name(info.filename)
         if name == "mimetype":
             if info.header_offset != 0:
