@@ -1,0 +1,53 @@
+name: Book Document Warning Accessibility
+
+on:
+  push:
+    branches:
+      - fix/book-document-warning-accessibility-20261004-sol56
+    paths:
+      - acs/full_product_presenters.py
+      - tests/test_book_document_warning_accessibility.py
+      - tests/js/book_document_warning_accessibility_dom_test.js
+      - .github/workflows/book-document-warning-accessibility.yml
+  pull_request:
+    paths:
+      - acs/full_product_presenters.py
+      - tests/test_book_document_warning_accessibility.py
+      - tests/js/book_document_warning_accessibility_dom_test.js
+      - .github/workflows/book-document-warning-accessibility.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  warning-accessibility:
+    name: Retained warnings remain readable and private
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile changed Python surfaces
+        run: >-
+          python -m compileall -q
+          acs/full_product_presenters.py
+          tests/test_book_document_warning_accessibility.py
+
+      - name: Run retained warning regressions
+        run: python -m unittest -v tests.test_book_document_warning_accessibility
+
+      - name: Run existing Book projection regressions
+        run: python -m unittest -v tests.test_dev1_books_training_webview_projection
+
+      - name: Run retained warning DOM regression
+        run: node tests/js/book_document_warning_accessibility_dom_test.js
+
+      - name: Run executable Books and Training DOM regressions
+        run: node tests/js/books_training_surface_dom_test.js
