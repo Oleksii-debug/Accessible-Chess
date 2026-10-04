@@ -1,15 +1,20 @@
 name: EPUB Application Reachability
 
 on:
+  push:
+    branches:
+      - integration/hardened-epub-package-identity-20261004-sol6p3
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - integration/full-product-apex-books-training-regressions-20261004
     paths:
       - 'acs/book_epub_import.py'
       - 'acs/version2_application.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
       - 'tests/test_epub_application_reachability_workflow.py'
       - 'tests/test_v2_book_epub_import.py'
+      - 'tests/test_v2_book_epub_package_contract.py'
       - 'tests/test_v2_native_dialog_language.py'
       - 'tests/test_version2_epub_application_reachability.py'
       - '.github/workflows/epub-application-reachability.yml'
@@ -51,27 +56,31 @@ jobs:
           test "$(git merge-base "$product" HEAD)" = "$product"
           git diff --check "$product" HEAD
 
-          # Parser changes require an atomic, exact reviewed successor pair.
-          # Once that pair is integrated into Product, ordinary descendants take
+          # Parser changes require an atomic, exact reviewed hardening set.
+          # Once that set is integrated into Product, ordinary descendants take
           # the first branch and remain byte-locked to then-current Product.
           parser_path='acs/book_epub_import.py'
           parser_test_path='tests/test_v2_book_epub_import.py'
+          package_contract_test_path='tests/test_v2_book_epub_package_contract.py'
           product_parser="$(git rev-parse "$product:$parser_path")"
           product_parser_test="$(git rev-parse "$product:$parser_test_path")"
           candidate_parser="$(git rev-parse "HEAD:$parser_path")"
           candidate_parser_test="$(git rev-parse "HEAD:$parser_test_path")"
-          successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'
-          successor_parser_test='dce2f3042a254e2b6130ebbb2762c87acb9358bb'
+          candidate_package_contract_test="$(git rev-parse "HEAD:$package_contract_test_path")"
+          package_identity_successor_parser='13d304826900d5ab25586fa7a0de0ee73c25a4b2'
+          package_identity_successor_parser_test='de189065192ca1c0bd30ce1ecec559e8f61cc1bc'
+          package_identity_successor_contract_test='c0904af9b42e5cd50cf2a240145fd3cd0bfde9d2'
 
           if test "$candidate_parser" = "$product_parser" && \
              test "$candidate_parser_test" = "$product_parser_test"; then
             :
-          elif test "$candidate_parser" = "$successor_parser" && \
-               test "$candidate_parser_test" = "$successor_parser_test"; then
-            echo "EPUB_XML_DECLARATION_SUCCESSOR=EXACT"
+          elif test "$candidate_parser" = "$package_identity_successor_parser" && \
+               test "$candidate_parser_test" = "$package_identity_successor_parser_test" && \
+               test "$candidate_package_contract_test" = "$package_identity_successor_contract_test"; then
+            echo "EPUB_PACKAGE_IDENTITY_SUCCESSOR=EXACT"
           else
-            printf 'EPUB parser/test drift requires an exact reviewed successor pair: parser=%s test=%s\n' \
-              "$candidate_parser" "$candidate_parser_test" >&2
+            printf 'EPUB parser/test drift requires an exact reviewed hardening set: parser=%s test=%s contract=%s\n' \
+              "$candidate_parser" "$candidate_parser_test" "$candidate_package_contract_test" >&2
             exit 1
           fi
 
@@ -105,6 +114,7 @@ jobs:
           acs/version2_windows_native_dialog_ownership.py
           tests/test_epub_application_reachability_workflow.py
           tests/test_v2_book_epub_import.py
+          tests/test_v2_book_epub_package_contract.py
           tests/test_v2_native_dialog_language.py
           tests/test_version2_epub_application_reachability.py
 
@@ -114,6 +124,7 @@ jobs:
           tests.test_epub_application_reachability_workflow
           tests.test_version2_epub_application_reachability
           tests.test_v2_book_epub_import
+          tests.test_v2_book_epub_package_contract
           tests.test_v2_native_dialog_language
           tests.test_version2_application
           tests.test_bookreader

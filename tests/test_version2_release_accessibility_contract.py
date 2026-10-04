@@ -10,6 +10,7 @@ HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
 SHELL = (ROOT / "acs" / "full_product_ui_shell.py").read_text(encoding="utf-8")
 PGN_PROJECTION = (ROOT / "acs" / "pgn_webview_projection.py").read_text(encoding="utf-8")
 BOOK_PROJECTION = (ROOT / "acs" / "book_webview_projection.py").read_text(encoding="utf-8")
+TRAINING_SURFACE = (ROOT / "web" / "full_product_books_training.js").read_text(encoding="utf-8")
 WINDOWS_COMPOSITION = (ROOT / ".github" / "workflows" / "version2-windows-composition.yml").read_text(encoding="utf-8")
 
 
@@ -75,6 +76,15 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
 
+    def test_training_shell_focus_names_the_real_answer_control(self) -> None:
+        self.assertIn('default_focus_id="training-answer"', SHELL)
+        self.assertNotIn('default_focus_id="training-prompt"', SHELL)
+        self.assertIn('input.id = "training-answer";', TRAINING_SURFACE)
+        self.assertIn(
+            'const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;',
+            BOOTSTRAP,
+        )
+
     def test_focus_targets_under_hidden_routes_are_never_programmatically_focused(self) -> None:
         self.assertIn('function hiddenByAncestor(target)', BOOTSTRAP)
         self.assertIn('if (node.hidden) return true;', BOOTSTRAP)
@@ -112,6 +122,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         library_end = BOOTSTRAP.index('    if (routeId === "books") {', library_start)
         library = BOOTSTRAP[library_start:library_end]
         self.assertIn('renderEmptyProduct(routeId, heading);', library)
+        self.assertIn(
+            'const requestedFocus = validFocusId(screen.focus_target)',
+            BOOTSTRAP,
+        )
+        self.assertIn('? screen.focus_target', BOOTSTRAP)
+        self.assertNotIn('const requestedFocus = String(screen.focus_target || "");', BOOTSTRAP)
         self.assertIn('const heading = String(screen.heading || "");', BOOTSTRAP)
 
     def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
@@ -120,8 +136,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         focus_handler = BOOTSTRAP[focus_start:focus_end]
         skip = 'if (target.id.indexOf("v2-nav-") === 0) return;'
         record = 'bridge.v2_record_focus(target.id)'
+        self.assertIn('const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;', BOOTSTRAP)
+        self.assertIn('function validFocusId(value)', BOOTSTRAP)
+        self.assertIn('if (!target || !validFocusId(target.id)) return;', focus_handler)
         self.assertIn(skip, focus_handler)
         self.assertIn(record, focus_handler)
+        self.assertLess(focus_handler.index('validFocusId(target.id)'), focus_handler.index(record))
         self.assertLess(focus_handler.index(skip), focus_handler.index(record))
 
     def test_library_import_events_patch_only_the_import_region(self) -> None:
@@ -163,7 +183,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (event.kind === "delegated")', queued)
         self.assertIn('if (actionId && !isVersion2DomainAction(actionId)) {', queued)
-        self.assertIn('refreshStage1Surface();', queued)
+        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface);', queued)
         self.assertIn('return false;', queued)
 
     def test_book_board_repaint_is_an_awaited_focus_barrier(self) -> None:
@@ -171,28 +191,35 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         apply_end = BOOTSTRAP.index('  function drainEvents()', apply_start)
         queued = BOOTSTRAP[apply_start:apply_end]
         self.assertIn('if (event.kind === "book-board")', queued)
-        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface());', queued)
+        self.assertIn('orderedStage1Refreshes.push(refreshStage1Surface);', queued)
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
         self.assertIn('const orderedStage1Refreshes = [];', drain)
-        self.assertIn('const repaintBarrier = orderedStage1Refreshes.length', drain)
-        self.assertIn('Promise.all(orderedStage1Refreshes)', drain)
-        self.assertIn('return refresh(true);', drain)
+        self.assertIn('const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {', drain)
+        self.assertIn('return chain.then(function () { return refreshStage1(); });', drain)
+        self.assertIn('return repaintBarrier.then(function () {', drain)
+        self.assertIn('return needsRefresh ? refresh(true) : undefined;', drain)
 
     def test_native_event_batch_restores_final_route_then_visible_explicit_focus(self) -> None:
         self.assertIn('<button id="board-launcher" type="button">', HTML)
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
         drain = BOOTSTRAP[drain_start:drain_end]
+        self.assertIn('const MAX_NATIVE_EVENT_BATCH = 64;', BOOTSTRAP)
+        self.assertIn(
+            'events.length > MAX_NATIVE_EVENT_BATCH',
+            drain,
+        )
         self.assertIn('let queuedFocusTarget = "";', drain)
-        self.assertIn('const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";', drain)
-        self.assertIn('if (candidate) queuedFocusTarget = candidate;', drain)
-        self.assertIn('return refresh(true);', drain)
-        self.assertIn('if (queuedFocusTarget) focusById(queuedFocusTarget);', drain)
+        self.assertIn('const candidate = payload.focus_target;', drain)
+        self.assertIn('if (validFocusId(candidate)) queuedFocusTarget = candidate;', drain)
+        self.assertNotIn('if (candidate) queuedFocusTarget = candidate;', drain)
+        self.assertIn('return needsRefresh ? refresh(true) : undefined;', drain)
+        self.assertIn('if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);', drain)
         self.assertLess(
-            drain.index('return refresh(true);'),
-            drain.index('if (queuedFocusTarget) focusById(queuedFocusTarget);'),
+            drain.index('return needsRefresh ? refresh(true) : undefined;'),
+            drain.index('if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);'),
         )
 
     def test_windows_composition_executes_behavioral_v2_bootstrap_smoke(self) -> None:

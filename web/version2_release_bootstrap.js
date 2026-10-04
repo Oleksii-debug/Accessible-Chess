@@ -10,9 +10,58 @@
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
+  let eventDrainInFlight = false;
+  let eventDrainPending = false;
+  const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+  const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
+  const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
+  const MAX_NATIVE_EVENT_BATCH = 64;
+  const MAX_NAVIGATION_ITEMS = 32;
+  const MAX_NAVIGATION_LABEL = 240;
+  const MAX_SCREEN_HEADING = 600;
+  const MAX_ANNOUNCEMENT_TEXT = 1200;
+  const NATIVE_EVENT_KINDS = new Set([
+    "route",
+    "delegated",
+    "book-board",
+    "render-import",
+    "status",
+    "error",
+    "render",
+    "dialog-open",
+    "dialog-close"
+  ]);
+
+  function validFocusId(value) {
+    return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
+  }
+
+  function validRouteId(value) {
+    return typeof value === "string" && ROUTE_ID_PATTERN.test(value);
+  }
+
+  function validActionId(value) {
+    return typeof value === "string" && ACTION_ID_PATTERN.test(value);
+  }
+
+  function boundedText(value, limit) {
+    return typeof value === "string" &&
+      value.length <= limit &&
+      value.indexOf("\x00") < 0
+      ? value
+      : "";
+  }
+
+  function plainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function uiTextFor(language, uk, en) {
+    return language === "en" ? en : uk;
+  }
 
   function uiText(uk, en) {
-    return currentLanguage === "en" ? en : uk;
+    return uiTextFor(currentLanguage, uk, en);
   }
 
   function api() {
@@ -20,9 +69,10 @@
   }
 
   function announce(message) {
-    if (!message) return;
+    const text = boundedText(message, MAX_ANNOUNCEMENT_TEXT);
+    if (!text) return;
     live.textContent = "";
-    global.setTimeout(function () { live.textContent = String(message).slice(0, 300); }, 20);
+    global.setTimeout(function () { live.textContent = text.slice(0, 300); }, 20);
   }
 
   const nav = documentRef.createElement("nav");
@@ -66,7 +116,7 @@
   }
 
   function focusById(id) {
-    if (!id) return false;
+    if (!validFocusId(id)) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
@@ -78,19 +128,37 @@
 
   function restoreStage1Focus(routeId, requestedFocus) {
     if (focusById(requestedFocus)) return true;
-    return focusById(stage1Focus[routeId] || "");
+    if (focusById(stage1Focus[routeId] || "")) return true;
+    // Stage 1 does not yet own route-local DOM targets for every canonical
+    // shell module (notably Teacher/Classes). Never leave keyboard/NVDA focus
+    // stale on the previous route: the current navigation button is the safe
+    // canonical fallback until that route supplies its own surface target.
+    return focusById("v2-nav-" + routeId);
   }
 
   function productSurfaceFocusTarget(snapshot, routeId) {
     if (routeId === "pgn" && snapshot.pgn && typeof snapshot.pgn === "object") {
-      return String(snapshot.pgn.focus_target || "");
+      return validFocusId(snapshot.pgn.focus_target) ? snapshot.pgn.focus_target : "";
     }
     if (routeId === "books" && snapshot.books && typeof snapshot.books === "object") {
       const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
-      return String(block.dom_id || "");
+      return validFocusId(block.dom_id) ? block.dom_id : "";
     }
     if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
-      return "training-answer";
+      const training = snapshot.training;
+      const answer = training.answer && typeof training.answer === "object"
+        ? training.answer
+        : {};
+      if (answer.disabled !== true) return "training-answer";
+      const actions = Array.isArray(training.actions) ? training.actions : [];
+      const continueAction = actions.find(function (action) {
+        return action && action.command === "training.continue" && action.enabled === true;
+      });
+      if (continueAction) return "training-action-continue";
+      const resetAction = actions.find(function (action) {
+        return action && action.command === "training.reset.request" && action.enabled === true;
+      });
+      return resetAction ? "training-action-reset" : "";
     }
     return emptyStatusId(routeId);
   }
@@ -103,29 +171,30 @@
     return focusById("v2-nav-" + routeId);
   }
 
-  function renderEmptyProduct(routeId, heading) {
+  function renderEmptyProduct(routeId, heading, language) {
     const title = documentRef.createElement("h2");
     const fallbackHeading = routeId === "pgn"
       ? "PGN"
       : routeId === "library"
-        ? uiText("Бібліотека", "Library")
+        ? uiTextFor(language, "Бібліотека", "Library")
         : routeId === "training"
-          ? uiText("Тренування", "Training")
-          : uiText("Книги", "Books");
-    title.textContent = String(heading || fallbackHeading);
+          ? uiTextFor(language, "Тренування", "Training")
+          : uiTextFor(language, "Книги", "Books");
+    title.textContent = boundedText(heading, MAX_SCREEN_HEADING) || fallbackHeading;
     const status = documentRef.createElement("p");
     status.id = emptyStatusId(routeId);
     status.tabIndex = -1;
     status.textContent = routeId === "pgn"
-      ? uiText("PGN ще не відкрито.", "No PGN is open yet.")
+      ? uiTextFor(language, "PGN ще не відкрито.", "No PGN is open yet.")
       : routeId === "library"
-        ? uiText("Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")
+        ? uiTextFor(language, "Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")
         : routeId === "training"
-          ? uiText(
+          ? uiTextFor(
+            language,
             "Відкрийте книгу, перейдіть до блоку «Вправа», а потім відкрийте Тренування.",
             "Open a book, move to an Exercise block, then open Training."
           )
-          : uiText("Книгу ще не відкрито.", "No book is open yet.");
+          : uiTextFor(language, "Книгу ще не відкрито.", "No book is open yet.");
     workspace.replaceChildren(title, status);
   }
 
@@ -151,61 +220,126 @@
   }
 
   function renderNavigation(snapshot) {
-    const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
+    if (!Array.isArray(snapshot.navigation) ||
+        snapshot.navigation.length < 1 ||
+        snapshot.navigation.length > MAX_NAVIGATION_ITEMS) {
+      throw new TypeError("V2 navigation schema is invalid");
+    }
+    const routeIds = new Set();
+    const currentRouteIds = new Set();
     const fragment = documentRef.createDocumentFragment();
-    items.forEach(function (item) {
+    snapshot.navigation.forEach(function (item) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      const routeId = item.route_id;
+      const actionId = item.action_id;
+      const label = boundedText(item.label, MAX_NAVIGATION_LABEL);
+      const current =
+        item.current === true || item.current === "true"
+          ? true
+          : item.current === false || item.current === "false"
+            ? false
+            : null;
+      if (!validRouteId(routeId) || !validActionId(actionId) || !label ||
+          current === null || routeIds.has(routeId)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      routeIds.add(routeId);
+      if (current) currentRouteIds.add(routeId);
+
       const row = documentRef.createElement("li");
       const button = documentRef.createElement("button");
       button.type = "button";
-      button.id = "v2-nav-" + String(item.route_id || "");
-      button.textContent = String(item.label || item.route_id || "");
-      if (String(item.current) === "true") button.setAttribute("aria-current", "page");
+      button.id = "v2-nav-" + routeId;
+      button.textContent = label;
+      if (current) button.setAttribute("aria-current", "page");
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
-        bridge.v2_browser_command("shell", String(item.action_id || ""), {}).then(function (result) {
+        bridge.v2_browser_command("shell", actionId, {}).then(function (result) {
           if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
-          refresh(true);
+          return refresh(true).catch(function () {
+            announce(uiText("Не вдалося відкрити розділ.", "Could not open the section."));
+          });
         }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
       });
       row.appendChild(button);
       fragment.appendChild(row);
     });
-    navList.replaceChildren(fragment);
+    return {
+      routeIds: routeIds,
+      currentRouteIds: currentRouteIds,
+      fragment: fragment
+    };
   }
 
-  function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {
-    originalMain.hidden = true;
-    workspace.hidden = false;
+  function commitShellChrome(navigationState, language, routeId) {
+    currentLanguage = language;
+    documentRef.documentElement.lang = language;
+    nav.setAttribute(
+      "aria-label",
+      uiTextFor(language, "Розділи Accessible Chess", "Accessible Chess sections")
+    );
+    navHeading.textContent = uiTextFor(language, "Розділи", "Sections");
+    navList.replaceChildren(navigationState.fragment);
+    currentRouteId = routeId;
+  }
+
+  function renderProductSurface(
+    snapshot,
+    routeId,
+    requestedFocus,
+    heading,
+    language
+  ) {
     if (routeId === "pgn") {
       if (snapshot.pgn && global.AccessibleChessPgnSurface) {
-        global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
+        global.AccessibleChessPgnSurface.render(
+          workspace,
+          snapshot.pgn,
+          areaInvoke("pgn"),
+          announce,
+          requestedFocus || ""
+        );
       } else {
-        renderEmptyProduct(routeId, heading);
+        renderEmptyProduct(routeId, heading, language);
       }
-      if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
-      return;
+      return requestedFocus;
     }
     if (routeId === "library") {
       if (snapshot.library && global.AccessibleChessLibrarySurface) {
-        global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
+        global.AccessibleChessLibrarySurface.render(
+          workspace,
+          snapshot.library,
+          areaInvoke("library"),
+          announce,
+          requestedFocus || ""
+        );
       } else {
-        renderEmptyProduct(routeId, heading);
+        renderEmptyProduct(routeId, heading, language);
       }
-      if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
-      return;
+      return requestedFocus;
     }
     if (routeId === "books") {
       if (snapshot.books && global.AccessibleChessBookSurface) {
-        global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
+        global.AccessibleChessBookSurface.render(
+          workspace,
+          snapshot.books,
+          areaInvoke("books"),
+          announce,
+          requestedFocus || ""
+        );
       } else {
-        renderEmptyProduct(routeId, heading);
+        renderEmptyProduct(routeId, heading, language);
       }
-      if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
-      return;
+      return requestedFocus;
     }
     if (routeId === "training") {
-      const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
+      const focus =
+        requestedFocus === "training-prompt"
+          ? "training-answer"
+          : requestedFocus;
       if (snapshot.training && global.AccessibleChessTrainingSurface) {
         global.AccessibleChessTrainingSurface.render(
           workspace,
@@ -215,30 +349,79 @@
           focus || "training-answer"
         );
       } else {
-        renderEmptyProduct(routeId, heading);
+        renderEmptyProduct(routeId, heading, language);
       }
-      if (restoreFocus) restoreProductFocus(snapshot, routeId, focus);
+      return focus;
     }
+    throw new TypeError("unsupported V2 product route");
   }
 
   function render(snapshot, restoreFocus) {
-    if (!snapshot || typeof snapshot !== "object") return;
-    currentLanguage = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
-    documentRef.documentElement.lang = currentLanguage;
-    nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
-    navHeading.textContent = uiText("Розділи", "Sections");
-    renderNavigation(snapshot);
-    const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
-    const routeId = String(screen.route_id || "board");
-    currentRouteId = routeId;
-    const requestedFocus = String(screen.focus_target || "");
-    const heading = String(screen.heading || "");
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return;
 
-    if (routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training") {
-      renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
+    const nextLanguage =
+      snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
+    const screen =
+      snapshot.screen &&
+      typeof snapshot.screen === "object" &&
+      !Array.isArray(snapshot.screen)
+        ? snapshot.screen
+        : {};
+    const routeId = screen.route_id;
+    const heading = boundedText(screen.heading, MAX_SCREEN_HEADING);
+    if (!validRouteId(routeId) || !heading) {
+      throw new TypeError("V2 screen schema is invalid");
+    }
+
+    // Build and validate the next navigation tree without publishing it.
+    // A malformed product snapshot must not advance shell route/aria-current
+    // state or hide the currently usable surface.
+    const navigationState = renderNavigation(snapshot);
+    if (
+      !navigationState.routeIds.has(routeId) ||
+      navigationState.currentRouteIds.size !== 1 ||
+      !navigationState.currentRouteIds.has(routeId)
+    ) {
+      throw new TypeError("V2 navigation current-route contract is invalid");
+    }
+
+    const requestedFocus = validFocusId(screen.focus_target)
+      ? screen.focus_target
+      : "";
+
+    if (
+      routeId === "pgn" ||
+      routeId === "library" ||
+      routeId === "books" ||
+      routeId === "training"
+    ) {
+      const workspaceWasHidden = workspace.hidden;
+      const productFocus = renderProductSurface(
+        snapshot,
+        routeId,
+        requestedFocus,
+        heading,
+        nextLanguage
+      );
+
+      // Only a fully rendered product surface may commit the shell state.
+      commitShellChrome(navigationState, nextLanguage, routeId);
+      originalMain.hidden = true;
+      workspace.hidden = false;
+
+      // If the workspace was hidden during render, a surface-level focus call
+      // could not be relied on. Re-establish canonical product focus after the
+      // visibility commit even when this refresh was not explicitly a focus
+      // restoration request.
+      if (restoreFocus || workspaceWasHidden) {
+        restoreProductFocus(snapshot, routeId, productFocus);
+      }
       return;
     }
 
+    // Stage-1 fallback focus may target the newly committed navigation button,
+    // so publish navigation before restoring Stage-1 focus.
+    commitShellChrome(navigationState, nextLanguage, routeId);
     workspace.hidden = true;
     workspace.replaceChildren();
     originalMain.hidden = false;
@@ -274,8 +457,11 @@
   }
 
   function applyQueuedEvent(event, orderedStage1Refreshes) {
-    if (!event || typeof event !== "object") return false;
-    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    if (!plainObject(event) || !NATIVE_EVENT_KINDS.has(event.kind)) return false;
+    if (!plainObject(event.payload)) return false;
+    const payload = event.payload;
+    if (event.kind === "route" && !validRouteId(payload.route_id)) return false;
+    if (event.kind === "delegated" && !validActionId(payload.action_id)) return false;
     if (event.kind === "render-import") {
       if (currentRouteId === "library" && global.AccessibleChessLibrarySurface &&
           typeof global.AccessibleChessLibrarySurface.apply === "function") {
@@ -290,53 +476,71 @@
       return false;
     }
     if (event.kind === "delegated") {
-      const actionId = typeof payload.action_id === "string" ? payload.action_id : "";
+      const actionId = payload.action_id;
       if (delegatedHasOwnPresentationEvent(actionId)) return false;
+      if (actionId === "pgn.open_on_board") {
+        orderedStage1Refreshes.push(refreshStage1Surface);
+      }
       if (actionId && !isVersion2DomainAction(actionId)) {
-        refreshStage1Surface();
+        orderedStage1Refreshes.push(refreshStage1Surface);
         return false;
       }
     }
     if (event.kind === "book-board") {
-      orderedStage1Refreshes.push(refreshStage1Surface());
+      orderedStage1Refreshes.push(refreshStage1Surface);
     }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
     return event.kind !== "error" && event.kind !== "status";
   }
 
+  function finishEventDrain() {
+    eventDrainInFlight = false;
+    if (!eventDrainPending) return;
+    eventDrainPending = false;
+    drainEvents();
+  }
+
   function drainEvents() {
+    if (eventDrainInFlight) {
+      eventDrainPending = true;
+      return;
+    }
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
-    bridge.v2_drain_events().then(function (events) {
-      if (!Array.isArray(events) || !events.length) return;
+    eventDrainInFlight = true;
+    eventDrainPending = false;
+    let drained;
+    try {
+      drained = bridge.v2_drain_events();
+    } catch (_) {
+      finishEventDrain();
+      return;
+    }
+    Promise.resolve(drained).then(function (events) {
+      if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
       let needsRefresh = false;
-      let queuedFocusTarget = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
         const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
-        if (!refreshRequired) return;
-        needsRefresh = true;
-        const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
-        if (candidate) queuedFocusTarget = candidate;
+        if (refreshRequired) needsRefresh = true;
       });
-      if (needsRefresh) {
-        const repaintBarrier = orderedStage1Refreshes.length
-          ? Promise.all(orderedStage1Refreshes)
-          : Promise.resolve();
-        repaintBarrier.then(function () {
-          return refresh(true);
-        }).then(function () {
-          if (queuedFocusTarget) focusById(queuedFocusTarget);
-        }, function () {});
-      }
-    }, function () {});
+      if (!needsRefresh && !orderedStage1Refreshes.length) return;
+      const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {
+        return chain.then(function () { return refreshStage1(); });
+      }, Promise.resolve());
+      return repaintBarrier.then(function () {
+        // refresh(true) is the only focus authority. Native event payloads may
+        // request canonical re-rendering, but never apply a second raw DOM
+        // focus target after the snapshot has restored focus.
+        return needsRefresh ? refresh(true) : undefined;
+      });
+    }).then(finishEventDrain, finishEventDrain);
   }
 
   documentRef.addEventListener("focusin", function (event) {
     const target = event.target;
-    if (!target || !target.id || !/^[A-Za-z0-9_-]{1,160}$/.test(target.id)) return;
+    if (!target || !validFocusId(target.id)) return;
     if (target.id.indexOf("v2-nav-") === 0) return;
     const bridge = api();
     if (bridge && typeof bridge.v2_record_focus === "function") {

@@ -110,9 +110,13 @@ def _make_tree(root: Path) -> None:
         "full_product_education.js",
         "version2_final_product_bootstrap.js",
         "version2_release_bootstrap.js",
+        "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+        "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
     )
     for name in web_files:
-        (web / name).write_text(f"// fixture {name}\n", encoding="utf-8")
+        path = web / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"// fixture {name}\n", encoding="utf-8")
 
     assets = product / "assets"
     assets.mkdir()
@@ -732,6 +736,8 @@ class Version2PackagePreflightTests(unittest.TestCase):
             "full_product_teacher.js",
             "full_product_education.js",
             "version2_final_product_bootstrap.js",
+            "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+            "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
         )
         for missing in required:
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as td:
