@@ -689,16 +689,36 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
 
 def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
     manifest = _required_unique_direct_child(package, "manifest")
+    if (manifest.text or "").strip():
+        raise _error(
+            "EPUB manifest contains invalid text content",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     output: dict[str, _ManifestItem] = {}
     resource_owners: dict[str, str] = {}
     for element in manifest:
         if element.tag != _ITEM_TAG:
-            if _local_name(element.tag) == "item":
+            if _local_name(element.tag) == "item" or _is_opf_namespace_tag(element.tag):
                 raise _error(
-                    "EPUB manifest item uses a non-OPF namespace",
+                    "EPUB manifest contains an invalid item element",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            if (element.tail or "").strip():
+                raise _error(
+                    "EPUB manifest contains invalid text content",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
             continue
+        if (element.text or "").strip() or len(element):
+            raise _error(
+                "EPUB manifest item must be empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if (element.tail or "").strip():
+            raise _error(
+                "EPUB manifest contains invalid text content",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
         raw_item_id = element.attrib.get("id")
         media_type = (element.attrib.get("media-type") or "").strip().casefold()
         href = element.attrib.get("href")
@@ -752,22 +772,104 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             "EPUB manifest is empty",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    _validate_manifest_fallback_graph(output)
     return output
+
+
+def _validate_manifest_fallback_graph(
+    manifest: dict[str, _ManifestItem],
+) -> None:
+    for item in manifest.values():
+        if item.fallback is not None and item.fallback not in manifest:
+            raise _error(
+                "EPUB manifest fallback references an unknown item",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
+    for start_id in manifest:
+        seen: set[str] = set()
+        current_id = start_id
+        while True:
+            if current_id in seen:
+                raise _error(
+                    "EPUB manifest fallback chain contains a cycle",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            seen.add(current_id)
+            fallback = manifest[current_id].fallback
+            if fallback is None:
+                break
+            if fallback in seen:
+                raise _error(
+                    "EPUB manifest fallback chain contains a cycle",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            if len(seen) >= 16:
+                raise _error(
+                    "EPUB manifest fallback chain is too deep",
+                    BookEpubImportErrorCode.RESOURCE_LIMIT,
+                )
+            current_id = fallback
+
+
+def _validate_manifest_resources(
+    manifest: dict[str, _ManifestItem],
+    *,
+    package_entry_name: str,
+    archive_index: dict[str, zipfile.ZipInfo],
+) -> None:
+    for item in manifest.values():
+        entry_name = item.entry_name
+        if (
+            entry_name == package_entry_name
+            or entry_name == "mimetype"
+            or entry_name == "META-INF"
+            or entry_name.startswith("META-INF/")
+        ):
+            raise _error(
+                "EPUB manifest references a restricted package resource",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if entry_name not in archive_index:
+            raise _error(
+                "EPUB manifest references a package resource that is unavailable",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
 
 def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
     spine = _required_unique_direct_child(package, "spine")
+    if (spine.text or "").strip():
+        raise _error(
+            "EPUB spine contains invalid text content",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     ids: list[str] = []
     seen_ids: set[str] = set()
     has_linear_item = False
     for element in spine:
         if element.tag != _ITEMREF_TAG:
-            if _local_name(element.tag) == "itemref":
+            if _local_name(element.tag) == "itemref" or _is_opf_namespace_tag(element.tag):
                 raise _error(
-                    "EPUB spine itemref uses a non-OPF namespace",
+                    "EPUB spine contains an invalid itemref element",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            if (element.tail or "").strip():
+                raise _error(
+                    "EPUB spine contains invalid text content",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
             continue
+        if (element.text or "").strip() or len(element):
+            raise _error(
+                "EPUB spine itemref must be empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if (element.tail or "").strip():
+            raise _error(
+                "EPUB spine contains invalid text content",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
         raw_item_id = element.attrib.get("idref")
         if (
             type(raw_item_id) is not str
@@ -939,6 +1041,11 @@ def import_epub_book(
         _validate_package_document(package)
         opf_dir = posixpath.dirname(opf_name)
         manifest = _manifest_items(package, opf_dir)
+        _validate_manifest_resources(
+            manifest,
+            package_entry_name=opf_name,
+            archive_index=index,
+        )
         spine = _spine_ids(package, warnings)
 
         metadata = _direct_child(package, "metadata")
