@@ -45,6 +45,39 @@ if (
     window.__accessibleChessLocalizedActionFailureAnnouncement = true;
 }
 
+function currentKeymapImportLimit() {
+    const snapshot = typeof keymapBase !== 'undefined' ? keymapBase : null;
+    const value = snapshot && snapshot.maxImportBytes;
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function installKeymapImportBoundary() {
+    const input = document.getElementById('key-import');
+    if (!input || typeof input.addEventListener !== 'function') return;
+    input.addEventListener('change', event => {
+        const files = event.target && event.target.files;
+        const file = files && files[0];
+        if (!file) return;
+
+        const limit = currentKeymapImportLimit();
+        const size = file.size;
+        if (limit !== null && Number.isSafeInteger(size) && size >= 0 && size <= limit) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.target) event.target.value = '';
+        const en = document.documentElement.lang === 'en';
+        const message = limit === null
+            ? (en ? 'Keyboard profile import is unavailable.' : 'Імпорт профілю клавіш недоступний.')
+            : (en ? 'Keyboard profile is too large.' : 'Профіль клавіш завеликий.');
+        const summary = document.getElementById('key-conflict-summary');
+        if (summary) summary.textContent = message;
+        if (typeof announce === 'function') announce(message);
+    }, {capture: true});
+}
+
+installKeymapImportBoundary();
+
 const boardPythonActions = new Set([
     'board.current', 'board.last_captured', 'board.last_move', 'board.my_clock',
     'board.opponent_clock', 'board.legal_moves', 'board.captures',
