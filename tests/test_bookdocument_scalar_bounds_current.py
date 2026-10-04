@@ -70,9 +70,11 @@ class BookDocumentScalarBoundsCurrentTests(unittest.TestCase):
                 Game(pgn="    ", game_id=1)
 
     def test_variation_and_exercise_use_pgn_specific_not_visible_text_cap(self) -> None:
-        pgn = "1. e4 e5 *"
+        # Keep valid FEN/visible fields inside their own envelope while making
+        # the PGN deliberately larger than the visible-text ceiling.
+        pgn = "x" * (len(FEN) + 1)
         with (
-            patch("acs.bookdocument.MAX_BOOK_TEXT_FIELD_CHARS", 4),
+            patch("acs.bookdocument.MAX_BOOK_TEXT_FIELD_CHARS", len(FEN)),
             patch("acs.bookdocument.MAX_BOOK_PGN_CHARS", len(pgn)),
         ):
             variation = VariationTree(root_fen=FEN, pgn=pgn, title="Tree")
@@ -127,16 +129,22 @@ class BookDocumentScalarBoundsCurrentTests(unittest.TestCase):
                 ListBlock(items=["x"])
 
     def test_exact_scalar_and_list_limits_are_accepted(self) -> None:
+        with patch("acs.bookdocument.MAX_BOOK_TEXT_FIELD_CHARS", 3):
+            paragraph = Paragraph(text="abc")
+
+        with patch("acs.bookdocument.MAX_BOOK_PGN_CHARS", 3):
+            game = Game(pgn="e4*", title="ok")
+
         with (
-            patch("acs.bookdocument.MAX_BOOK_TEXT_FIELD_CHARS", 3),
-            patch("acs.bookdocument.MAX_BOOK_PGN_CHARS", 3),
             patch("acs.bookdocument.MAX_BOOK_LIST_ITEMS", 2),
             patch("acs.bookdocument.MAX_BOOK_LIST_TOTAL_CHARS", 2),
+        ):
+            list_block = ListBlock(items=["a", "b"])
+
+        with (
+            patch("acs.bookdocument.MAX_BOOK_TEXT_FIELD_CHARS", len(FEN)),
             patch("acs.bookdocument.MAX_FEN_CHARS", len(FEN)),
         ):
-            paragraph = Paragraph(text="abc")
-            game = Game(pgn="e4*", title="abc")
-            list_block = ListBlock(items=["a", "b"])
             position = Position(fen=FEN)
 
         self.assertEqual(paragraph.text, "abc")
