@@ -14,6 +14,7 @@ import scripts.build_owner_portable_candidate as owner_candidate
 
 _SHA = "a" * 40
 _ARCHIVE_SHA = "b" * 64
+_PACKAGE_CHECKSUM_SHA = "e" * 64
 
 
 def _digest(payload: bytes) -> str:
@@ -115,6 +116,7 @@ def _portable_report(root: Path) -> Version2PortablePackageReport:
         integration_sha=_SHA,
         inventory=(),
         total_bytes=1,
+        checksum_sha256=_PACKAGE_CHECKSUM_SHA,
     )
 
 
@@ -150,6 +152,7 @@ class OwnerPortableCandidateValidationTests(unittest.TestCase):
             )
             self.assertEqual(report["sound_wav_count"], 330)
             self.assertEqual(report["sound_inventory_sha256"], fingerprint)
+            self.assertEqual(report["package_checksum_sha256"], _PACKAGE_CHECKSUM_SHA)
             self.assertEqual(report["seed_source_count"], 6)
             self.assertEqual(report["seed_game_count"], 6)
 
@@ -314,6 +317,41 @@ class OwnerPortableCandidateValidationTests(unittest.TestCase):
                     )
 
 
+    def test_owner_gate_requires_canonical_checksum_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "candidate"
+            fingerprint = _owner_tree(root)
+            unpinned = Version2PortablePackageReport(
+                package_root=root,
+                integration_sha=_SHA,
+                inventory=(),
+                total_bytes=1,
+            )
+            with (
+                mock.patch.object(
+                    owner_candidate,
+                    "validate_portable_oneclick_tree",
+                    return_value=unpinned,
+                ),
+                mock.patch.object(
+                    owner_candidate,
+                    "EXPECTED_SOURCE_INVENTORY_SHA256",
+                    fingerprint,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    owner_candidate.OwnerPortableCandidateError,
+                    "checksum snapshot SHA-256 is invalid",
+                ):
+                    owner_candidate.validate_owner_portable_candidate_tree(
+                        root,
+                        expected_integration_sha=_SHA,
+                        expected_sound_archive_sha256=_ARCHIVE_SHA,
+                        expected_seed_source_count=6,
+                        expected_seed_game_count=6,
+                    )
+
+
 class OwnerPortableCandidateAssemblyTests(unittest.TestCase):
     def test_builder_binds_doc_hashes_and_requires_seed_in_both_package_stages(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -343,6 +381,7 @@ class OwnerPortableCandidateAssemblyTests(unittest.TestCase):
                 "sound_archive_sha256": _ARCHIVE_SHA,
                 "sound_inventory_sha256": "d" * 64,
                 "sound_wav_count": 330,
+                "package_checksum_sha256": _PACKAGE_CHECKSUM_SHA,
                 "seed_source_count": 6,
                 "seed_game_count": 3738,
             }
@@ -398,8 +437,10 @@ class OwnerPortableCandidateAssemblyTests(unittest.TestCase):
                 archive,
                 expected_integration_sha=_SHA,
                 require_user_seed=True,
+                expected_checksum_sha256=_PACKAGE_CHECKSUM_SHA,
             )
             self.assertEqual(report.archive_sha256, _digest(b"zip"))
+            self.assertEqual(report.package_checksum_sha256, _PACKAGE_CHECKSUM_SHA)
             self.assertEqual(report.sound_wav_count, 330)
             self.assertEqual(report.seed_game_count, 3738)
 
