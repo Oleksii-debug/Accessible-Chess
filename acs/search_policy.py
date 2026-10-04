@@ -29,21 +29,25 @@ def normalize_search_text(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).split())
 
 
+def _require_bounded_raw_search_text(value: str, *, name: str) -> None:
+    """Reject oversized caller text before Unicode normalization allocates copies."""
+    if len(value) > MAX_RAW_SEARCH_TERM_CHARS:
+        raise ValueError(
+            f"{name} exceeds maximum raw search term length of "
+            f"{MAX_RAW_SEARCH_TERM_CHARS} characters"
+        )
+
+
 def normalize_search_term(value: str | None, *, name: str) -> str | None:
     """Validate and normalize one bounded optional user-facing search term."""
     if value is None:
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
-    # Bound raw caller input before Unicode normalization/splitting allocates a
-    # normalized copy. BookIndex already applies this same 4096-character fence
-    # to its direct search query before delegating here; Library/ACSDB callers
-    # must receive the same resource envelope through the shared policy itself.
-    if len(value) > MAX_RAW_SEARCH_TERM_CHARS:
-        raise ValueError(
-            f"{name} exceeds maximum raw search term length of "
-            f"{MAX_RAW_SEARCH_TERM_CHARS} characters"
-        )
+    # BookIndex already applies this same 4096-character fence to its direct
+    # search query before delegating here. Library/ACSDB callers must receive the
+    # same pre-normalization resource envelope through the shared policy itself.
+    _require_bounded_raw_search_text(value, name=name)
     normalized = normalize_search_text(value)
     if len(normalized) > MAX_SEARCH_TERM_CHARS:
         raise ValueError(
@@ -167,6 +171,7 @@ def normalize_search_date_bound(value: object | None, *, name: str) -> str | Non
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
+    _require_bounded_raw_search_text(value, name=name)
     normalized = unicodedata.normalize("NFKC", value).strip()
     key = search_date_key(normalized)
     if key is None:
