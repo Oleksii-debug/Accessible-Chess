@@ -90,6 +90,10 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         )
         self.assertIn("o.textContent=keymapContextLabel(ctx)", HTML)
         self.assertIn(
+            "document.documentElement.lang==='en'?(x.labelEn||x.labelUk||''):(x.labelUk||x.labelEn||'')",
+            HTML,
+        )
+        self.assertIn(
             "+' '+keymapContextLabel(x.registryContext||x.context)+' '+(x.binding||x.alias||'')+' '+(x.defaultBinding||x.defaultAlias||'')",
             HTML,
         )
