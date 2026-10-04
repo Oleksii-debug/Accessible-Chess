@@ -1151,6 +1151,35 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsInstance(trailing, Paragraph)
         self.assertEqual(trailing.text, "After")
 
+    def test_explicit_ancestor_close_recovers_unclosed_semantic_descendant_before_following_text(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A<blockquote id="inner">B</p>'
+            '<p id="outside">Outside</p></body></html>',
+            source_name="malformed-ancestor-close.html",
+        )
+
+        paragraphs = [
+            block for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.source_anchor, block.text) for block in paragraphs],
+            [
+                ("inner", "B"),
+                ("outer", "A B"),
+                ("outside", "Outside"),
+            ],
+        )
+        self.assertTrue(
+            any(
+                "unclosed blockquote element" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertEqual(
+            sum("Outside" in block.text for block in paragraphs),
+            1,
+        )
+
     def test_list_close_recovers_unclosed_item_before_following_text(self) -> None:
         result = import_html_book(
             '<html><body><ul id="items"><li id="broken">A</ul>'
