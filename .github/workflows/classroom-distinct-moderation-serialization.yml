@@ -123,7 +123,9 @@ jobs:
           grep -Fq '("acquired", None)' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq 'os._exit(23)' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq 'test_crashed_lock_owner_releases_effect_mutex_for_retry' tests/test_classroom_effect_lock_cross_process.py
-          grep -Fq 'TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}' .github/workflows/p0-release-critical-triad-convergence.yml
+          expected_target_contract='TARGET_BRANCH: $'
+          expected_target_contract+='{{ github.event.pull_request.base.ref }}'
+          grep -Fq "$expected_target_contract" .github/workflows/p0-release-critical-triad-convergence.yml
           ! grep -Fq 'PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911' .github/workflows/p0-release-critical-triad-convergence.yml
 
       - name: Core selftest
