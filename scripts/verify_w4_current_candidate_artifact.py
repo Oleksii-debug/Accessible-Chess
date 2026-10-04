@@ -14,6 +14,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from acs.version2_package_preflight import (
+    Version2PackagePreflightError,
+    validate_version2_package_zip,
+)
 from scripts.verify_w4_candidate_artifact import (
     CandidateArtifactError,
     HASH_CHUNK_BYTES,
@@ -205,6 +209,63 @@ def _verify_current_sound_binding(
                     )
 
 
+def _verify_exact_product_package_preflight(
+    outer_path: Path,
+    expected_sha: str,
+) -> None:
+    candidate_name = f"Accessible-Chess-V2-{expected_sha[:7]}-NVDA-test-candidate.zip"
+    try:
+        outer = zipfile.ZipFile(outer_path, "r")
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise CandidateArtifactError("outer artifact is not a valid ZIP") from exc
+
+    with outer:
+        outer_members = _safe_members(outer, "outer artifact")
+        candidate_info = outer_members.get(candidate_name)
+        if candidate_info is None or candidate_info.is_dir():
+            raise CandidateArtifactError("current candidate ZIP is missing")
+        if candidate_info.file_size <= 0 or candidate_info.file_size > MAX_INNER_BYTES:
+            raise CandidateArtifactError(
+                "current candidate ZIP size is outside accepted bounds"
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            candidate_path = Path(directory) / "candidate.zip"
+            written = 0
+            try:
+                with outer.open(candidate_info, "r") as source, candidate_path.open("xb") as target:
+                    while True:
+                        block = source.read(HASH_CHUNK_BYTES)
+                        if not block:
+                            break
+                        written += len(block)
+                        if written > candidate_info.file_size or written > MAX_INNER_BYTES:
+                            raise CandidateArtifactError(
+                                "current candidate ZIP expanded beyond accepted bounds"
+                            )
+                        target.write(block)
+            except CandidateArtifactError:
+                raise
+            except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                raise CandidateArtifactError(
+                    "current candidate ZIP could not be materialized for exact Product preflight"
+                ) from exc
+            if written != candidate_info.file_size:
+                raise CandidateArtifactError(
+                    "current candidate ZIP size changed during exact Product preflight materialization"
+                )
+
+            try:
+                validate_version2_package_zip(
+                    candidate_path,
+                    expected_integration_sha=expected_sha,
+                )
+            except Version2PackagePreflightError as exc:
+                raise CandidateArtifactError(
+                    f"exact Product package preflight failed: {exc}"
+                ) from exc
+
+
 def _translated_legacy_metadata(
     current: dict[str, object],
     expected_config_sha256: str,
@@ -303,6 +364,7 @@ def verify_current(
         expected_workflow_sha,
     )
     _verify_current_sound_binding(outer_path, expected_sha, metadata)
+    _verify_exact_product_package_preflight(outer_path, expected_sha)
     translated = _translated_legacy_metadata(metadata, expected_config_sha256)
 
     with tempfile.TemporaryDirectory() as directory:

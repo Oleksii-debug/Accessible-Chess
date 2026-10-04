@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "w4-v2-p0-candidate-artifact-readback.yml"
 FULL_PRODUCT_BRANCH = "work/full-product-teacher-education-reachability-20260911"
 CORE_VERIFIER_BLOB = "50056ca618abc42450512d7cb0dbc3efa9442809"
-CURRENT_VERIFIER_BLOB = "25f4f4a2205d6651c84fdaa32756fc1c3bd58c17"
+CURRENT_VERIFIER_BLOB = "e3722b39f585e54bbc37fcc79ae595ce57d13f8a"
 
 
 class W4CandidateArtifactReadbackWorkflowTests(unittest.TestCase):

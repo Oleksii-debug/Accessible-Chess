@@ -5,8 +5,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
+from acs.version2_package_preflight import Version2PackagePreflightError
 from scripts.verify_w4_candidate_artifact import CandidateArtifactError
 from scripts.verify_w4_current_candidate_artifact import (
     CURRENT_RUN_METADATA_KEYS,
@@ -18,7 +20,9 @@ from scripts.verify_w4_current_candidate_artifact import (
     _read_current_run_metadata,
     _translated_legacy_metadata,
     _verify_current_sound_binding,
+    _verify_exact_product_package_preflight,
     validate_current_run_metadata,
+    verify_current,
 )
 
 
@@ -132,6 +136,75 @@ class W4CurrentCandidateArtifactTests(unittest.TestCase):
             path.write_bytes(_current_outer_bytes(_metadata(), wav_count=329))
             with self.assertRaisesRegex(CandidateArtifactError, "library WAV inventory mismatch"):
                 _verify_current_sound_binding(path, PRODUCT_SHA, _metadata())
+
+    def test_exact_product_package_preflight_rechecks_materialized_inner_candidate(self) -> None:
+        observed: dict[str, object] = {}
+
+        def validate(candidate_path: Path, *, expected_integration_sha: str) -> object:
+            observed["expected_sha"] = expected_integration_sha
+            with zipfile.ZipFile(candidate_path, "r") as candidate:
+                observed["members"] = set(candidate.namelist())
+            return object()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "outer.zip"
+            path.write_bytes(_current_outer_bytes(_metadata()))
+            with patch(
+                "scripts.verify_w4_current_candidate_artifact.validate_version2_package_zip",
+                side_effect=validate,
+            ) as validator:
+                _verify_exact_product_package_preflight(path, PRODUCT_SHA)
+
+        validator.assert_called_once()
+        self.assertEqual(observed["expected_sha"], PRODUCT_SHA)
+        self.assertIn(SOUND_INVENTORY_PATH, observed["members"])
+
+    def test_exact_product_package_preflight_failure_is_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "outer.zip"
+            path.write_bytes(_current_outer_bytes(_metadata()))
+            with patch(
+                "scripts.verify_w4_current_candidate_artifact.validate_version2_package_zip",
+                side_effect=Version2PackagePreflightError("catalog drift"),
+            ):
+                with self.assertRaisesRegex(
+                    CandidateArtifactError,
+                    "exact Product package preflight failed: catalog drift",
+                ):
+                    _verify_exact_product_package_preflight(path, PRODUCT_SHA)
+
+    def test_verify_current_invokes_exact_product_preflight_before_legacy_contract(self) -> None:
+        calls: list[str] = []
+
+        def record_preflight(path: Path, expected_sha: str) -> None:
+            self.assertTrue(path.is_file())
+            self.assertEqual(expected_sha, PRODUCT_SHA)
+            calls.append("preflight")
+
+        def record_legacy(*args: object, **kwargs: object) -> None:
+            calls.append("legacy")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "outer.zip"
+            path.write_bytes(_current_outer_bytes(_metadata()))
+            with (
+                patch(
+                    "scripts.verify_w4_current_candidate_artifact._verify_exact_product_package_preflight",
+                    side_effect=record_preflight,
+                ),
+                patch(
+                    "scripts.verify_w4_current_candidate_artifact.verify_legacy_contract",
+                    side_effect=record_legacy,
+                ),
+            ):
+                verify_current(
+                    path,
+                    PRODUCT_SHA,
+                    WORKFLOW_SHA,
+                    CONFIG_SHA,
+                )
+
+        self.assertEqual(calls, ["preflight", "legacy"])
 
     def test_translation_retains_legacy_config_binding_without_sound_key_leak(self) -> None:
         translated = _translated_legacy_metadata(_metadata(), CONFIG_SHA)
