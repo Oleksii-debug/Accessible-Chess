@@ -515,6 +515,23 @@ def _validated_import_text(text: object) -> str:
     return text
 
 
+def _reject_duplicate_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build one passive JSON object while rejecting ambiguous duplicate keys."""
+
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SettingsError("settings JSON contains a duplicate object key")
+        result[key] = value
+    return result
+
+
+def _parse_settings_json(text: str) -> Any:
+    """Parse settings JSON without standard-library last-key-wins ambiguity."""
+
+    return json.loads(text, object_pairs_hook=_reject_duplicate_json_object)
+
+
 def _migrate(raw: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
     warnings: list[str] = []
     # A missing schema key is the only legacy-v0 representation.  Do not let
@@ -596,7 +613,7 @@ class Settings:
             return
 
         try:
-            raw = json.loads(text)
+            raw = _parse_settings_json(text)
             if not isinstance(raw, Mapping):
                 raise SettingsError("settings file must contain a JSON object")
             values, migration_warnings = _migrate(raw)
@@ -655,7 +672,7 @@ class Settings:
     def import_json(self, text: str, *, persist: bool = True) -> tuple[str, ...]:
         if type(persist) is not bool:
             raise SettingsError("settings import persist flag must be boolean")
-        raw = json.loads(_validated_import_text(text))
+        raw = _parse_settings_json(_validated_import_text(text))
         if not isinstance(raw, Mapping):
             raise SettingsError("settings profile must be a JSON object")
         values, warnings = _migrate(raw)
