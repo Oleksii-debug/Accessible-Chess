@@ -426,6 +426,35 @@ def _simple_zip64_epub(chapter: bytes) -> bytes:
     return buffer.getvalue()
 
 
+def _streaming_zip64_epub(chapter: bytes) -> bytes:
+    buffer = _UnseekableBytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        mimetype = zipfile.ZipInfo("mimetype")
+        mimetype.compress_type = zipfile.ZIP_STORED
+        archive.writestr(mimetype, b"application/epub+zip")
+        archive.writestr(
+            "META-INF/container.xml",
+            CONTAINER,
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
+        archive.writestr(
+            "OEBPS/content.opf",
+            _opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
+        chapter_info = zipfile.ZipInfo("OEBPS/Text/ch1.xhtml")
+        chapter_info.compress_type = zipfile.ZIP_DEFLATED
+        with archive.open(chapter_info, "w", force_zip64=True) as target:
+            target.write(chapter)
+    return buffer.getvalue()
+
+
 class BookEpubImportTests(unittest.TestCase):
     def test_all_archive_entries_obey_ocf_filename_character_constraints(self) -> None:
         forbidden_names = (
@@ -646,6 +675,34 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_streaming_zip64_descriptor_owns_final_sizes(self) -> None:
+        raw = _streaming_zip64_epub(
+            b"<html><body><p>Streaming ZIP64 descriptor.</p></body></html>"
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("OEBPS/Text/ch1.xhtml")
+            self.assertEqual(info.extract_version, 45)
+            self.assertTrue(info.flag_bits & (1 << 3))
+            local_offset = info.header_offset
+        self.assertEqual(
+            int.from_bytes(raw[local_offset + 18 : local_offset + 22], "little"),
+            0xFFFFFFFF,
+        )
+        self.assertEqual(
+            int.from_bytes(raw[local_offset + 22 : local_offset + 26], "little"),
+            0xFFFFFFFF,
+        )
+        result = import_epub_book(raw, source_name="streaming-zip64.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Streaming ZIP64 descriptor.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
         )
 
     def test_local_zip_header_compression_method_is_authoritative(self) -> None:
