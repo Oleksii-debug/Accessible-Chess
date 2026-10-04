@@ -12,7 +12,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Iterator, Mapping, Protocol, Sequence
 
-from .usage_statistics import normalize_installation_id
+from .usage_statistics import (
+    _prepare_direct_directory_chain,
+    _require_private_regular,
+    _same_file_identity,
+    _verify_direct_directory_chain,
+    normalize_installation_id,
+)
 
 
 USAGE_SYNC_SCHEMA_VERSION = 1
@@ -238,23 +244,61 @@ class UsageEventQueue:
     ) -> None:
         if not callable(now):
             raise ValueError("now must be callable")
-        self.path = Path(path)
+        requested_path = Path(path)
+        parent, self._directory_snapshot = _prepare_direct_directory_chain(
+            requested_path.parent,
+            label="usage sync directory",
+        )
+        self.path = parent / requested_path.name
         self._now = now
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._migrate()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _verify_database_path(self, expected: object) -> None:
+        _verify_direct_directory_chain(
+            self._directory_snapshot,
+            label="usage sync directory",
+        )
+        current = self.path.lstat()
+        _require_private_regular(current, "usage sync database")
+        if expected is not None and not _same_file_identity(expected, current):
+            raise OSError("usage sync database changed unexpectedly")
+
+    def _connect(self) -> tuple[sqlite3.Connection, object]:
+        _verify_direct_directory_chain(
+            self._directory_snapshot,
+            label="usage sync directory",
+        )
+        try:
+            before = self.path.lstat()
+        except FileNotFoundError:
+            before = None
+        else:
+            _require_private_regular(before, "usage sync database")
+
         connection = sqlite3.connect(self.path, timeout=5.0)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+        try:
+            _verify_direct_directory_chain(
+                self._directory_snapshot,
+                label="usage sync directory",
+            )
+            opened = self.path.lstat()
+            _require_private_regular(opened, "usage sync database")
+            if before is not None and not _same_file_identity(before, opened):
+                raise OSError("usage sync database changed while being opened")
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            return connection, opened
+        except BaseException:
+            connection.close()
+            raise
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        connection = self._connect()
+        connection, opened = self._connect()
         try:
             with connection:
                 yield connection
+            self._verify_database_path(opened)
         finally:
             connection.close()
 
