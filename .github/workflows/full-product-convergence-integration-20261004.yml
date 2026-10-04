@@ -471,6 +471,7 @@ jobs:
           tests.test_verify_w4_current_candidate_artifact
           tests.test_verify_w4_sound_inventory
           tests.test_portable_launcher_contract
+          tests.test_webview_safe_server
           tests.test_version2_portable_package
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
