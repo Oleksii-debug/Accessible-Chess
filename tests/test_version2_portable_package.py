@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 
+import acs.version2_portable_package as portable_module
 from acs.version2_package_assembler import _write_checksums
 from acs.version2_package_preflight import (
     CHECKSUMS_NAME,
@@ -106,6 +108,123 @@ def _portable_fixture(root: Path, *, with_seed: bool = False) -> None:
 
 
 class PortableTreeTests(unittest.TestCase):
+    def _assert_same_inode_same_size_stable_read_rejected(self, reader) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            original = b"A" * 4096
+            replacement = b"B" * len(original)
+            path.write_bytes(original)
+            original_stat = path.stat()
+            real_open = portable_module.Path.open
+            injected = False
+
+            class MutatingHandle:
+                def __init__(self, handle):
+                    self._handle = handle
+                    self._mutated = False
+
+                def __enter__(self):
+                    self._handle.__enter__()
+                    return self
+
+                def __exit__(self, exc_type, exc, traceback):
+                    return self._handle.__exit__(exc_type, exc, traceback)
+
+                def fileno(self):
+                    return self._handle.fileno()
+
+                def read(self, size=-1):
+                    nonlocal injected
+                    if not self._mutated:
+                        self._handle.seek(0)
+                        self._handle.write(replacement)
+                        self._handle.flush()
+                        os.fsync(self._handle.fileno())
+                        os.utime(
+                            path,
+                            ns=(
+                                original_stat.st_atime_ns,
+                                original_stat.st_mtime_ns + 2_000_000_000,
+                            ),
+                        )
+                        self._handle.seek(0)
+                        self._mutated = True
+                        injected = True
+                    return self._handle.read(size)
+
+            def mutate_during_read(candidate: Path, *args, **kwargs):
+                if candidate == path and not injected:
+                    return MutatingHandle(real_open(candidate, "r+b"))
+                return real_open(candidate, *args, **kwargs)
+
+            with mock.patch.object(
+                portable_module.Path,
+                "open",
+                autospec=True,
+                side_effect=mutate_during_read,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "stable test file changed while being read",
+                ):
+                    reader(path)
+
+            self.assertTrue(injected)
+            rewritten_stat = path.stat()
+            self.assertTrue(
+                os.path.samestat(original_stat, rewritten_stat),
+                "regression must mutate the original inode rather than replace it",
+            )
+            self.assertEqual(original_stat.st_size, rewritten_stat.st_size)
+            self.assertEqual(path.read_bytes(), replacement)
+
+    def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
+        self._assert_same_inode_same_size_stable_read_rejected(
+            lambda path: portable_module._stable_bytes(
+                path,
+                label="stable test file",
+                maximum=8192,
+            )
+        )
+
+    def test_stable_digest_rejects_same_inode_same_size_in_place_rewrite(self):
+        self._assert_same_inode_same_size_stable_read_rejected(
+            lambda path: portable_module._stable_digest(
+                path,
+                label="stable test file",
+                maximum=8192,
+            )
+        )
+
+    def test_stable_reads_fail_closed_without_change_metadata(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            path.write_bytes(b"canonical")
+            with mock.patch.object(
+                portable_module,
+                "_stable_change_metadata",
+                return_value=None,
+            ):
+                readers = (
+                    lambda: portable_module._stable_bytes(
+                        path,
+                        label="stable test file",
+                        maximum=8192,
+                    ),
+                    lambda: portable_module._stable_digest(
+                        path,
+                        label="stable test file",
+                        maximum=8192,
+                    ),
+                )
+                for reader in readers:
+                    with self.subTest(reader=reader):
+                        with self.assertRaisesRegex(
+                            Version2PortablePackageError,
+                            "stable test file changed while being read",
+                        ):
+                            reader()
+
     def test_accepts_exact_oneclick_topology_without_prebundled_user_state(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"

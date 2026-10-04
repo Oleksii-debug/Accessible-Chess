@@ -239,18 +239,45 @@ def _complete_file_identity(first: os.stat_result, second: os.stat_result) -> bo
         return (first_dev, first_ino) == (second_dev, second_ino)
 
 
+def _stable_change_metadata(st: os.stat_result) -> tuple[int, int] | None:
+    """Return the change metadata required to prove one stable file snapshot.
+
+    File identity plus byte size does not detect a same-length in-place rewrite
+    of an already-open inode. Supported Windows/Linux runtimes expose
+    nanosecond mtime and ctime; if either is unavailable, fail closed instead
+    of weakening portable-package integrity.
+    """
+
+    mtime_ns = getattr(st, "st_mtime_ns", None)
+    ctime_ns = getattr(st, "st_ctime_ns", None)
+    if type(mtime_ns) is not int or type(ctime_ns) is not int:
+        return None
+    return mtime_ns, ctime_ns
+
+
+def _same_file_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
+    if not _complete_file_identity(first, second):
+        return False
+    if getattr(first, "st_size", None) != getattr(second, "st_size", None):
+        return False
+    first_change = _stable_change_metadata(first)
+    second_change = _stable_change_metadata(second)
+    return first_change is not None and first_change == second_change
+
+
 def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str:
     before = _safe_info(path, label=label, directory=False)
     if maximum is not None and before.st_size > maximum:
         _fail(f"{label} exceeds its byte budget")
+    if _stable_change_metadata(before) is None:
+        _fail(f"{label} changed while being read")
     digest = hashlib.sha256()
     try:
         with path.open("rb") as handle:
             opened = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(opened.st_mode)
-                or opened.st_size != before.st_size
-                or not _complete_file_identity(before, opened)
+                or not _same_file_snapshot(before, opened)
             ):
                 _fail(f"{label} changed while being opened")
             copied = 0
@@ -270,10 +297,8 @@ def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str
     after = _safe_info(path, label=label, directory=False)
     if (
         copied != before.st_size
-        or opened_after.st_size != before.st_size
-        or after.st_size != before.st_size
-        or not _complete_file_identity(opened, opened_after)
-        or not _complete_file_identity(before, after)
+        or not _same_file_snapshot(opened, opened_after)
+        or not _same_file_snapshot(before, after)
     ):
         _fail(f"{label} changed while being read")
     return digest.hexdigest()
@@ -283,13 +308,14 @@ def _stable_bytes(path: Path, *, label: str, maximum: int) -> bytes:
     before = _safe_info(path, label=label, directory=False)
     if before.st_size > maximum:
         _fail(f"{label} exceeds its byte budget")
+    if _stable_change_metadata(before) is None:
+        _fail(f"{label} changed while being read")
     try:
         with path.open("rb") as handle:
             opened = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(opened.st_mode)
-                or opened.st_size != before.st_size
-                or not _complete_file_identity(before, opened)
+                or not _same_file_snapshot(before, opened)
             ):
                 _fail(f"{label} changed while being opened")
             payload = handle.read(maximum + 1)
@@ -302,10 +328,8 @@ def _stable_bytes(path: Path, *, label: str, maximum: int) -> bytes:
     if (
         len(payload) != before.st_size
         or len(payload) > maximum
-        or opened_after.st_size != before.st_size
-        or after.st_size != before.st_size
-        or not _complete_file_identity(opened, opened_after)
-        or not _complete_file_identity(before, after)
+        or not _same_file_snapshot(opened, opened_after)
+        or not _same_file_snapshot(before, after)
     ):
         _fail(f"{label} changed while being read")
     return payload
