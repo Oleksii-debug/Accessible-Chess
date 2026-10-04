@@ -872,7 +872,12 @@ def _package_rootfiles(
                     "EPUB container link href is not path-relative",
                     BookEpubImportErrorCode.UNSAFE_PACKAGE,
                 )
-            _resolve_package_href("", href_parts.path)
+            resolved_link = _resolve_package_href("", href_parts.path)
+            if resolved_link not in archive_index:
+                raise _error(
+                    "EPUB container link references a resource that is unavailable",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
             if (
                 type(raw_rel) is not str
                 or not raw_rel
