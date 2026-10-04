@@ -287,6 +287,25 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
         )
 
 
+def _is_forbidden_ocf_name_character(character: str) -> bool:
+    codepoint = ord(character)
+    if character in {'"', "*", ":", "<", ">", "?", "\\", "|"}:
+        return True
+    if codepoint <= 0x1F or 0x7F <= codepoint <= 0x9F:
+        return True
+    if 0xE000 <= codepoint <= 0xF8FF:
+        return True
+    if 0xFDD0 <= codepoint <= 0xFDEF:
+        return True
+    if 0xFFF0 <= codepoint <= 0xFFFF:
+        return True
+    if 0xF0000 <= codepoint <= 0x10FFFF:
+        return True
+    if codepoint <= 0xEFFFF and (codepoint & 0xFFFF) in {0xFFFE, 0xFFFF}:
+        return True
+    return False
+
+
 def _safe_entry_name(raw_name: object) -> str:
     if type(raw_name) is not str or not raw_name or "\x00" in raw_name or "\\" in raw_name:
         raise _error(
@@ -299,12 +318,41 @@ def _safe_entry_name(raw_name: object) -> str:
             "EPUB contains an unsafe package entry name",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
+    try:
+        candidate_bytes = candidate.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise _error(
+            "EPUB package entry name is not valid UTF-8 text",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        ) from exc
+    if len(candidate_bytes) > 65_535:
+        raise _error(
+            "EPUB package entry path exceeds OCF limits",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
     parts = candidate.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise _error(
             "EPUB contains an unsafe package entry name",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
+    for part in parts:
+        try:
+            encoded_part = part.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise _error(
+                "EPUB package entry name is not valid UTF-8 text",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            ) from exc
+        if (
+            len(encoded_part) > 255
+            or part.endswith(".")
+            or any(_is_forbidden_ocf_name_character(character) for character in part)
+        ):
+            raise _error(
+                "EPUB package entry name violates OCF filename constraints",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
     normalized = posixpath.normpath(candidate)
     if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
         raise _error(
