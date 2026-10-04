@@ -40,6 +40,7 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn("EVENT_BASE_REF:", workflow)
         self.assertIn("EVENT_HEAD_SHA:", workflow)
         self.assertIn("CHECKED_SHA:", workflow)
+        self.assertIn("DEFAULT_BRANCH:", workflow)
         self.assertIn(
             "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
             workflow,
@@ -65,10 +66,17 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_event_base"',
             workflow,
         )
+        self.assertIn('if [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"',
+            workflow,
+        )
+        self.assertIn("P0_TRIAD_MODE=DEFAULT_BRANCH_INTEGRATION", workflow)
         self.assertIn(
             'git merge-base --is-ancestor "$live_product" "$live_event_base"',
             workflow,
         )
+        self.assertIn("P0_TRIAD_MODE=STACKED_PRODUCT", workflow)
         self.assertIn(
             'git merge-base --is-ancestor "$live_event_base" "$EVENT_HEAD_SHA"',
             workflow,
@@ -90,6 +98,7 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn("fetch-depth: 0", workflow)
         self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
+        self.assertIn('test -n "$DEFAULT_BRANCH"', workflow)
         for path in REQUIRED_QA_PATHS:
             with self.subTest(trigger_path=path):
                 self.assertIn("      - '" + path + "'", workflow)
