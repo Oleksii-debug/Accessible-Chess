@@ -35,15 +35,19 @@ class AnalysisLine:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.multipv, int)
-            or isinstance(self.multipv, bool)
+            type(self.multipv) is not int
             or not 1 <= self.multipv <= ANALYSIS_MAX_LINES
         ):
             raise EngineContractError(
                 "analysis multipv index must be an integer between 1 and 10",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if isinstance(self.pv, tuple) and len(self.pv) > ANALYSIS_MAX_PV_PLIES:
+        if type(self.pv) is not tuple:
+            raise EngineContractError(
+                "analysis PV must be a tuple",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if len(self.pv) > ANALYSIS_MAX_PV_PLIES:
             raise EngineContractError(
                 "analysis PV exceeds supported bound",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -91,20 +95,19 @@ class AnalysisResult:
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if (
-            not isinstance(self.generation, int)
-            or isinstance(self.generation, bool)
+            type(self.generation) is not int
             or self.generation < 0
         ):
             raise EngineContractError(
                 "analysis generation must be a non-negative integer",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.stale, bool):
+        if type(self.stale) is not bool:
             raise EngineContractError(
                 "analysis stale flag must be boolean",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.lines, tuple):
+        if type(self.lines) is not tuple:
             raise EngineContractError(
                 "analysis result lines must be an AnalysisLine tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -114,13 +117,13 @@ class AnalysisResult:
                 "analysis result contains too many lines",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if any(not isinstance(line, AnalysisLine) for line in self.lines):
+        if any(type(line) is not AnalysisLine for line in self.lines):
             raise EngineContractError(
                 "analysis result lines must be an AnalysisLine tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if self.error is not None:
-            if not isinstance(self.error, str) or not self.error.strip():
+            if type(self.error) is not str or not self.error.strip():
                 raise EngineContractError(
                     "analysis error must be non-empty text or None",
                     code=EngineContractErrorCode.INVALID_RESULT,
@@ -171,7 +174,7 @@ class AnalysisService:
                 "engine_factory must be callable",
                 code=EngineContractErrorCode.INVALID_PROVIDER,
             )
-        if not isinstance(owns_engine, bool):
+        if type(owns_engine) is not bool:
             raise EngineContractError(
                 "owns_engine must be boolean",
                 code=EngineContractErrorCode.INVALID_CONFIG,
@@ -207,7 +210,7 @@ class AnalysisService:
 
     @staticmethod
     def _normalize_line(item: object, multipv: int) -> AnalysisLine:
-        if isinstance(item, RawAnalysisLine):
+        if type(item) is RawAnalysisLine:
             return AnalysisLine(
                 multipv=multipv,
                 depth=item.depth,
@@ -216,13 +219,13 @@ class AnalysisService:
                 pv=item.pv,
             )
 
-        if not isinstance(item, tuple) or len(item) != 3:
+        if type(item) is not tuple or len(item) != 3:
             raise EngineContractError(
                 "legacy analysis line must be a three-item tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         item_depth, score, pv = item
-        if not isinstance(score, tuple) or len(score) != 2:
+        if type(score) is not tuple or len(score) != 2:
             raise EngineContractError(
                 "legacy analysis score must be a two-item tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -272,7 +275,7 @@ class AnalysisService:
     @staticmethod
     def _normalize_limits(multipv: int, depth: int) -> tuple[int, int]:
         for name, value in (("multipv", multipv), ("depth", depth)):
-            if not isinstance(value, int) or isinstance(value, bool):
+            if type(value) is not int:
                 raise EngineContractError(
                     f"analysis {name} must be an integer",
                     code=EngineContractErrorCode.INVALID_REQUEST,
