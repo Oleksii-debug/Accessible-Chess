@@ -9,6 +9,7 @@ to be consumed by NVDA browse/focus mode rather than by a self-voicing GUI.
 """
 
 from pathlib import Path
+import copy
 import sys
 from typing import Any
 
@@ -49,7 +50,7 @@ def _spaced_square(name: str) -> str:
 
 class AccessibleChessAPI:
     def __init__(self, lang: str = "uk") -> None:
-        self.lang = lang if lang in ("uk", "en") else "uk"
+        self.lang = lang if type(lang) is str and lang in ("uk", "en") else "uk"
         self.board = Board()
         self.start_fen = self.board.fen()
         self.sans: list[str] = []
@@ -80,6 +81,8 @@ class AccessibleChessAPI:
             "move_text_too_long": "Текст ходу занадто довгий.",
             "position_history_failed": "Не вдалося підготувати історію нової позиції.",
             "fen_history_failed": "Не вдалося підготувати історію FEN-позиції.",
+            "editor_history_failed": "Не вдалося підготувати історію зміненої позиції.",
+            "language_change_failed": "Не вдалося змінити мову інтерфейсу.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -96,6 +99,8 @@ class AccessibleChessAPI:
             "move_text_too_long": "Move text is too long.",
             "position_history_failed": "Could not prepare history for the new position.",
             "fen_history_failed": "Could not prepare history for the FEN position.",
+            "editor_history_failed": "Could not prepare history for the edited position.",
+            "language_change_failed": "Could not change interface language.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -196,18 +201,51 @@ class AccessibleChessAPI:
                 })
         return cells
 
-    def _reset_history(self) -> None:
-        self.sans.clear()
-        self.move_sides.clear()
-        self.redo_meta.clear()
+    def _prepare_root_state(
+        self,
+        candidate_board: Board,
+        *,
+        language: str | None = None,
+    ) -> tuple[str, ReviewHistory, ReviewPresentationAdapter, int]:
+        """Build a complete root/history presentation before publishing it."""
+        candidate_board.undo_stack = []
+        candidate_board.redo_stack = []
+        candidate_board.last_move = None
+        candidate_start_fen = candidate_board.fen()
+        candidate_history = ReviewHistory(candidate_start_fen)
+        candidate_adapter = ReviewPresentationAdapter(
+            candidate_history,
+            language=self.lang if language is None else language,
+        )
+        return (
+            candidate_start_fen,
+            candidate_history,
+            candidate_adapter,
+            candidate_history.cursor_node_id,
+        )
+
+    def _publish_root_state(
+        self,
+        candidate_board: Board,
+        prepared: tuple[str, ReviewHistory, ReviewPresentationAdapter, int],
+    ) -> None:
+        candidate_start_fen, candidate_history, candidate_adapter, candidate_live_node = prepared
+        self.board = candidate_board
+        self.start_fen = candidate_start_fen
+        self.sans = []
+        self.move_sides = []
+        self.redo_meta = []
         self.selected_source = None
-        self.board.undo_stack = []
-        self.board.redo_stack = []
-        self.board.last_move = None
-        self.start_fen = self.board.fen()
-        self.review_history = ReviewHistory(self.start_fen)
-        self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
-        self.live_history_node = self.review_history.cursor_node_id
+        self.review_history = candidate_history
+        self.review_adapter = candidate_adapter
+        self.live_history_node = candidate_live_node
+
+    def _reset_history(self) -> None:
+        # Resetting history is itself transactional.  The live board and
+        # presentation remain untouched if history/presenter construction fails.
+        candidate_board = copy.deepcopy(self.board)
+        prepared = self._prepare_root_state(candidate_board)
+        self._publish_root_state(candidate_board, prepared)
 
     def _at_history_end(self) -> bool:
         return self.review_history.cursor_node_id == self.live_history_node
@@ -308,18 +346,27 @@ class AccessibleChessAPI:
         return state
 
     def new_game(self) -> dict[str, Any]:
-        self.board = Board()
-        self._reset_history()
+        try:
+            candidate_board = Board()
+            prepared = self._prepare_root_state(candidate_board)
+        except Exception:
+            return self._error(self._t("editor_history_failed"))
+        self._publish_root_state(candidate_board, prepared)
         return self._ok("Стандартну позицію встановлено." if self.lang == "uk" else "Standard position loaded.")
 
     def clear_board(self) -> dict[str, Any]:
-        self.board.board = [None] * 64
-        self.board.turn = "w"
-        self.board.castling = ""
-        self.board.ep = None
-        self.board.halfmove = 0
-        self.board.fullmove = 1
-        self._reset_history()
+        try:
+            candidate_board = copy.deepcopy(self.board)
+            candidate_board.board = [None] * 64
+            candidate_board.turn = "w"
+            candidate_board.castling = ""
+            candidate_board.ep = None
+            candidate_board.halfmove = 0
+            candidate_board.fullmove = 1
+            prepared = self._prepare_root_state(candidate_board)
+        except Exception:
+            return self._error(self._t("editor_history_failed"))
+        self._publish_root_state(candidate_board, prepared)
         return self._ok("Дошку очищено. Введіть позицію в редакторі." if self.lang == "uk"
                         else "Board cleared. Enter a position in the editor.")
 
@@ -336,24 +383,11 @@ class AccessibleChessAPI:
         # candidate.  Internal construction errors are not user-input errors
         # and must not leak implementation details through the NVDA status.
         try:
-            candidate_history = ReviewHistory(candidate_start_fen)
-            candidate_adapter = ReviewPresentationAdapter(
-                candidate_history,
-                language=self.lang,
-            )
-            candidate_live_node = candidate_history.cursor_node_id
+            prepared = self._prepare_root_state(candidate_board)
         except Exception:
             return self._error(self._t("position_history_failed"))
 
-        self.board = candidate_board
-        self.start_fen = candidate_start_fen
-        self.sans.clear()
-        self.move_sides.clear()
-        self.redo_meta.clear()
-        self.selected_source = None
-        self.review_history = candidate_history
-        self.review_adapter = candidate_adapter
-        self.live_history_node = candidate_live_node
+        self._publish_root_state(candidate_board, prepared)
         return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
                         else "Position loaded from text editor.")
 
@@ -487,11 +521,15 @@ class AccessibleChessAPI:
             return self._error(self._t("review_before_move"))
         if type(color) is not str or color not in ("w", "b"):
             return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
-        self.board.turn = color
-        self.selected_source = None
+        try:
+            candidate_board = copy.deepcopy(self.board)
+            candidate_board.turn = color
+            prepared = self._prepare_root_state(candidate_board)
+        except Exception:
+            return self._error(self._t("editor_history_failed"))
         # Changing side-to-move is an editor operation, so the edited position
         # becomes a new live root rather than rewriting an immutable history node.
-        self._reset_history()
+        self._publish_root_state(candidate_board, prepared)
         return self._ok(self._t("white_turn") if color == "w" else self._t("black_turn"))
 
     def set_fen(self, fen: str) -> dict[str, Any]:
@@ -502,31 +540,22 @@ class AccessibleChessAPI:
             return self._error(str(exc))
 
         try:
-            candidate_history = ReviewHistory(candidate_start_fen)
-            candidate_adapter = ReviewPresentationAdapter(
-                candidate_history,
-                language=self.lang,
-            )
-            candidate_live_node = candidate_history.cursor_node_id
+            prepared = self._prepare_root_state(candidate_board)
         except Exception:
             return self._error(self._t("fen_history_failed"))
 
-        self.board = candidate_board
-        self.start_fen = candidate_start_fen
-        self.sans.clear()
-        self.move_sides.clear()
-        self.redo_meta.clear()
-        self.selected_source = None
-        self.review_history = candidate_history
-        self.review_adapter = candidate_adapter
-        self.live_history_node = candidate_live_node
+        self._publish_root_state(candidate_board, prepared)
         return self._ok("FEN завантажено." if self.lang == "uk" else "FEN loaded.")
 
     def set_language(self, lang: str) -> dict[str, Any]:
-        if lang not in ("uk", "en"):
+        if type(lang) is not str or lang not in ("uk", "en"):
             return self._error("Unsupported language")
+        try:
+            candidate_adapter = ReviewPresentationAdapter(self.review_history, language=lang)
+        except Exception:
+            return self._error(self._t("language_change_failed"))
         self.lang = lang
-        self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
+        self.review_adapter = candidate_adapter
         return self._ok("Мову змінено." if lang == "uk" else "Language changed.")
 
     def diagnostic(self) -> dict[str, Any]:
