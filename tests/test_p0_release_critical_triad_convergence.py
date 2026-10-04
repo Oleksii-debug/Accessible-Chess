@@ -46,7 +46,7 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
-            "INTEGRATION_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb",
+            "INTEGRATION_PRODUCT_BRANCH: converge/current-product-pgn-graph-safety-20261004-sol60a1",
             workflow,
         )
         self.assertIn('test "$(git rev-parse HEAD)" = "$CHECKED_SHA"', workflow)
