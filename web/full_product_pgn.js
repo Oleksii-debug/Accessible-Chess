@@ -597,22 +597,18 @@
     }
 
     save.addEventListener("click", function () {
-      Promise.resolve()
-        .then(function () {
-          return invoke("pgn.comment_edit", { text: textarea.value });
-        })
-        .then(
-          function (result) {
-            try {
-              applyEvent(root, result, invoke, announce);
-            } catch (_) {
-              announceRejected(root, announce, textarea);
-              return;
-            }
-            if (result.kind !== "error") closeAndRestore();
-          },
-          function () { announceRejected(root, announce, textarea); }
-        );
+      invokeCommand(
+        root,
+        invoke,
+        announce,
+        "pgn.comment_edit",
+        { text: textarea.value },
+        {
+          afterResult: function (result) {
+            if (result.kind === "delegated") closeAndRestore();
+          }
+        }
+      );
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
@@ -637,21 +633,79 @@
   function renderActions(root, host, snapshot, invoke, announce, commentDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-orientation", "horizontal");
+    const buttons = [];
+
     snapshot.actions.forEach(function (action) {
       const button = node("button", action.label);
       button.type = "button";
       button.disabled = !action.enabled;
+      button.tabIndex = -1;
       button.dataset.action = action.action;
       button.addEventListener("click", function () {
+        if (button.disabled) return;
         if (action.action === "pgn.comment_edit") {
           commentDialog.open(button);
           return;
         }
         invokeCommand(root, invoke, announce, action.action, {});
       });
+      button.addEventListener("keydown", function (event) {
+        if (
+          button.disabled ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.metaKey
+        ) {
+          return;
+        }
+        const enabled = buttons.filter(function (candidate) {
+          return !candidate.disabled;
+        });
+        if (!enabled.length) return;
+        const current = enabled.indexOf(button);
+        if (current < 0) return;
+
+        let target = -1;
+        if (event.key === "ArrowRight") {
+          target = (current + 1) % enabled.length;
+        } else if (event.key === "ArrowLeft") {
+          target = (current + enabled.length - 1) % enabled.length;
+        } else if (event.key === "Home") {
+          target = 0;
+        } else if (event.key === "End") {
+          target = enabled.length - 1;
+        } else {
+          return;
+        }
+
+        event.preventDefault();
+        enabled.forEach(function (candidate, index) {
+          candidate.tabIndex = index === target ? 0 : -1;
+        });
+        enabled[target].focus({ preventScroll: true });
+      });
+      buttons.push(button);
       toolbar.appendChild(button);
     });
+
+    const firstEnabled = buttons.find(function (button) {
+      return !button.disabled;
+    });
+    if (firstEnabled) firstEnabled.tabIndex = 0;
     host.appendChild(toolbar);
+  }
+
+  function commitRender(root, fragment, snapshot) {
+    root.replaceChildren(fragment);
+    root._pgnErrorMessage = snapshot.error_message;
+    root._pgnPresentationToken =
+      typeof snapshot.presentation_token === "string"
+        ? snapshot.presentation_token
+        : "";
+    root._pgnRenderEpoch = (root._pgnRenderEpoch || 0) + 1;
+    root._pgnFlight = null;
   }
 
   function renderPgnSurface(root, snapshot, invoke, announce, requestedFocus) {
@@ -666,11 +720,36 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
+
+    if (snapshot.status === "unavailable") {
+      const message = node("p", snapshot.unavailable_message);
+      const refresh = node("button", snapshot.refresh_label);
+      refresh.type = "button";
+      refresh.id = "pgn-refresh-view";
+      refresh.addEventListener("click", function () {
+        invokeCommand(
+          root,
+          invoke,
+          announce,
+          "pgn.refresh",
+          {},
+          { omitLease: true }
+        );
+      });
+      main.appendChild(message);
+      main.appendChild(refresh);
+      fragment.appendChild(main);
+      commitRender(root, fragment, snapshot);
+      if (requestedFocus === refresh.id && typeof refresh.focus === "function") {
+        refresh.focus({ preventScroll: true });
+      }
+      return;
+    }
+
     if (snapshot.status === "empty") {
       main.appendChild(node("p", snapshot.empty_message));
       fragment.appendChild(main);
-      root.replaceChildren(fragment);
-      root._pgnErrorMessage = snapshot.error_message;
+      commitRender(root, fragment, snapshot);
       return;
     }
 
@@ -690,8 +769,7 @@
     renderActions(root, main, snapshot, invoke, announce, commentDialog);
     main.appendChild(commentDialog.dialog);
     fragment.appendChild(main);
-    root.replaceChildren(fragment);
-    root._pgnErrorMessage = snapshot.error_message;
+    commitRender(root, fragment, snapshot);
     focusTarget(root, requestedFocus);
   }
 
