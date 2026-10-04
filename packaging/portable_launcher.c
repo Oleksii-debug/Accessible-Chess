@@ -9,6 +9,8 @@
  * - the real product executable lives at App\AccessibleChess.exe;
  * - LOCALAPPDATA is redirected to package-root\data for the child only;
  * - launch-report.txt is created beside this executable for blind-user support;
+ * - startup succeeds only after the real child owns a visible top-level
+ *   "Accessible Chess" window; merely keeping a process alive is not success;
  * - no shell, PowerShell, Python or installer is required at runtime.
  *
  * The release workflow links this file without the CRT. Keep this source on the
@@ -18,7 +20,8 @@
 
 #define AC_PATH_CAP 32768
 #define AC_UTF8_CAP (AC_PATH_CAP * 4 + 4096)
-#define AC_STARTUP_OBSERVE_MS 2500
+#define AC_STARTUP_POLL_MS 100
+#define AC_STARTUP_WINDOW_TIMEOUT_MS 30000
 #define AC_REPORT_RETRY_MS 100
 #define AC_REPORT_RETRY_COUNT 40
 #define ACCESSIBILITY_HOST_INIT_EXIT_CODE 71
@@ -38,11 +41,26 @@ static CHAR g_utf8[AC_UTF8_CAP];
 static STARTUPINFOW g_startup;
 static PROCESS_INFORMATION g_process;
 
+typedef struct AC_WINDOW_SEARCH {
+    DWORD process_id;
+    BOOL found;
+} AC_WINDOW_SEARCH;
+
 static SIZE_T ac_wlen(const WCHAR *value) {
     SIZE_T size = 0;
     if (value == NULL) return 0;
     while (value[size] != L'\0') ++size;
     return size;
+}
+
+static BOOL ac_equal(const WCHAR *left, const WCHAR *right) {
+    SIZE_T index = 0;
+    if (left == NULL || right == NULL) return FALSE;
+    while (left[index] != L'\0' || right[index] != L'\0') {
+        if (left[index] != right[index]) return FALSE;
+        ++index;
+    }
+    return TRUE;
 }
 
 static BOOL ac_copy(WCHAR *target, SIZE_T cap, const WCHAR *value) {
@@ -221,6 +239,33 @@ static BOOL ac_direct_file(const WCHAR *path) {
     return TRUE;
 }
 
+static BOOL CALLBACK ac_find_ready_window(HWND window, LPARAM value) {
+    AC_WINDOW_SEARCH *search = (AC_WINDOW_SEARCH *)value;
+    DWORD process_id = 0;
+    WCHAR title[64];
+    int size;
+
+    if (search == NULL || !IsWindowVisible(window)) return TRUE;
+    GetWindowThreadProcessId(window, &process_id);
+    if (process_id != search->process_id) return TRUE;
+
+    title[0] = L'\0';
+    size = GetWindowTextW(window, title, (int)(sizeof(title) / sizeof(title[0])));
+    if (size <= 0) return TRUE;
+    if (!ac_equal(title, L"Accessible Chess")) return TRUE;
+
+    search->found = TRUE;
+    return FALSE;
+}
+
+static BOOL ac_has_ready_window(DWORD process_id) {
+    AC_WINDOW_SEARCH search;
+    search.process_id = process_id;
+    search.found = FALSE;
+    EnumWindows(ac_find_ready_window, (LPARAM)&search);
+    return search.found;
+}
+
 static HANDLE ac_open_report(void) {
     HANDLE handle;
     FILE_ATTRIBUTE_TAG_INFO tag_info;
@@ -305,11 +350,35 @@ static void ac_prepare_paths(void) {
     if (!ac_path_join(g_report_path, AC_PATH_CAP, g_root, L"launch-report.txt")) ExitProcess(ERROR_BUFFER_OVERFLOW);
 }
 
+static void ac_fail_startup_timeout(HANDLE report) {
+    ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT");
+    ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
+    ac_write_line(report, L"USER_NVDA_PROVEN: NO");
+    ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
+    ac_write_line(report, L"DETAIL: Accessible Chess did not expose its real visible application window before the startup deadline.");
+    ac_write_line(report, L"NEXT: close any stuck Accessible Chess process, keep launch-report.txt, and retry once from the extracted package root");
+    FlushFileBuffers(report);
+
+    ac_copy(
+        g_message,
+        AC_PATH_CAP + 2048,
+        L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+        L"Процес залишено запущеним, щоб не перервати можливе відновлення даних.\r\n"
+        L"Якщо вікно так і не з'явиться, закрийте завислий процес і збережіть звіт:\r\n"
+    );
+    ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
+    MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    CloseHandle(g_process.hProcess);
+    CloseHandle(report);
+    ExitProcess(ERROR_TIMEOUT);
+}
+
 void WINAPI wWinMainCRTStartup(void) {
     HANDLE report;
     DWORD error;
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
+    DWORD elapsed = 0;
 
     ac_prepare_paths();
     if (!ac_direct_directory(g_root)) {
@@ -371,46 +440,62 @@ void WINAPI wWinMainCRTStartup(void) {
     }
     CloseHandle(g_process.hThread);
     ac_write_line(report, L"PROCESS_CREATED: YES");
+    ac_write_line(report, L"STARTUP_READINESS: waiting for visible Accessible Chess window");
     FlushFileBuffers(report);
 
-    wait_result = WaitForSingleObject(g_process.hProcess, AC_STARTUP_OBSERVE_MS);
-    if (wait_result == WAIT_OBJECT_0) {
-        if (!GetExitCodeProcess(g_process.hProcess, &exit_code)) {
+    for (;;) {
+        wait_result = WaitForSingleObject(g_process.hProcess, AC_STARTUP_POLL_MS);
+        if (wait_result == WAIT_OBJECT_0) {
+            if (!GetExitCodeProcess(g_process.hProcess, &exit_code)) {
+                error = GetLastError();
+                CloseHandle(g_process.hProcess);
+                ac_fail(report, L"early child exit-code read", error);
+            }
+            ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT");
+            ac_write_utf8(report, L"CHILD_EXIT_CODE: ");
+            g_message[0] = L'\0';
+            ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
+            ac_write_line(report, g_message);
+            ac_write_utf8(report, L"CHILD_EXIT_REASON: ");
+            ac_write_line(report, ac_child_exit_reason(exit_code));
+            ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
+            FlushFileBuffers(report);
+
+            ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився до появи робочого вікна.\r\n\r\nКод: ");
+            ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
+            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nПричина: ");
+            ac_append(g_message, AC_PATH_CAP + 2048, ac_child_exit_user_detail(exit_code));
+            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nЗвіт: ");
+            ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
+            MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+            CloseHandle(g_process.hProcess);
+            CloseHandle(report);
+            ExitProcess(exit_code == 0 ? 1 : exit_code);
+        }
+
+        if (wait_result == WAIT_FAILED) {
             error = GetLastError();
             CloseHandle(g_process.hProcess);
-            ac_fail(report, L"early child exit-code read", error);
+            ac_fail(report, L"startup window observation", error);
         }
-        ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT");
-        ac_write_utf8(report, L"CHILD_EXIT_CODE: ");
-        g_message[0] = L'\0';
-        ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
-        ac_write_line(report, g_message);
-        ac_write_utf8(report, L"CHILD_EXIT_REASON: ");
-        ac_write_line(report, ac_child_exit_reason(exit_code));
-        FlushFileBuffers(report);
 
-        ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився одразу після запуску.\r\n\r\nКод: ");
-        ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
-        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nПричина: ");
-        ac_append(g_message, AC_PATH_CAP + 2048, ac_child_exit_user_detail(exit_code));
-        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nЗвіт: ");
-        ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
-        MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-        CloseHandle(g_process.hProcess);
-        CloseHandle(report);
-        ExitProcess(exit_code == 0 ? 1 : exit_code);
+        if (wait_result != WAIT_TIMEOUT) {
+            CloseHandle(g_process.hProcess);
+            ac_fail(report, L"startup window observation", ERROR_INVALID_DATA);
+        }
+
+        if (ac_has_ready_window(g_process.dwProcessId)) break;
+
+        if (elapsed >= AC_STARTUP_WINDOW_TIMEOUT_MS - AC_STARTUP_POLL_MS) {
+            ac_fail_startup_timeout(report);
+        }
+        elapsed += AC_STARTUP_POLL_MS;
     }
 
-    if (wait_result == WAIT_FAILED) {
-        error = GetLastError();
-        CloseHandle(g_process.hProcess);
-        ac_fail(report, L"startup observation", error);
-    }
-
-    ac_write_line(report, L"STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION");
-    ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
+    ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY");
+    ac_write_line(report, L"USER_WINDOW_PROVEN: YES");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
-    ac_write_line(report, L"NEXT: user verifies the exact packaged bytes with Windows/NVDA");
+    ac_write_line(report, L"NEXT: user verifies keyboard and NVDA behavior on these exact packaged bytes");
     FlushFileBuffers(report);
     CloseHandle(g_process.hProcess);
     CloseHandle(report);

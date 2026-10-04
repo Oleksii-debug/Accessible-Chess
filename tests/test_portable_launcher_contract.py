@@ -301,7 +301,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "$second.WaitForExit(10000)",
             "Overlapping second portable launcher smoke failed",
             "Launch report missing after overlapping launchers",
-            "Start-Sleep -Seconds 5",
+            "Start-Sleep -Seconds 7",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.workflow)
