@@ -33,7 +33,7 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -43,10 +43,12 @@ jobs:
 
       - name: Prove exact parent and bounded authority
         shell: bash
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           BASE=ece44ad8526b0a2845c993cf0eec0ef31d6cb056
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           git cat-file -e "$BASE^{commit}"
           git merge-base --is-ancestor "$BASE" HEAD
           git diff --check "$BASE" HEAD
