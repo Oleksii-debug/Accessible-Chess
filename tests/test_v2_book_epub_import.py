@@ -754,6 +754,34 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_metadata_rejects_unrecognized_opf_native_children(self) -> None:
+        metadata = '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:language>uk</dc:language>
+    <item id="nested" href="unexpected.xhtml" media-type="application/xhtml+xml"/>'''
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+                metadata=metadata,
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="nested-opf-metadata.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     def test_unicode_package_identifier_without_whitespace_remains_supported(self) -> None:
         raw = _epub(
             opf=_opf(
@@ -1729,6 +1757,48 @@ class BookEpubImportTests(unittest.TestCase):
                 with self.assertRaises(BookEpubImportError) as raised:
                     import_epub_book(raw, source_name="bad-container-structure.epub")
                 self.assertEqual(raised.exception.code, BookEpubImportErrorCode.MALFORMED_PACKAGE)
+
+    def test_container_direct_mixed_text_fails_closed(self) -> None:
+        valid_rootfiles = (
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles>'
+        )
+        cases = (
+            f"text{valid_rootfiles}",
+            f"{valid_rootfiles}tail",
+            (
+                '<x:ignored xmlns:x="urn:example:foreign"/>'
+                f"tail{valid_rootfiles}"
+            ),
+        )
+        for markup in cases:
+            with self.subTest(markup=markup):
+                container = (
+                    '<container version="1.0" '
+                    'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    f"{markup}</container>"
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="container-mixed-text.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
 
     def test_container_foreign_extensions_are_removed_before_structure_validation(self) -> None:
         container = b'''<?xml version="1.0" encoding="UTF-8"?>
