@@ -1282,6 +1282,26 @@ class BookProgressStore:
                 raise TypeError("expected_guard_raw is required with expected_guard_path")
             if expected_guard_raw is not None and type(expected_guard_raw) is not bytes:
                 raise TypeError("expected_guard_raw must be bytes or None")
+
+        guard_base_identity: os.stat_result | None = None
+        if expected_guard_path is not None:
+            try:
+                guard_base_identity = os.lstat(expected_guard_path)
+            except FileNotFoundError:
+                guard_base_identity = None
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress recovery data changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                ) from None
+            if guard_base_identity is not None:
+                self._require_private_data_metadata(guard_base_identity)
+            if (guard_base_identity is None) != (expected_guard_raw is None):
+                raise BookProgressStoreError(
+                    "book progress recovery data changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
+
         if len(encoded) > MAX_BOOK_PROGRESS_STORE_BYTES:
             raise BookProgressStoreError(
                 "book progress store exceeds the resource limit",
@@ -1392,6 +1412,23 @@ class BookProgressStore:
                         "book progress recovery data changed during publication preparation",
                         code=BookProgressStoreErrorCode.STALE_WRITE,
                     )
+                if guard_base_identity is not None:
+                    try:
+                        current_guard_identity = os.lstat(expected_guard_path)
+                    except OSError:
+                        raise BookProgressStoreError(
+                            "book progress recovery data changed during publication preparation",
+                            code=BookProgressStoreErrorCode.STALE_WRITE,
+                        ) from None
+                    self._require_private_data_metadata(current_guard_identity)
+                    if not self._same_file_identity(
+                        guard_base_identity,
+                        current_guard_identity,
+                    ):
+                        raise BookProgressStoreError(
+                            "book progress recovery data changed during publication preparation",
+                            code=BookProgressStoreErrorCode.STALE_WRITE,
+                        )
             current_target_raw = self._read_raw_file_unlocked(
                 target,
                 missing_ok=True,
