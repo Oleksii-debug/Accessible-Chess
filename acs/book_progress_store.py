@@ -109,19 +109,122 @@ def _replace_published_path(source: Path, destination: Path) -> None:
     os.replace(source, destination)
 
 
+def _windows_open_existing_writable_no_reparse(path: Path) -> int:
+    """Open an existing Windows disk file read/write without following reparse points."""
+
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    FILE_SHARE_DELETE = 0x00000004
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x00000080
+    FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
+    FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+    FILE_TYPE_DISK = 0x0001
+    FILE_ATTRIBUTE_TAG_INFO_CLASS = 9
+    ERROR_FILE_NOT_FOUND = 2
+    ERROR_PATH_NOT_FOUND = 3
+
+    class FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
+        _fields_ = [
+            ("FileAttributes", wintypes.DWORD),
+            ("ReparseTag", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+
+    get_file_type = kernel32.GetFileType
+    get_file_type.argtypes = [wintypes.HANDLE]
+    get_file_type.restype = wintypes.DWORD
+
+    get_info = kernel32.GetFileInformationByHandleEx
+    get_info.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    get_info.restype = wintypes.BOOL
+
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    handle = create_file(
+        str(path),
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        None,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        None,
+    )
+    invalid = ctypes.c_void_p(-1).value
+    if handle == invalid:
+        error = ctypes.get_last_error()
+        if error in {ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND}:
+            raise FileNotFoundError(
+                error,
+                "could not open book progress storage",
+                str(path),
+            )
+        raise OSError(error, "could not open book progress storage")
+
+    transferred = False
+    try:
+        if get_file_type(handle) != FILE_TYPE_DISK:
+            raise OSError("book progress storage is not a disk file")
+        info = FILE_ATTRIBUTE_TAG_INFO()
+        if not get_info(
+            handle,
+            FILE_ATTRIBUTE_TAG_INFO_CLASS,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        ):
+            error = ctypes.get_last_error()
+            raise OSError(error, "could not inspect opened book progress storage")
+        if info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT:
+            raise OSError("book progress storage is a reparse point")
+
+        flags = os.O_RDWR
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        descriptor = msvcrt.open_osfhandle(int(handle), flags)
+        transferred = True
+        return descriptor
+    finally:
+        if not transferred:
+            close_handle(handle)
+
+
 def _sync_published_path(path: Path) -> None:
     """Confirm the published namespace entry reached stable storage."""
 
     if os.name == "nt":
         # MoveFileExW above requests write-through for the namespace move. Reopen
-        # and flush the published file as a second barrier before reporting
-        # confirmed durability to the application.
-        # FlushFileBuffers (used by Python's os.fsync on Windows) requires
-        # a handle with write access. Reopen the just-published private file
-        # read/write without truncation; opening it read-only makes every
-        # otherwise-successful Windows publication report DURABILITY_UNKNOWN.
-        with path.open("r+b") as handle:
-            os.fsync(handle.fileno())
+        # the exact namespace entry without following a junction/symlink-like
+        # reparse point, while retaining the write access FlushFileBuffers needs.
+        descriptor = _windows_open_existing_writable_no_reparse(path)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
         return
 
     flags = os.O_RDONLY
