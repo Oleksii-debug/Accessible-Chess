@@ -307,6 +307,67 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                     inventory=self._inventory(package),
                 )
 
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            sounds = package / "AccessibleChess" / "assets" / "sounds"
+            notices = package / "THIRD_PARTY_NOTICES"
+            nested = sounds / "library" / "Board"
+            nested.mkdir(parents=True)
+            nested_move = nested / "MOVE.WAV"
+            (sounds / "move.wav").replace(nested_move)
+            extra = sounds / "library" / "Server" / "Gong.WAV"
+            extra.parent.mkdir(parents=True)
+            extra.write_bytes(b"RIFF-extra-user-sound")
+
+            provenance_path = notices / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"]["move"]["file"] = "library/Board/MOVE.WAV"
+            provenance["events"]["move"]["sha256"] = _sha256(nested_move)
+            provenance["events"]["move"]["license_id"] = "USER_PROVIDED"
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            (notices / "SOUND_INVENTORY.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source": "urn:accessible-chess:user-upload:test",
+                        "license_id": "USER_PROVIDED",
+                        "creator": "test user sound archive",
+                        "file_count": 2,
+                        "source_inventory_sha256": "0" * 64,
+                        "files": [
+                            {
+                                "file": "library/Board/MOVE.WAV",
+                                "sha256": _sha256(nested_move),
+                            },
+                            {
+                                "file": "library/Server/Gong.WAV",
+                                "sha256": _sha256(extra),
+                            },
+                        ],
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            document = build_version2_release_sbom(
+                package,
+                integration_sha=_SHA,
+                inventory=self._inventory(package),
+            )
+            rows = {row["fileName"][2:]: row for row in document["files"]}
+            for relative in (
+                "AccessibleChess/assets/sounds/library/Board/MOVE.WAV",
+                "AccessibleChess/assets/sounds/library/Server/Gong.WAV",
+            ):
+                self.assertEqual(rows[relative]["licenseConcluded"], "NOASSERTION")
+                self.assertEqual(rows[relative]["licenseInfoInFiles"], ["NOASSERTION"])
+
     def test_every_packaged_sound_requires_authoritative_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
