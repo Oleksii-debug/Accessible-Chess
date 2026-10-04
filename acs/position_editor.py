@@ -10,6 +10,7 @@ VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
 MAX_COORDINATE_POSITION_TOKENS = 64 * 2
 MAX_COORDINATE_POSITION_CHARS = 4096
+MAX_FEN_CHARS = 4096
 _POSITION_SECTIONS_RE = re.compile(
     r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
 )
@@ -82,8 +83,12 @@ class PositionState:
         return replace(self, turn=turn, en_passant="-")
 
     def with_castling(self, rights: Iterable[str] | str) -> "PositionState":
-        if isinstance(rights, str):
+        if type(rights) is str:
             normalized = _normalize_castling(rights)
+        elif isinstance(rights, str):
+            raise PositionValidationError(
+                "castling rights text must be exact built-in text"
+            )
         else:
             try:
                 values = tuple(rights)
@@ -146,8 +151,10 @@ class PositionState:
 
     @classmethod
     def from_fen(cls, fen: str) -> "PositionState":
-        if not isinstance(fen, str):
+        if type(fen) is not str:
             raise PositionValidationError("FEN must be text")
+        if len(fen) > MAX_FEN_CHARS:
+            raise PositionValidationError("FEN is too long")
         text = fen.strip()
         fields = text.split()
         if len(fields) != 6:
