@@ -50,6 +50,7 @@ _CONTAINER_TAG = f"{{{_CONTAINER_NAMESPACE}}}container"
 _ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
 _ROOTFILE_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfile"
 _LINKS_TAG = f"{{{_CONTAINER_NAMESPACE}}}links"
+_LINK_TAG = f"{{{_CONTAINER_NAMESPACE}}}link"
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
 _OPF_NAMESPACE = "http://www.idpf.org/2007/opf"
 _DUBLIN_CORE_NAMESPACE = "http://purl.org/dc/elements/1.1/"
@@ -732,7 +733,9 @@ def _package_rootfile(
         )
 
     rootfiles = structural_children[0]
-    if (rootfiles.text or "").strip():
+    if (rootfiles.text or "").strip() or any(
+        (child.tail or "").strip() for child in rootfiles
+    ):
         raise _error(
             "EPUB rootfiles section contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -790,6 +793,76 @@ def _package_rootfile(
             "EPUB container has no supported package document",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+
+    if len(structural_children) == 2:
+        links = structural_children[1]
+        if (links.text or "").strip() or any(
+            (child.tail or "").strip() for child in links
+        ):
+            raise _error(
+                "EPUB container links section contains invalid text content",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        link_count = 0
+        for element in links:
+            if not _is_container_namespace_tag(element.tag):
+                continue
+            if element.tag != _LINK_TAG:
+                raise _error(
+                    "EPUB container links section contains an invalid element",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            link_count += 1
+            if (element.text or "").strip():
+                raise _error(
+                    "EPUB container link element must be empty",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            for child in element:
+                if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
+                    raise _error(
+                        "EPUB container link element must be empty",
+                        BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                    )
+            raw_href = element.attrib.get("href")
+            raw_rel = element.attrib.get("rel")
+            if type(raw_href) is not str or not raw_href or raw_href != raw_href.strip():
+                raise _error(
+                    "EPUB container link href is missing or malformed",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            try:
+                href_parts = urlsplit(raw_href)
+            except ValueError as exc:
+                raise _error(
+                    "EPUB container link href is malformed",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                ) from exc
+            if href_parts.scheme or href_parts.netloc or not href_parts.path:
+                raise _error(
+                    "EPUB container link href is not path-relative",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+            _resolve_package_href("", href_parts.path)
+            if (
+                type(raw_rel) is not str
+                or not raw_rel
+                or raw_rel != raw_rel.strip()
+                or any(
+                    not token or any(character.isspace() for character in token)
+                    for token in raw_rel.split(" ")
+                )
+            ):
+                raise _error(
+                    "EPUB container link rel is missing or malformed",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+        if not link_count:
+            raise _error(
+                "EPUB container links section is empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
     if len(candidates) > 1:
         warnings.add("multiple EPUB package documents were present; the first supported rootfile was used")
     return candidates[0]

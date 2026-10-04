@@ -919,6 +919,10 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertEqual(path.read_bytes(), valid_payload)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open progress pathname is a POSIX-specific race probe",
+    )
     def test_same_byte_progress_path_swap_after_open_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
