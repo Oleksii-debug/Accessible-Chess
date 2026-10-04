@@ -139,6 +139,7 @@ def _sound_licenses(root: Path) -> dict[str, str]:
     if not isinstance(events, dict) or not events:
         _fail("sound provenance events are missing")
     result: dict[str, str] = {}
+    raw_licenses: dict[str, str] = {}
     for raw in events.values():
         if not isinstance(raw, dict):
             _fail("sound provenance event contract is invalid")
@@ -168,9 +169,12 @@ def _sound_licenses(root: Path) -> dict[str, str]:
             _fail("sound provenance asset is not a regular packaged file")
         if _sha256(sound_path) != expected_sha256.casefold():
             _fail("sound provenance SHA-256 does not match packaged sound asset")
+        previous_raw = raw_licenses.setdefault(relative, license_id)
+        if previous_raw != license_id:
+            _fail("sound asset has conflicting license identities")
         previous = result.setdefault(relative, spdx_license_id)
         if previous != spdx_license_id:
-            _fail("sound asset has conflicting license identities")
+            _fail("sound asset has conflicting SPDX license identities")
     return result
 
 
