@@ -191,7 +191,7 @@ class BoardCommandService:
         engine: EngineSnapshot | None = None,
         clocks: ClockSnapshot | None = None,
     ) -> None:
-        if not isinstance(board, BoardSnapshot):
+        if type(board) is not BoardSnapshot:
             raise TypeError("board must be BoardSnapshot")
         if engine is not None and not isinstance(engine, EngineSnapshot):
             raise TypeError("engine must be EngineSnapshot or None")
