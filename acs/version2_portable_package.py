@@ -78,14 +78,6 @@ _PORTABLE_MANIFEST_KEYS = frozenset(
 )
 _PORTABLE_ROOT_DIRECTORIES = frozenset({PORTABLE_APP_DIR, "THIRD_PARTY_NOTICES", PORTABLE_SOURCE_METADATA_DIR})
 _COPY_CHUNK_BYTES = 1024 * 1024
-_WIN32_FORBIDDEN_FILENAME_CHARS = frozenset('<>:"/\\|?*')
-_WIN32_RESERVED_DEVICE_NAMES = frozenset(
-    {"con", "prn", "aux", "nul", "conin$", "conout$"}
-    | {f"com{index}" for index in range(1, 10)}
-    | {f"lpt{index}" for index in range(1, 10)}
-    | {"com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³"}
-)
-
 
 class Version2PortablePackageError(RuntimeError):
     pass
@@ -121,26 +113,27 @@ def _fail(message: str) -> None:
 
 
 def _portable_docx_filename(name: str) -> str:
-    """Validate one raw root DOCX filename before any path interpretation."""
+    """Validate one raw root DOCX filename through canonical Win32 path policy."""
 
-    if type(name) is not str:
+    if (
+        type(name) is not str
+        or not name
+        or name != name.strip()
+        or "/" in name
+        or "\\" in name
+        or not name.casefold().endswith(".docx")
+    ):
         _fail("portable Word document filename is unsafe")
     try:
-        utf16 = name.encode("utf-16-le", errors="strict")
-    except UnicodeEncodeError:
-        _fail("portable Word document filename is unsafe")
-    device_stem = name.split(".", 1)[0].rstrip(" .").casefold()
-    if (
-        not name
-        or name != name.strip()
-        or name in {".", ".."}
-        or name.endswith(".")
-        or len(utf16) // 2 > 255
-        or any(character in _WIN32_FORBIDDEN_FILENAME_CHARS for character in name)
-        or any(ord(character) < 32 or ord(character) == 0x7F for character in name)
-        or not name.casefold().endswith(".docx")
-        or device_stem in _WIN32_RESERVED_DEVICE_NAMES
-    ):
+        canonical = _relative_token(
+            name,
+            label="portable Word document filename",
+        )
+    except Version2PackagePreflightError as exc:
+        raise Version2PortablePackageError(
+            "portable Word document filename is unsafe"
+        ) from exc
+    if canonical != name or "/" in canonical:
         _fail("portable Word document filename is unsafe")
     return name
 

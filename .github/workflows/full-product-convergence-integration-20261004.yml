@@ -62,6 +62,8 @@ on:
       - 'scripts/build_user_sound_pack.py'
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'tools/optional/libcbh_json_bridge.cpp'
+      - '.github/workflows/chessbase-libcbh-semantic-fidelity-current.yml'
       - 'packaging/portable_launcher.c'
       - '.github/workflows/p0-packaged-acceptance-orchestrator.yml'
       - '.github/workflows/p0-packaged-document-copy-probe-contract.yml'
@@ -419,6 +421,7 @@ jobs:
           tests.test_v2_pgn_streaming_export
           tests.test_v2_pgn_webview_path_privacy
           tests.test_chessbase_integrity
+          tests.test_chessbase_libcbh_semantic_fidelity_workflow
           tests.test_dev4_chessbase_symlink_security
           tests.test_gametree
           tests.test_v2_book_html_head_metadata_semantics
