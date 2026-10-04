@@ -9,10 +9,12 @@ state beyond the ledger snapshot already defined by ``StudentProgressLedger``.
 """
 
 from dataclasses import dataclass
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Mapping
 
@@ -29,6 +31,10 @@ class StudentProgressConflictError(RuntimeError):
 
 class StudentProgressBusyError(RuntimeError):
     """Raised when another writer currently owns the peer publication lock."""
+
+
+class StudentProgressDurabilityError(RuntimeError):
+    """Raised after publication when the canonical file cannot be confirmed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,12 +56,137 @@ def _revision(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _identity(info: os.stat_result) -> tuple[int, int]:
+    return int(info.st_dev), int(info.st_ino)
+
+
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    try:
+        return os.path.samestat(first, second)
+    except (AttributeError, OSError):
+        return _identity(first) == _identity(second)
+
+
+def _same_file_version(first: os.stat_result, second: os.stat_result) -> bool:
+    return (
+        _same_file_identity(first, second)
+        and int(first.st_size) == int(second.st_size)
+        and int(getattr(first, "st_mtime_ns", 0))
+        == int(getattr(second, "st_mtime_ns", 0))
+        and int(getattr(first, "st_ctime_ns", 0))
+        == int(getattr(second, "st_ctime_ns", 0))
+    )
+
+
+def _require_private_regular(info: os.stat_result, label: str) -> None:
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or _reparse(info)
+        or not stat.S_ISREG(info.st_mode)
+        or int(getattr(info, "st_nlink", 1)) != 1
+    ):
+        raise ValueError(f"{label} must be one private regular file")
+
+
+def _require_private_directory(info: os.stat_result, label: str) -> None:
+    if stat.S_ISLNK(info.st_mode) or _reparse(info) or not stat.S_ISDIR(info.st_mode):
+        raise ValueError(f"{label} must be one private directory")
+
+
 def _read_bounded_file(path: Path) -> bytes:
-    with path.open("rb") as handle:
-        data = handle.read(STUDENT_PROGRESS_STORE_MAX_BYTES + 1)
-    if len(data) > STUDENT_PROGRESS_STORE_MAX_BYTES:
+    """Read one stable private snapshot without following filesystem redirects."""
+
+    parent_before = path.parent.lstat()
+    _require_private_directory(parent_before, "student progress directory")
+    before = path.lstat()
+    _require_private_regular(before, "student progress file")
+    if int(before.st_size) > STUDENT_PROGRESS_STORE_MAX_BYTES:
         raise ValueError("student progress file exceeds maximum size")
-    return data
+
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOINHERIT", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        _require_private_regular(opened, "student progress file")
+        if not _same_file_identity(before, opened):
+            raise ValueError("student progress file changed while opening")
+        if int(opened.st_size) > STUDENT_PROGRESS_STORE_MAX_BYTES:
+            raise ValueError("student progress file exceeds maximum size")
+
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(
+                descriptor,
+                min(65536, STUDENT_PROGRESS_STORE_MAX_BYTES + 1 - total),
+            )
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > STUDENT_PROGRESS_STORE_MAX_BYTES:
+                raise ValueError("student progress file exceeds maximum size")
+
+        after = os.fstat(descriptor)
+        _require_private_regular(after, "student progress file")
+        if not _same_file_version(opened, after) or total != int(after.st_size):
+            raise ValueError("student progress file changed while reading")
+
+        parent_after = path.parent.lstat()
+        _require_private_directory(parent_after, "student progress directory")
+        if not _same_file_identity(parent_before, parent_after):
+            raise ValueError("student progress directory changed while reading")
+        current = path.lstat()
+        _require_private_regular(current, "student progress file")
+        if not _same_file_version(after, current):
+            raise ValueError("student progress file changed while reading")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if os.name == "nt" or exc.errno in {
+            errno.EACCES,
+            errno.EINVAL,
+            errno.ENOTSUP,
+        }:
+            return
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            if os.name != "nt" and exc.errno not in {errno.EINVAL, errno.ENOTSUP}:
+                raise
+    finally:
+        os.close(descriptor)
+
+
+def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("student progress JSON contains duplicate object keys")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> object:
+    raise ValueError(f"student progress JSON constant is invalid: {value}")
 
 
 def _validate_revision(value: str | None) -> str | None:
@@ -83,7 +214,9 @@ class StudentProgressStore:
     def __init__(self, path: str | Path) -> None:
         if not isinstance(path, (str, Path)):
             raise TypeError("path must be a filesystem path")
-        self.path = Path(path).expanduser()
+        # Bind relative configuration to the construction-time working directory
+        # without resolving symlinks/reparse points.
+        self.path = Path(path).expanduser().absolute()
         if str(self.path) in {"", "."}:
             raise ValueError("path must identify a student progress file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
@@ -94,8 +227,12 @@ class StudentProgressStore:
         except FileNotFoundError:
             return None
         try:
-            payload = json.loads(data.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            payload = json.loads(
+                data.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_pairs,
+                parse_constant=_reject_json_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
             raise ValueError("invalid student progress file") from exc
         if type(payload) is not dict:
             raise ValueError("invalid student progress envelope")
@@ -172,6 +309,17 @@ class StudentProgressStore:
 
             os.replace(temporary, self.path)
             temporary = None
+            try:
+                _fsync_directory(self.path.parent)
+                confirmed = _read_bounded_file(self.path)
+            except Exception as exc:
+                raise StudentProgressDurabilityError(
+                    "student progress was published but could not be confirmed"
+                ) from exc
+            if confirmed != data or _revision(confirmed) != new_revision:
+                raise StudentProgressDurabilityError(
+                    "student progress was published but canonical bytes changed"
+                )
             return new_revision
         finally:
             if temporary is not None and temporary.exists():

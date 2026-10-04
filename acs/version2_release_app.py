@@ -16,6 +16,8 @@ from .acsdb import AcsDatabase
 from .analysis_service import AnalysisService
 from .book_progress_store import BookProgressStore
 from .continuous_analysis import ContinuousAnalysisService
+from .child_coaching_application import ChildCoachingApplication
+from .child_coaching_store import ChildCoachingTemplateStore
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
@@ -25,6 +27,7 @@ from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+from .student_progress_store import StudentProgressStore
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
 from .version2_gametree_resume import Version2GameTreeResumeCoordinator
@@ -468,6 +471,24 @@ def create_version2_release_application(
                 copy_text=copy_text,
                 language=language,
             )
+            progress_binder = getattr(candidate, "bind_student_progress_store", None)
+            if callable(progress_binder):
+                progress_binder(
+                    StudentProgressStore(layout.root / "student-progress.json")
+                )
+            child_coaching_binder = getattr(
+                candidate,
+                "bind_child_coaching_application",
+                None,
+            )
+            if callable(child_coaching_binder):
+                child_coaching_binder(
+                    ChildCoachingApplication(
+                        ChildCoachingTemplateStore(
+                            layout.root / "child-coaching.json"
+                        )
+                    )
+                )
             resume_coordinator.restore(candidate)
             _share_v2_action_registry(api, candidate)
             api.bind_version2_application(candidate)
