@@ -214,6 +214,7 @@ def _validate_local_zip_header(
             "EPUB ZIP container is unavailable",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
+    original_position: int | None = None
     try:
         original_position = stream.tell()
         stream.seek(info.header_offset)
@@ -242,10 +243,11 @@ def _validate_local_zip_header(
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         ) from exc
     finally:
-        try:
-            stream.seek(original_position)
-        except Exception:
-            pass
+        if original_position is not None:
+            try:
+                stream.seek(original_position)
+            except (OSError, ValueError):
+                pass
 
     if extract_version not in {10, 20, 45}:
         raise _error(
