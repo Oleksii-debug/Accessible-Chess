@@ -607,6 +607,82 @@ class BookBoardWorkflowTests(unittest.TestCase):
         self.assertTrue(workflow.active)
         self.assertEqual(workflow.board_snapshot().fen(), Board.START)
 
+    def test_dispatch_rejects_payload_subclass_before_mapping_hooks(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[Game(pgn='''[Result "*"]\n\n1. e4 *\n''')],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+
+        class HostilePayload(dict):
+            armed = False
+            touched = False
+
+            def _touch(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("rejected payload mapping hook must not execute")
+
+            def __len__(self):
+                self._touch()
+                return super().__len__()
+
+            def __iter__(self):
+                self._touch()
+                return super().__iter__()
+
+            def __getitem__(self, key):
+                self._touch()
+                return super().__getitem__(key)
+
+            def keys(self):
+                self._touch()
+                return super().keys()
+
+        payload = HostilePayload({"depth": 8})
+        HostilePayload.armed = True
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.dispatch(BookBoardCommand.ANALYZE, payload)
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.INVALID_COMMAND)
+        self.assertFalse(HostilePayload.touched)
+
+    def test_dispatch_rejects_overwide_exact_payload_before_key_hooks(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[Game(pgn='''[Result "*"]\n\n1. e4 *\n''')],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+
+        class HostileKey(str):
+            armed = False
+            touched = False
+
+            def __hash__(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("over-wide payload key must not be hashed")
+                return super().__hash__()
+
+            def __eq__(self, other):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("over-wide payload key must not be compared")
+                return super().__eq__(other)
+
+        hostile = HostileKey("extra")
+        payload = {"multipv": 1, "depth": 8, hostile: 1}
+        HostileKey.armed = True
+
+        with self.assertRaises(BookBoardWorkflowError) as caught:
+            workflow.dispatch(BookBoardCommand.ANALYZE, payload)
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.INVALID_COMMAND)
+        self.assertFalse(HostileKey.touched)
+
     def test_application_dispatch_is_closed_world_and_does_not_guess_payloads(self) -> None:
         reader = BookReader(
             BookDocument(
