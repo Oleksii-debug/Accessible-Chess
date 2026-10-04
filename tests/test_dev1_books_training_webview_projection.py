@@ -7,7 +7,7 @@ from unittest.mock import patch
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
 from acs.bookreader import BookReader
 from acs.book_webview_projection import BookWebViewProjection
-from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
+from acs.full_product_presenters import BookBlockView, BookReaderPresenter, TrainingPresenter
 from acs.full_product_ui_shell import UILanguage
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 from acs.training_webview_projection import TrainingWebViewProjection
@@ -101,6 +101,54 @@ class BookProjectionTests(unittest.TestCase):
             self.projection._snapshot_from_block(
                 replace(block, kind="Position", role="group", position_fen=None)
             )
+
+    def test_snapshot_rejects_book_block_subclass_before_attribute_hooks(self) -> None:
+        class HostileBookBlock(BookBlockView):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {
+                    "index",
+                    "kind",
+                    "role",
+                    "title",
+                    "text",
+                    "heading_level",
+                    "position_fen",
+                    "heading_path",
+                    "source_anchor",
+                    "warning",
+                    "list_items",
+                    "list_ordered",
+                    "list_start",
+                }:
+                    type(self).touched = True
+                    raise AssertionError("BookBlockView attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        block = self.presenter.current()
+        hostile = HostileBookBlock(
+            block.index,
+            block.kind,
+            block.role,
+            block.title,
+            block.text,
+            block.heading_level,
+            block.position_fen,
+            block.heading_path,
+            block.source_anchor,
+            block.warning,
+            block.list_items,
+            block.list_ordered,
+            block.list_start,
+        )
+        HostileBookBlock.armed = True
+
+        with self.assertRaisesRegex(TypeError, "exact BookBlockView"):
+            self.projection._snapshot_from_block(hostile)
+
+        self.assertFalse(HostileBookBlock.touched)
 
     def test_snapshot_rejects_noncanonical_scalar_types_without_coercion(self) -> None:
         block = self.presenter.current()
