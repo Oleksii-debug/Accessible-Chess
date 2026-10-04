@@ -314,6 +314,80 @@ def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str
     return digest.hexdigest()
 
 
+def _same_identity_and_size(first: os.stat_result, second: os.stat_result) -> bool:
+    return (
+        _complete_file_identity(first, second)
+        and getattr(first, "st_size", None) == getattr(second, "st_size", None)
+    )
+
+
+def _fsync_file_snapshot(
+    path: Path,
+    *,
+    expected: os.stat_result,
+    label: str,
+) -> os.stat_result:
+    """Flush one exact regular-file inode without accepting a pathname swap."""
+
+    try:
+        with path.open("r+b") as handle:
+            opened = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or not _same_identity_and_size(expected, opened)
+            ):
+                _fail(f"{label} changed before durability confirmation")
+            handle.flush()
+            os.fsync(handle.fileno())
+            flushed = os.fstat(handle.fileno())
+    except Version2PortablePackageError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} could not be synchronized: {type(exc).__name__}")
+    after = _safe_info(path, label=label, directory=False)
+    if (
+        not _same_identity_and_size(expected, flushed)
+        or not _same_identity_and_size(expected, after)
+    ):
+        _fail(f"{label} changed during durability confirmation")
+    return after
+
+
+def _sync_published_zip_namespace(
+    path: Path,
+    *,
+    expected: os.stat_result,
+) -> os.stat_result:
+    """Durably confirm the exact ZIP inode published at *path*.
+
+    POSIX requires a parent-directory fsync for a new hard-link namespace entry.
+    On Windows the repository's persistence contract uses FlushFileBuffers on
+    the exact published regular file as the post-publication durability barrier.
+    """
+
+    if os.name == "nt":
+        return _fsync_file_snapshot(
+            path,
+            expected=expected,
+            label="portable ZIP publication",
+        )
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(os.fspath(path.parent), flags)
+        os.fsync(descriptor)
+    except OSError as exc:
+        _fail(f"portable ZIP publication directory could not be synchronized: {type(exc).__name__}")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    after = _safe_info(path, label="portable ZIP publication", directory=False)
+    if not _same_identity_and_size(expected, after):
+        _fail("portable ZIP publication changed during durability confirmation")
+    return after
+
+
 def _stable_bytes(path: Path, *, label: str, maximum: int) -> bytes:
     before = _safe_info(path, label=label, directory=False)
     if before.st_size > maximum:
@@ -892,21 +966,109 @@ def write_portable_oneclick_zip(
                 if expected_digest is None or digest.hexdigest() != expected_digest:
                     _fail("portable ZIP byte readback failed")
 
-        try:
-            os.link(temporary, target)
-            temporary.unlink()
-        except OSError as exc:
-            _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")
-        archive_sha = _sha256(target)
-        return Version2PortablePackageReport(
-            package_root=root,
-            integration_sha=report.integration_sha,
-            inventory=report.inventory,
-            total_bytes=report.total_bytes,
-            archive_path=target,
-            archive_sha256=archive_sha,
-            checksum_sha256=checksum_file_digest,
+        # Bind the archive readback to one durable temp-file snapshot before
+        # creating the public hard link.  The final digest must later equal
+        # these exact bytes; hashing only the public pathname after os.link()
+        # would otherwise accept a same-inode post-link rewrite.
+        prepared = _safe_info(
+            temporary,
+            label="verified portable ZIP archive",
+            directory=False,
         )
+        prepared = _fsync_file_snapshot(
+            temporary,
+            expected=prepared,
+            label="verified portable ZIP archive",
+        )
+        verified_before_digest = _safe_info(
+            temporary,
+            label="verified portable ZIP archive",
+            directory=False,
+        )
+        verified_archive_sha = _stable_digest(
+            temporary,
+            label="verified portable ZIP archive",
+        )
+        verified_snapshot = _safe_info(
+            temporary,
+            label="verified portable ZIP archive",
+            directory=False,
+        )
+        if not _same_file_snapshot(verified_before_digest, verified_snapshot):
+            _fail("verified portable ZIP archive changed after readback")
+
+        published_identity: os.stat_result | None = None
+        publication_accepted = False
+        try:
+            try:
+                os.link(temporary, target)
+            except OSError as exc:
+                _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")
+
+            linked_temporary = _safe_info(
+                temporary,
+                label="verified portable ZIP archive",
+                directory=False,
+            )
+            linked_target = _safe_info(
+                target,
+                label="portable ZIP publication",
+                directory=False,
+            )
+            if (
+                not _same_identity_and_size(verified_snapshot, linked_temporary)
+                or not _same_identity_and_size(linked_temporary, linked_target)
+            ):
+                _fail("portable ZIP publication is not the verified archive inode")
+            published_identity = linked_target
+
+            temporary.unlink()
+            published = _safe_info(
+                target,
+                label="portable ZIP publication",
+                directory=False,
+            )
+            if not _same_identity_and_size(published_identity, published):
+                _fail("portable ZIP publication changed before durability confirmation")
+            published = _sync_published_zip_namespace(
+                target,
+                expected=published,
+            )
+
+            archive_sha = _stable_digest(
+                target,
+                label="published portable ZIP archive",
+            )
+            published_after_digest = _safe_info(
+                target,
+                label="portable ZIP publication",
+                directory=False,
+            )
+            if (
+                not _same_file_snapshot(published, published_after_digest)
+                or archive_sha != verified_archive_sha
+            ):
+                _fail("published portable ZIP bytes differ from the verified archive")
+            publication_accepted = True
+            return Version2PortablePackageReport(
+                package_root=root,
+                integration_sha=report.integration_sha,
+                inventory=report.inventory,
+                total_bytes=report.total_bytes,
+                archive_path=target,
+                archive_sha256=archive_sha,
+                checksum_sha256=checksum_file_digest,
+            )
+        finally:
+            if not publication_accepted and published_identity is not None:
+                try:
+                    current = target.lstat()
+                    if _complete_file_identity(published_identity, current):
+                        target.unlink()
+                except OSError:
+                    # Never let cleanup obscure the fail-closed publication
+                    # error, and never remove a raced-in foreign inode.
+                    pass
     finally:
         try:
             temporary.unlink()
