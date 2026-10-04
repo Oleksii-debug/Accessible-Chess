@@ -25,7 +25,10 @@ from .bookreader import BookReader
 from .full_product_presenters import TrainingPresenter
 from .full_product_ui_shell import UILanguage
 from .training import ExerciseSession
-from .training_progress_store import TrainingProgressStore
+from .training_progress_store import (
+    TrainingProgressDurabilityUnknownError,
+    TrainingProgressStore,
+)
 from .training_webview_bridge import TrainingWebViewBridge
 from .training_webview_projection import TrainingWebViewEvent, TrainingWebViewProjection
 
@@ -352,9 +355,32 @@ class Version2BookTrainingWorkspace:
             return event
         try:
             self.save()
+        except TrainingProgressDurabilityUnknownError as error:
+            # Atomic publication already succeeded before this error class can be
+            # raised. Rolling back to the pre-command snapshot would therefore put
+            # memory behind the canonical pathname and force a stale next revision.
+            # Re-read canonical state and restore it in place so retained session
+            # and bridge references stay authoritative. If canonical storage cannot
+            # itself be re-read, keep the just-published in-memory state and bind
+            # the optimistic revision to the bytes this process published; a later
+            # external change will then fail the next CAS safely.
+            self._revision = error.published_revision
+            try:
+                loaded = self._store.load(material.definition)
+            except Exception:
+                raise
+            if loaded is not None:
+                bridge.projection.restore_state(
+                    loaded.session.snapshot(),
+                    language=before_language,
+                    message="",
+                    message_key=None,
+                )
+                self._revision = loaded.revision
+            raise
         except Exception:
-            # A stale/busy durable write must not leave in-memory progress ahead
-            # of disk truth or invalidate retained live Training references.
+            # A pre-publication stale/busy/error write leaves durable truth at the
+            # old revision, so rollback remains the correct transaction boundary.
             restore_active_state()
             raise
         return event
