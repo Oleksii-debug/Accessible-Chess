@@ -15,6 +15,11 @@ from .classroom_pairing import (
     override_pairing,
     plan_pairings,
 )
+from .child_coaching_context import (
+    ChildCoachingContextError,
+    build_child_coaching_context,
+    child_coaching_context_to_teacher_payload,
+)
 from .classroom_prepared_position_deployment import (
     DeploymentTarget,
     PreparedPositionDeploymentBatch,
@@ -31,6 +36,8 @@ from .education_workspace_store import EducationWorkspaceStore
 from .full_product_ui_shell import UILanguage
 from .library_export_workspace import build_library_export_webview
 from .search_service import GameSearchQuery
+from .student_progress import StudentProgressLedger
+from .student_progress_store import StudentProgressStore
 from .teacher_webview_bridge import TeacherWebViewBridge
 from .teacher_webview_projection import TeacherWebViewProjection
 from .teaching_classroom_adapter import apply_classroom_action
@@ -101,6 +108,8 @@ class Version2FinalProductApplication(Version2Application):
         self._teaching_state: TeachingSessionState | None = None
         self._pairing_batch: PairingBatch | None = None
         self._prepared_position_deployment: PreparedPositionDeploymentBatch | None = None
+        self._student_progress_store: StudentProgressStore | None = None
+        self._student_progress_load_error = False
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -461,6 +470,57 @@ class Version2FinalProductApplication(Version2Application):
             workspace,
         )
 
+    def bind_student_progress_store(self, store: StudentProgressStore) -> None:
+        """Bind one local canonical progress store without making startup depend on it."""
+
+        self._assert_thread()
+        if not isinstance(store, StudentProgressStore):
+            raise TypeError("student progress store must be StudentProgressStore")
+        if self._student_progress_store is not None and self._student_progress_store is not store:
+            raise RuntimeError("Student progress store is already bound")
+        self._student_progress_store = store
+        try:
+            store.load()
+        except Exception:
+            # Corrupt/unreadable progress is not a clean first run. Keep the
+            # core product usable but make coaching context fail closed until a
+            # later successful reread proves one canonical ledger.
+            self._student_progress_load_error = True
+        else:
+            self._student_progress_load_error = False
+
+    def current_student_coaching_context(
+        self,
+        student_id: str,
+    ) -> dict[str, object]:
+        """Return coach-only aggregate progress for one student in the live lesson."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        if type(student_id) is not str or student_id not in plan.student_ids:
+            raise RuntimeError("Student is outside the active teaching session")
+        store = self._student_progress_store
+        if store is None:
+            raise RuntimeError("Student progress store is unavailable")
+        try:
+            loaded = store.load()
+        except Exception:
+            self._student_progress_load_error = True
+            raise RuntimeError("Student progress requires recovery") from None
+        self._student_progress_load_error = False
+        ledger = StudentProgressLedger() if loaded is None else loaded.ledger
+        try:
+            context = build_child_coaching_context(
+                workspace.classroom,
+                ledger,
+                student_id=student_id,
+                session_id=plan.session_id,
+                language=self.shell.language,
+            )
+        except ChildCoachingContextError as exc:
+            raise RuntimeError("Student coaching context is unavailable") from exc
+        return child_coaching_context_to_teacher_payload(context)
+
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
         if not isinstance(language, UILanguage):
@@ -522,6 +582,13 @@ class Version2FinalProductApplication(Version2Application):
                         0
                         if self._prepared_position_deployment is None
                         else len(self._prepared_position_deployment.assignments)
+                    ),
+                    "student_progress_available": (
+                        self._student_progress_store is not None
+                        and not self._student_progress_load_error
+                    ),
+                    "student_progress_recovery_required": (
+                        self._student_progress_load_error
                     ),
                     "remote_transport": "not_approved",
                 },
