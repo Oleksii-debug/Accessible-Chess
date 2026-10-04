@@ -17,6 +17,7 @@ import posixpath
 import re
 import stat
 import unicodedata
+import zlib
 from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
@@ -49,6 +50,7 @@ _CONTAINER_TAG = f"{{{_CONTAINER_NAMESPACE}}}container"
 _ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
 _ROOTFILE_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfile"
 _LINKS_TAG = f"{{{_CONTAINER_NAMESPACE}}}links"
+_LINK_TAG = f"{{{_CONTAINER_NAMESPACE}}}link"
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
 _OPF_NAMESPACE = "http://www.idpf.org/2007/opf"
 _DUBLIN_CORE_NAMESPACE = "http://purl.org/dc/elements/1.1/"
@@ -56,6 +58,10 @@ _PACKAGE_TAG = f"{{{_OPF_NAMESPACE}}}package"
 _METADATA_TAG = f"{{{_OPF_NAMESPACE}}}metadata"
 _MANIFEST_TAG = f"{{{_OPF_NAMESPACE}}}manifest"
 _SPINE_TAG = f"{{{_OPF_NAMESPACE}}}spine"
+_GUIDE_TAG = f"{{{_OPF_NAMESPACE}}}guide"
+_BINDINGS_TAG = f"{{{_OPF_NAMESPACE}}}bindings"
+_COLLECTION_TAG = f"{{{_OPF_NAMESPACE}}}collection"
+_TOURS_TAG = f"{{{_OPF_NAMESPACE}}}tours"
 _ITEM_TAG = f"{{{_OPF_NAMESPACE}}}item"
 _ITEMREF_TAG = f"{{{_OPF_NAMESPACE}}}itemref"
 _ID_BEARING_OPF_TAGS = frozenset(
@@ -284,6 +290,11 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 "EPUB package file metadata contradicts its entry name",
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
+        if info.flag_bits & 0x1:
+            raise _error(
+                "EPUB uses ZIP encryption, which OCF does not permit",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
         if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
             raise _error(
                 "EPUB uses an unsupported ZIP compression method",
@@ -330,7 +341,7 @@ def _read_entry(
         )
     try:
         data = archive.read(info)
-    except (RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:
+    except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
         raise _error(
             "EPUB package entry could not be read safely",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
@@ -522,6 +533,29 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
+    trailing = structural_children[3:]
+    if version == "3.0":
+        index = 0
+        if index < len(trailing) and trailing[index] == _GUIDE_TAG:
+            index += 1
+        if index < len(trailing) and trailing[index] == _BINDINGS_TAG:
+            index += 1
+        while index < len(trailing) and trailing[index] == _COLLECTION_TAG:
+            index += 1
+        valid_trailing_structure = index == len(trailing)
+    else:
+        index = 0
+        if index < len(trailing) and trailing[index] == _TOURS_TAG:
+            index += 1
+        if index < len(trailing) and trailing[index] == _GUIDE_TAG:
+            index += 1
+        valid_trailing_structure = index == len(trailing)
+    if not valid_trailing_structure:
+        raise _error(
+            "EPUB package contains an invalid OPF top-level element or ordering",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     metadata = _required_unique_direct_child(package, "metadata")
     if (metadata.text or "").strip() or any(
         (child.tail or "").strip() for child in metadata
@@ -699,7 +733,9 @@ def _package_rootfile(
         )
 
     rootfiles = structural_children[0]
-    if (rootfiles.text or "").strip():
+    if (rootfiles.text or "").strip() or any(
+        (child.tail or "").strip() for child in rootfiles
+    ):
         raise _error(
             "EPUB rootfiles section contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -757,6 +793,76 @@ def _package_rootfile(
             "EPUB container has no supported package document",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+
+    if len(structural_children) == 2:
+        links = structural_children[1]
+        if (links.text or "").strip() or any(
+            (child.tail or "").strip() for child in links
+        ):
+            raise _error(
+                "EPUB container links section contains invalid text content",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        link_count = 0
+        for element in links:
+            if not _is_container_namespace_tag(element.tag):
+                continue
+            if element.tag != _LINK_TAG:
+                raise _error(
+                    "EPUB container links section contains an invalid element",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            link_count += 1
+            if (element.text or "").strip():
+                raise _error(
+                    "EPUB container link element must be empty",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            for child in element:
+                if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
+                    raise _error(
+                        "EPUB container link element must be empty",
+                        BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                    )
+            raw_href = element.attrib.get("href")
+            raw_rel = element.attrib.get("rel")
+            if type(raw_href) is not str or not raw_href or raw_href != raw_href.strip():
+                raise _error(
+                    "EPUB container link href is missing or malformed",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+            try:
+                href_parts = urlsplit(raw_href)
+            except ValueError as exc:
+                raise _error(
+                    "EPUB container link href is malformed",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                ) from exc
+            if href_parts.scheme or href_parts.netloc or not href_parts.path:
+                raise _error(
+                    "EPUB container link href is not path-relative",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+            _resolve_package_href("", href_parts.path)
+            if (
+                type(raw_rel) is not str
+                or not raw_rel
+                or raw_rel != raw_rel.strip()
+                or any(
+                    not token or any(character.isspace() for character in token)
+                    for token in raw_rel.split(" ")
+                )
+            ):
+                raise _error(
+                    "EPUB container link rel is missing or malformed",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+        if not link_count:
+            raise _error(
+                "EPUB container links section is empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
     if len(candidates) > 1:
         warnings.add("multiple EPUB package documents were present; the first supported rootfile was used")
     return candidates[0]
@@ -1165,6 +1271,11 @@ def import_epub_book(
         if infos[0].filename != "mimetype" or infos[0].compress_type != zipfile.ZIP_STORED:
             raise _error(
                 "EPUB mimetype entry must be the first uncompressed package entry",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        if infos[0].extra:
+            raise _error(
+                "EPUB mimetype entry must not contain a ZIP extra field",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
         mimetype = _read_entry(archive, index, "mimetype", limit=128)
