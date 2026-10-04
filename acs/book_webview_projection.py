@@ -437,6 +437,10 @@ class BookWebViewProjection:
         # One immutable BookBlockView per browser render; no repeated mutable reads.
         return self._snapshot_from_block(self._presenter.current())
 
+    def refresh(self) -> BookWebViewEvent:
+        """Re-publish the current read-only Book presentation without mutation."""
+        return self._render(self._presenter.current())
+
     def _render(self, block: BookBlockView, *, announcement: str = "") -> BookWebViewEvent:
         snapshot = self._snapshot_from_block(block)
         return BookWebViewEvent(
