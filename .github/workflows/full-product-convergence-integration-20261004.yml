@@ -11,11 +11,13 @@ on:
       - fix/owner-portable-qualification-snapshot-pin-20261004-sol56
       - integration/owner-equal-sha-release-convergence-20261004-ooxple7
       - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
+      - fix/w4-sound-byte-readback-20261004-sol56
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
       - integration/current-main-windows-apex-reconvergence-20261004-sol
       - integration/owner-equal-sha-release-convergence-20261004-ooxple7
+      - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
       - main
     paths:
       - 'acs/**'
@@ -48,6 +50,7 @@ on:
       - '.github/workflows/w4-v2-p0-candidate-artifact-readback.yml'
       - '.github/workflows/w4-candidate-artifact-readback-workflow-contract.yml'
       - 'scripts/verify_w4_current_candidate_artifact.py'
+      - 'scripts/verify_w4_sound_inventory.py'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/verify_owner_w4_run_provenance.py'
@@ -185,6 +188,14 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_OWNER_SNAPSHOT_PARENT_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "fix/w4-sound-byte-readback-20261004-sol56" ]; then
+            live_base_ref='converge/owner-equal-apex-run-provenance-20261004-c2mbezb'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_W4_SOUND_READBACK_PARENT_ANCESTRY=PASS base=$live_base"
           elif [ "${GITHUB_REF_NAME:-}" = "converge/owner-equal-apex-run-provenance-20261004-c2mbezb" ]; then
             live_base_ref='integration/owner-equal-sha-release-convergence-20261004-ooxple7'
             git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
@@ -442,7 +453,9 @@ jobs:
           tests.test_verify_owner_w4_run_provenance
           tests.test_w4_v2_p0_fresh_candidate_workflow
           tests.test_w4_candidate_artifact_readback_workflow
+          tests.test_w4_sound_inventory_workflow_binding
           tests.test_verify_w4_current_candidate_artifact
+          tests.test_verify_w4_sound_inventory
           tests.test_portable_launcher_contract
           tests.test_version2_portable_package
           tests.test_version2_package_preflight
