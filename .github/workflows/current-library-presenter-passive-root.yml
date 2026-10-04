@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - fix/current-library-browser-passive-ingress-20261004-zftrkmo
+      - main
     paths:
       - 'acs/library_webview_projection.py'
       - 'tests/test_dev1_library_webview_projection.py'
