@@ -7,11 +7,12 @@ NVDA/WebView clients can bind their remappable action IDs to these operations
 without the data layer owning shortcuts.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
 from itertools import islice
-from typing import Mapping
+from typing import Iterator, Mapping
 
 from .book_index import BookIndex
 from .bookdocument import (
@@ -323,6 +324,33 @@ class BookReader:
             # The final location() call is also a live-revision barrier. A
             # concurrent BookDocument edit after target validation must not leave
             # behind a bookmark that the failed save never successfully published.
+            if had_previous:
+                assert previous_key is not None
+                self._return_points[validated_name] = previous_key
+            else:
+                self._return_points.pop(validated_name, None)
+            raise
+
+    @contextmanager
+    def provisional_return_point(
+        self,
+        name: str = "default",
+    ) -> Iterator[ReadingLocation]:
+        """Publish a return point only if the guarded operation succeeds.
+
+        Board/game handoffs need the return target to exist before dispatch so a
+        successful external transition can always come back to the exact reading
+        location.  If dispatch fails, restore the previous binding (or remove the
+        newly-created one) on this same reader instance so callers holding the
+        canonical reader never observe a phantom handoff.
+        """
+        validated_name = self._return_point_name(name)
+        had_previous = validated_name in self._return_points
+        previous_key = self._return_points.get(validated_name)
+        location = self.save_return_point(validated_name)
+        try:
+            yield location
+        except BaseException:
             if had_previous:
                 assert previous_key is not None
                 self._return_points[validated_name] = previous_key

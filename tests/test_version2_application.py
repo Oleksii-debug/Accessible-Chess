@@ -1686,16 +1686,21 @@ class Version2ApplicationTests(unittest.TestCase):
             self.assertEqual(origin, self.app.reader.location())
             self.assertEqual(before, self.app.reader.snapshot())
 
-    def test_book_open_fails_closed_when_release_board_rejects_position(self):
+    def test_book_game_open_fails_closed_when_release_board_rejects_position(self):
         _book, origin = self._open_book_game()
+        before = self.app.reader.snapshot()
         self.app._board_position_projector = lambda _fen: {"ok": False}
 
-        result = self.app.browser_command("books", "book.open_position")
+        # The helper leaves the reader on a Game block, so exercise the real
+        # Game -> Board handoff. Calling book.open_position here only proves the
+        # semantic action guard and never reaches the release board projector.
+        result = self.app.browser_command("books", "book.open_game")
 
         self.assertEqual(result["kind"], "error")
         self.assertNotIn("announcement", result["payload"])
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual(self.app.reader.location(), origin)
+        self.assertEqual(self.app.reader.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
     def test_book_navigation_projection_failure_restores_canonical_cursor(self):

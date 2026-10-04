@@ -670,15 +670,66 @@ class _SemanticHtmlParser(HTMLParser):
             self._hidden_tags.pop()
             return
         if tag == "head":
+            # A malformed unclosed <title> must not survive the explicit end of
+            # metadata. Otherwise handle_data() keeps treating later BODY text as
+            # title metadata and omits it from the semantic document.
+            title_index = next(
+                (
+                    index
+                    for index, capture in enumerate(self._captures)
+                    if capture.kind == "title"
+                ),
+                None,
+            )
+            if title_index is not None:
+                while len(self._captures) > title_index:
+                    capture = self._captures.pop()
+                    self._finish_capture_and_record_parent(capture, recovered=True)
             if self._head_depth:
                 self._head_depth -= 1
             return
         if self._head_depth and tag not in {"title", "meta"}:
             return
-        if self._captures and self._captures[-1].tag == tag:
+        matching_capture_index = next(
+            (
+                index
+                for index in range(len(self._captures) - 1, -1, -1)
+                if self._captures[index].tag == tag
+            ),
+            None,
+        )
+        if matching_capture_index is not None:
+            # HTMLParser reports source tags but does not repair malformed
+            # nesting. If an explicit closing tag belongs to an ancestor capture,
+            # recover any still-open semantic descendants first, then honor the
+            # explicit close. Leaving the ancestor live until EOF would let
+            # following source text leak into a region the source already closed.
+            while len(self._captures) - 1 > matching_capture_index:
+                capture = self._captures.pop()
+                self._finish_capture_and_record_parent(capture, recovered=True)
             capture = self._captures.pop()
             self._finish_capture_and_record_parent(capture)
         if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
+            # HTMLParser intentionally does not repair malformed nesting. If a
+            # list container closes while its current <li> (or a semantic child
+            # of that item) is still open, recover that subtree *before* the
+            # list owner disappears. Otherwise later source text can continue
+            # fanning out into the stale item capture until EOF and be
+            # misattributed to the already-closed list.
+            list_depth = len(self._lists)
+            open_item_index = next(
+                (
+                    index
+                    for index in range(len(self._captures) - 1, -1, -1)
+                    if self._captures[index].kind == "list_item"
+                    and self._captures[index].list_depth == list_depth
+                ),
+                None,
+            )
+            if open_item_index is not None:
+                while len(self._captures) > open_item_index:
+                    capture = self._captures.pop()
+                    self._finish_capture_and_record_parent(capture, recovered=True)
             captured = self._lists.pop()
             if captured.nested:
                 for capture in self._captures:

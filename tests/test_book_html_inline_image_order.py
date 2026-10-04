@@ -1151,6 +1151,101 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsInstance(trailing, Paragraph)
         self.assertEqual(trailing.text, "After")
 
+    def test_head_close_contains_all_nested_unclosed_titles_before_body_text(self) -> None:
+        result = import_html_book(
+            '<html><head><title>Outer<title>Inner</head>'
+            '<body><p id="body">Body text</p></body></html>',
+            source_name="malformed-nested-title-close.html",
+        )
+
+        self.assertEqual(result.document.title, "Inner")
+        paragraphs = [
+            block for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.source_anchor, block.text) for block in paragraphs],
+            [("body", "Body text")],
+        )
+        self.assertGreaterEqual(
+            sum("unclosed title element" in warning for warning in result.warnings),
+            2,
+        )
+
+    def test_head_close_contains_unclosed_title_before_body_text(self) -> None:
+        result = import_html_book(
+            '<html><head><title>Book title</head>'
+            '<body><p id="body">Body text</p></body></html>',
+            source_name="malformed-title-close.html",
+        )
+
+        self.assertEqual(result.document.title, "Book title")
+        paragraphs = [
+            block for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.source_anchor, block.text) for block in paragraphs],
+            [("body", "Body text")],
+        )
+        self.assertTrue(
+            any("unclosed title element" in warning for warning in result.warnings)
+        )
+
+    def test_explicit_ancestor_close_recovers_unclosed_semantic_descendant_before_following_text(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A<blockquote id="inner">B</p>'
+            '<p id="outside">Outside</p></body></html>',
+            source_name="malformed-ancestor-close.html",
+        )
+
+        paragraphs = [
+            block for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.source_anchor, block.text) for block in paragraphs],
+            [
+                ("inner", "B"),
+                ("outer", "A B"),
+                ("outside", "Outside"),
+            ],
+        )
+        self.assertTrue(
+            any(
+                "unclosed blockquote element" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertEqual(
+            sum("Outside" in block.text for block in paragraphs),
+            1,
+        )
+
+    def test_list_close_recovers_unclosed_item_before_following_text(self) -> None:
+        result = import_html_book(
+            '<html><body><ul id="items"><li id="broken">A</ul>'
+            '<p id="outside">Outside</p></body></html>',
+            source_name="malformed-list-close.html",
+        )
+
+        self.assertEqual(len(result.document.blocks), 2)
+        list_block, outside = result.document.blocks
+        self.assertEqual(list_block.kind, "List")
+        self.assertEqual(list_block.items, ["A"])
+        self.assertEqual(list_block.source_anchor, "items")
+        self.assertIsInstance(outside, Paragraph)
+        self.assertEqual(outside.text, "Outside")
+        self.assertEqual(outside.source_anchor, "outside")
+        self.assertTrue(
+            any("unclosed li element" in warning for warning in result.warnings)
+        )
+        self.assertFalse(
+            any(
+                isinstance(block, Paragraph)
+                and "Outside" in block.text
+                and block.source_anchor == "broken"
+                for block in result.document.blocks
+            )
+        )
+
     def test_malformed_nested_list_inline_event_does_not_escape_to_outer_owner(self) -> None:
         result = import_html_book(
             '<html><body><p id="outer">A<ul><li>B'

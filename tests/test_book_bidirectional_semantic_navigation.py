@@ -717,5 +717,58 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
             self.assertEqual(presenter.current(), before)
 
 
+    def test_failed_position_handoff_does_not_publish_phantom_return_point(self) -> None:
+        reader = BookReader(self.make_extended_document())
+        reader.go_to(1)
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+
+        def fail_dispatch(_command: str, _payload) -> object:
+            raise RuntimeError("synthetic position handoff failure")
+
+        with self.assertRaisesRegex(RuntimeError, "position handoff failure"):
+            presenter.open_current_position(fail_dispatch)
+
+        reader.go_to(0)
+        with self.assertRaisesRegex(LookupError, "Unknown return point"):
+            presenter.return_from_board()
+        self.assertEqual(reader.index, 0)
+
+    def test_failed_position_handoff_restores_previous_return_target(self) -> None:
+        reader = BookReader(self.make_extended_document())
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+        reader.go_to(1)
+        presenter.open_current_position(lambda *_: object())
+        reader.go_to(4)
+
+        def fail_dispatch(_command: str, _payload) -> object:
+            raise RuntimeError("synthetic position handoff failure")
+
+        with self.assertRaisesRegex(RuntimeError, "position handoff failure"):
+            presenter.open_current_position(fail_dispatch)
+
+        reader.go_to(0)
+        restored = presenter.return_from_board()
+        self.assertEqual(restored.index, 1)
+        self.assertEqual(reader.index, 1)
+
+    def test_failed_game_handoff_restores_previous_return_target(self) -> None:
+        reader = BookReader(self.make_extended_document())
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+        reader.go_to(3)
+        presenter.open_current_game(lambda *_: object())
+        reader.go_to(6)
+
+        def fail_dispatch(_command: str, _payload) -> object:
+            raise RuntimeError("synthetic game handoff failure")
+
+        with self.assertRaisesRegex(RuntimeError, "game handoff failure"):
+            presenter.open_current_game(fail_dispatch)
+
+        reader.go_to(0)
+        restored = presenter.return_from_board()
+        self.assertEqual(restored.index, 3)
+        self.assertEqual(reader.index, 3)
+
+
 if __name__ == "__main__":
     unittest.main()

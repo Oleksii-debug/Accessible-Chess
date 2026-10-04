@@ -471,5 +471,42 @@ class BookReaderTests(unittest.TestCase):
             reader.location()
 
 
+    def test_provisional_return_point_commits_on_success(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(3)
+
+        with reader.provisional_return_point("handoff") as location:
+            self.assertEqual(location.index, 3)
+
+        reader.go_to(6)
+        self.assertEqual(reader.restore_return_point("handoff").index, 3)
+
+    def test_provisional_return_point_removes_new_binding_on_failure(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(3)
+
+        with self.assertRaisesRegex(RuntimeError, "handoff failed"):
+            with reader.provisional_return_point("handoff"):
+                raise RuntimeError("handoff failed")
+
+        with self.assertRaisesRegex(LookupError, "Unknown return point: handoff"):
+            reader.restore_return_point("handoff")
+
+    def test_provisional_return_point_restores_previous_binding_on_failure(self):
+        reader = BookReader(self.make_book())
+        reader.go_to(3)
+        reader.save_return_point("handoff")
+        reader.go_to(5)
+
+        with self.assertRaisesRegex(RuntimeError, "handoff failed"):
+            with reader.provisional_return_point("handoff"):
+                raise RuntimeError("handoff failed")
+
+        reader.go_to(6)
+        restored = reader.restore_return_point("handoff")
+        self.assertEqual(restored.index, 3)
+        self.assertEqual(restored.block_id, "diagram")
+
+
 if __name__ == "__main__":
     unittest.main()

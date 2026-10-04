@@ -305,9 +305,15 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
                 self.skipTest("symlink creation is unavailable on this platform")
 
             store = TrainingProgressStore(path)
-            with self.assertRaisesRegex(ValueError, "could not be inspected"):
+            with self.assertRaisesRegex(
+                ValueError,
+                "could not be inspected|not a regular file",
+            ):
                 store.load(self._definition())
-            with self.assertRaisesRegex(ValueError, "could not be inspected"):
+            with self.assertRaisesRegex(
+                ValueError,
+                "could not be inspected|not a regular file",
+            ):
                 store.save(
                     ExerciseSession(self._definition()),
                     expected_revision=None,
@@ -598,6 +604,10 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertTrue(removed)
             self.assertFalse(path.exists())
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open progress pathname is a POSIX-specific race probe",
+    )
     def test_same_byte_progress_path_swap_after_open_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -727,6 +737,10 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertEqual(("e4",), loaded.session.accepted_path)
             self.assertEqual(loaded.revision, raised.exception.published_revision)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "replacing an open locked pathname is a POSIX-specific race probe",
+    )
     def test_lock_path_swap_during_publication_withholds_success(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
