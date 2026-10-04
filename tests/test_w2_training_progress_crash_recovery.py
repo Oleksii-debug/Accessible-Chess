@@ -251,6 +251,86 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertFalse(path.exists())
             self.assertEqual([], list(root.glob(f".{path.name}.*.tmp")))
 
+    def test_lock_replacement_prevents_noop_save_from_acknowledging_success(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            initial_store = TrainingProgressStore(path)
+            session = ExerciseSession(definition)
+            revision = initial_store.save(session, expected_revision=None)
+
+            store = TrainingProgressStore(path)
+            replacement = root / "replacement-lock.bin"
+            replacement.write_bytes(b"replacement")
+            real_read = store._read_progress_bytes
+            swapped = False
+
+            def racing_read(*, missing_ok: bool):
+                nonlocal swapped
+                result = real_read(missing_ok=missing_ok)
+                if not swapped:
+                    os.replace(replacement, store._lock_path)
+                    swapped = True
+                return result
+
+            with mock.patch.object(
+                store,
+                "_read_progress_bytes",
+                side_effect=racing_read,
+            ):
+                with self.assertRaisesRegex(
+                    TrainingProgressBusyError,
+                    "lock changed while held",
+                ):
+                    store.save(session, expected_revision=revision)
+
+            self.assertTrue(swapped)
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(revision, loaded.revision)
+            self.assertEqual(0, loaded.session.step_index)
+
+    def test_lock_replacement_after_publication_withholds_success_acknowledgement(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            initial = ExerciseSession(definition)
+            revision = store.save(initial, expected_revision=None)
+
+            advanced = ExerciseSession(definition)
+            advanced.submit("e4")
+            replacement = root / "replacement-lock.bin"
+            replacement.write_bytes(b"replacement")
+            real_sync = progress_store_module._sync_published_path
+            swapped = False
+
+            def racing_sync(candidate: Path) -> None:
+                nonlocal swapped
+                os.replace(replacement, store._lock_path)
+                swapped = True
+                real_sync(candidate)
+
+            with mock.patch(
+                "acs.training_progress_store._sync_published_path",
+                side_effect=racing_sync,
+            ):
+                with self.assertRaisesRegex(
+                    TrainingProgressBusyError,
+                    "lock changed while held",
+                ):
+                    store.save(advanced, expected_revision=revision)
+
+            self.assertTrue(swapped)
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(1, loaded.session.step_index)
+            self.assertEqual(("e4",), loaded.session.accepted_path)
+
     def test_progress_path_swap_before_open_never_reads_redirected_target(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
