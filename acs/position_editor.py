@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 import re
 from typing import Iterable
 
+from .input_limits import MAX_FEN_CHARS
 from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
@@ -157,6 +158,8 @@ class PositionState:
             # Keep FEN ingress passive: no user-defined text subclass may run
             # strip/split/equality hooks before this boundary rejects it.
             raise PositionValidationError("FEN must be text")
+        if len(fen) > MAX_FEN_CHARS:
+            raise PositionValidationError("FEN is too long")
         text = fen.strip()
         fields = text.split()
         if len(fields) != 6:
