@@ -397,7 +397,7 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _record_inline_semantic(self, block: object) -> None:
         # Only the nearest paragraph-like semantic owner is split around an inline
-        # image. Ancestor captures intentionally remain legacy whole-block
+        # semantic block. Ancestor captures intentionally remain legacy whole-block
         # projections, matching the importer's existing nested-capture behavior
         # instead of interleaving duplicate ancestor fragments around one image.
         for capture in reversed(self._captures):
@@ -499,7 +499,10 @@ class _SemanticHtmlParser(HTMLParser):
             if len(self.blocks) == block_count + 1:
                 self._record_inline_semantic(self.blocks[-1])
         elif "data-acs-fen" in attrs and not self._head_depth:
+            block_count = len(self.blocks)
             self._emit_explicit_position(tag, attrs)
+            if len(self.blocks) == block_count + 1:
+                self._record_inline_semantic(self.blocks[-1])
 
         if tag in {"ol", "ul"} and self._lists:
             for capture in self._captures:
@@ -624,7 +627,7 @@ class _SemanticHtmlParser(HTMLParser):
         legacy_text: str,
         source_anchor: str | None,
     ) -> None:
-        """Project inline image semantics in source order without losing progress IDs."""
+        """Project inline semantics in source order without losing progress IDs."""
         cursor = 0
         legacy_identity_available = True
         previous_event: _InlineSemanticEvent | None = None
