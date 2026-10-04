@@ -2483,6 +2483,71 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
+    def test_rootfile_package_documents_cannot_be_manifest_resources(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="ALT/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        cases = (
+            (
+                '''    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="other-package" href="../ALT/content.opf" media-type="image/png"/>''',
+                '    <itemref idref="c1"/>',
+                _opf(
+                    manifest=(
+                        '    <item id="alt" href="chapter.xhtml" '
+                        'media-type="application/xhtml+xml"/>'
+                    ),
+                    spine='    <itemref idref="alt"/>',
+                ),
+            ),
+            (
+                '    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
+                '    <itemref idref="c1"/>',
+                _opf(
+                    manifest='''    <item id="alt" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="other-package" href="../OEBPS/content.opf" media-type="image/png"/>''',
+                    spine='    <itemref idref="alt"/>',
+                ),
+            ),
+        )
+        for primary_manifest, primary_spine, alternate_opf in cases:
+            with self.subTest(primary_manifest=primary_manifest):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=primary_manifest,
+                        spine=primary_spine,
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Primary rendition.</p></body></html>"
+                        ),
+                        "ALT/content.opf": alternate_opf,
+                        "ALT/chapter.xhtml": (
+                            b"<html><body><p>Alternate rendition.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        raw,
+                        source_name="cross-rendition-package-resource.epub",
+                    )
+
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+                self.assertIn(
+                    "restricted package resource",
+                    str(raised.exception),
+                )
+
     def test_every_container_rootfile_path_is_validated_before_selection(self) -> None:
         cases = (
             (
