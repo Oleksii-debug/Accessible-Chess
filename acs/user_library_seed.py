@@ -95,13 +95,17 @@ def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
     try:
         return os.path.samestat(first, second)
     except (AttributeError, OSError):
-        return (
+        first_identity = (
             getattr(first, "st_dev", None),
             getattr(first, "st_ino", None),
-        ) == (
+        )
+        second_identity = (
             getattr(second, "st_dev", None),
             getattr(second, "st_ino", None),
         )
+        if None in first_identity or None in second_identity:
+            return False
+        return first_identity == second_identity
 
 
 def _direct_directory(path: Path, *, label: str) -> None:

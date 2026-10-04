@@ -166,6 +166,14 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
                 "foreign replacement was not preserved after rejection",
             )
 
+    def test_identity_fallback_fails_closed_without_stable_fields(self) -> None:
+        with mock.patch.object(
+            seed_module.os.path,
+            "samestat",
+            side_effect=OSError("identity unavailable"),
+        ):
+            self.assertFalse(seed_module._same_file_identity(object(), object()))
+
 
 if __name__ == "__main__":
     unittest.main()
