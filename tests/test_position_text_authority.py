@@ -311,6 +311,25 @@ class PositionTextAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Потрібні секції W: і B:"):
             parse_position_text("broken position")
 
+    def test_legacy_adapter_rejects_non_text_language_before_custom_hooks(self):
+        class HostileLanguage(str):
+            hash_calls = 0
+
+            def __hash__(self):
+                type(self).hash_calls += 1
+                raise AssertionError("hostile language hash hook must not execute")
+
+        text = "W: K e1 B: K e8"
+        hostile = HostileLanguage("uk")
+        with self.assertRaisesRegex(ValueError, "^language must be 'uk' or 'en'$"):
+            parse_position_text(text, language=hostile)
+        self.assertEqual(HostileLanguage.hash_calls, 0)
+
+        for language in (None, False, 0, []):
+            with self.subTest(language=language):
+                with self.assertRaisesRegex(ValueError, "^language must be 'uk' or 'en'$"):
+                    parse_position_text(text, language=language)  # type: ignore[arg-type]
+
     def test_stage1_user_flow_accepts_canonical_position(self):
         api = AccessibleChessAPI(lang="uk")
         result = api.set_position_text("W: K e1 Q d1 B: K e8", "b")
