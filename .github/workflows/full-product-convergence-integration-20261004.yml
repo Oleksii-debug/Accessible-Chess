@@ -55,6 +55,9 @@ jobs:
 
       - name: Prove canonical ancestry and clean diff
         shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
@@ -64,11 +67,20 @@ jobs:
           git merge-base --is-ancestor "$canonical" HEAD
           test "$(git merge-base "$canonical" HEAD)" = "$canonical"
           git diff --check "$canonical" HEAD
-          event_base='${{ github.event.pull_request.base.sha }}'
+
+          event_base="$EVENT_BASE_SHA"
+          event_base_ref="$EVENT_BASE_REF"
           if [ -n "$event_base" ]; then
+            test -n "$event_base_ref"
             git cat-file -e "$event_base^{commit}"
-            git merge-base --is-ancestor "$event_base" HEAD
+            git fetch --no-tags origin "$event_base_ref"
+            live_base="$(git rev-parse "origin/$event_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS base=$event_base"
+            echo "FULL_PRODUCT_LIVE_BASE_ANCESTRY=PASS base=$live_base"
           fi
           echo 'FULL_PRODUCT_CANONICAL_ANCESTRY=PASS'
 

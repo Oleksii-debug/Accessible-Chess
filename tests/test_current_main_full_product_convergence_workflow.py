@@ -20,6 +20,21 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         self.assertIn("      - main\n", block)
         self.assertIn("FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS", self.text)
 
+    def test_current_main_qualification_late_binds_live_pr_base(self) -> None:
+        required = (
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            "EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}",
+            'git fetch --no-tags origin "$event_base_ref"',
+            'live_base="$(git rev-parse "origin/$event_base_ref")"',
+            'git merge-base --is-ancestor "$event_base" "$live_base"',
+            'git merge-base --is-ancestor "$live_base" HEAD',
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            "FULL_PRODUCT_LIVE_BASE_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
