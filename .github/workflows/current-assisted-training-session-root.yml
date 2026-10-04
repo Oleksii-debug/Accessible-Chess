@@ -60,7 +60,8 @@ jobs:
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-assisted-training-session-root.yml' \
-            'acs/training.py' | sort)"
+            'acs/training.py' \
+            'tests/test_training.py' | sort)"
           test "$changed" = "$expected_paths" || {
             printf 'Unexpected assisted Training-root scope:\n%s\n' "$changed" >&2
             exit 1
