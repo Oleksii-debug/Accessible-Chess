@@ -10,6 +10,7 @@ from acs.book_game_content import (
 )
 from acs.bookdocument import Game
 from acs.gametree import (
+    Comment,
     MoveNode,
     PgnGame,
     VariationLine,
@@ -132,6 +133,23 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
         self.assertEqual(resolved.game.line.moves[0].san, "e4")
         self.assertEqual(resolved.game.warnings, ["recovered source warning"])
         self.assertIn("e4", serialize_game(resolved.game))
+    def test_shared_exact_comment_identity_remains_valid_and_detaches(self) -> None:
+        source = parse_games(PGN)[0]
+        shared = Comment("shared annotation")
+        source.line.moves[0].comments_before = [shared]
+        source.line.moves[0].comments_after = [shared]
+        self.assertIn("shared annotation", serialize_game(source))
+
+        resolved = resolve_book_game(Game(game_id=20), lookup=_Lookup(source))
+
+        before = resolved.game.line.moves[0].comments_before[0]
+        after = resolved.game.line.moves[0].comments_after[0]
+        self.assertEqual(before.text, "shared annotation")
+        self.assertEqual(after.text, "shared annotation")
+        self.assertIsNot(before, shared)
+        self.assertIsNot(after, shared)
+        self.assertIsNot(before, after)
+
     def test_detach_preserves_valid_absent_result_structure(self) -> None:
         # serialize -> parse would materialize the serializer's effective Result
         # into both the header and movetext. Detachment must preserve the valid
