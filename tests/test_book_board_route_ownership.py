@@ -960,6 +960,61 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual("pgn", self.app.shell.current_route.route_id)
         self.assertEqual([], self.projected_positions)
 
+    def test_pgn_projection_rejection_falls_back_off_board_if_pgn_recovery_rejects(self):
+        self._load_pgn_workspace()
+        self.projected_positions.clear()
+        self.app._board_position_projector = lambda fen: (
+            self.projected_positions.append(fen) or {"ok": False}
+        )
+        real_open_route = self.app.shell.open_route
+
+        def reject_recovery_pgn(route_id, *, current_focus_id=""):
+            if route_id == "pgn" and self.app.shell.current_route.route_id == "board":
+                raise RuntimeError("synthetic PGN recovery rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=reject_recovery_pgn,
+        ):
+            result = self.app.browser_command("review", "pgn.open_on_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertEqual(1, len(self.projected_positions))
+
+    def test_pgn_projection_rejection_accepts_partial_safe_pgn_recovery_commit(self):
+        self._load_pgn_workspace()
+        self.projected_positions.clear()
+        self.app._board_position_projector = lambda fen: (
+            self.projected_positions.append(fen) or {"ok": False}
+        )
+        real_open_route = self.app.shell.open_route
+
+        def fail_after_recovery_pgn_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "pgn" and self.app.shell.current_route.route_id == "pgn":
+                raise RuntimeError("synthetic PGN recovery focus-tail failure")
+            return focus
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=fail_after_recovery_pgn_commit,
+        ):
+            result = self.app.browser_command("review", "pgn.open_on_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertEqual(
+            self.app.shell.restore_focus_target(),
+            self.app._focus,
+        )
+        self.assertEqual(1, len(self.projected_positions))
+
     def test_pgn_projection_rejection_restores_pgn_route_without_owner(self):
         self._load_pgn_workspace()
         self.projected_positions.clear()
