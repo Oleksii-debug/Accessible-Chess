@@ -41,21 +41,36 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
 
-    def test_windows_workflow_executes_real_second_launch_while_first_child_lives(self):
+    def test_report_open_retries_only_bounded_sharing_violation(self):
         for token in (
+            "#define AC_REPORT_RETRY_MS 100",
+            "#define AC_REPORT_RETRY_COUNT 40",
+            "ERROR_SHARING_VIOLATION",
+            "Sleep(AC_REPORT_RETRY_MS)",
+            "SetLastError(error)",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
+        self.assertIn("attempt <= AC_REPORT_RETRY_COUNT", self.source)
+
+    def test_windows_workflow_exercises_overlapping_root_launchers(self):
+        for token in (
+            "$first = Start-Process -FilePath $launcher",
+            "Start-Sleep -Milliseconds 100",
             "$second = Start-Process -FilePath $launcher",
+            "$first.WaitForExit(10000)",
             "$second.WaitForExit(10000)",
-            "Second portable launcher smoke failed",
-            "Second launch report missing",
+            "Overlapping second portable launcher smoke failed",
+            "Launch report missing after overlapping launchers",
             "Start-Sleep -Seconds 5",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.workflow)
-        first_launch = self.workflow.index("$process = Start-Process -FilePath $launcher")
-        exclusive_probe = self.workflow.index("$exclusive = [IO.File]::Open(")
+        first_launch = self.workflow.index("$first = Start-Process -FilePath $launcher")
         second_launch = self.workflow.index("$second = Start-Process -FilePath $launcher")
-        self.assertLess(first_launch, exclusive_probe)
-        self.assertLess(exclusive_probe, second_launch)
+        first_wait = self.workflow.index("$first.WaitForExit(10000)")
+        self.assertLess(first_launch, second_launch)
+        self.assertLess(second_launch, first_wait)
 
     def test_no_shell_execution_path_is_introduced(self):
         for forbidden in (
