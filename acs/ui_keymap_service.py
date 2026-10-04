@@ -33,20 +33,51 @@ _KEY_ALIASES = {
     "-": "Minus",
 }
 
+MAX_KEYMAP_PROFILE_BYTES = 1 << 20
+MAX_KEYMAP_OBJECT_ENTRIES = 4096
+
+
+def _reject_duplicate_object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    if len(pairs) > MAX_KEYMAP_OBJECT_ENTRIES:
+        raise ValueError("keymap profile object is too large")
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate keymap profile key: {key}")
+        value[key] = item
+    return value
+
+
+def _bounded_user_keymap_text(text: str) -> str:
+    # Reject active str subclasses before len()/encode() can execute user hooks.
+    if type(text) is not str:
+        raise ValueError("keymap profile must be text")
+    if len(text) > MAX_KEYMAP_PROFILE_BYTES:
+        raise ValueError("keymap profile is too large")
+    try:
+        encoded = text.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise ValueError("keymap profile must be valid UTF-8 text") from exc
+    if len(encoded) > MAX_KEYMAP_PROFILE_BYTES:
+        raise ValueError("keymap profile is too large")
+    return text
+
 
 def _decode_user_keymap_profile(text: str) -> Mapping[str, object]:
-    """Validate the user-facing keymap envelope before migration/coercion.
+    """Validate one bounded, unambiguous user-facing keymap envelope.
 
     ``ActionRegistry`` retains bounded legacy migration for internal callers.
-    The WebView/user-file boundary is stricter: an explicit schema version must
-    be a real JSON integer (not bool/float/numeric text), and mapping containers
-    must actually be objects. This prevents malformed data from being silently
-    reinterpreted as a valid profile.
+    The WebView/user-file boundary is stricter: text must be passive built-in
+    Unicode within the same byte envelope for direct import and disk recovery;
+    JSON objects cannot contain duplicate keys; and an explicit schema version
+    must be a real JSON integer (not bool/float/numeric text).
     """
 
-    if not isinstance(text, str):
-        raise ValueError("keymap profile must be text")
-    value = json.loads(text)
+    text = _bounded_user_keymap_text(text)
+    try:
+        value = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
+    except RecursionError as exc:
+        raise ValueError("keymap profile nesting is too deep") from exc
     if not isinstance(value, Mapping):
         raise ValueError("keymap profile must be a JSON object")
     if "schema_version" in value:
@@ -65,6 +96,20 @@ def _decode_user_keymap_profile(text: str) -> Mapping[str, object]:
     return value
 
 
+def _read_user_keymap_profile(path: Path) -> Mapping[str, object]:
+    # Do not use read_text()/read_bytes(): both allocate an unbounded file before
+    # the user-profile boundary gets a chance to reject it.
+    with path.open("rb") as stream:
+        payload = stream.read(MAX_KEYMAP_PROFILE_BYTES + 1)
+    if len(payload) > MAX_KEYMAP_PROFILE_BYTES:
+        raise ValueError("keymap profile is too large")
+    try:
+        text = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("keymap profile must be valid UTF-8 text") from exc
+    return _decode_user_keymap_profile(text)
+
+
 def _invalid_profile_response(lang: str) -> dict[str, Any]:
     return {
         "ok": False,
@@ -81,7 +126,7 @@ class KeymapService:
         self._profile_write_blocked = False
         if self.path.exists():
             try:
-                profile = _decode_user_keymap_profile(self.path.read_text(encoding="utf-8"))
+                profile = _read_user_keymap_profile(self.path)
                 version = profile.get("schema_version", 0)
                 self._profile_write_blocked = type(version) is int and version > SCHEMA_VERSION
                 registry = ActionRegistry.from_profile(profile)
@@ -101,6 +146,7 @@ class KeymapService:
         data = build_web_keymap(self.editor.registry)
         data["recoveryMessage"] = self.recovery_message
         data["writeBlocked"] = self._profile_write_blocked
+        data["maxImportBytes"] = MAX_KEYMAP_PROFILE_BYTES
         return data
 
     def adopt_registry(self, registry: ActionRegistry) -> ActionRegistry:
@@ -127,9 +173,7 @@ class KeymapService:
             and not self._profile_write_blocked
         ):
             try:
-                profile = _decode_user_keymap_profile(
-                    self.path.read_text(encoding="utf-8")
-                )
+                profile = _read_user_keymap_profile(self.path)
             except Exception:
                 profile = source_profile
                 self.recovery_message = "invalid keymap profile"
@@ -346,6 +390,9 @@ class KeymapService:
         ``allow_warnings=True`` only after announcing the warnings and receiving an
         explicit user confirmation.
         """
+
+        if type(allow_warnings) is not bool:
+            return _invalid_profile_response(self.editor.lang)
 
         try:
             profile = _decode_user_keymap_profile(text)
