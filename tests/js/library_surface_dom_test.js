@@ -81,6 +81,17 @@ global.window = {};
 const source = fs.readFileSync("web/full_product_library.js", "utf8");
 vm.runInThisContext(source, { filename: "full_product_library.js" });
 
+const libraryBindings = {
+  ArrowUp: "library.previous_result",
+  ArrowDown: "library.next_result",
+  Enter: "library.open_game"
+};
+window.accessibleChessKeymapAction = function (event, context) {
+  if (context !== "library_results") return "";
+  if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return "";
+  return libraryBindings[event.key] || "";
+};
+
 function check(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -213,6 +224,85 @@ check(
   document.activeElement === exportRoot.querySelector("#" + exportDomId + "-export"),
   "canonical export checkbox focus target was rejected"
 );
+
+const navigationCalls = [];
+const navigationRoot = new FakeElement("div");
+window.AccessibleChessLibrarySurface.render(
+  navigationRoot,
+  exportSnapshot,
+  (command, payload) => {
+    navigationCalls.push([command, payload || {}]);
+    return { kind: "error", payload: { message: "" } };
+  },
+  announce,
+  exportDomId
+);
+const navigationOption = navigationRoot.querySelectorAll('[role="option"]')[0];
+check(navigationOption !== undefined, "Library result option missing");
+
+let downPrevented = false;
+let downStopped = false;
+navigationOption.listeners.keydown({
+  key: "ArrowDown",
+  preventDefault: () => { downPrevented = true; },
+  stopPropagation: () => { downStopped = true; }
+});
+await Promise.resolve();
+await Promise.resolve();
+check(downPrevented && downStopped, "default Library Down binding was not locally owned");
+check(
+  navigationCalls.length === 1 &&
+    navigationCalls[0][0] === "library.move" &&
+    navigationCalls[0][1].delta === 1,
+  "default Library Down binding used the wrong bridge command"
+);
+
+delete libraryBindings.ArrowDown;
+libraryBindings.j = "library.next_result";
+const staleStart = navigationCalls.length;
+let stalePrevented = false;
+navigationOption.listeners.keydown({
+  key: "ArrowDown",
+  preventDefault: () => { stalePrevented = true; },
+  stopPropagation: () => {}
+});
+await Promise.resolve();
+await Promise.resolve();
+check(!stalePrevented, "old Library ArrowDown binding survived live remap");
+check(navigationCalls.length === staleStart, "old Library ArrowDown still dispatched");
+
+let remapPrevented = false;
+let remapStopped = false;
+navigationOption.listeners.keydown({
+  key: "j",
+  preventDefault: () => { remapPrevented = true; },
+  stopPropagation: () => { remapStopped = true; }
+});
+await Promise.resolve();
+await Promise.resolve();
+check(remapPrevented && remapStopped, "remapped Library next-result key was not handled");
+check(navigationCalls.length === staleStart + 1, "remapped Library key did not dispatch exactly once");
+check(
+  navigationCalls[navigationCalls.length - 1][0] === "library.move" &&
+    navigationCalls[navigationCalls.length - 1][1].delta === 1,
+  "remapped Library key used the wrong bridge command"
+);
+
+let copyPrevented = false;
+let copyStopped = false;
+const beforeCopy = navigationCalls.length;
+navigationOption.listeners.keydown({
+  key: "c",
+  ctrlKey: true,
+  preventDefault: () => { copyPrevented = true; },
+  stopPropagation: () => { copyStopped = true; }
+});
+await Promise.resolve();
+await Promise.resolve();
+check(!copyPrevented && !copyStopped, "Ctrl+C was hijacked by Library navigation");
+check(navigationCalls.length === beforeCopy, "Ctrl+C unexpectedly became a Library command");
+libraryBindings.ArrowDown = "library.next_result";
+delete libraryBindings.j;
 
 // Continue the partial-import test on the original base Library surface.
 search.focus();
