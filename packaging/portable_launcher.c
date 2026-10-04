@@ -8,6 +8,8 @@
  * - this executable lives at the extracted package root;
  * - the real product executable lives at App\AccessibleChess.exe;
  * - LOCALAPPDATA is redirected to package-root\data for the child only;
+ * - one exact package root has one live child owner of package-local data;
+ * - duplicate launcher invocations coalesce without starting another child;
  * - launch-report.txt is created beside this executable for blind-user support;
  * - startup succeeds only after the real child owns a responsive visible
  *   top-level "Accessible Chess" window; process/window liveness alone is not success;
@@ -36,12 +38,14 @@ static WCHAR g_app_dir[AC_PATH_CAP];
 static WCHAR g_core[AC_PATH_CAP];
 static WCHAR g_data[AC_PATH_CAP];
 static WCHAR g_report_path[AC_PATH_CAP];
+static WCHAR g_instance_lock_path[AC_PATH_CAP];
 static WCHAR g_command[AC_PATH_CAP * 2];
 static WCHAR g_message[AC_PATH_CAP + 2048];
 static WCHAR g_error_text[2048];
 static CHAR g_utf8[AC_UTF8_CAP];
 static STARTUPINFOW g_startup;
 static PROCESS_INFORMATION g_process;
+static HANDLE g_instance_lock = INVALID_HANDLE_VALUE;
 
 typedef struct AC_WINDOW_SEARCH {
     DWORD process_id;
@@ -241,6 +245,52 @@ static BOOL ac_direct_file(const WCHAR *path) {
     return TRUE;
 }
 
+static HANDLE ac_open_instance_lock(void) {
+    HANDLE handle;
+    FILE_ATTRIBUTE_TAG_INFO tag_info;
+    BY_HANDLE_FILE_INFORMATION file_info;
+    DWORD error;
+
+    handle = CreateFileW(
+        g_instance_lock_path,
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        NULL,
+        OPEN_ALWAYS,
+        FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_OPEN_REPARSE_POINT,
+        NULL
+    );
+    if (handle == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+
+    if (!GetFileInformationByHandleEx(
+            handle,
+            FileAttributeTagInfo,
+            &tag_info,
+            sizeof(tag_info))) {
+        error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if ((tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        CloseHandle(handle);
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return INVALID_HANDLE_VALUE;
+    }
+    if (!GetFileInformationByHandle(handle, &file_info)) {
+        error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if (file_info.nNumberOfLinks != 1) {
+        CloseHandle(handle);
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return INVALID_HANDLE_VALUE;
+    }
+    return handle;
+}
+
 static BOOL CALLBACK ac_find_ready_window(HWND window, LPARAM value) {
     AC_WINDOW_SEARCH *search = (AC_WINDOW_SEARCH *)value;
     DWORD process_id = 0;
@@ -362,6 +412,7 @@ static void ac_prepare_paths(void) {
     if (!ac_path_join(g_core, AC_PATH_CAP, g_app_dir, L"AccessibleChess.exe")) ExitProcess(ERROR_BUFFER_OVERFLOW);
     if (!ac_path_join(g_data, AC_PATH_CAP, g_root, L"data")) ExitProcess(ERROR_BUFFER_OVERFLOW);
     if (!ac_path_join(g_report_path, AC_PATH_CAP, g_root, L"launch-report.txt")) ExitProcess(ERROR_BUFFER_OVERFLOW);
+    if (!ac_path_join(g_instance_lock_path, AC_PATH_CAP, g_root, L".accessible-chess-instance.lock")) ExitProcess(ERROR_BUFFER_OVERFLOW);
 }
 
 static void ac_fail_startup_timeout(HANDLE report) {
@@ -389,9 +440,11 @@ static void ac_fail_startup_timeout(HANDLE report) {
 
 void WINAPI wWinMainCRTStartup(void) {
     HANDLE report;
+    HANDLE child_instance_lock = NULL;
     DWORD error;
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
+    DWORD resume_result;
     ULONGLONG startup_started;
     ULONGLONG ready_started = 0;
     ULONGLONG now;
@@ -402,6 +455,16 @@ void WINAPI wWinMainCRTStartup(void) {
     if (!ac_direct_directory(g_root)) {
         ac_fail(INVALID_HANDLE_VALUE, L"package-root validation", ERROR_DIRECTORY);
     }
+
+    g_instance_lock = ac_open_instance_lock();
+    if (g_instance_lock == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION) {
+            ExitProcess(0);
+        }
+        ac_fail(INVALID_HANDLE_VALUE, L"package-local single-instance guard", error);
+    }
+
     report = ac_open_report();
     if (report == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -413,6 +476,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"ENCODING: UTF-8");
     ac_write_line(report, L"HUMAN_TESTED: NO");
     ac_write_line(report, L"NVDA_VERIFIED: NO");
+    ac_write_line(report, L"PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE");
     ac_write_utf8(report, L"PACKAGE_ROOT: ");
     ac_write_line(report, g_root);
     ac_write_utf8(report, L"CORE: ");
@@ -449,14 +513,41 @@ void WINAPI wWinMainCRTStartup(void) {
             NULL,
             NULL,
             FALSE,
-            CREATE_UNICODE_ENVIRONMENT,
+            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
             NULL,
             g_app_dir,
             &g_startup,
             &g_process)) {
         ac_fail(report, L"core process creation", GetLastError());
     }
+
+    if (!DuplicateHandle(
+            GetCurrentProcess(),
+            g_instance_lock,
+            g_process.hProcess,
+            &child_instance_lock,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS)) {
+        error = GetLastError();
+        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
+        CloseHandle(g_process.hThread);
+        CloseHandle(g_process.hProcess);
+        ac_fail(report, L"package-local data ownership transfer", error);
+    }
+
+    resume_result = ResumeThread(g_process.hThread);
+    if (resume_result == (DWORD)-1) {
+        error = GetLastError();
+        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
+        CloseHandle(g_process.hThread);
+        CloseHandle(g_process.hProcess);
+        ac_fail(report, L"core process resume", error);
+    }
     CloseHandle(g_process.hThread);
+    CloseHandle(g_instance_lock);
+    g_instance_lock = INVALID_HANDLE_VALUE;
+
     ac_write_line(report, L"PROCESS_CREATED: YES");
     ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
     g_message[0] = L'\0';
