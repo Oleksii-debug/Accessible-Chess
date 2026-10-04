@@ -233,6 +233,11 @@ jobs:
           if len(zips) != 1 or len(metadata_files) != 1:
               raise SystemExit('W4_ARTIFACT_TOPOLOGY_INVALID')
           candidate = zips[0]
+          expected_metadata = root / 'p0-evidence' / 'w4-run-metadata.json'
+          if metadata_files[0] != expected_metadata:
+              raise SystemExit(
+                  f'W4_METADATA_LOCATION_INVALID actual={metadata_files[0]} expected={expected_metadata}'
+              )
 
           def unique_pairs(items):
               result = {}
@@ -281,6 +286,11 @@ jobs:
           exact = os.environ['EXACT_PRODUCT_SHA'].strip().lower()
           if not re.fullmatch(r'[0-9a-f]{40}', exact):
               raise SystemExit('EXACT_PRODUCT_SHA_INVALID')
+          expected_candidate = root / f'Accessible-Chess-V2-{exact[:7]}-NVDA-test-candidate.zip'
+          if candidate != expected_candidate:
+              raise SystemExit(
+                  f'W4_CANDIDATE_LOCATION_INVALID actual={candidate} expected={expected_candidate}'
+              )
           if metadata.get('product_sha') != exact:
               raise SystemExit(
                   f'W4_PRODUCT_SHA_STALE actual={metadata.get("product_sha")} expected={exact}'
@@ -360,8 +370,15 @@ jobs:
                       raise SystemExit('W4_ZIP_DUPLICATE_PATH')
                   seen.add(folded)
                   unix_type = (info.external_attr >> 16) & 0o170000
+                  if info.flag_bits & 0x1:
+                      raise SystemExit('W4_ZIP_ENCRYPTED_MEMBER_FORBIDDEN')
                   if unix_type == 0o120000:
                       raise SystemExit('W4_ZIP_SYMLINK_FORBIDDEN')
+                  if info.is_dir():
+                      if unix_type not in {0, 0o040000}:
+                          raise SystemExit('W4_ZIP_SPECIAL_MEMBER_FORBIDDEN')
+                  elif unix_type not in {0, 0o100000}:
+                      raise SystemExit('W4_ZIP_SPECIAL_MEMBER_FORBIDDEN')
                   total += int(info.file_size)
                   if total > 2 * 1024 * 1024 * 1024:
                       raise SystemExit('W4_ZIP_EXPANSION_LIMIT')
