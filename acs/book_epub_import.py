@@ -39,6 +39,9 @@ MAX_EPUB_XML_BYTES = 4 * 1024 * 1024
 MAX_EPUB_SPINE_DOCUMENTS = 4_096
 MAX_EPUB_WARNINGS = 4_096
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
+_EPUB_CONTENT_DOCUMENT_MEDIA_TYPES = frozenset(
+    {"application/xhtml+xml", "image/svg+xml"}
+)
 _CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
 _CONTAINER_TAG = f"{{{_CONTAINER_NAMESPACE}}}container"
 _ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
@@ -844,6 +847,16 @@ def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
             "EPUB spine contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    page_progression = spine.attrib.get("page-progression-direction")
+    if page_progression is not None and page_progression not in {
+        "ltr",
+        "rtl",
+        "default",
+    }:
+        raise _error(
+            "EPUB spine has an invalid page progression direction",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     ids: list[str] = []
     seen_ids: set[str] = set()
     has_linear_item = False
@@ -945,8 +958,16 @@ def _supported_manifest_item(
             )
         if item.media_type in _SUPPORTED_SPINE_MEDIA_TYPES:
             return item
+        if item.media_type in _EPUB_CONTENT_DOCUMENT_MEDIA_TYPES:
+            if item.fallback is None:
+                return None
+            current_id = item.fallback
+            continue
         if item.fallback is None:
-            return None
+            raise _error(
+                "EPUB foreign spine content has no EPUB content fallback",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
         current_id = item.fallback
     raise _error(
         "EPUB manifest fallback chain is too deep",
