@@ -22,6 +22,7 @@ from .bookdocument import (
     Position,
     VariationTree,
 )
+from .search_policy import normalize_search_term, normalize_search_text, search_fold
 
 
 _MAX_BOOK_TARGET_KEY_CHARS = 4096
@@ -76,12 +77,29 @@ class BookIndex:
         # the validate-then-reread TOCTOU window without introducing a second
         # Book parser or chess-rules authority.
         snapshot = BookDocument.from_dict(document.as_dict())
-        self.document = document
+        self._document_snapshot = snapshot
         self._entries = tuple(self._build_entries(snapshot))
+        # A ListBlock has one stable navigation target and a concise first-item
+        # label. Search-only projections cover its remaining visible items from
+        # the SAME detached snapshot, preserving item boundaries and avoiding
+        # duplicate navigation results.
+        self._additional_list_search_texts = {
+            index: tuple(
+                search_fold(normalize_search_text(item)) or ""
+                for item in block.items[1:]
+            )
+            for index, block in enumerate(snapshot.blocks)
+            if isinstance(block, ListBlock) and len(block.items) > 1
+        }
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
         self._by_key = {key: tuple(entries) for key, entries in by_key.items()}
+
+    @property
+    def document(self) -> BookDocument:
+        """Return a detached copy of the exact snapshot owned by this index."""
+        return BookDocument.from_dict(self._document_snapshot.as_dict())
 
     @property
     def entries(self) -> tuple[BookIndexEntry, ...]:
@@ -216,7 +234,7 @@ class BookIndex:
         return matches[0]
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
-        """Case-insensitive semantic label search preserving linear reading order."""
+        """Search semantic labels and every list item in linear reading order."""
         if type(text) is not str:
             raise TypeError("Search text must be a string")
         if kinds is not None:
@@ -224,17 +242,33 @@ class BookIndex:
                 isinstance(kind, BookEntryKind) for kind in kinds
             ):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
-        # Reject oversized raw input before strip/casefold allocate and scan a
-        # caller-controlled query. Normal UI queries stay far below this limit.
+        # Preserve the current raw resource fence before any Unicode
+        # normalization/allocation, then delegate semantic query policy to the
+        # shared Library/Search authority (including its normalized 256-char
+        # user-term limit).
         if len(text) > _MAX_BOOK_SEARCH_QUERY_CHARS:
             raise ValueError(
                 f"Search text exceeds {_MAX_BOOK_SEARCH_QUERY_CHARS} characters"
             )
-        needle = text.strip().casefold()
-        if not needle:
+        normalized_needle = normalize_search_term(text, name="Book search text")
+        if normalized_needle is None:
             raise ValueError("Search text must not be empty")
+        needle = search_fold(normalized_needle)
+        assert needle is not None
         return tuple(
             entry
             for entry in self._entries
-            if (kinds is None or entry.kind in kinds) and needle in entry.label.casefold()
+            if (kinds is None or entry.kind in kinds)
+            and (
+                needle in (search_fold(normalize_search_text(entry.label)) or "")
+                or (
+                    entry.kind is BookEntryKind.LIST
+                    and any(
+                        needle in item
+                        for item in self._additional_list_search_texts.get(
+                            entry.target.index, ()
+                        )
+                    )
+                )
+            )
         )
