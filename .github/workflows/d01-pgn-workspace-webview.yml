@@ -15,7 +15,12 @@ on:
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_pgn_commands.py'
       - 'tests/js/pgn_surface_dom_test.js'
+      - 'tests/js/pgn_tree_keyboard_dom_test.js'
+      - 'tests/test_pgn_browser_presentation_lease_required.py'
+      - 'tests/test_version2_pgn_commands.py'
       - 'tests/test_dev1_pgn_webview_atomicity.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
@@ -254,7 +259,6 @@ jobs:
             }
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
-          acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
           LOCKS
@@ -262,9 +266,19 @@ jobs:
           # Browser-contract hardening is an intentional successor of the
           # reviewed D01 bridge/projection/DOM suite. Accept only exact prior or
           # reviewed successor identities; every third identity remains fail-closed.
+          adapter_actual="$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)"
+          case "$adapter_actual" in
+            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403)
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/pgn_workspace_webview_adapter.py actual=%s\n' "$adapter_actual" >&2
+              exit 1
+              ;;
+          esac
+
           bridge_actual="$(git rev-parse HEAD:acs/pgn_webview_bridge.py)"
           case "$bridge_actual" in
-            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c)
+            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_bridge.py actual=%s\n' "$bridge_actual" >&2
@@ -284,7 +298,7 @@ jobs:
 
           dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
           case "$dom_test_actual" in
-            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b)
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d)
               ;;
             *)
               printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
@@ -297,10 +311,20 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          command_actual="$(git rev-parse HEAD:acs/version2_pgn_commands.py)"
+          case "$command_actual" in
+            d449d2352644c859774562628505f88d86acdea2|74a94b45597fbdc1607e7b3452df41b88837b42f)
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/version2_pgn_commands.py actual=%s\n' "$command_actual" >&2
               exit 1
               ;;
           esac
@@ -328,10 +352,12 @@ jobs:
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_v2_board_analysis_hotkey_feedback.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py acs/version2_application.py acs/version2_pgn_commands.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_pgn_browser_presentation_lease_required.py tests/test_version2_pgn_commands.py tests/test_v2_board_analysis_hotkey_feedback.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
           node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
 
       - name: D01 PGN focused regressions
         run: >-
@@ -348,6 +374,8 @@ jobs:
           tests.test_d06_pgn_roundtrip
           tests.test_pgn_service
           tests.test_pgn_concurrent_save
+          tests.test_pgn_browser_presentation_lease_required
+          tests.test_version2_pgn_commands
           tests.test_whole_product_user_journey
           tests.test_keybindings
           tests.test_v2_board_analysis_hotkey_feedback
