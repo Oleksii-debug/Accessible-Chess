@@ -12,6 +12,26 @@ const baseOnBoardKey = window.onBoardKey;
 if (typeof baseExecuteAction !== 'function' || typeof apiAction !== 'function') return;
 if (typeof document === 'undefined' || !document.body) return;
 
+// Reuse the one canonical live-region publisher while correcting the one
+// historical Ukrainian-only generic action failure for English UI.  This is a
+// presentation adapter, not a second speech/announcement subsystem: every
+// message still flows through the original announce() implementation with the
+// original event identity/deduplication semantics.
+const baseAnnounce = window.announce;
+if (
+    typeof baseAnnounce === 'function'
+    && !window.__accessibleChessLocalizedActionFailureAnnouncement
+) {
+    window.announce = function(message, eventId = null) {
+        const localized = document.documentElement.lang === 'en'
+            && message === 'Не вдалося виконати дію.'
+            ? 'Action could not be completed.'
+            : message;
+        return baseAnnounce(localized, eventId);
+    };
+    window.__accessibleChessLocalizedActionFailureAnnouncement = true;
+}
+
 const boardPythonActions = new Set([
     'board.current', 'board.last_captured', 'board.last_move', 'board.my_clock',
     'board.opponent_clock', 'board.legal_moves', 'board.captures',
