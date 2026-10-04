@@ -221,6 +221,19 @@ class TrainingProgressAncestorAuthorityTests(unittest.TestCase):
             finally:
                 os.close(descriptor)
 
+            preexisting_writer, writer_error = second_handle(
+                path,
+                GENERIC_WRITE,
+                all_shares,
+            )
+            self.assertNotEqual(invalid, preexisting_writer, writer_error)
+            try:
+                with self.assertRaises(OSError) as blocked_read:
+                    _windows_open_no_reparse(path, create=False)
+                self.assertEqual(ERROR_SHARING_VIOLATION, blocked_read.exception.errno)
+            finally:
+                self.assertTrue(close_handle(preexisting_writer))
+
 
 if __name__ == "__main__":
     unittest.main()
