@@ -19,6 +19,8 @@
 #define AC_PATH_CAP 32768
 #define AC_UTF8_CAP (AC_PATH_CAP * 4 + 4096)
 #define AC_STARTUP_OBSERVE_MS 2500
+#define AC_REPORT_RETRY_MS 100
+#define AC_REPORT_RETRY_COUNT 40
 
 static WCHAR g_module[AC_PATH_CAP];
 static WCHAR g_root[AC_PATH_CAP];
@@ -199,21 +201,33 @@ static BOOL ac_direct_file(const WCHAR *path) {
 static HANDLE ac_open_report(void) {
     HANDLE handle;
     DWORD written = 0;
+    DWORD attempt;
+    DWORD error = ERROR_SUCCESS;
     static const BYTE bom[3] = {0xEF, 0xBB, 0xBF};
 
-    handle = CreateFileW(
-        g_report_path,
-        GENERIC_WRITE,
-        FILE_SHARE_READ,
-        NULL,
-        CREATE_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
-        NULL
-    );
-    if (handle != INVALID_HANDLE_VALUE) {
-        WriteFile(handle, bom, 3, &written, NULL);
+    for (attempt = 0; attempt <= AC_REPORT_RETRY_COUNT; ++attempt) {
+        handle = CreateFileW(
+            g_report_path,
+            GENERIC_WRITE,
+            FILE_SHARE_READ,
+            NULL,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            NULL
+        );
+        if (handle != INVALID_HANDLE_VALUE) {
+            WriteFile(handle, bom, 3, &written, NULL);
+            return handle;
+        }
+        error = GetLastError();
+        if (error != ERROR_SHARING_VIOLATION || attempt == AC_REPORT_RETRY_COUNT) {
+            SetLastError(error);
+            return INVALID_HANDLE_VALUE;
+        }
+        Sleep(AC_REPORT_RETRY_MS);
     }
-    return handle;
+    SetLastError(error);
+    return INVALID_HANDLE_VALUE;
 }
 
 static void ac_prepare_paths(void) {
