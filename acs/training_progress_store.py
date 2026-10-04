@@ -483,6 +483,14 @@ class TrainingProgressStore:
         except FileNotFoundError:
             self._require_storage_directory(directory_identity)
             self._require_active_lock()
+            # A pathname that existed at the pre-open inspection must not be
+            # reclassified as an ordinary missing file if it disappears in the
+            # lstat -> open window. That is a namespace race and must fail
+            # closed before callers can treat the store as a clean first run.
+            if before is not None:
+                raise ValueError(
+                    "training progress storage changed while being opened"
+                ) from None
             if missing_ok:
                 return None
             raise ValueError("training progress file is unavailable")
