@@ -225,6 +225,7 @@ check(
   "canonical export checkbox focus target was rejected"
 );
 
+async function runNavigationContract() {
 const navigationCalls = [];
 const navigationRoot = new FakeElement("div");
 window.AccessibleChessLibrarySurface.render(
@@ -303,6 +304,7 @@ check(!copyPrevented && !copyStopped, "Ctrl+C was hijacked by Library navigation
 check(navigationCalls.length === beforeCopy, "Ctrl+C unexpectedly became a Library command");
 libraryBindings.ArrowDown = "library.next_result";
 delete libraryBindings.j;
+}
 
 // Continue the partial-import test on the original base Library surface.
 search.focus();
@@ -483,4 +485,9 @@ check(
   "malformed Library filter partially replaced the surface"
 );
 
-console.log("Library partial/full snapshot DOM contract PASS");
+runNavigationContract().then(function () {
+  console.log("Library partial/full snapshot and remappable result navigation DOM contract PASS");
+}).catch(function (error) {
+  console.error(error);
+  process.exitCode = 1;
+});
