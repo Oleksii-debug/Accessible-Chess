@@ -118,7 +118,7 @@ jobs:
           acs/education_workspace_store.py=773bb02701288af6b37c07771d67ede6a627dafb
           acs/version2_final_product_application.py=b90927d8e026a9debfca5cd7d7d095bb1f40413d
           acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
-          acs/version2_upgrade_base.py=978adb448b2855eb968e55950b10e07690d9f840
+          acs/version2_upgrade_base.py=0b4c43269595d297456625611b59c739f0d1704c
           acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
           tests/test_v2_upgrade_current_acsdb_identity_audit.py=931e02d1cbcea667df8a857b413c343ee19770f8
           tests/test_v2_upgrade_publish_race_audit.py=b9377d18118c02b479e78ad93e5ab46c5fdb36f4
