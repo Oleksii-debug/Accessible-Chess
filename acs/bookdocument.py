@@ -10,12 +10,15 @@ Chess position validation is delegated to the canonical chess core.
 
 from dataclasses import dataclass, field
 from enum import Enum
+from itertools import islice
 from typing import Any, Iterable, Iterator
 
 from .chesscore import Board
 
 
 BOOK_DOCUMENT_SCHEMA_VERSION = 1
+MAX_BOOK_DOCUMENT_BLOCKS = 50_000
+MAX_BOOK_DOCUMENT_WARNINGS = 4_097
 
 
 class BookDocumentErrorCode(str, Enum):
@@ -23,6 +26,7 @@ class BookDocumentErrorCode(str, Enum):
     UNKNOWN_FIELD = "unknown_field"
     UNSUPPORTED_SCHEMA = "unsupported_schema"
     UNSUPPORTED_BLOCK_KIND = "unsupported_block_kind"
+    RESOURCE_LIMIT = "resource_limit"
 
 
 class BookDocumentError(ValueError):
@@ -356,9 +360,17 @@ class BookDocument:
         self.source_name = _optional_text(self.source_name, "Book source_name")
         self.source_uri = _optional_text(self.source_uri, "Book source_uri")
         self.source_rights = _optional_text(self.source_rights, "Book source_rights")
-        if type(self.blocks) is not list or not all(
-            type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks
-        ):
+        if type(self.blocks) is not list:
+            raise BookDocumentError(
+                "Book blocks must be a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.blocks) > MAX_BOOK_DOCUMENT_BLOCKS:
+            raise BookDocumentError(
+                f"BookDocument exceeds {MAX_BOOK_DOCUMENT_BLOCKS} semantic blocks",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
+        if not all(type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks):
             raise BookDocumentError(
                 "Book blocks must be a list of supported semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
@@ -369,7 +381,17 @@ class BookDocument:
         # a canonical BookDocument and fail only later at export or resolution.
         for block in self.blocks:
             block.as_dict()
-        if type(self.warnings) is not list or not all(
+        if type(self.warnings) is not list:
+            raise BookDocumentError(
+                "Book warnings must be a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.warnings) > MAX_BOOK_DOCUMENT_WARNINGS:
+            raise BookDocumentError(
+                f"BookDocument exceeds {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
+        if not all(
             type(warning) is str and warning.strip()
             for warning in self.warnings
         ):
@@ -384,6 +406,11 @@ class BookDocument:
         # Mutation is allowed only from a valid live document. Do not let a new
         # block publication hide pre-existing metadata/container corruption.
         self._validate_export_state()
+        if len(self.blocks) >= MAX_BOOK_DOCUMENT_BLOCKS:
+            raise BookDocumentError(
+                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_BLOCKS} semantic blocks",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
         if type(block) not in _SEMANTIC_BLOCK_TYPES:
             raise BookDocumentError(
                 "Book block type is unsupported",
@@ -395,7 +422,16 @@ class BookDocument:
 
     def extend(self, blocks: Iterable[SemanticBlock]) -> None:
         self._validate_export_state()
-        additions = list(blocks)
+        remaining = MAX_BOOK_DOCUMENT_BLOCKS - len(self.blocks)
+        # Consume at most one item beyond remaining capacity. This keeps an
+        # arbitrary/infinite iterable bounded and proves overflow before any
+        # addition is published into the live document.
+        additions = list(islice(iter(blocks), remaining + 1))
+        if len(additions) > remaining:
+            raise BookDocumentError(
+                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_BLOCKS} semantic blocks",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
         if not all(type(block) in _SEMANTIC_BLOCK_TYPES for block in additions):
             raise BookDocumentError(
                 "Book block type is unsupported",
@@ -457,14 +493,32 @@ class BookDocument:
         _optional_text(self.source_name, "Book source_name")
         _optional_text(self.source_uri, "Book source_uri")
         _optional_text(self.source_rights, "Book source_rights")
-        if type(self.blocks) is not list or not all(
-            type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks
-        ):
+        if type(self.blocks) is not list:
             raise BookDocumentError(
                 "Book blocks must remain a list of supported semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if type(self.warnings) is not list or not all(
+        if len(self.blocks) > MAX_BOOK_DOCUMENT_BLOCKS:
+            raise BookDocumentError(
+                f"BookDocument exceeds {MAX_BOOK_DOCUMENT_BLOCKS} semantic blocks",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
+        if not all(type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks):
+            raise BookDocumentError(
+                "Book blocks must remain a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if type(self.warnings) is not list:
+            raise BookDocumentError(
+                "Book warnings must remain a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.warnings) > MAX_BOOK_DOCUMENT_WARNINGS:
+            raise BookDocumentError(
+                f"BookDocument exceeds {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
+        if not all(
             type(warning) is str and warning.strip()
             for warning in self.warnings
         ):
@@ -541,8 +595,23 @@ class BookDocument:
                 "BookDocument blocks must be a list",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if len(raw_blocks) > MAX_BOOK_DOCUMENT_BLOCKS:
+            raise BookDocumentError(
+                f"BookDocument exceeds {MAX_BOOK_DOCUMENT_BLOCKS} semantic blocks",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
         warnings = data.get("warnings", [])
-        if type(warnings) is not list or not all(
+        if type(warnings) is not list:
+            raise BookDocumentError(
+                "BookDocument warnings must be a list of non-empty strings",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(warnings) > MAX_BOOK_DOCUMENT_WARNINGS:
+            raise BookDocumentError(
+                f"BookDocument exceeds {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
+                code=BookDocumentErrorCode.RESOURCE_LIMIT,
+            )
+        if not all(
             type(item) is str and item.strip() for item in warnings
         ):
             raise BookDocumentError(
