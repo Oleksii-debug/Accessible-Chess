@@ -233,9 +233,11 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
         self.assertNotIn("bInheritHandle = TRUE", self.source)
         self.assertIn(
-            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT,",
+            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
             self.source,
         )
+        self.assertIn("DuplicateHandle(", self.source)
+        self.assertIn("DUPLICATE_SAME_ACCESS", self.source)
         root_check = self.source.index("if (!ac_direct_directory(g_root))")
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
@@ -278,6 +280,8 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         bom = self.report_open.index("WriteFile(handle, bom")
         self.assertLess(opened, reparse_inspected)
         self.assertLess(reparse_inspected, reparse_rejected)
+        self.assertLess(reparse_rejected, link_inspected)
+        self.assertLess(link_inspected, link_rejected)
         self.assertLess(reparse_rejected, link_inspected)
         self.assertLess(link_inspected, link_rejected)
         self.assertLess(link_rejected, truncated)
