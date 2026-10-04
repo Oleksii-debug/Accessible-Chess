@@ -16,8 +16,11 @@ process, so crash residue cannot permanently block later progress saves.
 
 Both read and write paths are bounded.  Progress data and the peer lock are bound
 to the actually opened filesystem object before any byte is consumed or written;
-symlink/reparse substitution between pathname inspection and open therefore fails
-closed instead of redirecting durable progress or lock I/O.
+the containing storage directory is likewise identity-bound across a transaction.
+Symlink/reparse substitution between pathname inspection and open therefore fails
+closed instead of redirecting durable progress or lock I/O.  Successful writes
+are reported only after the published namespace entry receives the platform's
+durability barrier.
 """
 
 from contextlib import contextmanager
@@ -218,6 +221,62 @@ def _open_no_reparse(path: Path, *, create: bool) -> int:
     return os.open(path, flags, 0o600) if create else os.open(path, flags)
 
 
+_MOVEFILE_REPLACE_EXISTING = 0x00000001
+_MOVEFILE_WRITE_THROUGH = 0x00000008
+
+
+def _windows_replace_write_through(source: Path, destination: Path) -> None:
+    """Atomically replace one Training-progress file with Windows write-through."""
+
+    import ctypes
+
+    move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move_file_ex.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+    )
+    move_file_ex.restype = ctypes.c_int
+    if not move_file_ex(
+        os.fspath(source),
+        os.fspath(destination),
+        _MOVEFILE_REPLACE_EXISTING | _MOVEFILE_WRITE_THROUGH,
+    ):
+        error_code = ctypes.get_last_error()
+        raise OSError(
+            error_code,
+            f"durable Windows Training-progress replacement failed (Win32 {error_code})",
+            os.fspath(destination),
+        )
+
+
+def _replace_published_path(source: Path, destination: Path) -> None:
+    """Publish one prepared Training-progress file with platform durability intent."""
+
+    if os.name == "nt":
+        _windows_replace_write_through(source, destination)
+        return
+    os.replace(source, destination)
+
+
+def _sync_published_path(path: Path) -> None:
+    """Confirm the published Training-progress namespace entry reached stable storage."""
+
+    if os.name == "nt":
+        with path.open("r+b") as handle:
+            os.fsync(handle.fileno())
+        return
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(os.fspath(path.parent), flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 class TrainingProgressStore:
     """Atomic single-exercise progress file with compare-and-swap updates."""
 
@@ -228,6 +287,53 @@ class TrainingProgressStore:
         if str(self.path) in {"", "."}:
             raise ValueError("path must identify a progress file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
+        self._active_storage_directory_identity: os.stat_result | None = None
+
+    @staticmethod
+    def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+        try:
+            return os.path.samestat(first, second)
+        except (AttributeError, OSError):
+            return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+    def _require_storage_directory(
+        self,
+        expected_identity: os.stat_result | None = None,
+        *,
+        missing_ok: bool = False,
+    ) -> os.stat_result | None:
+        """Require and optionally identity-bind the configured storage parent."""
+
+        try:
+            metadata = os.lstat(self.path.parent)
+        except FileNotFoundError:
+            if missing_ok and expected_identity is None:
+                return None
+            raise ValueError("training progress storage directory is unavailable") from None
+        except OSError as exc:
+            raise ValueError("training progress storage directory is unavailable") from exc
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or _is_reparse_point(metadata)
+            or not stat.S_ISDIR(metadata.st_mode)
+        ):
+            raise ValueError(
+                "training progress storage directory is not a regular directory"
+            )
+        if (
+            expected_identity is not None
+            and not self._same_file_identity(expected_identity, metadata)
+        ):
+            raise ValueError(
+                "training progress storage directory changed during the transaction"
+            )
+        return metadata
+
+    def _bound_storage_directory(self, *, missing_ok: bool) -> os.stat_result | None:
+        active = self._active_storage_directory_identity
+        if active is not None:
+            return self._require_storage_directory(active)
+        return self._require_storage_directory(missing_ok=missing_ok)
 
     @staticmethod
     def _require_regular_progress(metadata: os.stat_result) -> None:
@@ -239,9 +345,13 @@ class TrainingProgressStore:
             raise ValueError("training progress storage is not a regular file")
 
     def _read_progress_bytes(self, *, missing_ok: bool) -> bytes | None:
+        directory_identity = self._bound_storage_directory(missing_ok=missing_ok)
+        if directory_identity is None:
+            return None
         try:
             descriptor = _open_no_reparse(self.path, create=False)
         except FileNotFoundError:
+            self._require_storage_directory(directory_identity)
             if missing_ok:
                 return None
             raise ValueError("training progress file is unavailable")
@@ -268,6 +378,7 @@ class TrainingProgressStore:
                 raise TrainingProgressResourceError(
                     "training progress file exceeds the resource limit"
                 )
+            self._require_storage_directory(directory_identity)
             return data
         except OSError as exc:
             raise ValueError("training progress file could not be read") from exc
@@ -311,7 +422,13 @@ class TrainingProgressStore:
         ):
             raise TrainingProgressBusyError("training progress store is busy")
 
-    def _open_lock_descriptor(self) -> int:
+    def _open_lock_descriptor(
+        self,
+        *,
+        expected_directory_identity: os.stat_result | None = None,
+    ) -> int:
+        if expected_directory_identity is not None:
+            self._require_storage_directory(expected_directory_identity)
         # The precheck is only an early diagnostic.  The opened descriptor/handle
         # below is authoritative and is revalidated before any write.
         try:
@@ -323,6 +440,8 @@ class TrainingProgressStore:
         if existing is not None:
             self._require_regular_lock(existing)
 
+        if expected_directory_identity is not None:
+            self._require_storage_directory(expected_directory_identity)
         try:
             descriptor = _open_no_reparse(self._lock_path, create=True)
         except OSError as exc:
@@ -330,9 +449,13 @@ class TrainingProgressStore:
         try:
             metadata = os.fstat(descriptor)
             self._require_regular_lock(metadata)
+            if expected_directory_identity is not None:
+                self._require_storage_directory(expected_directory_identity)
             if metadata.st_size == 0:
                 os.write(descriptor, b"\0")
                 os.fsync(descriptor)
+            if expected_directory_identity is not None:
+                self._require_storage_directory(expected_directory_identity)
             return descriptor
         except BaseException:
             os.close(descriptor)
@@ -371,13 +494,22 @@ class TrainingProgressStore:
     @contextmanager
     def _exclusive_access(self) -> Iterator[None]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = self._open_lock_descriptor()
+        directory_identity = self._require_storage_directory()
+        assert directory_identity is not None
+        descriptor = self._open_lock_descriptor(
+            expected_directory_identity=directory_identity
+        )
         acquired = False
+        previous_directory_identity = self._active_storage_directory_identity
         try:
             self._lock_descriptor(descriptor)
             acquired = True
+            self._require_storage_directory(directory_identity)
+            self._active_storage_directory_identity = directory_identity
             yield
+            self._require_storage_directory(directory_identity)
         finally:
+            self._active_storage_directory_identity = previous_directory_identity
             if acquired:
                 self._unlock_descriptor(descriptor)
             os.close(descriptor)
@@ -420,6 +552,9 @@ class TrainingProgressStore:
                 if current_data == data:
                     return new_revision
 
+                active_directory = self._active_storage_directory_identity
+                assert active_directory is not None
+                self._require_storage_directory(active_directory)
                 fd, raw_path = tempfile.mkstemp(
                     prefix=f".{self.path.name}.",
                     suffix=".tmp",
@@ -431,6 +566,7 @@ class TrainingProgressStore:
                         handle.write(data)
                         handle.flush()
                         os.fsync(handle.fileno())
+                    self._require_storage_directory(active_directory)
                 except Exception:
                     if temporary.exists():
                         temporary.unlink()
@@ -446,8 +582,22 @@ class TrainingProgressStore:
                         "training progress changed during publication"
                     )
 
-                os.replace(temporary, self.path)
+                self._require_storage_directory(active_directory)
+                _replace_published_path(temporary, self.path)
                 temporary = None
+
+                # Revalidate the exact parent on both sides of the durability
+                # barrier.  If publication is visible but stable-storage
+                # confirmation fails, propagate the failure instead of falsely
+                # acknowledging a durable save.
+                self._require_storage_directory(active_directory)
+                _sync_published_path(self.path)
+                self._require_storage_directory(active_directory)
+                visible = self._read_progress_bytes(missing_ok=False)
+                if visible != data:
+                    raise TrainingProgressConflictError(
+                        "training progress changed after publication"
+                    )
                 return new_revision
             finally:
                 if temporary is not None and temporary.exists():
