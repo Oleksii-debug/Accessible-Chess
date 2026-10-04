@@ -504,7 +504,14 @@ class TrainingProgressStore:
                 raise TrainingProgressResourceError(
                     "training progress file exceeds the resource limit"
                 )
-            if before is not None and not self._same_file_identity(before, opened):
+            if before is None:
+                # A file that appears after the pre-open missing snapshot is a
+                # namespace race, not authoritative progress. Reject it before
+                # any bytes can be interpreted as a valid resumed session.
+                raise ValueError(
+                    "training progress storage changed while being opened"
+                )
+            if not self._same_file_identity(before, opened):
                 raise ValueError("training progress storage changed while being opened")
             try:
                 after_open = os.lstat(self.path)
