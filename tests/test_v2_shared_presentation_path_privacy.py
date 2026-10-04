@@ -141,6 +141,10 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
                 self.assertNotIn("PrivateUser", rendered)
                 self.assertNotIn("private-share", rendered)
 
+    def test_doubled_unc_like_notation_is_not_misclassified_as_local_path(self) -> None:
+        value = r"\\alpha\\beta is notation, not a Windows UNC share"
+        self.assertEqual(value, redact_local_paths(value, "[hidden]"))
+
     def test_real_single_backslash_windows_root_is_redacted_without_truncation(self) -> None:
         raw = r"\Users\PrivateUser\Documents\study.pgn"
         rendered = redact_local_paths(
