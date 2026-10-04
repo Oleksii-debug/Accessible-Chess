@@ -316,12 +316,33 @@ class AccessibleChessAPI:
         try:
             side = self.board.turn if turn is None else turn
             fen = parse_position_text(text, side, language=self.lang)
-            self.board = Board(fen)
-            self._reset_history()
-            return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
-                            else "Position loaded from text editor.")
+
+            # Build every fallible part of the replacement state before
+            # publishing any of it.  A history/presenter construction failure
+            # must not leave the live board on the candidate position while the
+            # visible/review state still describes the previous game.
+            candidate_board = Board(fen)
+            candidate_start_fen = candidate_board.fen()
+            candidate_history = ReviewHistory(candidate_start_fen)
+            candidate_adapter = ReviewPresentationAdapter(
+                candidate_history,
+                language=self.lang,
+            )
+            candidate_live_node = candidate_history.cursor_node_id
         except Exception as exc:
             return self._error(str(exc))
+
+        self.board = candidate_board
+        self.start_fen = candidate_start_fen
+        self.sans.clear()
+        self.move_sides.clear()
+        self.redo_meta.clear()
+        self.selected_source = None
+        self.review_history = candidate_history
+        self.review_adapter = candidate_adapter
+        self.live_history_node = candidate_live_node
+        return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
+                        else "Position loaded from text editor.")
 
     def toggle_engine(self) -> dict[str, Any]:
         self.engine_enabled = not self.engine_enabled
