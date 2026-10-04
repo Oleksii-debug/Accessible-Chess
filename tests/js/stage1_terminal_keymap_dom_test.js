@@ -53,6 +53,20 @@ function eventFor(key, target) {
     };
 }
 
+function chordFor(event) {
+    const parts = [];
+    if (event.ctrlKey) parts.push('Ctrl');
+    if (event.altKey) parts.push('Alt');
+    if (event.shiftKey) parts.push('Shift');
+    if (event.metaKey) parts.push('Win');
+    const arrows = {ArrowLeft: 'Left', ArrowRight: 'Right', ArrowUp: 'Up', ArrowDown: 'Down'};
+    let key = arrows[event.key] || event.key;
+    if (key === ' ') key = 'Space';
+    if (key.length === 1) key = key.toUpperCase();
+    parts.push(key);
+    return parts.join('+');
+}
+
 (async () => {
     const boardGrid = new FakeNode('board-grid');
     const cell = new FakeNode('sq-e2');
@@ -75,6 +89,7 @@ function eventFor(key, target) {
     const apiCalls = [];
     const focusCalls = [];
     const announcements = [];
+    const baseActionCalls = [];
     let exitCalls = 0;
     let submitCalls = 0;
 
@@ -92,9 +107,11 @@ function eventFor(key, target) {
         exitBoard: () => { exitCalls += 1; },
         announceUserAction: message => { announcements.push(message); },
         submitMove: () => { submitCalls += 1; },
-        executeAction: () => {},
+        executeAction: id => { baseActionCalls.push(id); },
         renderHelp: () => {},
         onBoardKey: baseOnBoardKey,
+        eventChord: chordFor,
+        normalizeChord: value => value,
         keymap: [],
         document: {
             body,
@@ -132,6 +149,16 @@ function eventFor(key, target) {
     assert.strictEqual(remappedDown.prevented, true);
     assert.strictEqual(remappedDown.stopped, true);
 
+    // The board still delegates to the canonical resolver so GLOBAL fallback is retained.
+    context.resolveBinding = async chord => chord === 'Ctrl+Z' ? {actionId: 'edit.undo'} : null;
+    context.accessibleChessKeymapAction = () => '';
+    const globalUndo = eventFor('z', cell);
+    globalUndo.ctrlKey = true;
+    await context.onBoardKey(globalUndo);
+    assert.deepStrictEqual(baseActionCalls, ['edit.undo']);
+    assert.strictEqual(globalUndo.prevented, true);
+    delete context.resolveBinding;
+
     // Activation obeys the remap and preserves the temporary-analysis mutation guard.
     context.boardIndex = 0;
     context.accessibleChessKeymapAction = event => event.key === 'K' ? 'board.activate' : '';
@@ -158,9 +185,13 @@ function eventFor(key, target) {
     assert.ok(moveCapture, 'move input remap capture handler installed');
     assert.ok(historyCapture, 'history input remap capture handler installed');
 
-    context.accessibleChessKeymapAction = (event, uiContext) => {
-        if (uiContext === 'move_entry' && event.key === 'F2') return 'move.submit';
-        if (uiContext === 'history' && event.key === 'F3') return 'history.commit_go_to_move';
+    context.keymap = [
+        {id: 'move.submit', registryContext: 'move_entry', context: 'move-entry', binding: 'F2'},
+        {id: 'history.commit_go_to_move', registryContext: 'history', context: 'document', binding: 'F3'},
+    ];
+    const projectedContexts = [];
+    context.accessibleChessKeymapAction = (_event, uiContext) => {
+        projectedContexts.push(uiContext);
         return '';
     };
 
@@ -186,6 +217,16 @@ function eventFor(key, target) {
     assert.strictEqual(newHistoryCommit.prevented, true);
     assert.strictEqual(newHistoryCommit.immediateStopped, true);
     assert.deepStrictEqual(apiCalls[1], ['go_to_move', '17']);
+    assert.ok(projectedContexts.includes('move-entry'));
+    assert.ok(projectedContexts.includes('document'));
+    assert.ok(!projectedContexts.includes('move_entry'));
+
+    // Cross-registry-context collisions in the shared document projection do not steal history commit.
+    context.keymap.unshift({id: 'pgn.open', registryContext: 'document', context: 'document', binding: 'F3'});
+    const collidingHistoryCommit = eventFor('F3', historyInput);
+    historyCapture.listener(collidingHistoryCommit);
+    await Promise.resolve();
+    assert.deepStrictEqual(apiCalls[2], ['go_to_move', '17']);
 
     // Bootstrap fallback leaves the historical Enter listener reachable.
     context.accessibleChessKeymapAction = () => null;
