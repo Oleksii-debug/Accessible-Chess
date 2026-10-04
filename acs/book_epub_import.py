@@ -621,7 +621,11 @@ def _resolve_package_href(
     return joined
 
 
-def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
+def _package_rootfile(
+    container: ET.Element,
+    warnings: _Warnings,
+    archive_index: dict[str, zipfile.ZipInfo],
+) -> str:
     if (
         container.tag != _CONTAINER_TAG
         or container.attrib.get("version") != "1.0"
@@ -658,7 +662,8 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    candidates: list[ET.Element] = []
+    candidates: list[str] = []
+    seen_paths: set[str] = set()
     for element in rootfiles:
         if not _is_container_namespace_tag(element.tag):
             # Foreign extension element and all its contents are ignored by OCF.
@@ -685,7 +690,19 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
                 "EPUB rootfile has a missing or invalid package media type",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        candidates.append(element)
+        full_path = _resolve_package_href("", element.attrib.get("full-path"))
+        if full_path in seen_paths:
+            raise _error(
+                "EPUB container resolves multiple rootfiles to the same package document",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if full_path not in archive_index:
+            raise _error(
+                "EPUB container references a package document that is unavailable",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        seen_paths.add(full_path)
+        candidates.append(full_path)
         if (element.tail or "").strip():
             raise _error(
                 "EPUB rootfiles section contains invalid text content",
@@ -699,8 +716,7 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
         )
     if len(candidates) > 1:
         warnings.add("multiple EPUB package documents were present; the first supported rootfile was used")
-    full_path = candidates[0].attrib.get("full-path")
-    return _resolve_package_href("", full_path)
+    return candidates[0]
 
 
 def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
@@ -1119,7 +1135,7 @@ def import_epub_book(
             _read_entry(archive, index, "META-INF/container.xml", limit=MAX_EPUB_XML_BYTES),
             "container metadata",
         )
-        opf_name = _package_rootfile(container, warnings)
+        opf_name = _package_rootfile(container, warnings, index)
         package = _xml_root(
             _read_entry(archive, index, opf_name, limit=MAX_EPUB_XML_BYTES),
             "package metadata",
