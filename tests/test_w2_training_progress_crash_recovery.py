@@ -488,6 +488,45 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             assert loaded is not None
             self.assertEqual(0, loaded.session.step_index)
 
+    def test_same_byte_target_swap_during_noop_snapshot_is_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            session = ExerciseSession(definition)
+            revision = store.save(session, expected_revision=None)
+            original = path.read_bytes()
+            original_identity = os.lstat(path)
+            real_snapshot = session.snapshot
+            injected = False
+
+            def snapshot_after_same_byte_swap():
+                nonlocal injected
+                snapshot = real_snapshot()
+                replacement = root / "same-byte-during-noop-snapshot.json"
+                replacement.write_bytes(original)
+                os.replace(replacement, path)
+                injected = True
+                return snapshot
+
+            with mock.patch.object(
+                session,
+                "snapshot",
+                side_effect=snapshot_after_same_byte_swap,
+            ):
+                with self.assertRaises(TrainingProgressConflictError):
+                    store.save(session, expected_revision=revision)
+
+            self.assertTrue(injected)
+            self.assertEqual(original, path.read_bytes())
+            self.assertFalse(os.path.samestat(original_identity, os.lstat(path)))
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(0, loaded.session.step_index)
+            self.assertEqual(revision, loaded.revision)
+
     def test_same_byte_target_swap_before_initial_read_is_a_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
