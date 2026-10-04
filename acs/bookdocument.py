@@ -318,7 +318,7 @@ def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
     kind = data.get("kind")
     if type(kind) is not str:
         raise BookDocumentError(
-            f"Unsupported BookDocument block kind: {kind!r}",
+            "Unsupported BookDocument block kind",
             code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
         )
     cls = _BLOCK_TYPES.get(kind)
@@ -510,7 +510,7 @@ class BookDocument:
             BOOK_DOCUMENT_SCHEMA_VERSION,
         }:
             raise BookDocumentError(
-                f"Unsupported BookDocument schema_version: {raw_version!r}",
+                "Unsupported BookDocument schema_version",
                 code=BookDocumentErrorCode.UNSUPPORTED_SCHEMA,
             )
         allowed = {
