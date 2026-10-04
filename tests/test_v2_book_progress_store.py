@@ -789,6 +789,39 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_first_save_backup_appearance_after_primary_replace_reports_durability_unknown(self) -> None:
+        backup_bytes = b'{"entries":{},"generation":7,"schema_version":2}'
+        real_replace = __import__(
+            "acs.book_progress_store",
+            fromlist=["_replace_published_path"],
+        )._replace_published_path
+        injected = False
+
+        def publish_primary_then_create_backup(source: Path, destination: Path) -> None:
+            nonlocal injected
+            real_replace(source, destination)
+            if Path(destination) == self.path and not injected:
+                self.store.backup_path.write_bytes(backup_bytes)
+                injected = True
+
+        with mock.patch(
+            "acs.book_progress_store._replace_published_path",
+            side_effect=publish_primary_then_create_backup,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save(
+                    "book:first-save-post-replace-backup",
+                    BookReader(self.original_document()),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertTrue(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
     def test_save_rechecks_primary_after_temp_fsync_before_replace(self) -> None:
         self.path.parent.mkdir(parents=True)
         external = b'{"entries":{},"generation":41,"schema_version":2}'
@@ -1874,6 +1907,83 @@ class BookProgressStoreTests(unittest.TestCase):
             self.original_document(),
         )
         self.assertEqual(restored.index, 1)
+
+    def test_backup_publication_primary_guard_change_after_replace_reports_durability_unknown(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:post-replace-primary-guard", reader)
+        primary_before = self.path.read_bytes()
+        real_replace = __import__(
+            "acs.book_progress_store",
+            fromlist=["_replace_published_path"],
+        )._replace_published_path
+        injected = False
+
+        def publish_backup_then_replace_primary(source: Path, destination: Path) -> None:
+            nonlocal injected
+            real_replace(source, destination)
+            if Path(destination) == self.store.backup_path and not injected:
+                replacement = self.path.with_name(
+                    "same-byte-post-backup-primary-guard.json"
+                )
+                replacement.write_bytes(primary_before)
+                os.replace(replacement, self.path)
+                injected = True
+
+        reader.go_to(2)
+        with mock.patch(
+            "acs.book_progress_store._replace_published_path",
+            side_effect=publish_backup_then_replace_primary,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:post-replace-primary-guard", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
+
+    def test_primary_publication_backup_guard_change_after_replace_reports_durability_unknown(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:post-replace-backup-guard", reader)
+        primary_before = self.path.read_bytes()
+        real_replace = __import__(
+            "acs.book_progress_store",
+            fromlist=["_replace_published_path"],
+        )._replace_published_path
+        injected = False
+
+        def publish_then_replace_backup_guard(source: Path, destination: Path) -> None:
+            nonlocal injected
+            real_replace(source, destination)
+            if Path(destination) == self.path and not injected:
+                backup_bytes = self.store.backup_path.read_bytes()
+                replacement = self.store.backup_path.with_name(
+                    "same-byte-post-primary-backup-guard.json"
+                )
+                replacement.write_bytes(backup_bytes)
+                os.replace(replacement, self.store.backup_path)
+                injected = True
+
+        reader.go_to(2)
+        with mock.patch(
+            "acs.book_progress_store._replace_published_path",
+            side_effect=publish_then_replace_backup_guard,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:post-replace-backup-guard", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+        )
+        self.assertNotEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
 
     def test_save_preserves_newer_backup_when_primary_advances_before_backup_publish(self) -> None:
         reader = BookReader(self.original_document())
