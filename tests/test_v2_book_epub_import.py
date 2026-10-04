@@ -2261,6 +2261,10 @@ class BookEpubImportTests(unittest.TestCase):
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             ),
             (
+                '<links><link href="OEBPS/missing-map.xhtml" rel="mapping"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
                 '<links><link href="OEBPS/chapter.xhtml" rel=" alternate "/></links>',
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             ),
