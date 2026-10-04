@@ -77,6 +77,7 @@ class _InlineSemanticEvent:
     part_index: int
     block: object
     structural: bool = False
+    forces_split: bool = False
     resume_part_index: int | None = None
 
 
@@ -454,7 +455,7 @@ class _SemanticHtmlParser(HTMLParser):
     def _nearest_structural_owner_capture(self) -> _Capture | None:
         """Return the nearest capture whose text may need semantic splitting."""
         for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading"}:
+            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
                 return capture
         return None
 
@@ -471,6 +472,7 @@ class _SemanticHtmlParser(HTMLParser):
         owner: _Capture | None = None,
         part_index: int | None = None,
         structural: bool = False,
+        forces_split: bool = False,
         resume_part_index: int | None = None,
     ) -> None:
         # Direct image/position semantics trigger splitting for the nearest
@@ -486,6 +488,7 @@ class _SemanticHtmlParser(HTMLParser):
                 part_index=boundary,
                 block=block,
                 structural=structural,
+                forces_split=forces_split,
                 resume_part_index=resume_part_index,
             )
         )
@@ -836,8 +839,8 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor: str | None,
     ) -> None:
         """Flatten one rich list item without reordering its semantic blocks."""
-        events = [event for event in capture.inline_semantics if not event.structural]
-        if not events:
+        events = list(capture.inline_semantics)
+        if not any((not event.structural) or event.forces_split for event in events):
             return
 
         self._list_warning(
@@ -960,10 +963,11 @@ class _SemanticHtmlParser(HTMLParser):
                 self.title = text
             return
         source_anchor = capture.attrs.get("id") or None
-        has_direct_inline_semantics = any(
-            not event.structural for event in capture.inline_semantics
+        requires_semantic_split = any(
+            (not event.structural) or event.forces_split
+            for event in capture.inline_semantics
         )
-        if capture.kind == "list_item" and has_direct_inline_semantics:
+        if capture.kind == "list_item" and requires_semantic_split:
             active_list = (
                 self._lists[-1]
                 if self._lists and capture.list_depth == len(self._lists)
@@ -979,9 +983,7 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if capture.kind == "heading":
             level = int(capture.tag[1])
-            if capture.inline_semantics and any(
-                not event.structural for event in capture.inline_semantics
-            ):
+            if capture.inline_semantics and requires_semantic_split:
                 self._finish_inline_heading(
                     capture,
                     legacy_text=text,
@@ -998,7 +1000,7 @@ class _SemanticHtmlParser(HTMLParser):
                     )
                 )
             return
-        if capture.kind in {"paragraph", "table_row"} and has_direct_inline_semantics:
+        if capture.kind in {"paragraph", "table_row"} and requires_semantic_split:
             if capture.kind == "table_row" and not self._warned_table_flatten:
                 self._warning(
                     "HTML table structure is preserved as row text because BookDocument has no table block kind"
@@ -1012,7 +1014,7 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if (
             capture.kind == "pre"
-            and has_direct_inline_semantics
+            and requires_semantic_split
             and not _explicit_pgn_pre(raw)
         ):
             self._finish_inline_paragraph(
@@ -1075,17 +1077,28 @@ class _SemanticHtmlParser(HTMLParser):
             or len(self.blocks) <= capture.block_start_index
         ):
             return
-        # Anchor the nested semantic subtree at its source start. The boundary is
-        # structural only: without a direct inline image/position event on the
-        # parent, legacy nested-only projection remains unchanged.
+        # Anchor the nested semantic subtree at its source start. A plain nested
+        # child remains structural-only so legacy unsplit projection is unchanged.
+        # A child that itself had to split around rich semantics propagates that
+        # requirement upward; otherwise its already-published subtree would be
+        # duplicated by a parent's flat text projection.
+        child_forces_split = any(
+            (not event.structural) or event.forces_split
+            for event in capture.inline_semantics
+        )
         self._record_inline_semantic(
             self.blocks[capture.block_start_index],
             owner=parent,
             part_index=part_index,
             structural=True,
-            resume_part_index=(
-                len(parent.parts) if capture.kind == "heading" else None
-            ),
+            forces_split=child_forces_split,
+            # A nested semantic capture already published its readable content as
+            # one or more canonical blocks. When the parent later needs splitting
+            # around a direct image/position event, resume after all source text
+            # consumed by this child so the nested text is not duplicated into a
+            # parent fragment. Legacy unsplit projection remains unchanged because
+            # structural events are consulted only by the split paths.
+            resume_part_index=len(parent.parts),
         )
 
     def close(self) -> None:
