@@ -146,11 +146,21 @@ class PortableTreeTests(unittest.TestCase):
 
     def test_portable_docx_name_accepts_win32_safe_unicode(self) -> None:
         name = "Доступні шахи — посібник.docx"
-        self.assertEqual(portable_module._portable_docx_name(Path(name)), name)
+        with mock.patch.object(
+            portable_module,
+            "_relative_token",
+            wraps=portable_module._relative_token,
+        ) as authority:
+            self.assertEqual(portable_module._portable_docx_name(Path(name)), name)
+        authority.assert_called_once_with(
+            name,
+            label="portable Word document filename",
+        )
 
     def test_portable_docx_name_rejects_win32_device_aliases(self) -> None:
         for name in (
             "CON.docx",
+            "CON .docx",
             "nul.DOCX",
             "PrN.docx",
             "COM1.docx",
