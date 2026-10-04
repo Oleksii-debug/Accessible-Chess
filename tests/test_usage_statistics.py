@@ -221,6 +221,53 @@ class UsageStatisticsTests(unittest.TestCase):
             self.assertFalse((outside / "nested").exists())
             self.assertEqual(list(outside.iterdir()), [])
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "symbolic-link support is required")
+    def test_load_rejects_redirected_parent_even_when_outside_payload_is_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = root / "outside"
+            outside.mkdir()
+            snapshot = UsageStatisticsSnapshot("install-1", sessions_started=9)
+            (outside / "stats.json").write_text(
+                json.dumps(snapshot.as_dict(), sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            redirected = root / "redirected"
+            try:
+                os.symlink(outside, redirected, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"directory symlink creation is unavailable: {exc}")
+
+            store = UsageStatisticsStore(redirected / "stats.json")
+            recovered = store.load("install-1")
+
+            self.assertEqual(recovered, UsageStatisticsSnapshot("install-1"))
+            self.assertTrue(store.recovered_invalid_data)
+            self.assertEqual(json.loads((outside / "stats.json").read_text(encoding="utf-8")), snapshot.as_dict())
+
+    @unittest.skipUnless(hasattr(os, "link"), "hard-link support is required")
+    def test_load_rejects_hard_linked_statistics_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.json"
+            path = root / "stats.json"
+            snapshot = UsageStatisticsSnapshot("install-1", sessions_started=7)
+            source.write_text(
+                json.dumps(snapshot.as_dict(), sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            try:
+                os.link(source, path)
+            except OSError as exc:
+                self.skipTest(f"hard-link creation is unavailable: {exc}")
+
+            store = UsageStatisticsStore(path)
+            recovered = store.load("install-1")
+
+            self.assertEqual(recovered, UsageStatisticsSnapshot("install-1"))
+            self.assertTrue(store.recovered_invalid_data)
+            self.assertTrue(os.path.samefile(source, path))
+
     def test_save_rejects_temp_path_substitution_without_deleting_foreign_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "stats.json"
