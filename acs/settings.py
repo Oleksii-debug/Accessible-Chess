@@ -277,22 +277,37 @@ class _SettingsSaveLock:
             raise
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if self.handle is None:
+        handle = self.handle
+        self.handle = None
+        self.identity = None
+        if handle is None:
             return
+
+        # The protected body remains the transaction authority. In save() it
+        # returns only after the canonical settings bytes have been atomically
+        # published and all durability/identity checks have completed. A later
+        # unlock or close failure cannot undo that publication, so cleanup must
+        # not convert durable success into a caller-visible failure. Exceptions
+        # raised by the protected body still propagate because __exit__ never
+        # returns True.
         try:
-            self.handle.seek(0)
-            if os.name == "nt":
-                import msvcrt
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
 
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
 
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
         finally:
-            self.handle.close()
-            self.handle = None
-            self.identity = None
+            try:
+                handle.close()
+            except Exception:
+                pass
 
 
 def _validated_value(key: str, value: Any) -> Any:

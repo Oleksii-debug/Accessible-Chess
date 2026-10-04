@@ -21,6 +21,10 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         paths = self.text.index("    paths:\n", pull)
         block = self.text[pull:paths]
         self.assertIn("      - main\n", block)
+        self.assertIn(
+            "      - integration/current-main-windows-apex-reconvergence-20261004-sol\n",
+            block,
+        )
         self.assertIn("FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS", self.text)
 
     def test_current_main_qualification_late_binds_live_pr_base(self) -> None:
@@ -64,6 +68,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_pgn_document_new_game_position_integrity",
             "tests.test_d08_training_canonical_resume",
             "tests.test_training_snapshot_definition_identity_v4",
+            "tests.test_settings_postpublication_cleanup_current_main",
             "tests.test_version2_import_terminal_ui",
             "tests.test_v2_windows_nvda_file_workflows",
             "tests.test_v2_native_thread_runtime_workflow",
