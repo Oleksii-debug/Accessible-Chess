@@ -78,13 +78,32 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         *,
         host_ok: bool,
         server_ok: bool,
+        renderer_raises: bool = False,
+        host_raises: bool = False,
+        server_raises: bool = False,
         release_ui_raises: bool = False,
     ) -> tuple[object, str]:
         accessibility = types.ModuleType("acs.webview2_accessibility")
-        accessibility.enable_webview2_renderer_accessibility = lambda: None
-        accessibility.install_pywebview_accessibility_host_patch = lambda: host_ok
+
+        def enable_renderer_accessibility() -> None:
+            if renderer_raises:
+                raise RuntimeError("synthetic renderer accessibility bootstrap failure")
+
+        def install_host_patch() -> bool:
+            if host_raises:
+                raise RuntimeError("synthetic accessibility host bootstrap failure")
+            return host_ok
+
+        accessibility.enable_webview2_renderer_accessibility = enable_renderer_accessibility
+        accessibility.install_pywebview_accessibility_host_patch = install_host_patch
         safe_server = types.ModuleType("acs.webview_safe_server")
-        safe_server.install_pywebview_safe_local_server_port = lambda: server_ok
+
+        def install_safe_server() -> bool:
+            if server_raises:
+                raise RuntimeError("synthetic safe local server bootstrap failure")
+            return server_ok
+
+        safe_server.install_pywebview_safe_local_server_port = install_safe_server
         release_ui = types.ModuleType("acs.stage1_release_ui")
 
         def release_main() -> None:
@@ -110,15 +129,48 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             runpy.run_path(str(self.root / "run_accessible_chess.py"), run_name="__main__")
         return raised.exception.code, stderr.getvalue()
 
+    def test_real_entrypoint_reports_renderer_accessibility_exception_code(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            renderer_raises=True,
+        )
+        self.assertEqual(code, 71)
+        self.assertIn(
+            "Accessible WebView2 renderer accessibility could not be initialized.",
+            stderr,
+        )
+        self.assertIn("synthetic renderer accessibility bootstrap failure", stderr)
+
     def test_real_entrypoint_reports_accessibility_host_bootstrap_code(self):
         code, stderr = self._run_packaged_bootstrap(host_ok=False, server_ok=True)
         self.assertEqual(code, 71)
         self.assertIn("Accessible WebView2 host could not be initialized.", stderr)
 
+    def test_real_entrypoint_reports_accessibility_host_exception_code(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            host_raises=True,
+        )
+        self.assertEqual(code, 71)
+        self.assertIn("Accessible WebView2 host could not be initialized.", stderr)
+        self.assertIn("synthetic accessibility host bootstrap failure", stderr)
+
     def test_real_entrypoint_reports_safe_local_server_bootstrap_code(self):
         code, stderr = self._run_packaged_bootstrap(host_ok=True, server_ok=False)
         self.assertEqual(code, 72)
         self.assertIn("Accessible WebView2 local server could not be initialized.", stderr)
+
+    def test_real_entrypoint_reports_safe_local_server_exception_code(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            server_raises=True,
+        )
+        self.assertEqual(code, 72)
+        self.assertIn("Accessible WebView2 local server could not be initialized.", stderr)
+        self.assertIn("synthetic safe local server bootstrap failure", stderr)
 
     def test_real_entrypoint_reports_release_ui_startup_code_and_traceback(self):
         code, stderr = self._run_packaged_bootstrap(
