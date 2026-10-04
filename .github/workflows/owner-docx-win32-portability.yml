@@ -13,7 +13,9 @@ on:
       - converge/owner-bootstrap-docx-portability-20261004-c2mbezb
     paths:
       - 'scripts/build_owner_portable_candidate.py'
+      - 'acs/version2_portable_package.py'
       - 'tests/test_owner_docx_win32_portability.py'
+      - 'tests/test_version2_portable_package.py'
       - '.github/workflows/owner-docx-win32-portability.yml'
   workflow_dispatch:
 
@@ -74,6 +76,7 @@ jobs:
           from pathlib import Path
 
           source = Path('scripts/build_owner_portable_candidate.py').read_text(encoding='utf-8')
+          portable = Path('acs/version2_portable_package.py').read_text(encoding='utf-8')
           required = (
               '_owner_docx_name',
               '_WIN32_FORBIDDEN_FILENAME_CHARS',
@@ -84,7 +87,15 @@ jobs:
           )
           for token in required:
               assert token in source, token
+          for token in (
+              '_portable_docx_name',
+              '_WIN32_FORBIDDEN_FILENAME_CHARS',
+              '_WIN32_RESERVED_DEVICE_NAMES',
+              'utf-16-le',
+          ):
+              assert token in portable, token
           for forbidden in ('parse_pgn_text', 'chess.Board', 'python-chess'):
               assert forbidden not in source, forbidden
+              assert forbidden not in portable, forbidden
           print('OWNER_DOCX_WIN32_AUTHORITY_BOUNDARY=PASS')
           PY
