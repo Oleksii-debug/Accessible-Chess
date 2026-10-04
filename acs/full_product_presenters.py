@@ -733,7 +733,9 @@ class TrainingPresenter:
         message: str = "",
         message_key: str | None = None,
     ) -> None:
-        if not isinstance(session, ExerciseSession):
+        # ExerciseSession is the canonical mutable Training-state authority.
+        # Reject subclasses before any overridable state/snapshot hook can run.
+        if type(session) is not ExerciseSession:
             raise TypeError("training presenter session must be ExerciseSession")
         if not isinstance(language, UILanguage):
             raise TypeError("training presenter language must be UILanguage")
