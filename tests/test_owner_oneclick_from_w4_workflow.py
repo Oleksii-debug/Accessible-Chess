@@ -57,6 +57,18 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_CANDIDATE_SHA_MISMATCH", self.text)
         self.assertIn("W4_EXACT_ARTIFACT_BINDING=PASS", self.text)
         self.assertIn("validate_version2_package_tree(", self.text)
+        self.assertIn("root / 'p0-evidence' / 'w4-run-metadata.json'", self.text)
+        self.assertIn("Accessible-Chess-V2-{exact[:7]}-NVDA-test-candidate.zip", self.text)
+        self.assertIn("W4_METADATA_LOCATION_INVALID", self.text)
+        self.assertIn("W4_CANDIDATE_LOCATION_INVALID", self.text)
+        self.assertLess(
+            self.text.index("if metadata_files[0] != expected_metadata"),
+            self.text.index("label=\'W4 run metadata\'"),
+        )
+        self.assertLess(
+            self.text.index("if candidate != expected_candidate"),
+            self.text.index("label=\'W4 candidate ZIP\'"),
+        )
 
     def test_w4_extraction_reuses_canonical_windows_path_authority(self) -> None:
         self.assertIn("Version2PackagePreflightError", self.text)
@@ -68,6 +80,24 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
                 from acs.version2_package_preflight import Version2PackagePreflightError, _relative_token
                 with self.assertRaises(Version2PackagePreflightError):
                     _relative_token(unsafe, label="W4 ZIP member")
+
+    def test_w4_zip_rejects_encrypted_and_special_members_before_materialization(self) -> None:
+        for token in (
+            "info.flag_bits & 0x1",
+            "W4_ZIP_ENCRYPTED_MEMBER_FORBIDDEN",
+            "unix_type not in {0, 0o040000}",
+            "unix_type not in {0, 0o100000}",
+            "W4_ZIP_SPECIAL_MEMBER_FORBIDDEN",
+            "W4_ZIP_SYMLINK_FORBIDDEN",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.text)
+
+        encrypted = self.text.index("info.flag_bits & 0x1")
+        special = self.text.index("unix_type not in {0, 0o100000}")
+        materialize = self.text.index("source.open(info, 'r')")
+        self.assertLess(encrypted, materialize)
+        self.assertLess(special, materialize)
 
     def test_w4_run_provenance_uses_single_canonical_verifier_before_download(self) -> None:
         fetch_index = self.text.index("Fetch and authenticate exact W4 workflow run provenance")
