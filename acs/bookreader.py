@@ -171,7 +171,14 @@ class BookReader:
 
     def _document_revision_digest(self) -> str:
         """Fingerprint the current live authoring blocks."""
-        return self._revision_digest(self.document.blocks)
+        # The public source reference is mutable too. Prove its exact passive
+        # canonical root before reading blocks so a rejected provider-defined
+        # BookDocument subclass cannot execute __getattribute__ merely because
+        # navigation performs its fail-closed revision check.
+        document = self.document
+        if type(document) is not BookDocument:
+            raise TypeError("BookReader document must remain a canonical BookDocument")
+        return self._revision_digest(document.blocks)
 
     def _require_indexed_revision(self) -> None:
         """Reject durable target work after the indexed document changed in place."""
