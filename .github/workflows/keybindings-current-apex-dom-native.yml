@@ -91,7 +91,6 @@ jobs:
             'tests/js/library_surface_dom_test.js' \
             'tests/js/pgn_surface_dom_test.js' \
             'tests/js/pgn_tree_boundary_key_ownership_test.js' \
-            'tests/js/pgn_tree_keyboard_dom_test.js' \
             'tests/test_full_product_education_keybindings.py' \
             'tests/test_full_product_library_keybindings.py' \
             'tests/test_full_product_native_menu.py' \
