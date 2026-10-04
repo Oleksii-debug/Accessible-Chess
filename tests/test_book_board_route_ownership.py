@@ -564,6 +564,48 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual("pgn", self.app.shell.current_route.route_id)
         self.assertEqual(1, len(self.projected_positions))
 
+    def test_pgn_board_navigation_is_blocked_while_modal_owns_focus(self):
+        self._load_pgn_workspace()
+        self.app.browser_command("review", "pgn.open_on_board")
+        before_cursor = self.app.session.workspace.cursor
+        projected_before = tuple(self.projected_positions)
+        opened = self.app.adapter.open_dialog(
+            "pgn-board-modal",
+            opener_focus_id="board-launcher",
+            initial_focus_id="pgn-board-modal-confirm",
+        )
+        self.assertEqual("dialog-open", opened.kind)
+
+        result = self.app.browser_command("review", "pgn.board_next_move")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual(before_cursor, self.app.session.workspace.cursor)
+        self.assertEqual(projected_before, tuple(self.projected_positions))
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+
+    def test_pgn_double_projection_failure_relinquishes_unknown_board(self):
+        self._load_pgn_workspace()
+        self.app.browser_command("review", "pgn.open_on_board")
+        before_cursor = self.app.session.workspace.cursor
+        before_fen = self.app.pgn_commands.current_fen()
+        attempted: list[str] = []
+
+        def reject_projection(fen):
+            attempted.append(fen)
+            return {"ok": False}
+
+        self.app._board_position_projector = reject_projection
+        result = self.app.browser_command("review", "pgn.board_next_move")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual(before_cursor, self.app.session.workspace.cursor)
+        self.assertEqual(before_fen, self.app.pgn_commands.current_fen())
+        self.assertGreaterEqual(len(attempted), 2)
+        self.assertEqual(before_fen, attempted[-1])
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+
     def test_pgn_return_partial_route_commit_preserves_board_owner(self):
         self._load_pgn_workspace()
         self.app.browser_command("review", "pgn.open_on_board")
