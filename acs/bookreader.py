@@ -23,6 +23,7 @@ from .bookdocument import (
     Heading,
     Position,
     VariationTree,
+    _SEMANTIC_BLOCK_TYPES,
     block_from_dict,
 )
 
@@ -153,6 +154,13 @@ class BookReader:
 
     @staticmethod
     def _revision_digest(blocks) -> str:
+        # Live authoring state is mutable after BookReader construction. Prove
+        # the canonical passive container and exact semantic block roots before
+        # iteration or method dispatch can execute provider-defined hooks.
+        if type(blocks) is not list:
+            raise TypeError("BookDocument blocks must remain a built-in list")
+        if any(type(block) not in _SEMANTIC_BLOCK_TYPES for block in blocks):
+            raise TypeError("BookDocument blocks must remain canonical semantic blocks")
         payload = json.dumps(
             [block.as_dict() for block in blocks],
             ensure_ascii=False,
