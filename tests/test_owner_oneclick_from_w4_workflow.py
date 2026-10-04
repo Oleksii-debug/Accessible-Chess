@@ -27,17 +27,51 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
         self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
-    def test_w4_run_api_provenance_is_verified_before_artifact_download(self) -> None:
-        provenance_index = self.text.index(
-            "Verify authoritative W4 run provenance before artifact download"
-        )
-        download_index = self.text.index("Download exact W4 artifact by run ID")
-        self.assertLess(provenance_index, download_index)
-        self.assertIn("scripts/verify_owner_w4_run_provenance.py", self.text)
-        self.assertIn("/actions/runs/$env:W4_RUN_ID", self.text)
-        self.assertIn("${{ github.repository }}", self.text)
-        self.assertIn("--default-branch $env:RELEASE_BRANCH", self.text)
-        self.assertIn("W4_AUTHORITATIVE_RUN_PROVENANCE=PASS", self.text)
+    def test_w4_run_id_uses_canonical_provenance_verifier_and_exact_sha_before_download(self) -> None:
+        verify = self.text.index("Fetch and verify exact W4 workflow run authority")
+        bind = self.text.index("Bind verified W4 run to exact release SHA")
+        download = self.text.index("Download exact W4 artifact by run ID")
+        self.assertLess(verify, bind)
+        self.assertLess(bind, download)
+        for token in (
+            "actions: read",
+            "scripts/verify_owner_w4_run_provenance.py",
+            "--run-json w4-run.json",
+            "--run-id $env:W4_RUN_ID",
+            "--repository $env:REPOSITORY",
+            "--default-branch $env:RELEASE_BRANCH",
+            "--github-output $env:GITHUB_OUTPUT",
+            "steps.w4_provenance.outputs.workflow_sha",
+            "steps.w4_provenance.outputs.workflow_id",
+            "steps.w4_provenance.outputs.run_attempt",
+            "W4_RUN_PRODUCT_SHA_MISMATCH",
+            'test "$W4_VERIFIED_SHA" = "$EXACT_PRODUCT_SHA"',
+            "W4_RUN_AUTHORITY=PASS",
+        ):
+            self.assertIn(token, self.text)
+        self.assertNotIn("$run.workflow_id", self.text)
+        self.assertNotIn("$run.head_sha", self.text)
+
+    def test_w4_metadata_is_strict_fresh_and_stably_read(self) -> None:
+        for token in (
+            "_stable_bytes",
+            "maximum=64 * 1024",
+            "object_pairs_hook=unique_pairs",
+            "W4_METADATA_DUPLICATE_KEY",
+            "W4_METADATA_CONTRACT_INVALID",
+            "type(metadata.get('schema_version')) is not int",
+            "W4_METADATA_SCHEMA_INVALID",
+            "W4_METADATA_FRESHNESS_PROOF_INVALID",
+            "type(metadata.get('user_sound_wav_count')) is not int",
+            "EXPECTED_SOURCE_INVENTORY_SHA256",
+            "W4_SOUND_INVENTORY_SHA_MISMATCH",
+            "_stable_digest(",
+            "maximum=2 * 1024 * 1024 * 1024",
+            "W4_CANDIDATE_UNSTABLE",
+        ):
+            self.assertIn(token, self.text)
+        self.assertNotIn("candidate.read_bytes()", self.text)
+        self.assertNotIn("metadata_files[0].read_text", self.text)
 
     def test_w4_artifact_is_bound_by_run_identity_product_and_sha(self) -> None:
         self.assertIn("w4_run_id:", self.text)
@@ -47,6 +81,17 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_CANDIDATE_SHA_MISMATCH", self.text)
         self.assertIn("W4_EXACT_ARTIFACT_BINDING=PASS", self.text)
         self.assertIn("validate_version2_package_tree(", self.text)
+
+    def test_w4_extraction_reuses_canonical_windows_path_authority(self) -> None:
+        self.assertIn("Version2PackagePreflightError", self.text)
+        self.assertIn("_relative_token", self.text)
+        self.assertIn("token = _relative_token(token, label='W4 ZIP member')", self.text)
+        self.assertIn("W4_ZIP_MEMBER_PATH_INVALID", self.text)
+        for unsafe in ("C:evil", "file:stream", "CON", "name.", "name "):
+            with self.subTest(unsafe=unsafe):
+                from acs.version2_package_preflight import Version2PackagePreflightError, _relative_token
+                with self.assertRaises(Version2PackagePreflightError):
+                    _relative_token(unsafe, label="W4 ZIP member")
 
     def test_owner_external_inputs_are_explicit_https_and_sha_bound(self) -> None:
         for token in (
@@ -79,6 +124,18 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("OWNER_FINAL_SOUND_COUNT_INVALID", self.text)
         self.assertIn("OWNER_FINAL_LIBRARY_IDENTITY_INVALID", self.text)
 
+    def test_final_receipt_retains_verified_w4_run_provenance(self) -> None:
+        for token in (
+            "w4_workflow_id",
+            "w4_run_id",
+            "w4_run_attempt",
+            "w4_candidate_sha256",
+            "W4_WORKFLOW_ID",
+            "W4_RUN_ATTEMPT",
+            "OWNER_FINAL_RECEIPT_PROVENANCE=PASS",
+        ):
+            self.assertIn(token, self.text)
+
     def test_real_root_launcher_bytes_are_machine_smoked_without_acceptance_overclaim(self) -> None:
         self.assertIn("Build native x64 root launcher without CRT", self.text)
         self.assertIn("packaging\\portable_launcher.c", self.text)
@@ -90,7 +147,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertNotIn("HUMAN_TESTED=YES", self.text)
         self.assertNotIn("NVDA_VERIFIED=YES", self.text)
 
-    def test_artifact_upload_is_final_oneclick_only_after_machine_launch_and_freshness(self) -> None:
+    def test_artifact_upload_is_between_pre_and_post_publication_freshness(self) -> None:
         launch_index = self.text.index("Launch exact root one-click bytes")
         freshness_index = self.text.index("Recheck live release apex immediately before publication")
         upload_index = self.text.index("Upload exact owner one-click candidate")
