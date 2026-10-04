@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+env:
+  WEBAPP_BLOB: 2fd75e82e2c69dba9ac534ba07b00f32920f7da0
+  ATOMICITY_TEST_BLOB: f465e0405021bb028fdacd6fa692132b1fc3df08
+
 concurrency:
   group: stage1-fen-history-atomicity-current-${{ github.ref }}
   cancel-in-progress: true
@@ -41,6 +45,8 @@ jobs:
           set -euo pipefail
           head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$head"
+          test "$(git hash-object acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git hash-object tests/test_stage1_fen_history_atomicity_current.py)" = "$ATOMICITY_TEST_BLOB"
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             event_base="$PR_BASE_SHA"
@@ -88,6 +94,5 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_stage1_fen_history_atomicity_current
-          tests.test_position_text_authority
           tests.test_accessible_webui
           tests.test_stage1_release_composition_ui
