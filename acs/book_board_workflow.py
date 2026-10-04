@@ -137,7 +137,7 @@ class BookBoardWorkflow:
     ) -> None:
         if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
-        if not isinstance(engine_assistance, EngineAssistedWorkflowService):
+        if type(engine_assistance) is not EngineAssistedWorkflowService:
             raise TypeError("engine_assistance must be EngineAssistedWorkflowService")
         self._reader = reader
         self._engine = engine_assistance
