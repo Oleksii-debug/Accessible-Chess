@@ -28,6 +28,7 @@ def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
     root = _release_ui._asset_root() / "web"
     resources = (
         ("Stage 1 WebView bootstrap", root / "stage1_release_bootstrap.js"),
+        ("Stage 1 board action bridge", root / "stage1_board_actions.js"),
         ("V2 PGN surface", root / "full_product_pgn.js"),
         ("V2 Library surface", root / "full_product_library.js"),
         ("V2 Books surface", root / "full_product_books_training.js"),
@@ -36,11 +37,6 @@ def final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
         ("V2 local profile surface", root / "version2_local_profile.js"),
         ("P0 accessibility runtime", root / "p0_accessibility_runtime.js"),
-        # P0 installs the canonical event-aware announce/apiAction boundary and
-        # therefore must precede the Stage 1 bridge's presentation-only language
-        # adapter.  Loading the bridge first lets P0 replace window.announce and
-        # resurrect the legacy Ukrainian generic failure in an English V2 UI.
-        ("Stage 1 board action bridge", root / "stage1_board_actions.js"),
     )
     output: list[tuple[str, str]] = []
     for label, path in resources:

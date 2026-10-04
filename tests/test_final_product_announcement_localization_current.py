@@ -20,20 +20,7 @@ class FinalProductAnnouncementLocalizationTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-    def test_canonical_p0_announcement_owner_precedes_stage1_language_adapter(self) -> None:
-        p0 = self.composition.index(
-            '("P0 accessibility runtime", root / "p0_accessibility_runtime.js")'
-        )
-        adapter = self.composition.index(
-            '("Stage 1 board action bridge", root / "stage1_board_actions.js")'
-        )
-        self.assertLess(
-            p0,
-            adapter,
-            "the Stage1 language adapter must wrap the final canonical P0 announce boundary",
-        )
-
-    def test_p0_still_loads_after_final_product_bootstrap_for_selection_authority(self) -> None:
+    def test_final_product_loads_canonical_p0_runtime_after_v2_bootstrap(self) -> None:
         bootstrap = self.composition.index(
             '("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js")'
         )
@@ -42,18 +29,31 @@ class FinalProductAnnouncementLocalizationTests(unittest.TestCase):
         )
         self.assertLess(bootstrap, p0)
 
-    def test_stage1_adapter_localizes_only_the_known_generic_failure(self) -> None:
-        self.assertIn("const baseAnnounce = window.announce;", self.stage1_bridge)
-        self.assertIn("document.documentElement.lang === 'en'", self.stage1_bridge)
-        self.assertIn("message === 'Не вдалося виконати дію.'", self.stage1_bridge)
-        self.assertIn("'Action could not be completed.'", self.stage1_bridge)
-        self.assertIn("return baseAnnounce(localized, eventId);", self.stage1_bridge)
+    def test_p0_generic_bridge_failure_uses_live_document_language(self) -> None:
+        self.assertIn(
+            'const genericFailure = documentRef.documentElement && documentRef.documentElement.lang === "en"',
+            self.p0_runtime,
+        )
+        self.assertIn('? "Action could not be completed."', self.p0_runtime)
+        self.assertIn(': "Не вдалося виконати дію.";', self.p0_runtime)
+        self.assertIn("exposeAnnouncement(genericFailure, dispatchId);", self.p0_runtime)
+        self.assertNotIn(
+            'exposeAnnouncement("Не вдалося виконати дію.", dispatchId);',
+            self.p0_runtime,
+        )
 
-    def test_canonical_p0_runtime_remains_the_event_aware_delivery_owner(self) -> None:
+    def test_p0_runtime_remains_the_single_event_aware_delivery_owner(self) -> None:
         self.assertIn("global.announce = function (message, eventId)", self.p0_runtime)
         self.assertIn("return exposeAnnouncement(message, dispatch);", self.p0_runtime)
         self.assertIn('const dispatchId = "api:" + String(++dispatchCounter);', self.p0_runtime)
-        self.assertIn('exposeAnnouncement("Не вдалося виконати дію.", dispatchId);', self.p0_runtime)
+        self.assertIn("rememberDispatchMessage", self.p0_runtime)
+        self.assertIn("announcementQueue.push(text)", self.p0_runtime)
+
+    def test_stage1_adapter_remains_compatible_without_second_live_region(self) -> None:
+        self.assertIn("const baseAnnounce = window.announce;", self.stage1_bridge)
+        self.assertIn("message === 'Не вдалося виконати дію.'", self.stage1_bridge)
+        self.assertIn("'Action could not be completed.'", self.stage1_bridge)
+        self.assertIn("return baseAnnounce(localized, eventId);", self.stage1_bridge)
         self.assertNotIn("aria-live", self.stage1_bridge)
 
 

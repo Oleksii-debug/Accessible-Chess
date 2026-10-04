@@ -1,22 +1,20 @@
-name: Current Final Product Announcement Localization
+name: Current Book Board Passive Reader Ingress
 
 on:
   pull_request:
     branches:
-      - converge/current-book-progress-snapshot-passive-20261004-c2mbezb
+      - converge/current-accessibility-bookreader-passive-20261004-c2mbezb
     paths:
-      - 'web/p0_accessibility_runtime.js'
-      - 'tests/js/p0_generic_failure_localization_test.js'
-      - 'tests/test_final_product_announcement_localization_current.py'
-      - 'tests/test_p0_semantic_document_copy.py'
-      - '.github/workflows/current-final-product-announcement-localization.yml'
+      - 'acs/book_board_workflow.py'
+      - 'tests/test_v2_book_board_workflow.py'
+      - '.github/workflows/current-book-board-passive-reader-ingress.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: current-final-product-announcement-localization-${{ github.event.pull_request.number || github.ref }}
+  group: current-book-board-passive-reader-ingress-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -45,7 +43,7 @@ jobs:
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
-          base_ref="${EVENT_BASE_REF:-converge/current-book-progress-snapshot-passive-20261004-c2mbezb}"
+          base_ref="${EVENT_BASE_REF:-converge/current-accessibility-bookreader-passive-20261004-c2mbezb}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
@@ -55,12 +53,11 @@ jobs:
           git diff --check "$live_base"...HEAD
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected_paths="$(printf '%s\n' \
-            '.github/workflows/current-final-product-announcement-localization.yml' \
-            'tests/js/p0_generic_failure_localization_test.js' \
-            'tests/test_final_product_announcement_localization_current.py' \
-            'web/p0_accessibility_runtime.js' | sort)"
+            '.github/workflows/current-book-board-passive-reader-ingress.yml' \
+            'acs/book_board_workflow.py' \
+            'tests/test_v2_book_board_workflow.py' | sort)"
           test "$changed" = "$expected_paths" || {
-            printf 'Unexpected announcement-localization scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected Book Board reader-ingress scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
@@ -68,24 +65,21 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile focused Python regression
-        run: python -m py_compile tests/test_final_product_announcement_localization_current.py
-
-      - name: Check focused JavaScript surfaces
+      - name: Compile Book Board surfaces
         run: >-
-          node --check web/p0_accessibility_runtime.js &&
-          node --check web/stage1_board_actions.js &&
-          node --check tests/js/p0_generic_failure_localization_test.js
+          python -m compileall -q
+          acs/book_board_workflow.py
+          tests/test_v2_book_board_workflow.py
 
-      - name: Execute canonical P0 generic failure localization
-        run: node tests/js/p0_generic_failure_localization_test.js
-
-      - name: Run localization and retained accessibility regressions
+      - name: Execute Book Board and retained Books regressions
         run: >-
           python -m unittest -v
-          tests.test_final_product_announcement_localization_current
-          tests.test_p0_semantic_document_copy
-          tests.test_stage1_localized_validation_current
+          tests.test_v2_book_board_workflow
+          tests.test_book_board_progress_failure_exact
+          tests.test_book_board_route_ownership
+          tests.test_v2_windows_book_board_adapter
+          tests.test_v2_windows_book_board_adapter_workflow
+          tests.test_bookreader
           tests.test_dev1_books_training_webview_projection
 
       - name: Core selftest
