@@ -48,6 +48,7 @@ jobs:
     env:
       PYTHONUTF8: "1"
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       EXACT_BASE: b6aaaf50e20aec31f908da80249cb285a090fc23
     steps:
       - name: Checkout exact convergence head
@@ -70,6 +71,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          if test -n "${EVENT_BASE_SHA:-}"; then
+            test "$EVENT_BASE_SHA" = "$EXACT_BASE"
+          fi
           git cat-file -e "$EXACT_BASE^{commit}"
           git merge-base --is-ancestor "$EXACT_BASE" HEAD
           test "$(git merge-base "$EXACT_BASE" HEAD)" = "$EXACT_BASE"
