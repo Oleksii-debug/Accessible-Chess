@@ -721,6 +721,43 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertFalse(self.store.backup_path.exists())
 
+    def test_recovery_pair_validation_reports_stale_if_primary_changes_during_backup_validation(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:validation-race", reader)
+        reader.go_to(3)
+        self.store.save("book:validation-race", reader)
+
+        valid_primary = self.path.read_bytes()
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.write_bytes(b'{"schema_version":2,"generation":')
+        real_read_state = self.store._read_state_unlocked
+        injected = False
+
+        def read_state_and_replace_primary(path: Path, *, missing_ok: bool):
+            nonlocal injected
+            result = real_read_state(path, missing_ok=missing_ok)
+            if Path(path) == self.store.backup_path and not injected:
+                self.path.write_bytes(valid_primary)
+                injected = True
+            return result
+
+        with mock.patch.object(
+            self.store,
+            "_read_state_unlocked",
+            side_effect=read_state_and_replace_primary,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.validated_recovery_revisions(
+                    "book:validation-race",
+                    self.original_document(),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), valid_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
     def test_recovery_pair_rejects_different_corrupt_primary_after_confirmation(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
