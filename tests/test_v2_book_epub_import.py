@@ -614,6 +614,93 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
+    def test_spine_page_progression_direction_is_exact(self) -> None:
+        manifest = (
+            '    <item id="c1" href="Text/ch1.xhtml" '
+            'media-type="application/xhtml+xml"/>'
+        )
+        entries = {
+            "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>"
+        }
+        for direction in ("ltr", "rtl", "default"):
+            with self.subTest(direction=direction):
+                opf = _opf(
+                    manifest=manifest,
+                    spine='    <itemref idref="c1"/>',
+                ).replace(
+                    b"<spine>",
+                    f'<spine page-progression-direction="{direction}">'.encode("ascii"),
+                    1,
+                )
+                result = import_epub_book(
+                    _epub(opf=opf, entries=entries),
+                    source_name="valid-progression.epub",
+                )
+                self.assertEqual(result.spine_documents, 1)
+
+        for direction in ("", "LTR", "sideways", " rtl "):
+            with self.subTest(invalid_direction=direction):
+                opf = _opf(
+                    manifest=manifest,
+                    spine='    <itemref idref="c1"/>',
+                ).replace(
+                    b"<spine>",
+                    f'<spine page-progression-direction="{direction}">'.encode("ascii"),
+                    1,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        _epub(opf=opf, entries=entries),
+                        source_name="invalid-progression.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_foreign_spine_content_requires_epub_content_fallback(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="foreign" href="attachment.pdf" media-type="application/pdf"/>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>''',
+                spine='''    <itemref idref="foreign" linear="no"/>
+    <itemref idref="chapter"/>''',
+            ),
+            entries={
+                "OEBPS/attachment.pdf": b"%PDF-not-decoded",
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Readable chapter.</p></body></html>"
+                ),
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="foreign-without-fallback.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_foreign_spine_content_with_xhtml_fallback_remains_readable(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="foreign" href="attachment.pdf" media-type="application/pdf" fallback="fallback"/>
+    <item id="fallback" href="fallback.xhtml" media-type="application/xhtml+xml"/>''',
+                spine='    <itemref idref="foreign"/>',
+            ),
+            entries={
+                "OEBPS/attachment.pdf": b"%PDF-not-decoded",
+                "OEBPS/fallback.xhtml": (
+                    b"<html><body><p>Fallback text.</p></body></html>"
+                ),
+            },
+        )
+        result = import_epub_book(raw, source_name="foreign-with-fallback.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertEqual(
+            [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
+            ["Fallback text."],
+        )
+
     def test_unsupported_spine_media_is_explicit_not_silent(self) -> None:
         opf = _opf(
             manifest='''    <item id="cover" href="cover.svg" media-type="image/svg+xml"/>
