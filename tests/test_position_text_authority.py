@@ -274,6 +274,27 @@ class PositionTextAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^move entry text is too long$"):
             parse_move_entry(at_limit + " ")
 
+    def test_stage1_move_text_character_budget_fails_before_strip_and_board_parse(self):
+        at_limit = "e4" + (" " * (4096 - 2))
+        api = AccessibleChessAPI(lang="uk")
+        accepted = api.make_move(at_limit)
+        self.assertTrue(accepted["ok"])
+
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        oversized = "e4" + (" " * (4097 - 2))
+        rejected = api.make_move(oversized)
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["announcement"], "Текст ходу занадто довгий.")
+        self.assertEqual(api.board.fen(), before)
+        self.assertNotIn(oversized, rejected["announcement"])
+
+        api_en = AccessibleChessAPI(lang="en")
+        rejected_en = api_en.make_move(oversized)
+        self.assertFalse(rejected_en["ok"])
+        self.assertEqual(rejected_en["announcement"], "Move text is too long.")
+        self.assertEqual(api_en.board.fen(), before)
+
     def test_move_entry_rejects_non_text_without_invoking_string_conversion(self):
         class CoercibleEntry:
             def __init__(self):
