@@ -497,6 +497,24 @@ def _validated_value(key: str, value: Any) -> Any:
     return value
 
 
+def _validated_import_text(text: object) -> str:
+    """Bound direct profile ingress to the same passive UTF-8 envelope as disk."""
+
+    if type(text) is not str:
+        raise SettingsError("settings profile must be text")
+    # Every Unicode scalar needs at least one UTF-8 byte, so reject an oversized
+    # Python string before allocating an encoded copy.
+    if len(text) > _MAX_SETTINGS_BYTES:
+        raise SettingsError("settings profile is too large")
+    try:
+        encoded = text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise SettingsError("settings profile is not valid UTF-8") from exc
+    if len(encoded) > _MAX_SETTINGS_BYTES:
+        raise SettingsError("settings profile is too large")
+    return text
+
+
 def _migrate(raw: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
     warnings: list[str] = []
     # A missing schema key is the only legacy-v0 representation.  Do not let
@@ -633,7 +651,7 @@ class Settings:
         return json.dumps(self.to_profile(), ensure_ascii=False, indent=indent, sort_keys=True)
 
     def import_json(self, text: str, *, persist: bool = True) -> tuple[str, ...]:
-        raw = json.loads(text)
+        raw = json.loads(_validated_import_text(text))
         if not isinstance(raw, Mapping):
             raise SettingsError("settings profile must be a JSON object")
         values, warnings = _migrate(raw)
