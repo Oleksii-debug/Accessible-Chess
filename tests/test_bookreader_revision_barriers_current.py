@@ -105,9 +105,10 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         with patch.object(BookReader, "_document_revision_digest", counted):
             restored = BookReader.restore_snapshot(book, snapshot)
 
-        # One constructor check plus one restore preflight and one final barrier,
+        # One constructor check, one restore preflight, the target-navigation
+        # publication barrier and one final restore barrier: constant work,
         # independent of the number of referenced fallback targets.
-        self.assertEqual(calls, 3)
+        self.assertEqual(calls, 4)
         self.assertEqual(restored.index, reader.index)
         self.assertEqual(restored.snapshot(), snapshot)
 
