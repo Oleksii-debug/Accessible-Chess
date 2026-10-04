@@ -517,5 +517,82 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(paragraphs[-1], "After prose.")
 
 
+    def test_nested_block_between_inline_images_preserves_each_source_boundary(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A<img src="one.png" alt="One">B'
+            '<blockquote id="inner">C</blockquote>D'
+            '<img src="two.png" alt="Two">E</p></body></html>',
+            source_name="nested-between-images.html",
+            available_assets={"one.png", "two.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "A"),
+                ("ImageNote", "One"),
+                ("Paragraph", "B"),
+                ("Paragraph", "C"),
+                ("Paragraph", "C D"),
+                ("ImageNote", "Two"),
+                ("Paragraph", "E"),
+            ],
+        )
+        inner = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "inner"
+        )
+        self.assertEqual(inner.text, "C")
+
+    def test_nested_only_paragraph_keeps_legacy_projection_without_forced_split(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">Before'
+            '<blockquote id="inner">Inner</blockquote>After</p></body></html>',
+            source_name="nested-only-compat.html",
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Inner"),
+                ("Paragraph", "Before Inner After"),
+            ],
+        )
+        outer = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+        self.assertEqual(outer.text, "Before Inner After")
+
+    def test_unclosed_nested_capture_keeps_prefix_before_recovered_semantic_subtree(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A<img src="one.png" alt="One">B'
+            '<blockquote id="inner">C<img src="two.png" alt="Two">D',
+            source_name="unclosed-nested-inline.html",
+            available_assets={"one.png", "two.png"},
+        )
+
+        signature = _semantic_signature(result.document.blocks)
+        self.assertEqual(
+            signature[:6],
+            [
+                ("Paragraph", "A"),
+                ("ImageNote", "One"),
+                ("Paragraph", "B"),
+                ("Paragraph", "C"),
+                ("ImageNote", "Two"),
+                ("Paragraph", "D"),
+            ],
+        )
+        self.assertTrue(
+            any("unclosed blockquote element" in warning for warning in result.warnings)
+        )
+        self.assertTrue(
+            any("unclosed p element" in warning for warning in result.warnings)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
