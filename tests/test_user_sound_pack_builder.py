@@ -209,7 +209,11 @@ class UserSoundPackBuilderTests(unittest.TestCase):
     def test_zip_source_rejects_windows_unsafe_member_names(self):
         cases = (
             ("reserved", "library/Board/CON.wav", "Windows-portable"),
+            ("reserved-console", "library/Server/CONOUT$.wav", "Windows-portable"),
+            ("forbidden-question", "library/Board/bad?.wav", "Windows-portable"),
+            ("forbidden-pipe", "library/Board/bad|name.wav", "Windows-portable"),
             ("trailing-space", "library/Board/MOVE.WAV ", "Windows-portable"),
+            ("too-long", "library/Board/" + "a" * 252 + ".wav", "Windows-portable"),
             ("normalized", "library//Board/MOVE.WAV", "unsafe ZIP member path"),
         )
         for label, member, expected in cases:
@@ -270,11 +274,33 @@ class UserSoundPackBuilderTests(unittest.TestCase):
                 build_sound_pack(archive, destination)
             self.assertFalse(destination.exists())
 
+    def test_win32_component_utf16_boundary_and_unicode_are_fail_closed(self):
+        astral = chr(0x1F642)
+        accepted = astral * 125 + "a.wav"
+        rejected = astral * 126 + "a.wav"
+        self.assertEqual(len(accepted.encode("utf-16-le")) // 2, 255)
+        self.assertGreater(len(rejected.encode("utf-16-le")) // 2, 255)
+        self.assertEqual(sound_builder._windows_portable_component(accepted), accepted)
+        with self.assertRaisesRegex(
+            sound_builder.SoundPackBuildError,
+            "Windows-portable",
+        ):
+            sound_builder._windows_portable_component(rejected)
+        with self.assertRaisesRegex(
+            sound_builder.SoundPackBuildError,
+            "Windows-portable",
+        ):
+            sound_builder._windows_portable_component("broken" + chr(0xD800) + ".wav")
+
     def test_direct_source_relative_paths_must_be_windows_portable(self):
         root = Path("root")
         cases = (
             root / "Board" / "CON.wav",
+            root / "Server" / "CONIN$.wav",
             root / "Board" / "trailing.",
+            root / "Board" / "bad?.wav",
+            root / "Board" / "bad|name.wav",
+            root / "Board" / ("a" * 252 + ".wav"),
             root / "Board" / "bad\x01.wav",
         )
         for candidate in cases:
