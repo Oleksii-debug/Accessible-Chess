@@ -42,7 +42,9 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertLess(bind, checkout)
         self.assertLess(checkout, prove)
         self.assertLess(prove, setup)
-        self.assertIn('ref: ${{ env.EXACT_PRODUCT_SHA }}', self.text)
+        self.assertIn("id: bind", self.text)
+        self.assertIn('echo "product_sha=$release_live" >> "$GITHUB_OUTPUT"', self.text)
+        self.assertIn('ref: ${{ steps.bind.outputs.product_sha }}', self.text)
         self.assertIn('test "$(git rev-parse HEAD)" = "$EXACT_PRODUCT_SHA"', self.text)
 
     def test_release_apex_must_descend_from_live_full_product(self) -> None:
