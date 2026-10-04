@@ -62,6 +62,24 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
         self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
+    def test_w4_run_id_is_bound_to_registered_successful_workflow_run(self) -> None:
+        for token in (
+            "Verify exact W4 workflow run authority",
+            "actions/workflows/w4-v2-p0-fresh-windows-candidate.yml",
+            "actions/runs/$env:W4_RUN_ID",
+            "W4_RUN_WORKFLOW_ID_MISMATCH",
+            "W4_RUN_EVENT_INVALID",
+            "W4_RUN_NOT_SUCCESSFUL",
+            "W4_RUN_BRANCH_MISMATCH",
+            "W4_RUN_WORKFLOW_SHA_MISMATCH",
+            "W4_RUN_AUTHORITY=PASS",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.text)
+        verify = self.text.index("Verify exact W4 workflow run authority")
+        download = self.text.index("Download exact W4 artifact by run ID")
+        self.assertLess(verify, download)
+
     def test_w4_artifact_is_bound_by_run_identity_product_and_sha(self) -> None:
         self.assertIn("w4_run_id:", self.text)
         self.assertIn("w4_candidate_sha256:", self.text)
