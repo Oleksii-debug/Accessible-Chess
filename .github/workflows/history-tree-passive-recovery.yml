@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - fix/current-keybindings-duplicate-json-20261004-run57
+      - converge/current-square-ingress-after-persistence-20261004-sol56s1
+      - fix/current-move-entry-registry-truthiness-20261004-sol56m3
     paths:
       - 'acs/history.py'
       - 'tests/test_history_tree_passive_boundary.py'
@@ -50,7 +52,7 @@ jobs:
             test -n "$EVENT_BASE_SHA"
             test "$EVENT_BASE_SHA" = "$live_base"
           else
-            base_ref="fix/current-keybindings-duplicate-json-20261004-run57"
+            base_ref="fix/current-move-entry-registry-truthiness-20261004-sol56m3"
             git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
             live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           fi
