@@ -6,6 +6,7 @@ on:
       - 'scripts/build_owner_portable_candidate.py'
       - 'acs/version2_portable_package.py'
       - 'tests/test_owner_docx_win32_portability.py'
+      - 'tests/test_owner_portable_candidate_docx_binding.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/owner-docx-win32-portability.yml'
   push:
@@ -57,6 +58,7 @@ jobs:
             scripts/build_owner_portable_candidate.py \
             acs/version2_portable_package.py \
             tests/test_owner_docx_win32_portability.py \
+            tests/test_owner_portable_candidate_docx_binding.py \
             tests/test_version2_portable_package.py
           echo 'OWNER_DOCX_WIN32_COMPILE=PASS'
 
@@ -66,6 +68,7 @@ jobs:
           set -euo pipefail
           python -m unittest -v \
             tests.test_owner_docx_win32_portability \
+            tests.test_owner_portable_candidate_docx_binding \
             tests.test_owner_portable_candidate \
             tests.test_version2_portable_package
           echo 'OWNER_DOCX_WIN32_PORTABILITY=PASS'
