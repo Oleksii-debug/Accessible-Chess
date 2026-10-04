@@ -387,6 +387,48 @@ class TrainingAuthorityConvergenceTests(unittest.TestCase):
             self.assertEqual("", workspace.presenter_message)
             self.assertIsNone(workspace.presenter_message_key)
 
+    def test_workspace_direct_save_reconciles_post_publication_failure(self) -> None:
+        document = BookDocument(
+            title="Training direct-save durability",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Play e4",
+                    answer_text="e4",
+                    block_id="exercise-one",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        with tempfile.TemporaryDirectory(prefix="training-direct-save-") as raw:
+            workspace = Version2BookTrainingWorkspace(
+                reader,
+                progress_root=Path(raw),
+                language=UILanguage.EN,
+            )
+            retained_bridge = workspace.start_current()
+            retained_session = workspace.session
+            store = workspace._store
+            self.assertIsNotNone(store)
+            assert store is not None
+            workspace.session.submit("e4")
+
+            with patch(
+                "acs.training_progress_store._sync_published_path",
+                side_effect=OSError("injected direct-save durability failure"),
+            ):
+                with self.assertRaises(TrainingProgressDurabilityUnknownError):
+                    workspace.save()
+
+            loaded = store.load(workspace.material.definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertIs(retained_session, workspace.session)
+            self.assertIs(retained_bridge, workspace.bridge)
+            self.assertEqual(loaded.session.snapshot(), workspace.session.snapshot())
+            self.assertEqual(loaded.revision, workspace._revision)
+            self.assertTrue(workspace.session.completed)
+
     def test_workspace_unreadable_post_publication_state_is_not_rolled_back(self) -> None:
         document = BookDocument(
             title="Training durability unreadable",
