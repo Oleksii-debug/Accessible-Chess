@@ -12,6 +12,7 @@ on:
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
       - 'web/index.html'
+      - 'web/keybindings.json'
       - 'web/stage1_board_actions.js'
       - 'web/full_product_pgn.js'
       - 'web/full_product_library.js'
