@@ -7,7 +7,9 @@ on:
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/build_user_sound_pack.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_user_sound_pack_builder.py'
       - 'tests/test_owner_docx_win32_portability.py'
   push:
     branches:
@@ -17,7 +19,10 @@ on:
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/build_user_sound_pack.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_owner_docx_win32_portability.py'
+      - 'tests/test_user_sound_pack_builder.py'
   workflow_dispatch:
 
 permissions:
@@ -53,8 +58,10 @@ jobs:
           python -m py_compile
           scripts/build_owner_portable_candidate.py
           scripts/materialize_owner_library_seed.py
+          scripts/build_user_sound_pack.py
           tests/test_owner_oneclick_from_w4_workflow.py
           tests/test_owner_docx_win32_portability.py
+          tests/test_user_sound_pack_builder.py
 
       - name: Run finalizer wiring and owner-input regressions
         run: >-
@@ -63,6 +70,7 @@ jobs:
           tests.test_owner_docx_win32_portability
           tests.test_materialize_owner_library_seed
           tests.test_owner_portable_candidate
+          tests.test_user_sound_pack_builder
 
       - name: Whitespace and acceptance-claim hygiene
         shell: bash

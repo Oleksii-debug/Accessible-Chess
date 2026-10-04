@@ -59,6 +59,7 @@ on:
       - 'scripts/verify_w4_current_candidate_artifact.py'
       - 'scripts/verify_w4_sound_inventory.py'
       - 'scripts/build_owner_portable_candidate.py'
+      - 'scripts/build_user_sound_pack.py'
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/verify_owner_w4_run_provenance.py'
       - 'packaging/portable_launcher.c'
@@ -484,6 +485,7 @@ jobs:
           tests.test_owner_portable_candidate_stable_reads
           tests.test_owner_portable_candidate_docx_binding
           tests.test_owner_docx_win32_portability
+          tests.test_user_sound_pack_builder
           tests.test_materialize_owner_library_seed
           tests.test_owner_oneclick_from_w4_workflow
           tests.test_verify_owner_w4_run_provenance
