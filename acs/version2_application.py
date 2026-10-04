@@ -86,6 +86,15 @@ class Version2Application:
             "book.board_analyze",
         }
     )
+    _PGN_BOARD_RETURN_ROUTES = frozenset({"board", "pgn"})
+    _PGN_BOARD_ACTIVE_COMMANDS = frozenset(
+        {
+            "pgn.board_next_move",
+            "pgn.board_previous_move",
+            "pgn.board_enter_variation",
+            "pgn.board_leave_variation",
+        }
+    )
     _BOOK_PROGRESS_RELOAD_CODES = frozenset(
         {
             BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
@@ -786,6 +795,10 @@ class Version2Application:
             # release that ownership; a second open must not replace it.
             if self.book_workflow is not None and self.book_workflow.active:
                 return self.books.projection.generic_error()
+            if self.pgn_board_active:
+                # The release Board has one owner. An active PGN review must be
+                # returned explicitly before Books may acquire that surface.
+                return self.books.projection.generic_error()
             # The router delegate below is the one durability owner for
             # browser, native-menu and NVDA ingress. Do not pre-save here: the
             # Book WebView dispatches its open through that same delegate, and a
@@ -951,18 +964,56 @@ class Version2Application:
             raise ValueError("close the active dialog before changing PGN Board state")
         # Native menus enter the same projection commands as keyboard buttons.
         if action == "pgn.open_on_board":
-            if payload: raise ValueError("PGN board accepts no payload")
-            self._project_pgn_position()
+            if payload:
+                raise ValueError("PGN board accepts no payload")
+            if self.shell.current_route.route_id != "pgn":
+                raise ValueError("PGN board open requires the visible PGN workspace")
+            if self.pgn_board_active:
+                raise ValueError("PGN board review is already active")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("return from Book Board before opening PGN review")
+            # Shell ownership is fallible and must commit before the external
+            # release-board projector accepts a PGN FEN. If either shell commit
+            # or projection fails, restore PGN and leave the ownership flag false.
+            try:
+                route_focus = self.shell.open_route("board")
+            except Exception:
+                if self.shell.current_route.route_id == "board":
+                    self._focus = self.shell.open_route("pgn")
+                raise
+            self._focus = route_focus
+            try:
+                self._project_pgn_position()
+            except Exception:
+                self._focus = self.shell.open_route("pgn")
+                raise
             self.pgn_board_active = True
-            self._focus = self.shell.open_route("board")
             return None
         if action == "pgn.return":
-            if payload: raise ValueError("PGN return accepts no payload")
+            if payload:
+                raise ValueError("PGN return accepts no payload")
+            if not self.pgn_board_active:
+                raise ValueError("no PGN board review")
+            origin_route = self.shell.current_route.route_id
+            if origin_route not in self._PGN_BOARD_RETURN_ROUTES:
+                raise ValueError("PGN return requires Board or PGN ownership")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("Book Board owns the release Board")
+            try:
+                self._focus = self.shell.open_route("pgn")
+            except Exception:
+                if self.shell.current_route.route_id != origin_route:
+                    self._focus = self.shell.open_route(origin_route)
+                raise
             self.pgn_board_active = False
-            self._focus = self.shell.open_route("pgn")
             return None
-        if action in {"pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation"}:
-            if payload or not self.pgn_board_active: raise ValueError("no PGN board review")
+        if action in self._PGN_BOARD_ACTIVE_COMMANDS:
+            if payload or not self.pgn_board_active:
+                raise ValueError("no PGN board review")
+            if self.shell.current_route.route_id != "board":
+                raise ValueError("PGN board command requires the visible Board")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("Book Board owns the release Board")
             workspace = self.session.workspace
             before = workspace.cursor
             before_fen = self.pgn_commands.current_fen()
@@ -1053,6 +1104,8 @@ class Version2Application:
                         raise ValueError("book board open requires the visible Book reader")
                     if self.book_workflow is not None and self.book_workflow.active:
                         raise ValueError("book board review is already active")
+                    if self.pgn_board_active:
+                        raise ValueError("return from PGN Board before opening Book review")
                 # Native menu/NVDA activation reaches this delegate directly,
                 # bypassing _dispatch_book_surface_command(). Apply the same
                 # durability boundary as the Book WebView: the exact reading
