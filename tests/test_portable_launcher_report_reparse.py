@@ -23,16 +23,32 @@ class PortableLauncherReportReparseContractTests(unittest.TestCase):
                 self.assertIn(token, self.report_open)
         self.assertNotIn("CREATE_ALWAYS", self.report_open)
 
-    def test_reparse_identity_is_checked_before_existing_report_is_truncated(self):
+    def test_reparse_and_hardlink_identity_are_checked_before_truncation(self):
         opened = self.report_open.index("CreateFileW(")
-        inspected = self.report_open.index("GetFileInformationByHandleEx(")
-        rejected = self.report_open.index("tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT")
+        reparse_inspected = self.report_open.index("GetFileInformationByHandleEx(")
+        reparse_rejected = self.report_open.index(
+            "tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT"
+        )
+        link_inspected = self.report_open.index("GetFileInformationByHandle(handle, &file_info)")
+        link_rejected = self.report_open.index("file_info.nNumberOfLinks != 1")
         truncated = self.report_open.index("SetEndOfFile(handle)")
         bom = self.report_open.index("WriteFile(handle, bom")
-        self.assertLess(opened, inspected)
-        self.assertLess(inspected, rejected)
-        self.assertLess(rejected, truncated)
+        self.assertLess(opened, reparse_inspected)
+        self.assertLess(reparse_inspected, reparse_rejected)
+        self.assertLess(reparse_rejected, link_inspected)
+        self.assertLess(link_inspected, link_rejected)
+        self.assertLess(link_rejected, truncated)
         self.assertLess(truncated, bom)
+
+    def test_existing_hard_link_cannot_redirect_report_truncation(self):
+        for token in (
+            "BY_HANDLE_FILE_INFORMATION file_info",
+            "GetFileInformationByHandle(handle, &file_info)",
+            "file_info.nNumberOfLinks != 1",
+            "ERROR_CANT_ACCESS_FILE",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.report_open)
 
     def test_report_reset_and_bom_write_fail_closed(self):
         for token in (
