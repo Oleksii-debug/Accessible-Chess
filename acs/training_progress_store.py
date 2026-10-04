@@ -41,6 +41,8 @@ from .training import ExerciseDefinition, ExerciseSession
 
 TRAINING_PROGRESS_STORE_SCHEMA_VERSION = 1
 MAX_TRAINING_PROGRESS_BYTES = 1 * 1024 * 1024
+MAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS = 64
+MAX_TRAINING_PROGRESS_JSON_KEY_CHARS = 128
 _ENVELOPE_FIELDS = frozenset({"schema_version", "snapshot"})
 
 
@@ -106,8 +108,21 @@ def _is_reparse_point(metadata: os.stat_result) -> bool:
 
 
 def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # json's object_pairs_hook receives the parser's unhashed pair list. Bound
+    # both dimensions before the first dict lookup/insertion so a malformed
+    # persisted file cannot amplify its bounded bytes into unbounded hash work.
+    # Current Training envelopes/snapshots use far fewer members, and canonical
+    # Training snapshot field names are already bounded to 128 characters.
+    if len(pairs) > MAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS:
+        raise TrainingProgressResourceError(
+            "training progress JSON object contains too many members"
+        )
     result: dict[str, Any] = {}
     for key, value in pairs:
+        if len(key) > MAX_TRAINING_PROGRESS_JSON_KEY_CHARS:
+            raise TrainingProgressResourceError(
+                "training progress JSON object key exceeds the resource limit"
+            )
         if key in result:
             raise ValueError("training progress contains duplicate JSON object keys")
         result[key] = value
