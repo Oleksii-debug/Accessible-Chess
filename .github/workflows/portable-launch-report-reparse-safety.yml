@@ -12,6 +12,7 @@ on:
       - 'fix/portable-launch-report-reparse-20261004-sol56a4'
       - 'converge/books-training-owner-current-20261004-zftrkmo'
       - 'fix/portable-launcher-core-inode-guard-20261004-sol56r9k4'
+      - 'converge/current-product-settings-launcher-20261004-c2mbezb'
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
@@ -23,7 +24,7 @@ permissions:
   contents: read
 
 env:
-  PRODUCT_BASE: 0a077dc9431384d0cd96625e6536e428403bec2c
+  PRODUCT_BASE: f726f9a82073f10e47dc095a2a10c974be0c1873
   LAUNCHER_BLOB: 6f0ec228a8ae1ef1f4a831f45f3d89eff3713f0f
   CONTRACT_TEST_BLOB: 4e8d23f24794d1167042a83f2983957a537a244f
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
