@@ -337,6 +337,79 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_manifest_media_type_requires_exact_mime_type_and_subtype_tokens(self) -> None:
+        cases = (
+            "",
+            "image/",
+            "/png",
+            "image//png",
+            "image/png;charset=utf-8",
+            "image/png?variant",
+            "image/png=alias",
+            "imäge/png",
+            "image/pñg",
+            "image/&#x7F;png",
+        )
+        for media_type in cases:
+            with self.subTest(media_type=media_type):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml"/>\n'
+                            '    <item id="image" href="Images/board.bin" '
+                            f'media-type="{media_type}"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                        "OEBPS/Images/board.bin": b"opaque-bytes",
+                    },
+                )
+
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="malformed-media-type.epub")
+
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_valid_vendor_image_media_type_remains_image_authority(self) -> None:
+        chapter = (
+            b'<html><body><img src="../Images/board.bin" '
+            b'alt="Vendor image"/></body></html>'
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="image" href="Images/board.bin" media-type="IMAGE/VND.EXAMPLE+PNG"/>''',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": chapter,
+                "OEBPS/Images/board.bin": b"opaque-bytes",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="vendor-image-media.epub")
+
+        self.assertEqual(
+            result.image_references,
+            ("OEBPS/Images/board.bin",),
+        )
+        self.assertIn(
+            "Vendor image",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Note)
+            ],
+        )
+
     def test_manifest_media_type_matching_remains_case_insensitive(self) -> None:
         raw = _epub(
             opf=_opf(
