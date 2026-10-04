@@ -39,6 +39,7 @@ concurrency:
 env:
   DATA_OWNER: 9828010f7b0c08776684a176352ad1914eeb6409
   D07_V6_BLOB: ee8e3394549bf0498bd1908f9ff782c481169700
+  EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
 jobs:
   tracked-writer:
@@ -68,6 +69,10 @@ jobs:
           set -euo pipefail
           git cat-file -e "$DATA_OWNER^{commit}"
           git merge-base --is-ancestor "$DATA_OWNER" HEAD
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          fi
           git diff --check "$DATA_OWNER" HEAD -- \
             acs/settings.py \
             acs/version2_upgrade.py \
@@ -88,8 +93,12 @@ jobs:
           test "$(git rev-parse HEAD:acs/acsdb.py)" = "$D07_V6_BLOB"
           while IFS='=' read -r path expected; do
             actual="$(git rev-parse "HEAD:$path")"
-            test "$actual" = "$expected" || {
-              echo "Accepted V2 data owner drift: $path expected=$expected actual=$actual" >&2
+            effective_expected="$expected"
+            if [ -n "${EVENT_BASE_SHA:-}" ] && git diff --quiet "$EVENT_BASE_SHA" HEAD -- "$path"; then
+              effective_expected="$(git rev-parse "$EVENT_BASE_SHA:$path")"
+            fi
+            test "$actual" = "$effective_expected" || {
+              echo "Accepted V2 data owner drift: $path expected=$effective_expected actual=$actual" >&2
               exit 1
             }
           done <<'LOCKS'
