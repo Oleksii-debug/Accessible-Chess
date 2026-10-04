@@ -119,5 +119,29 @@ class SettingsStaleWriterCurrentTests(unittest.TestCase):
             self.assertEqual("en", durable["values"]["language"])
 
 
+    def test_same_bytes_inode_substitution_blocks_stale_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "settings.json"
+            replacement = root / "replacement.json"
+            original = (_payload(language="uk", volume=17) + "\n").encode("utf-8")
+            path.write_bytes(original)
+
+            settings = Settings(path)
+            replacement.write_bytes(original)
+            os.replace(replacement, path)
+
+            with self.assertRaisesRegex(
+                SettingsError,
+                "changed since this Settings instance was loaded",
+            ):
+                settings.set("volume", 19)
+
+            # Failed stale publication reloads the exact replacement inode.
+            self.assertEqual(original, path.read_bytes())
+            self.assertEqual(17, settings.get("volume"))
+            self.assertEqual("uk", settings.get("language"))
+
+
 if __name__ == "__main__":
     unittest.main()

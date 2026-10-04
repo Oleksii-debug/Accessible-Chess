@@ -7,7 +7,6 @@ on:
   pull_request:
     paths:
       - 'acs/book_progress_store.py'
-      - 'acs/bookreader.py'
       - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
@@ -84,10 +83,6 @@ jobs:
       RECOVERY_CONSENT_APPLICATION_BLOB: 4ffb8ede3105a38d0872443fd011cc23c1a7841b
       RECOVERY_CONSENT_APPLICATION_TEST_BLOB: 5029be95905806de8df625bdae07baddd844c6c4
       RECOVERY_CONSENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
-      SNAPSHOT_CONTRACT_STORE_BLOB: 9edff8595f1bddaeb7c5fe17bc434be49d2ff814
-      SNAPSHOT_CONTRACT_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
-      SNAPSHOT_CONTRACT_BOOKREADER_BLOB: d138eefc020f0549a29f69b9ff11efe9c48b7551
-      SNAPSHOT_CONTRACT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
       INTEGRATED_RECOVERY_SUCCESSOR_HEAD: 6658706023a8e4e33e6def18408e17af59b73e53
       INTEGRATED_RECOVERY_APPLICATION_BLOB: 978ad31bfaedd137e8264062c976fe6d14c47045
     steps:
@@ -212,24 +207,6 @@ jobs:
             fi
           fi
 
-          snapshot_contract_successor=false
-          if git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
-            snapshot_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
-            snapshot_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
-            snapshot_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
-            snapshot_bookreader="$(git rev-parse HEAD:acs/bookreader.py)"
-            snapshot_application="$(git rev-parse HEAD:acs/version2_application.py)"
-            snapshot_application_test="$(git rev-parse HEAD:tests/test_version2_application.py)"
-            if [ "$snapshot_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
-              && [ "$snapshot_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ] \
-              && [ "$snapshot_production_test" = "$SNAPSHOT_CONTRACT_PRODUCTION_TEST_BLOB" ] \
-              && [ "$snapshot_bookreader" = "$SNAPSHOT_CONTRACT_BOOKREADER_BLOB" ] \
-              && [ "$snapshot_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
-              && [ "$snapshot_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
-              snapshot_contract_successor=true
-            fi
-          fi
-
           integrated_recovery_convergence=false
           if git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
             candidate_store_now="$(git rev-parse HEAD:acs/book_progress_store.py)"
@@ -315,14 +292,6 @@ jobs:
               tests/test_v2_book_progress_store.py \
               tests/test_v2_book_progress_store_production.py
             echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_RECHECK_SUCCESSOR'
-          elif [ "$snapshot_contract_successor" = true ]; then
-            git diff --check "$PR_BASE_SHA" HEAD -- \
-              .github/workflows/v2-book-progress-production-repair.yml \
-              acs/book_progress_store.py \
-              acs/bookreader.py \
-              tests/test_v2_book_progress_store.py \
-              tests/test_v2_book_progress_store_production.py
-            echo 'BOOK_PROGRESS_TOPOLOGY=SNAPSHOT_CONTRACT_SUCCESSOR'
           elif [ "$integrated_recovery_convergence" = true ]; then
             git diff --check "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD -- \
               .github/workflows/v2-book-progress-production-repair.yml \
@@ -358,7 +327,6 @@ jobs:
           candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
           candidate_application="$(git rev-parse HEAD:acs/version2_application.py)"
           candidate_application_test="$(git rev-parse HEAD:tests/test_version2_application.py)"
-          candidate_bookreader="$(git rev-parse HEAD:acs/bookreader.py)"
 
           # Historically-qualified store/test tuples predate this PR's
           # application-owned recovery-consent delta. Do not let widening the
@@ -370,7 +338,6 @@ jobs:
             || [ "$candidate_application_test" != "$BASE_APPLICATION_TEST_BLOB" ]; then
             exact_recovery_consent=false
             integrated_recovery_application=false
-            snapshot_contract_application=false
             if [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
               && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
               && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
@@ -386,18 +353,8 @@ jobs:
               && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
               integrated_recovery_application=true
             fi
-            if [ "$snapshot_contract_successor" = true ] \
-              && [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
-              && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ] \
-              && [ "$candidate_production_test" = "$SNAPSHOT_CONTRACT_PRODUCTION_TEST_BLOB" ] \
-              && [ "$candidate_bookreader" = "$SNAPSHOT_CONTRACT_BOOKREADER_BLOB" ] \
-              && [ "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
-              && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
-              snapshot_contract_application=true
-            fi
             if [ "$exact_recovery_consent" != true ] \
-              && [ "$integrated_recovery_application" != true ] \
-              && [ "$snapshot_contract_application" != true ]; then
+              && [ "$integrated_recovery_application" != true ]; then
               echo 'BookProgress application authority drift' >&2
               exit 1
             fi
@@ -459,14 +416,6 @@ jobs:
             && [ "$candidate_base_test" = "$CWD_BOUND_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$CWD_BOUND_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=CWD_BOUND_SUCCESSOR'
-          elif [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
-            && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ] \
-            && [ "$candidate_production_test" = "$SNAPSHOT_CONTRACT_PRODUCTION_TEST_BLOB" ] \
-            && [ "$candidate_bookreader" = "$SNAPSHOT_CONTRACT_BOOKREADER_BLOB" ] \
-            && [ "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
-            && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ] \
-            && git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
-            echo 'BOOK_PROGRESS_BLOB_SET=SNAPSHOT_CONTRACT_SUCCESSOR'
           elif [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
             && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
