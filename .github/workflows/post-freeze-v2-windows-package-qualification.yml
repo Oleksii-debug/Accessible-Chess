@@ -408,6 +408,12 @@ jobs:
             $restoredBookBlock=WaitBookBlock $restartReport '' $savedBookBlock
             if($restoredBookBlock -ne $savedBookBlock){throw "Book bookmark restart restore mismatch: expected=$savedBookBlock actual=$restoredBookBlock"}
             Write-Host "PACKAGED_BOOK_PROGRESS_RESTART_PERSISTENCE=PASS cursor=$restartAwayBookBlock restored=$restoredBookBlock"
+            $returnToTrainingOrigin=WaitControl $restartReport '' $reverseRx 'ControlType.Button'
+            if(-not (ControlEnabled $returnToTrainingOrigin)){throw 'Book navigation back to Training origin is disabled after bookmark restore'}
+            InvokeControl $returnToTrainingOrigin 'Return Book cursor to pre-restart Training origin'
+            $trainingOriginBookBlock=WaitBookBlock $restartReport '' $awayBookBlock
+            if($trainingOriginBookBlock -ne $awayBookBlock){throw "Book Training origin recovery mismatch: expected=$awayBookBlock actual=$trainingOriginBookBlock"}
+            Write-Host "PACKAGED_BOOK_TRAINING_ORIGIN_RECOVERED=PASS block=$trainingOriginBookBlock"
             $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'"""
           once(restart_needle, restart_replacement, 'Book restart persistence insertion')
 
@@ -435,6 +441,7 @@ jobs:
               book_away_block=$awayBookBlock
               book_restart_block_before_restore=$restartAwayBookBlock
               book_restored_block=$restoredBookBlock
+              book_training_origin_after_restore=$trainingOriginBookBlock
               training_progress_persisted_restart=$true
               training_attempts_after_wrong_submit=$expectedTrainingAttempts
               training_mistakes_after_wrong_submit=$expectedTrainingMistakes
@@ -455,6 +462,7 @@ jobs:
           required = (
               'PACKAGED_BOOK_PROGRESS_PRE_RESTART_STATE=PASS',
               'PACKAGED_BOOK_PROGRESS_RESTART_PERSISTENCE=PASS',
+              'PACKAGED_BOOK_TRAINING_ORIGIN_RECOVERED=PASS',
               'book_progress_cursor_persisted_restart=$true',
               'book_bookmark_restore_persisted_restart=$true',
               'PACKAGED_TRAINING_PROGRESS_PRE_RESTART_STATE=PASS',
@@ -654,6 +662,8 @@ jobs:
           if($saved -eq $away){throw 'Book persistence evidence did not move away from the saved block'}
           if($restart -ne $away){throw 'Book current cursor did not survive restart in readback evidence'}
           if($restored -ne $saved){throw 'Named Book bookmark did not restore the exact saved block in readback evidence'}
+          $trainingOrigin=[string]$evidence.book_training_origin_after_restore
+          if($trainingOrigin -ne $away){throw 'Book cursor was not returned to the known Training origin after bookmark verification'}
           if(-not [bool]$evidence.training_progress_persisted_restart){throw 'Training progress persistence across restart was not proven'}
           $trainingAttempts=[int]$evidence.training_attempts_after_wrong_submit
           $trainingMistakes=[int]$evidence.training_mistakes_after_wrong_submit
