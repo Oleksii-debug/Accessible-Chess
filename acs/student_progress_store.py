@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import secrets
 import stat
 import tempfile
 from typing import Mapping
@@ -205,46 +204,6 @@ def _assert_storage_directory_current(
             "student progress storage directory changed during save"
         )
 
-
-def _discard_owned_temp(path: Path, expected: os.stat_result | None) -> None:
-    """Vacate only an identity-bound temp pathname without destructive cleanup."""
-    if expected is None:
-        return
-    try:
-        current = path.lstat()
-        _require_private_regular(current, "student progress temporary file")
-    except (FileNotFoundError, OSError, ValueError):
-        return
-    if not _same_file_identity(expected, current):
-        return
-
-    quarantine: Path | None = None
-    for _ in range(8):
-        candidate = path.parent / (
-            f".{path.name}.cleanup-quarantine-{secrets.token_hex(8)}"
-        )
-        if candidate.exists() or candidate.is_symlink():
-            continue
-        quarantine = candidate
-        break
-    if quarantine is None:
-        return
-
-    try:
-        os.rename(path, quarantine)
-    except OSError:
-        return
-
-    # Never unlink the quarantine after a pathname operation. A non-cooperating
-    # actor could have won the final identity-check -> rename window. Rare
-    # residue is safer than deleting bytes whose ownership is no longer proven.
-    try:
-        moved = quarantine.lstat()
-        _require_private_regular(moved, "student progress temporary quarantine")
-    except (FileNotFoundError, OSError, ValueError):
-        return
-    if not _same_file_identity(expected, moved):
-        return
 
 def _open_writer_lock(path: Path) -> int:
     """Open one persistent private lock inode without following redirects.
@@ -531,8 +490,13 @@ class StudentProgressStore:
                         )
                     temporary_identity = prepared
             except Exception:
-                _discard_owned_temp(temporary, temporary_identity)
-                temporary = None
+                # The descriptor may not yet have entered os.fdopen(). Always
+                # close it, but never mutate the temporary pathname after an
+                # error: another actor may have won a pathname race.
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
                 raise
 
             _assert_storage_directory_current(self.path.parent, directory_identity)
@@ -591,11 +555,10 @@ class StudentProgressStore:
                 ) from exc
             return new_revision
         finally:
-            if temporary is not None:
-                _discard_owned_temp(
-                    temporary,
-                    locals().get("temporary_identity"),
-                )
+            # A failed transaction may intentionally leave a noncanonical
+            # random .tmp residue. Renaming or unlinking it after an error would
+            # reintroduce a check-then-path-mutation race; canonical progress is
+            # protected by the lock/CAS/publication path instead.
             if acquired:
                 _unlock_writer_descriptor(descriptor)
             try:
