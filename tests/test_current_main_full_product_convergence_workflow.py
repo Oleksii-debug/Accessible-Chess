@@ -56,10 +56,25 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_consolidated_completion_push_late_binds_live_parent(self) -> None:
+        required = (
+            "      - qualification/consolidated-completion-contract-20261004-ooxple7",
+            'elif [ "${GITHUB_REF_NAME:-}" = "qualification/consolidated-completion-contract-20261004-ooxple7" ]; then',
+            "live_base_ref='fix/portable-package-same-inode-stable-read-20261004-ooxple7'",
+            'git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"',
+            'git merge-base --is-ancestor "$live_base" HEAD',
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            "FULL_PRODUCT_LIVE_QUALIFICATION_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
             "tests.test_book_bidirectional_semantic_navigation",
+            "tests.test_dev1_books_training_webview_atomicity",
             "tests.test_bookreader_snapshot_bounds",
             "tests.test_v2_accessible_book_core",
             "tests.test_v2_book_epub_import",
@@ -71,13 +86,27 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_book_index",
             "tests.test_books_semantic_host_bounds",
             "tests.test_acsdb",
+            "tests.test_d07_search_semantic_equivalence",
+            "tests.test_v2_library_integrity_repair",
+            "tests.test_v2_library_presentation_path_privacy",
             "tests.test_d07_library_import_reuse_final_cancel",
             "tests.test_dev1_pgn_webview_projection",
+            "tests.test_dev1_pgn_webview_atomicity",
             "tests.test_v2_pgn_nested_comment_recovery",
             "tests.test_v2_pgn_semantic_fidelity",
             "tests.test_pgn_document_context_atomicity",
             "tests.test_pgn_document_setup_fen_integrity",
             "tests.test_pgn_stream_source_binding",
+            "tests.test_pgn_concurrent_save",
+            "tests.test_dev4_pgn_export_concurrency_security",
+            "tests.test_dev4_pgn_export_failure_recovery",
+            "tests.test_dev4_pgn_export_path_security",
+            "tests.test_dev4_pgn_postcommit_cleanup_atomicity",
+            "tests.test_pgn_streaming_import",
+            "tests.test_v2_pgn_streaming_export",
+            "tests.test_v2_pgn_webview_path_privacy",
+            "tests.test_chessbase_integrity",
+            "tests.test_dev4_chessbase_symlink_security",
             "tests/js/library_event_boundary_test.js",
             "tests/js/pgn_surface_dom_test.js",
             "tests.test_pgn_open_source_binding",
@@ -87,6 +116,9 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_d08_training_canonical_resume",
             "tests.test_w2_training_progress_crash_recovery",
             "tests.test_training_snapshot_definition_identity_v4",
+            "tests.test_settings_corruption_security",
+            "tests.test_d06_gametree_snapshot_resume",
+            "tests.test_d06_snapshot_canonical_restore",
             "tests.test_settings_private_temp_identity_current",
             "tests.test_settings_postpublication_cleanup_current_main",
             "tests/js/p0_selection_ambiguity_runtime_test.js",
@@ -94,6 +126,9 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_p0_final_product_resource_order",
             "tests.test_nvda_p0_contract",
             "tests.test_version2_accessibility_convergence",
+            "tests.test_webview2_modern_winforms_accessibility",
+            "tests.test_ui_native_menu_recovery",
+            "tests.test_accessible_webui",
             "tests.test_version2_import_terminal_ui",
             "tests.test_v2_windows_nvda_file_workflows",
             "tests.test_v2_native_thread_runtime_workflow",
@@ -127,6 +162,10 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "Books Training semantic and accessibility regressions",
             "Library browser identity, import and privacy regressions",
         )
+        library = step_block(
+            "Library browser identity, import and privacy regressions",
+            "Recovery Settings and writer-race regressions",
+        )
         recovery = step_block(
             "Recovery Settings and writer-race regressions",
             "Chess content, semantic reading and malformed-content regressions",
@@ -147,11 +186,27 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_v2_book_epub_import",
             "tests.test_v2_html_semantic_lists",
             "tests.test_v2_markdown_semantic_lists",
+            "tests.test_dev1_books_training_webview_atomicity",
         ):
             with self.subTest(step="books", fragment=fragment):
                 self.assertIn(fragment, books)
 
-        self.assertIn("tests.test_w2_training_progress_crash_recovery", recovery)
+        for fragment in (
+            "tests.test_d07_search_semantic_equivalence",
+            "tests.test_v2_library_integrity_repair",
+            "tests.test_v2_library_presentation_path_privacy",
+        ):
+            with self.subTest(step="library", fragment=fragment):
+                self.assertIn(fragment, library)
+
+        for fragment in (
+            "tests.test_w2_training_progress_crash_recovery",
+            "tests.test_settings_corruption_security",
+            "tests.test_d06_gametree_snapshot_resume",
+            "tests.test_d06_snapshot_canonical_restore",
+        ):
+            with self.subTest(step="recovery", fragment=fragment):
+                self.assertIn(fragment, recovery)
 
         for fragment in (
             "tests.test_v2_pgn_nested_comment_recovery",
@@ -159,6 +214,17 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_pgn_document_context_atomicity",
             "tests.test_pgn_document_setup_fen_integrity",
             "tests.test_pgn_stream_source_binding",
+            "tests.test_dev1_pgn_webview_atomicity",
+            "tests.test_pgn_concurrent_save",
+            "tests.test_dev4_pgn_export_concurrency_security",
+            "tests.test_dev4_pgn_export_failure_recovery",
+            "tests.test_dev4_pgn_export_path_security",
+            "tests.test_dev4_pgn_postcommit_cleanup_atomicity",
+            "tests.test_pgn_streaming_import",
+            "tests.test_v2_pgn_streaming_export",
+            "tests.test_v2_pgn_webview_path_privacy",
+            "tests.test_chessbase_integrity",
+            "tests.test_dev4_chessbase_symlink_security",
         ):
             with self.subTest(step="chess", fragment=fragment):
                 self.assertIn(fragment, chess)
@@ -166,6 +232,9 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         for fragment in (
             "tests.test_nvda_p0_contract",
             "tests.test_version2_accessibility_convergence",
+            "tests.test_webview2_modern_winforms_accessibility",
+            "tests.test_ui_native_menu_recovery",
+            "tests.test_accessible_webui",
         ):
             with self.subTest(step="accessibility", fragment=fragment):
                 self.assertIn(fragment, accessibility)
@@ -199,6 +268,16 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             ".github/workflows/w2-training-progress-windows-missing-parent.yml",
             ".github/workflows/v2-windows-nvda-ui.yml",
             ".github/workflows/integration-accessibility-successors.yml",
+            ".github/workflows/d01-books-training-ui-integration.yml",
+            ".github/workflows/d01-pgn-workspace-webview.yml",
+            ".github/workflows/d06-gametree-snapshot-resume.yml",
+            ".github/workflows/d06-snapshot-canonical-restore.yml",
+            ".github/workflows/d06-pgn-streaming-import.yml",
+            ".github/workflows/d06-pgn-streaming-export.yml",
+            ".github/workflows/v2-library-integrity-repair.yml",
+            ".github/workflows/v2-library-acsdb-search-v4.yml",
+            ".github/workflows/settings-save-lock-and-temp-identity.yml",
+            ".github/workflows/windows-stage1-webview-build.yml",
         ):
             with self.subTest(path=path):
                 self.assertIn(f"      - '{path}'", self.text)
