@@ -699,23 +699,32 @@ class BookBoardWorkflow:
     ) -> dict[str, object]:
         if payload is None:
             return {}
-        if not isinstance(payload, Mapping):
+        # Dispatch payloads originate from the closed-world action adapter.
+        # Require the canonical built-in container before len/iteration/copy can
+        # execute provider-defined Mapping hooks. Bound width from O(1) dict
+        # metadata before inspecting keys, then prove exact text keys before
+        # membership hashing.
+        if type(payload) is not dict:
             raise cls._error(
                 "Book Board command payload must be a mapping",
                 BookBoardWorkflowCode.INVALID_COMMAND,
             )
-        data = dict(payload)
-        if any(type(key) is not str for key in data):
-            raise cls._error(
-                "Book Board command payload keys must be text",
-                BookBoardWorkflowCode.INVALID_COMMAND,
-            )
-        if set(data) - allowed:
+        if len(payload) > len(allowed):
             raise cls._error(
                 "Book Board command payload contains unsupported fields",
                 BookBoardWorkflowCode.INVALID_COMMAND,
             )
-        return data
+        if any(type(key) is not str for key in payload):
+            raise cls._error(
+                "Book Board command payload keys must be text",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        if any(key not in allowed for key in payload):
+            raise cls._error(
+                "Book Board command payload contains unsupported fields",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        return dict(payload)
 
     def dispatch(
         self,
