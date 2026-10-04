@@ -1,4 +1,4 @@
-# exact-package-reconvergence: 39b30d6 / p0g 39b30d6 / p0-document 39b30d6
+# exact-package-reconvergence: 1839bd4 / p0g 1839bd4 / p0-document 1839bd4
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -15,19 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PRODUCT_PARENT_SHA: 39b30d6c39a96f884dde5898605740e8d3a13fe8
-  PREVIOUS_PACKAGE_SHA: cb2a70caa966823ef07b41371c90ca24d9daefba
-  PREVIOUS_WORKFLOW_BLOB_SHA: 148bc0a340386e34ca219733aad6f2bb87cd09b4
+  PRODUCT_PARENT_SHA: 1839bd42358e602d5473d4896b76b651b63c2d24
+  PREVIOUS_PACKAGE_SHA: aa34caf4a581ebca01f7677c11e04d4b734f9eba
+  RECONVERGENCE_MERGE_SHA: 84d5209a375956e6577c788bdcc321abafe6d3e3
+  PREVIOUS_WORKFLOW_BLOB_SHA: 6c8ba67a6ed17ace76ffbfd8ce1b134f11f6d530
   EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
   EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
   QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: 39b30d6c39a96f884dde5898605740e8d3a13fe8
+  P0G_QA_SHA: 1839bd42358e602d5473d4896b76b651b63c2d24
   P0G_PROBE_BLOB_SHA: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 39b30d6c39a96f884dde5898605740e8d3a13fe8
+  P0_DOCUMENT_QA_SHA: 1839bd42358e602d5473d4896b76b651b63c2d24
   P0_DOCUMENT_PROBE_BLOB_SHA: 08c343f04b6383445b9360f5cee346d7a4a414a5
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
@@ -54,7 +55,14 @@ jobs:
       - name: Checkout exact package qualification child
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Prove exact W5 qualification child
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
 
       - name: Bind exact current Product and preserved W5 lineage
         shell: bash
@@ -65,8 +73,11 @@ jobs:
           git cat-file -e "$EXECUTOR_TEMPLATE_SHA^{commit}"
           git cat-file -e "$P0G_QA_SHA^{commit}"
           git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
-          test "$(git rev-parse HEAD^1)" = "$PRODUCT_PARENT_SHA"
-          test "$(git rev-parse HEAD^2)" = "$PREVIOUS_PACKAGE_SHA"
+          git cat-file -e "$RECONVERGENCE_MERGE_SHA^{commit}"
+          test "$(git rev-parse HEAD^1)" = "$RECONVERGENCE_MERGE_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PRODUCT_PARENT_SHA"
+          test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$RECONVERGENCE_MERGE_SHA" HEAD)" = "$RECONVERGENCE_MERGE_SHA"
           test "$(git merge-base "$PRODUCT_PARENT_SHA" HEAD)" = "$PRODUCT_PARENT_SHA"
           test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" HEAD)" = "$PREVIOUS_PACKAGE_SHA"
           test "$(git merge-base "$PRODUCT_PARENT_SHA" "$P0G_QA_SHA")" = "$PRODUCT_PARENT_SHA"
@@ -146,6 +157,7 @@ jobs:
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
           echo "CANDIDATE_PRODUCT_SHA=$PRODUCT_PARENT_SHA"
           echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$PREVIOUS_PACKAGE_SHA"
+          echo "RECONVERGENCE_MERGE_SHA=$RECONVERGENCE_MERGE_SHA"
           echo "PREVIOUS_PACKAGE_WORKFLOW_BLOB=$previous_blob"
           echo "EXECUTOR_TEMPLATE_SHA=$EXECUTOR_TEMPLATE_SHA"
           echo "EXECUTOR_TEMPLATE_WORKFLOW_BLOB=$executor_template_blob"
@@ -154,7 +166,8 @@ jobs:
           echo "P0G_PROBE_BLOB=$p0g_probe_blob"
           echo "P0_DOCUMENT_QA_SHA=$P0_DOCUMENT_QA_SHA"
           echo "P0_DOCUMENT_PROBE_BLOB=$document_probe_blob"
-          echo 'CURRENT_PRODUCT_PARENTAGE=PASS'
+          echo 'CURRENT_PRODUCT_ANCESTRY=PASS'
+          echo 'RECONVERGENCE_MERGE_ANCESTRY=PASS'
           echo 'PREVIOUS_W5_ANCESTRY=PASS'
           echo 'PINNED_ENV_RESTORED=PASS'
           echo 'WINFORMS_ACCESSIBILITY_CONFIG_LOCK=PASS'
