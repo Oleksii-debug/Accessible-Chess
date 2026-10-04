@@ -60,6 +60,49 @@ class W4ExactOwnerApexRegistrationTests(unittest.TestCase):
         self.assertLess(stale_check, marker)
         self.assertLess(marker, metadata)
 
+    def test_run_metadata_preserves_truthful_product_and_workflow_identities(self) -> None:
+        """A pre-integration W4 must never disguise two different authorities as one SHA.
+
+        The owner finalizer intentionally requires both recorded identities to equal its
+        exact live release SHA.  Therefore an artifact built while the registered
+        default branch and owner release apex differ is machine evidence only; it is
+        not finalizer-consumable.  A fresh post-convergence W4 is required.
+        """
+        registration = self.text[
+            self.text.index("Bind requested SHA to live exact owner release apex") :
+            self.text.index("Materialize exact integrated Product worktree")
+        ]
+        self.assertIn('workflow_sha="$(git rev-parse HEAD)"', registration)
+        self.assertIn('echo "PRODUCT_SHA=$requested" >> "$GITHUB_ENV"', registration)
+        self.assertIn('echo "WORKFLOW_AUTHORITY_SHA=$workflow_sha" >> "$GITHUB_ENV"', registration)
+        self.assertNotIn('WORKFLOW_AUTHORITY_SHA=$requested', registration)
+
+        metadata = self.text[
+            self.text.index("Write run-bound candidate metadata after freshness proof") :
+            self.text.index("Candidate checkpoint")
+        ]
+        self.assertIn('product_sha = os.environ["PRODUCT_SHA"].strip().lower()', metadata)
+        self.assertIn('workflow_sha = os.environ["WORKFLOW_AUTHORITY_SHA"].strip().lower()', metadata)
+        self.assertIn('"product_sha": product_sha,', metadata)
+        self.assertIn('"workflow_sha": workflow_sha,', metadata)
+        self.assertNotIn("workflow_sha = product_sha", metadata)
+        self.assertNotIn("product_sha = workflow_sha", metadata)
+        self.assertNotIn('"workflow_sha": product_sha', metadata)
+        self.assertNotIn('"product_sha": workflow_sha', metadata)
+
+    def test_preintegration_w4_never_claims_final_owner_artifact_readiness(self) -> None:
+        """W4 can qualify the apex before convergence, but cannot overclaim finalization."""
+        self.assertIn(
+            "WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}",
+            self.text,
+        )
+        self.assertIn(
+            "RELEASE_APEX_BRANCH: fix/owner-portable-qualification-snapshot-pin-20261004-sol56",
+            self.text,
+        )
+        self.assertNotIn("OWNER_FINALIZER_CONSUMABLE=PASS", self.text)
+        self.assertNotIn("FINAL_WINDOWS_ZIP=YES", self.text)
+
     def test_machine_evidence_claim_boundary_is_unchanged(self) -> None:
         self.assertIn("HUMAN_TESTED=NO", self.text)
         self.assertIn("NVDA_VERIFIED=NO", self.text)
