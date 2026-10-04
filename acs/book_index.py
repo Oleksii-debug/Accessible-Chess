@@ -69,7 +69,9 @@ class BookIndex:
     """Immutable semantic index built from one validated BookDocument snapshot."""
 
     def __init__(self, document: BookDocument):
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
+            # BookDocument is a mutable authoring DTO. Reject subclasses before
+            # any provider-defined as_dict()/attribute hook can execute.
             raise TypeError("document must be a BookDocument")
         # BookDocument blocks are authoring-mutable. Materialize one detached
         # canonical snapshot through BookDocument's own wire authority, then
