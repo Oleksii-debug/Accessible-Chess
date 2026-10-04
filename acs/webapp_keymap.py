@@ -14,6 +14,7 @@ from .webapp_keymap_core import *  # noqa: F401,F403 - compatibility surface
 from .webapp_keymap_core import AccessibleChessAPI, _asset_root, _shared_spoken_san
 from .board_service import BoardCommandService, BoardSnapshot, MoveView
 from .chesscore import Board, parse_sq, sq_name
+from .webapp import MAX_MOVE_ENTRY_CHARS
 
 
 _BaseKeymapAwareAccessibleChessAPI = _core.KeymapAwareAccessibleChessAPI
@@ -55,7 +56,11 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         # Canonical null moves are a notation/import pseudo-move, not a legal
         # end-user gameplay action. Keep the frozen Stage1 core and canonical
         # Board replay semantics intact while fencing ordinary Move Entry.
-        if isinstance(text, str) and self.board.norm_san(text) == "--":
+        if type(text) is not str:
+            return self._error(self._t("move_text_type"))
+        if len(text) > MAX_MOVE_ENTRY_CHARS:
+            return self._error(self._t("move_text_too_long"))
+        if self.board.norm_san(text) == "--":
             return self._error(
                 "Нульовий хід не можна грати вручну."
                 if self.lang == "uk"
@@ -97,7 +102,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         )
 
     def _board_square(self, square: str | None) -> str:
-        if not isinstance(square, str):
+        if type(square) is not str:
             raise ValueError("board square is required")
         return sq_name(parse_sq(square))
 
@@ -175,7 +180,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         return result
 
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
-        if not isinstance(action_id, str):
+        if type(action_id) is not str:
             return self._error("Команда недоступна." if self.lang == "uk" else "Command unavailable.")
         action = action_id.strip()
 
