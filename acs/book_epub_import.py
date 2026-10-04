@@ -415,16 +415,16 @@ def _is_mime_token(value: str) -> bool:
     )
 
 
-def _normalized_manifest_media_type(value: object) -> str:
+def _normalized_media_type(value: object, *, context: str) -> str:
     if type(value) is not str or value != value.strip():
         raise _error(
-            "EPUB manifest item media type is malformed",
+            f"EPUB {context} media type is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     parts = value.split("/")
     if len(parts) != 2 or not all(_is_mime_token(part) for part in parts):
         raise _error(
-            "EPUB manifest item media type is malformed",
+            f"EPUB {context} media type is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     return value.casefold()
@@ -474,6 +474,23 @@ def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
 
 def _is_container_namespace_tag(tag: object) -> bool:
     return type(tag) is str and tag.startswith(f"{{{_CONTAINER_NAMESPACE}}}")
+
+
+def _validate_container_attributes(
+    element: ET.Element,
+    allowed: frozenset[str],
+    *,
+    context: str,
+) -> None:
+    for attribute_name in element.attrib:
+        if attribute_name.startswith("{"):
+            # OCF validation removes foreign-namespace attributes first.
+            continue
+        if attribute_name not in allowed:
+            raise _error(
+                f"EPUB {context} contains an invalid attribute",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
 
 def _is_opf_namespace_tag(tag: object) -> bool:
@@ -728,6 +745,11 @@ def _package_rootfiles(
     warnings: _Warnings,
     archive_index: dict[str, zipfile.ZipInfo],
 ) -> tuple[str, ...]:
+    _validate_container_attributes(
+        container,
+        frozenset({"version"}),
+        context="container element",
+    )
     if (
         container.tag != _CONTAINER_TAG
         or container.attrib.get("version") != "1.0"
@@ -766,6 +788,11 @@ def _package_rootfiles(
         )
 
     rootfiles = structural_children[0]
+    _validate_container_attributes(
+        rootfiles,
+        frozenset(),
+        context="rootfiles element",
+    )
     if (rootfiles.text or "").strip() or any(
         (child.tail or "").strip() for child in rootfiles
     ):
@@ -785,6 +812,11 @@ def _package_rootfiles(
                 "EPUB rootfiles section contains an invalid container element",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        _validate_container_attributes(
+            element,
+            frozenset({"full-path", "media-type"}),
+            context="rootfile element",
+        )
         if (element.text or "").strip():
             raise _error(
                 "EPUB rootfile element must be empty",
@@ -829,6 +861,11 @@ def _package_rootfiles(
 
     if len(structural_children) == 2:
         links = structural_children[1]
+        _validate_container_attributes(
+            links,
+            frozenset(),
+            context="links element",
+        )
         if (links.text or "").strip() or any(
             (child.tail or "").strip() for child in links
         ):
@@ -846,6 +883,11 @@ def _package_rootfiles(
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
             link_count += 1
+            _validate_container_attributes(
+                element,
+                frozenset({"href", "media-type", "rel"}),
+                context="container link element",
+            )
             if (element.text or "").strip():
                 raise _error(
                     "EPUB container link element must be empty",
@@ -859,6 +901,12 @@ def _package_rootfiles(
                     )
             raw_href = element.attrib.get("href")
             raw_rel = element.attrib.get("rel")
+            raw_media_type = element.attrib.get("media-type")
+            if raw_media_type is not None:
+                _normalized_media_type(
+                    raw_media_type,
+                    context="container link",
+                )
             if type(raw_href) is not str or not raw_href or raw_href != raw_href.strip():
                 raise _error(
                     "EPUB container link href is missing or malformed",
@@ -881,7 +929,12 @@ def _package_rootfiles(
                     "EPUB container link href is not path-relative",
                     BookEpubImportErrorCode.UNSAFE_PACKAGE,
                 )
-            _resolve_package_href("", href_parts.path)
+            resolved_link = _resolve_package_href("", href_parts.path)
+            if resolved_link not in archive_index:
+                raise _error(
+                    "EPUB container link references a resource that is unavailable",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
             if (
                 type(raw_rel) is not str
                 or not raw_rel
@@ -949,7 +1002,10 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         item_id = raw_item_id
-        media_type = _normalized_manifest_media_type(raw_media_type)
+        media_type = _normalized_media_type(
+            raw_media_type,
+            context="manifest item",
+        )
         if raw_fallback is None:
             fallback = None
         elif not _is_exact_identifier(raw_fallback):
