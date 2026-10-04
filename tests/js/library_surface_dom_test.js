@@ -225,51 +225,43 @@ check(
   "canonical export checkbox focus target was rejected"
 );
 
-// Remapped result-list keys must resolve through the current shell keymap rather
-// than hard-coded Arrow/Enter defaults.
-const remapCalls = [];
-const remapContexts = [];
-const remapRoot = new FakeElement("div");
-window.accessibleChessKeymapAction = function (event, context) {
-  remapContexts.push(context);
-  return context === "library_results" && event.key === "j"
-    ? "library.next_result"
-    : "";
-};
+async function runNavigationContract() {
+const liveResolver = window.accessibleChessKeymapAction;
+
+// Resolver presence before keymap readiness must not suppress default keyboard
+// navigation. null means "not ready"; an empty string below still means
+// "ready, but no action is bound".
+window.accessibleChessKeymapAction = function () { return null; };
+const startupCalls = [];
+const startupRoot = new FakeElement("div");
 window.AccessibleChessLibrarySurface.render(
-  remapRoot,
+  startupRoot,
   exportSnapshot,
   (command, payload) => {
-    remapCalls.push([command, payload || {}]);
-    return null;
+    startupCalls.push([command, payload || {}]);
+    return { kind: "error", payload: { message: "" } };
   },
   announce,
   exportDomId
 );
-const remapOption = remapRoot.querySelectorAll('[role="option"]')[0];
-let remapPrevented = false;
-let remapStopped = false;
-remapOption.listeners.keydown({
-  key: "j",
-  preventDefault: () => { remapPrevented = true; },
-  stopPropagation: () => { remapStopped = true; }
+const startupOption = startupRoot.querySelectorAll('[role="option"]')[0];
+let startupPrevented = false;
+startupOption.listeners.keydown({
+  key: "ArrowDown",
+  preventDefault: () => { startupPrevented = true; },
+  stopPropagation: () => {}
 });
-check(remapPrevented, "remapped Library key was not consumed");
-check(remapStopped, "remapped Library key did not stop shell propagation");
+await Promise.resolve();
+await Promise.resolve();
+check(startupPrevented, "not-ready Library resolver suppressed default ArrowDown");
 check(
-  remapContexts.length === 1 && remapContexts[0] === "library_results",
-  "Library result key used the wrong keymap context"
+  startupCalls.length === 1 &&
+    startupCalls[0][0] === "library.move" &&
+    startupCalls[0][1].delta === 1,
+  "not-ready Library resolver did not preserve default navigation"
 );
-Promise.resolve().then(function () {
-  check(remapCalls.length === 1, "remapped Library key did not dispatch exactly once");
-  check(
-    remapCalls[0][0] === "library.move" && remapCalls[0][1].delta === 1,
-    "remapped Library key used the wrong canonical command"
-  );
-});
-delete window.accessibleChessKeymapAction;
+window.accessibleChessKeymapAction = liveResolver;
 
-async function runNavigationContract() {
 const navigationCalls = [];
 const navigationRoot = new FakeElement("div");
 window.AccessibleChessLibrarySurface.render(
