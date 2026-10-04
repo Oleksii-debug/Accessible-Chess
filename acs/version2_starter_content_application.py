@@ -100,6 +100,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         document: BookDocument,
         open_route: bool,
         persist_new: bool,
+        expected_browser_token: str | None = None,
     ) -> dict[str, object]:
         """Stage one bundled document through the canonical Books authority.
 
@@ -142,8 +143,20 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         # Reuse this exact snapshot after publication instead of rendering again.
         initial_snapshot = bridge.projection.snapshot()
 
+        # Browser starter-material intent is authorized against the old Book
+        # presentation. Recheck after all old-owner save/restore and staging work,
+        # before the first target-material persistence side effect.
+        if expected_browser_token is not None:
+            self._require_book_browser_dispatch_authority(expected_browser_token)
+
         if persist_new and not has_progress:
             self.progress_store.save(book_key, reader)
+
+        # A hostile/re-entrant persistence hook must not be able to replace the
+        # canonical Book owner during target save and then have stale browser
+        # intent publish over that newer owner.
+        if expected_browser_token is not None:
+            self._require_book_browser_dispatch_authority(expected_browser_token)
 
         self.reader = reader
         self.book_key = book_key
@@ -222,7 +235,12 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
     def _starter_book_key(material_id: str) -> str:
         return f"{_STARTER_BOOK_KEY_PREFIX}{material_id}"
 
-    def _open_starter_material(self, material_id: object) -> dict[str, object]:
+    def _open_starter_material(
+        self,
+        material_id: object,
+        *,
+        expected_browser_token: str | None = None,
+    ) -> dict[str, object]:
         if type(material_id) is not str:
             raise TypeError("starter material identity must be text")
         if material_id == _STARTER_COURSE_MATERIAL_ID:
@@ -240,6 +258,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             document=document,
             open_route=True,
             persist_new=True,
+            expected_browser_token=expected_browser_token,
         )
         snapshot = self._decorate_book_snapshot(snapshot)
         labels = _CATALOGUE_LABELS[self.shell.language]
@@ -302,7 +321,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._assert_thread()
         if area == "books" and command == "book.open_starter_material":
             try:
-                forwarded_payload, _expected_token = (
+                forwarded_payload, expected_token = (
                     self._authorize_book_browser_payload(payload)
                 )
                 # The Books WebView may remain alive while another shell route is
@@ -318,7 +337,8 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                 ):
                     raise ValueError("starter material request is invalid")
                 result = self._open_starter_material(
-                    forwarded_payload["material_id"]
+                    forwarded_payload["material_id"],
+                    expected_browser_token=expected_token,
                 )
                 return self._lease_book_result(result)
             except _BookBrowserLeaseRejected:
