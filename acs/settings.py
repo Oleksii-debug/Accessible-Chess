@@ -597,6 +597,10 @@ class Settings:
             self.warning = f"settings recovery: {exc}"
 
     def get(self, key: str, default: Any = None) -> Any:
+        # Preserve legacy dictionary-style default semantics without letting an
+        # active str subclass run __hash__/__eq__ hooks inside this boundary.
+        if type(key) is not str:
+            return default
         return self.data.get(key, default)
 
     def _persist_or_reload(self) -> None:
@@ -633,6 +637,21 @@ class Settings:
         return json.dumps(self.to_profile(), ensure_ascii=False, indent=indent, sort_keys=True)
 
     def import_json(self, text: str, *, persist: bool = True) -> tuple[str, ...]:
+        # Imported profiles cross the same passive-data boundary as bytes read
+        # from canonical storage. Reject active scalar subclasses and bound the
+        # encoded payload before parsing so provider-defined hooks cannot run
+        # and direct import cannot bypass the on-disk one-MiB envelope.
+        if type(text) is not str:
+            raise SettingsError("settings profile must be text")
+        if type(persist) is not bool:
+            raise SettingsError("settings persist flag must be boolean")
+        try:
+            encoded = text.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise SettingsError("settings profile is not valid UTF-8") from exc
+        if len(encoded) > _MAX_SETTINGS_BYTES:
+            raise SettingsError("settings profile is too large")
+
         raw = json.loads(text)
         if not isinstance(raw, Mapping):
             raise SettingsError("settings profile must be a JSON object")
