@@ -179,6 +179,28 @@ class BookIndexTests(unittest.TestCase):
                 with self.assertRaisesRegex(TypeError, "Book target"):
                     index.resolve(invalid)  # type: ignore[arg-type]
 
+    def test_resolve_rejects_book_target_subclass_before_attribute_hooks(self):
+        index = BookIndex(self.make_document())
+
+        class HostileTarget(BookTarget):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {"key", "index", "block_id", "source_anchor"}:
+                    type(self).touched = True
+                    raise AssertionError("BookTarget subclass fields must not be read")
+                return super().__getattribute__(name)
+
+        hostile = HostileTarget("block:h1", 0, "h1", None)
+        HostileTarget.armed = True
+
+        with self.assertRaisesRegex(TypeError, "Book target"):
+            index.resolve(hostile)
+
+        self.assertFalse(HostileTarget.touched)
+        self.assertEqual(index.resolve(BookTarget("block:h1", 0, None, None)).target.index, 0)
+
     def test_resolve_bounds_raw_target_before_dictionary_hashing(self):
         index = BookIndex(self.make_document())
         oversized = "x" * 4097
