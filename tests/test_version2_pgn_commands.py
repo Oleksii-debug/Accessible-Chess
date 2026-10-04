@@ -96,8 +96,13 @@ class PgnCommandsTests(unittest.TestCase):
 
         self.assertEqual((), root_target["line_path"])
         self.assertIsNone(root_target["move_index"])
+        export_target = {
+            key: value
+            for key, value in root_target.items()
+            if key != "expected_content_digest"
+        }
         with self.assertRaisesRegex(ValueError, "selected game-tree item"):
-            PgnSelectionExportRequest.from_payload(root_target)
+            PgnSelectionExportRequest.from_payload(export_target)
 
         commands("pgn.next_game", root_target)
         self.assertEqual(1, workspace.selected_game_index)
@@ -205,6 +210,7 @@ class PgnCommandsTests(unittest.TestCase):
 
     def test_webview_export_keeps_strict_legacy_export_target_shape(self):
         session = PgnDocumentSession.from_text('1. e4 e5 *')
+        session.workspace.next_move()
         captured = []
 
         def dispatch(action_id, payload):

@@ -391,11 +391,18 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual("selection", selected.kind)
         before_revision = session.workspace.content_revision
         real_capture = projection._capture_presenter
+        capture_calls = {"count": 0}
+
+        def fail_only_after_preflight(language):
+            capture_calls["count"] += 1
+            if capture_calls["count"] == 1:
+                return real_capture(language)
+            raise ValueError("presentation failed after canonical edit")
 
         with patch.object(
             projection,
             "_capture_presenter",
-            side_effect=ValueError("presentation failed after canonical edit"),
+            side_effect=fail_only_after_preflight,
         ):
             unavailable = bridge.dispatch(
                 "pgn.comment_edit",

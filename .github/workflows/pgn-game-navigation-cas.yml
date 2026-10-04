@@ -70,8 +70,8 @@ jobs:
 
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "80cc15cdb1c062ad7698dd440eff5f56c1646e8b"
           test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "000238346742a277c77c6213dc97e9bd1b39cff4"
-          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "494fa57c5bb41b533e237547c1f6dbad60aac08d"
-          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "8348b79670ec8dcd4460b3490c77da2e20b21f55"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "856773dbaa8b458323affbda5df0e1c5688f4855"
+          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "322c6567f9614bfa8ce0c39b18410bd9925a2e50"
 
           # Retain the #1443 rendered-state lease and whole-application proof.
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "c7ade6cc8fefdac160235b67291438fa15c689b8"
