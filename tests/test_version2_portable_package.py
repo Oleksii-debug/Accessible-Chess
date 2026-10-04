@@ -375,6 +375,17 @@ class PortableTreeTests(unittest.TestCase):
                         label="test checksum inventory",
                     )
 
+        overlong = "\U0001f642" * 126 + "a.txt"
+        self.assertGreater(len(overlong.encode("utf-16-le")) // 2, 255)
+        with self.assertRaisesRegex(
+            Version2PortablePackageError,
+            "test checksum inventory path is invalid",
+        ):
+            portable_module._checksum_entries(
+                f"{digest}  folder/{overlong}\n".encode("utf-8"),
+                label="test checksum inventory",
+            )
+
         duplicate = (
             f"{digest}  folder/file.txt\n"
             f"{digest}  folder\\file.txt\n"
