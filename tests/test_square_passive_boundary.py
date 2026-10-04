@@ -62,6 +62,22 @@ class SquarePassiveBoundaryTests(unittest.TestCase):
             normalize_square(hostile)
         self.assertFalse(HostileInt.touched)
 
+    def test_even_passive_subclasses_are_not_canonical_square_scalars(self) -> None:
+        class TextSubclass(str):
+            pass
+
+        class IntSubclass(int):
+            pass
+
+        for value in (TextSubclass("e4"), IntSubclass(28)):
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaises(ValueError):
+                    parse_square(value)
+                with self.assertRaises(ValueError):
+                    normalize_square(value)
+        with self.assertRaises(ValueError):
+            square_name(IntSubclass(28))
+
     def test_exact_builtin_square_inputs_keep_existing_semantics(self) -> None:
         self.assertEqual(parse_square(" E4 "), 28)
         self.assertEqual(parse_square(28), 28)
