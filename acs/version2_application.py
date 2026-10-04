@@ -1062,7 +1062,9 @@ class Version2Application:
                     self.save_book_progress()
                 before_view = self.book_delegate.view() if self.book_workflow.active else None
                 return_route_precommitted = False
+                return_origin_route = None
                 if returning_to_book:
+                    return_origin_route = self.shell.current_route.route_id
                     # Acquire Books route ownership before the canonical workflow
                     # discards its exact-return Board session. The adapter treats
                     # event_sink as a non-authoritative observer and intentionally
@@ -1079,16 +1081,20 @@ class Version2Application:
                         self._repair_book_block_focus_after_rebind()
                         return_route_precommitted = True
                     except Exception:
-                        if self.shell.current_route.route_id == "books":
-                            self._focus = self.shell.open_route("board")
+                        if (
+                            return_origin_route is not None
+                            and self.shell.current_route.route_id != return_origin_route
+                        ):
+                            self._focus = self.shell.open_route(return_origin_route)
                         raise
                 result = self.book_delegate(action, payload)
                 if result.kind is BookBoardUiEventKind.FAILED:
                     if return_route_precommitted:
                         # BookBoardWorkflow keeps the session alive when exact
-                        # Return fails. Restore the visible Board owner before
+                        # Return fails. Restore the exact route from which the
+                        # user attempted Return (Board or visible Books) before
                         # surfacing the sanitized failure.
-                        self._focus = self.shell.open_route("board")
+                        self._focus = self.shell.open_route(return_origin_route)
                     raise ValueError(
                         concise_user_error("", language=self.shell.language)
                     )
