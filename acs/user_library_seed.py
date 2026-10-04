@@ -34,7 +34,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>"|?*')
 _WINDOWS_DEVICE_SUFFIXES = tuple(str(index) for index in range(1, 10)) + ("¹", "²", "³")
 _WINDOWS_RESERVED_BASENAMES = frozenset(
-    {"con", "prn", "aux", "nul"}
+    {"con", "prn", "aux", "nul", "conin$", "conout$"}
     | {f"com{suffix}" for suffix in _WINDOWS_DEVICE_SUFFIXES}
     | {f"lpt{suffix}" for suffix in _WINDOWS_DEVICE_SUFFIXES}
 )
