@@ -225,6 +225,30 @@ class PortableTreeTests(unittest.TestCase):
                         ):
                             reader()
 
+    def test_manifest_and_launcher_authorities_use_stable_reads(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            real_stable_bytes = portable_module._stable_bytes
+
+            with mock.patch.object(
+                portable_module,
+                "_stable_bytes",
+                wraps=real_stable_bytes,
+            ) as stable_bytes:
+                validate_portable_oneclick_tree(
+                    root,
+                    expected_integration_sha=_SHA,
+                )
+
+            observed = {
+                call.kwargs.get("label")
+                for call in stable_bytes.call_args_list
+            }
+            self.assertIn("portable release manifest", observed)
+            self.assertIn("portable launcher", observed)
+
     def test_accepts_exact_oneclick_topology_without_prebundled_user_state(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
