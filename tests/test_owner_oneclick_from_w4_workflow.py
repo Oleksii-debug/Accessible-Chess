@@ -154,7 +154,12 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
     def test_real_root_launcher_bytes_are_machine_smoked_without_acceptance_overclaim(self) -> None:
         self.assertIn("Build native x64 root launcher without CRT", self.text)
         self.assertIn("packaging\\portable_launcher.c", self.text)
+        self.assertIn("Expand-Archive -LiteralPath 'Accessible-Chess-ONECLICK-OWNER-FINAL.zip'", self.text)
+        self.assertIn("validate_owner_portable_candidate_tree(", self.text)
+        self.assertIn("OWNER_EXTRACTED_ZIP_CANONICAL_VALIDATION=PASS", self.text)
+        self.assertIn("Resolve-Path 'owner-zip-smoke\\AccessibleChess.exe'", self.text)
         self.assertIn("Start-Process -FilePath $launcher", self.text)
+        self.assertIn("OWNER_FINAL_ZIP_MACHINE_LAUNCH=PASS", self.text)
         self.assertIn("STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION", self.text)
         self.assertIn("USER_NVDA_PROVEN: NO", self.text)
         self.assertIn("HUMAN_TESTED=NO", self.text)
@@ -178,7 +183,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
             "--finalizer-run-attempt $env:GITHUB_RUN_ATTEMPT",
         ):
             self.assertIn(token, self.text)
-        launch = self.text.index("Launch exact root one-click bytes")
+        launch = self.text.index("Launch exact final ZIP extraction")
         freshness = self.text.index("Recheck live release apex immediately before publication")
         receipt = self.text.index("Finalize exact owner provenance receipt")
         upload = self.text.index("Upload exact owner one-click candidate")
@@ -187,7 +192,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertLess(receipt, upload)
 
     def test_artifact_upload_is_final_oneclick_only_after_machine_launch_and_freshness(self) -> None:
-        launch_index = self.text.index("Launch exact root one-click bytes")
+        launch_index = self.text.index("Launch exact final ZIP extraction")
         freshness_index = self.text.index("Recheck live release apex immediately before publication")
         upload_index = self.text.index("Upload exact owner one-click candidate")
         self.assertLess(launch_index, freshness_index)
@@ -196,7 +201,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS", self.text)
         self.assertIn("Accessible-Chess-ONECLICK-OWNER-FINAL.zip", self.text)
         self.assertIn("owner-final-receipt.json", self.text)
-        self.assertIn("owner-oneclick/launch-report.txt", self.text)
+        self.assertIn("owner-zip-smoke/launch-report.txt", self.text)
 
 
 if __name__ == "__main__":
