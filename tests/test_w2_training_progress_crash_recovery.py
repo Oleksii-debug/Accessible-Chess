@@ -183,6 +183,74 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertEqual(b"replacement", store._lock_path.read_bytes())
             self.assertFalse(path.exists())
 
+    def test_regular_lock_replacement_after_os_lock_fails_before_progress_write(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            store = TrainingProgressStore(path)
+            replacement = root / "replacement-lock.bin"
+            replacement.write_bytes(b"replacement")
+
+            real_lock = store._lock_descriptor
+            swapped = False
+
+            def racing_lock(descriptor: int) -> None:
+                nonlocal swapped
+                real_lock(descriptor)
+                os.replace(replacement, store._lock_path)
+                swapped = True
+
+            with mock.patch.object(store, "_lock_descriptor", side_effect=racing_lock):
+                with self.assertRaisesRegex(
+                    TrainingProgressBusyError,
+                    "lock changed while held",
+                ):
+                    store.save(
+                        ExerciseSession(self._definition()),
+                        expected_revision=None,
+                    )
+
+            self.assertTrue(swapped)
+            self.assertEqual(b"replacement", store._lock_path.read_bytes())
+            self.assertFalse(path.exists())
+
+    def test_lock_replacement_during_transaction_aborts_before_temp_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            store = TrainingProgressStore(path)
+            replacement = root / "replacement-lock.bin"
+            replacement.write_bytes(b"replacement")
+            real_read = store._read_progress_bytes
+            swapped = False
+
+            def racing_read(*, missing_ok: bool):
+                nonlocal swapped
+                result = real_read(missing_ok=missing_ok)
+                if not swapped:
+                    os.replace(replacement, store._lock_path)
+                    swapped = True
+                return result
+
+            with mock.patch.object(
+                store,
+                "_read_progress_bytes",
+                side_effect=racing_read,
+            ):
+                with self.assertRaisesRegex(
+                    TrainingProgressBusyError,
+                    "lock changed while held",
+                ):
+                    store.save(
+                        ExerciseSession(self._definition()),
+                        expected_revision=None,
+                    )
+
+            self.assertTrue(swapped)
+            self.assertEqual(b"replacement", store._lock_path.read_bytes())
+            self.assertFalse(path.exists())
+            self.assertEqual([], list(root.glob(f".{path.name}.*.tmp")))
+
     def test_progress_path_swap_before_open_never_reads_redirected_target(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
