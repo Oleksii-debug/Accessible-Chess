@@ -194,6 +194,27 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertEqual(len(games), 1)
         self.assertFalse(any('[Event "BR game"]' in block.text for block in paragraphs))
 
+    def test_windows_1251_html_is_decoded_losslessly_without_ai(self) -> None:
+        source = """<!doctype html>
+<html lang="uk">
+<head><meta charset="windows-1251"><title>Шахова книга</title></head>
+<body><h1>Етюди</h1><p>Король, ферзь і пішак у навчальній позиції.</p></body>
+</html>""".encode("cp1251")
+
+        result = import_html_book(source, source_name="legacy-book.html")
+
+        self.assertEqual(result.document.title, "Шахова книга")
+        self.assertTrue(
+            any(
+                isinstance(block, Heading) and block.text == "Етюди"
+                for block in result.document.blocks
+            )
+        )
+        self.assertTrue(
+            any("Windows-1251" in warning and "losslessly" in warning for warning in result.warnings)
+        )
+        self.assertEqual(result.pgn_games, 0)
+
     def test_unmarked_valid_pgn_is_readable_text_and_never_fabricates_game(self) -> None:
         source = f'''<!doctype html>
 <html><head><title>Quoted PGN</title></head><body>
@@ -470,6 +491,7 @@ class BookHtmlImportTests(unittest.TestCase):
         non_claims = set(SUPPORTED_HTML_BOOK_CAPABILITY["does_not_claim"])
         self.assertTrue({"TXT", "Markdown", "DOCX", "EPUB", "PDF/OCR"}.issubset(non_claims))
         self.assertIn("implicit PGN inference from ordinary text", non_claims)
+        self.assertIn("Windows-1251", SUPPORTED_HTML_BOOK_CAPABILITY["encoding"])
 
 
     def test_hidden_html_title_marker_cannot_own_unmarked_body_pgn(self) -> None:
