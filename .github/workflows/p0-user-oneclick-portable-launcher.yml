@@ -154,12 +154,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $launcher = Join-Path $PWD 'portable-smoke/AccessibleChess.exe'
           $root = Join-Path $PWD 'portable-smoke'
           $app = Join-Path $root 'App'
           New-Item -ItemType Directory -Force $app | Out-Null
-          Copy-Item build/AccessibleChess.exe (Join-Path $root 'AccessibleChess.exe')
+          Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe (Join-Path $app 'AccessibleChess.exe')
-          $process = Start-Process -FilePath (Join-Path $root 'AccessibleChess.exe') -WorkingDirectory $root -Wait -PassThru
+          $process = Start-Process -FilePath $launcher -WorkingDirectory $root -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Portable launcher smoke failed with exit code $($process.ExitCode)" }
           $report = Join-Path $root 'launch-report.txt'
           if (-not (Test-Path -LiteralPath $report -PathType Leaf)) { throw 'Package-local launch report was not created' }
@@ -173,9 +174,9 @@ jobs:
             if (-not $text.Contains($required)) { throw "Launch report missing: $required" }
           }
 
-          # The smoke child is intentionally still running here. The launcher must
-          # have kept launch-report.txt private to its own lifetime so a second
-          # launch can recreate it instead of failing on a child-held handle.
+          # The first smoke child is intentionally still running here. The report
+          # must be fully launcher-local: prove both exclusive access and a real
+          # second root-launcher invocation while that first child remains alive.
           $exclusive = [IO.File]::Open(
             $report,
             [IO.FileMode]::Open,
@@ -183,6 +184,24 @@ jobs:
             [IO.FileShare]::None
           )
           $exclusive.Dispose()
+
+          $second = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+          if (-not $second.WaitForExit(10000)) {
+            $second.Kill()
+            throw 'Second portable launcher invocation did not exit within 10 seconds'
+          }
+          if ($second.ExitCode -ne 0) {
+            throw "Second portable launcher smoke failed with exit code $($second.ExitCode)"
+          }
+          $secondText = Get-Content -LiteralPath $report -Raw -Encoding utf8
+          foreach ($required in @(
+            'PREFLIGHT: PASS',
+            'PROCESS_CREATED: YES',
+            'STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION',
+            'USER_NVDA_PROVEN: NO'
+          )) {
+            if (-not $secondText.Contains($required)) { throw "Second launch report missing: $required" }
+          }
 
           $data = Join-Path $root 'data'
           if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
