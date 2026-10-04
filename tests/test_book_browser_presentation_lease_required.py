@@ -364,5 +364,151 @@ class StarterBookBrowserPresentationLeaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_starter_material_rejects_reentrant_owner_replacement_before_target_persistence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="accessible-chess-book-browser-lease-starter-race-pre-"
+        ) as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    visible = app.snapshot()["books"]
+                    token = visible["presentation_token"]
+                    material_id = visible["starter_materials"]["items"][1][
+                        "material_id"
+                    ]
+                    replacement = root / "replacement.md"
+                    replacement.write_text(
+                        "# Replacement\n\nNew canonical owner.\n",
+                        encoding="utf-8",
+                    )
+                    original_has = app.progress_store.has
+                    replacement_reader = None
+                    swapped = False
+
+                    def raced_has(book_key: str) -> bool:
+                        nonlocal replacement_reader, swapped
+                        result = original_has(book_key)
+                        if not swapped:
+                            swapped = True
+                            app.open_book(replacement)
+                            replacement_reader = app.reader
+                        return result
+
+                    with patch.object(
+                        app.progress_store,
+                        "has",
+                        side_effect=raced_has,
+                    ):
+                        rejected = app.browser_command(
+                            "books",
+                            "book.open_starter_material",
+                            {
+                                "material_id": material_id,
+                                "presentation_token": token,
+                            },
+                        )
+
+                    self.assertTrue(swapped)
+                    self.assertEqual("render", rejected["kind"])
+                    self.assertIsNotNone(replacement_reader)
+                    self.assertIs(app.reader, replacement_reader)
+                    self.assertIsNone(app._starter_current_material_id)
+                    self.assertNotEqual(
+                        material_id,
+                        rejected["payload"]["snapshot"]["starter_materials"][
+                            "current_id"
+                        ],
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_starter_material_rejects_reentrant_owner_replacement_during_target_save(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="accessible-chess-book-browser-lease-starter-race-save-"
+        ) as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    visible = app.snapshot()["books"]
+                    token = visible["presentation_token"]
+                    material_id = visible["starter_materials"]["items"][1][
+                        "material_id"
+                    ]
+                    target_key = app._starter_book_key(material_id)
+                    replacement = root / "replacement.md"
+                    replacement.write_text(
+                        "# Replacement\n\nNew canonical owner during save.\n",
+                        encoding="utf-8",
+                    )
+                    original_save = app.progress_store.save
+                    replacement_reader = None
+                    swapped = False
+
+                    def raced_save(book_key, reader):
+                        nonlocal replacement_reader, swapped
+                        result = original_save(book_key, reader)
+                        if book_key == target_key and not swapped:
+                            swapped = True
+                            app.open_book(replacement)
+                            replacement_reader = app.reader
+                        return result
+
+                    with patch.object(
+                        app.progress_store,
+                        "save",
+                        side_effect=raced_save,
+                    ):
+                        rejected = app.browser_command(
+                            "books",
+                            "book.open_starter_material",
+                            {
+                                "material_id": material_id,
+                                "presentation_token": token,
+                            },
+                        )
+
+                    self.assertTrue(swapped)
+                    self.assertEqual("render", rejected["kind"])
+                    self.assertIsNotNone(replacement_reader)
+                    self.assertIs(app.reader, replacement_reader)
+                    self.assertIsNone(app._starter_current_material_id)
+                    self.assertNotEqual(
+                        material_id,
+                        rejected["payload"]["snapshot"]["starter_materials"][
+                            "current_id"
+                        ],
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
 if __name__ == "__main__":
     unittest.main()
