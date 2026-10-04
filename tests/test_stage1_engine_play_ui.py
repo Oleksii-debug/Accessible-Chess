@@ -533,6 +533,14 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertIn('id="engine-play-status" class="block" aria-live="off"', html)
         self.assertIn('id="engine-play-clocks" class="block" aria-live="off"', html)
         self.assertIn('<dialog id="engine-game-dialog"', html)
+        for label in (
+            "engine-human-side-label",
+            "engine-level-label",
+            "engine-time-preset-label",
+            "engine-minutes-label",
+            "engine-increment-label",
+        ):
+            self.assertIn(f'id="{label}"', html)
         for control in (
             "engine-human-side",
             "engine-level",
@@ -558,6 +566,12 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertIn("apiAction('retry_engine_move')", html)
         self.assertIn("function syncEngineTimeControl()", html)
         self.assertIn("function confirmResignEngineGame()", html)
+        self.assertIn("function applyEngineGameLanguage(en)", html)
+        self.assertIn("applyEngineGameLanguage(next==='en')", html)
+        self.assertIn("en?'Play against Stockfish':'Гра проти Stockfish'", html)
+        self.assertIn("en?'New game against Stockfish':'Нова гра проти Stockfish'", html)
+        self.assertIn("en?'Random side':'Випадкову сторону'", html)
+        self.assertIn("en?'No clock':'Без годинника'", html)
         self.assertIn("window.confirm", html)
         self.assertIn(
             "document.documentElement.lang==='en'?'Starting Stockfish…':'Запуск Stockfish…'",
