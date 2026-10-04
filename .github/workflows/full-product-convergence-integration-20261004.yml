@@ -13,6 +13,7 @@ on:
       - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
       - fix/w4-sound-byte-readback-20261004-sol56
       - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
+      - fix/owner-apex-private-seed-win32-portability-20261004-zftrkmo
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
