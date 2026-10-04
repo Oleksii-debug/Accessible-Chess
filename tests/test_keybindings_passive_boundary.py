@@ -136,6 +136,35 @@ class KeybindingPassiveBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "valid UTF-8"):
             ActionRegistry.import_json("\ud800")
 
+    def test_duplicate_json_object_keys_fail_closed_at_every_level(self) -> None:
+        malformed_profiles = (
+            '{"schema_version":1,"schema_version":1,"bindings":{},"aliases":{}}',
+            '{"schema_version":1,"bindings":{"history.go_to_move":"Ctrl+J","history.go_to_move":"Ctrl+K"},"aliases":{}}',
+            '{"schema_version":1,"bindings":{},"aliases":{},"future":{"x":1,"x":2}}',
+            '{"schema_version":1,"bindings":{"history.go_to_move":"Ctrl+J","history.go_to_move":"Ctrl+K"},"aliases":{}}'.replace(
+                '"history.go_to_move":"Ctrl+K"',
+                '"history\\u002ego_to_move":"Ctrl+K"',
+            ),
+        )
+        for raw in malformed_profiles:
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(ValueError, "duplicate JSON object keys"):
+                    ActionRegistry.import_json(raw)
+
+    def test_duplicate_json_on_disk_recovers_without_reinterpreting_profile(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        raw = '{"schema_version":1,"bindings":{"history.go_to_move":"Ctrl+J","history.go_to_move":"Alt+F4"},"aliases":{}}'
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keymap.json"
+            path.write_text(raw, encoding="utf-8")
+            registry, warning = ActionRegistry.load(path)
+            self.assertIsNotNone(warning)
+            self.assertIn("duplicate JSON object keys", warning)
+            self.assertEqual(registry.get_binding("history.go_to_move"), "Ctrl+G")
+            self.assertEqual(path.read_text(encoding="utf-8"), raw)
+
     def test_exact_builtin_values_keep_existing_keymap_semantics(self) -> None:
         registry = ActionRegistry()
         self.assertEqual(normalize_binding("control-shift-z"), "Ctrl+Shift+Z")
