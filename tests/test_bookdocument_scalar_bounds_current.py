@@ -9,6 +9,7 @@ from acs.bookdocument import (
     MAX_BOOK_LIST_TOTAL_CHARS,
     MAX_BOOK_PGN_CHARS,
     MAX_BOOK_TEXT_FIELD_CHARS,
+    MAX_BOOK_WARNING_TOTAL_CHARS,
     BookDocumentError,
     Exercise,
     Game,
@@ -38,6 +39,48 @@ class BookDocumentScalarBoundsCurrentTests(unittest.TestCase):
             book_webview_projection._MAX_BOOK_LIST_ITEMS,
         )
         self.assertEqual(MAX_BOOK_PGN_CHARS, MAX_PGN_TEXT_CHARS)
+        self.assertEqual(
+            MAX_BOOK_WARNING_TOTAL_CHARS,
+            book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS,
+        )
+
+    def test_warning_aggregate_rejects_before_whitespace_scan(self) -> None:
+        with patch("acs.bookdocument.MAX_BOOK_WARNING_TOTAL_CHARS", 3):
+            with self.assertRaisesRegex(
+                BookDocumentError,
+                "warning text exceeds the canonical aggregate limit",
+            ):
+                # If whitespace classification ran first this would report the
+                # non-empty-string error instead of the aggregate resource bound.
+                from acs.bookdocument import BookDocument
+
+                BookDocument("Book", warnings=["    "])
+
+    def test_warning_aggregate_exact_limit_is_accepted_and_exported(self) -> None:
+        from acs.bookdocument import BookDocument
+
+        with patch("acs.bookdocument.MAX_BOOK_WARNING_TOTAL_CHARS", 2):
+            document = BookDocument("Book", warnings=["a", "b"])
+            self.assertEqual(document.as_dict()["warnings"], ["a", "b"])
+
+    def test_warning_subclass_is_rejected_before_length_or_strip_hooks(self) -> None:
+        from acs.bookdocument import BookDocument
+
+        class HostileWarning(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("warning length hook must not execute")
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("warning strip hook must not execute")
+
+        with self.assertRaises(BookDocumentError):
+            BookDocument("Book", warnings=[HostileWarning("warning")])
+
+        self.assertFalse(HostileWarning.touched)
 
     def test_visible_text_size_rejects_before_whitespace_scan(self) -> None:
         with patch("acs.bookdocument.MAX_BOOK_TEXT_FIELD_CHARS", 3):
