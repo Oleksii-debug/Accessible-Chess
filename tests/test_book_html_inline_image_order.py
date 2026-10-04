@@ -663,5 +663,40 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         )
 
 
+    def test_nested_boundary_split_restores_legacy_outer_progress(self) -> None:
+        baseline = import_html_book(
+            '<html><body><p id="outer">AB'
+            '<blockquote id="inner">C</blockquote>DE</p></body></html>',
+            source_name="nested-progress-baseline.html",
+        )
+        baseline_index = next(
+            index
+            for index, block in enumerate(baseline.document.blocks)
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+        baseline_reader = BookReader(baseline.document)
+        baseline_location = baseline_reader.go_to(baseline_index)
+
+        changed = import_html_book(
+            '<html><body><p id="outer">A<img src="one.png" alt="One">B'
+            '<blockquote id="inner">C</blockquote>D'
+            '<img src="two.png" alt="Two">E</p></body></html>',
+            source_name="nested-progress-changed.html",
+            available_assets={"one.png", "two.png"},
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+            store.save("nested-boundary-progress", baseline_reader)
+            restored = store.restore("nested-boundary-progress", changed.document)
+
+        location = restored.location()
+        block = restored.block_snapshot(location.index)
+        self.assertEqual(location.block_id, baseline_location.block_id)
+        self.assertEqual(location.source_anchor, "outer")
+        self.assertIsInstance(block, Paragraph)
+        self.assertEqual(block.text, "A")
+
+
 if __name__ == "__main__":
     unittest.main()
