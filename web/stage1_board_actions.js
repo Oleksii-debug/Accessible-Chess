@@ -145,11 +145,17 @@ async function remappableOnBoardKey(event) {
     // does not await async listeners, so preventDefault() after resolveBinding()
     // is too late to stop Arrow/Space/Enter/Escape native behavior.
     //
-    // BOARD owns the first lookup. If it is unbound, project the canonical
-    // GLOBAL fallback from the same live keymap snapshot. The async resolver is
-    // validation only: a stale/disagreeing result fails closed after the native
-    // event has already been safely claimed.
+    // BOARD owns the first lookup. The release API then admits ANALYSIS while
+    // board focus is active and finally applies the canonical GLOBAL fallback.
+    // Mirror that exact precedence from the same live keymap snapshot. The async
+    // resolver is validation only: a stale/disagreeing result fails closed after
+    // the native event has already been safely claimed.
     let actionId = projectedAction;
+    if (!actionId) {
+        const projectedAnalysisAction = liveKeymapAction(event, 'analysis');
+        if (projectedAnalysisAction === null) return;
+        actionId = projectedAnalysisAction;
+    }
     if (!actionId) {
         const projectedGlobalAction = liveKeymapAction(event, 'global');
         if (projectedGlobalAction === null) return;
