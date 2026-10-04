@@ -5,9 +5,11 @@ on:
     branches:
       - integration/full-product-convergence-20261004
       - integration/full-product-successor-qualification-20261004
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - main
     paths:
       - 'acs/**'
       - 'web/**'
@@ -54,6 +56,12 @@ jobs:
           git merge-base --is-ancestor "$canonical" HEAD
           test "$(git merge-base "$canonical" HEAD)" = "$canonical"
           git diff --check "$canonical" HEAD
+          event_base='${{ github.event.pull_request.base.sha }}'
+          if [ -n "$event_base" ]; then
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" HEAD
+            echo "FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS base=$event_base"
+          fi
           echo 'FULL_PRODUCT_CANONICAL_ANCESTRY=PASS'
 
       - name: Compile convergence Python surfaces
@@ -119,6 +127,31 @@ jobs:
           tests.test_v2_upgrade_training_progress_artifact_control
           tests.test_v2_data_upgrade
           tests.test_v2_data_upgrade_v6
+
+      - name: Chess content, semantic reading and malformed-content regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_d06_pgn_roundtrip
+          tests.test_gametree
+          tests.test_v2_book_html_head_metadata_semantics
+          tests.test_v2_book_html_import
+          tests.test_v2_book_game_content
+          tests.test_v2_book_library_game_lookup
+          tests.test_book_index
+          tests.test_v2_book_text_import
+
+      - name: Windows terminal authority, NVDA file flow and Book to Board regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_version2_import_terminal_ui
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_native_thread_runtime_workflow
+          tests.test_w3_windows_file_action_ui_thread_affinity
+          tests.test_v2_windows_book_board_adapter_workflow
+          tests.test_v2_windows_book_board_adapter
+          tests.test_v2_book_board_workflow
 
       - name: Whole product diagnostic
         run: python run_accessible_chess_v2.py --diagnostic
