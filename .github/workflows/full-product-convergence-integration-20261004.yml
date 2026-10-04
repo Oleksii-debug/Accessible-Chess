@@ -48,6 +48,7 @@ on:
       - 'scripts/verify_w4_current_candidate_artifact.py'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
       - 'packaging/portable_launcher.c'
       - '.github/workflows/p0-packaged-acceptance-orchestrator.yml'
       - '.github/workflows/p0-packaged-document-copy-probe-contract.yml'
@@ -428,6 +429,7 @@ jobs:
           tests.test_owner_portable_candidate_stable_reads
           tests.test_materialize_owner_library_seed
           tests.test_owner_oneclick_from_w4_workflow
+          tests.test_verify_owner_w4_run_provenance
           tests.test_w4_v2_p0_fresh_candidate_workflow
           tests.test_w4_candidate_artifact_readback_workflow
           tests.test_verify_w4_current_candidate_artifact
