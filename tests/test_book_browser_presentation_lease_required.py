@@ -454,5 +454,74 @@ class StarterBookBrowserPresentationLeaseTests(unittest.TestCase):
                 database.close()
 
 
+    def test_starter_material_switch_revalidates_lease_after_progress_persistence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="accessible-chess-book-browser-lease-starter-race-"
+        ) as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    visible = app.snapshot()["books"]
+                    token = visible["presentation_token"]
+                    initial_material = visible["starter_materials"]["current_id"]
+                    target_material = visible["starter_materials"]["items"][1][
+                        "material_id"
+                    ]
+                    before = app.reader.location()
+                    real_save = app.save_book_progress
+                    injected = False
+
+                    def mutate_reader_after_progress_save() -> None:
+                        nonlocal injected
+                        real_save()
+                        if not injected:
+                            injected = True
+                            app.reader.next_block()
+
+                    with patch.object(
+                        app,
+                        "save_book_progress",
+                        side_effect=mutate_reader_after_progress_save,
+                    ):
+                        rejected = app.browser_command(
+                            "books",
+                            "book.open_starter_material",
+                            {
+                                "material_id": target_material,
+                                "presentation_token": token,
+                            },
+                        )
+
+                    self.assertTrue(injected)
+                    self.assertEqual("render", rejected["kind"])
+                    self.assertEqual(initial_material, app._starter_current_material_id)
+                    self.assertNotEqual(before, app.reader.location())
+                    self.assertEqual(
+                        app.reader.location().index,
+                        rejected["payload"]["snapshot"]["block"]["index"],
+                    )
+                    self.assertNotEqual(
+                        token,
+                        rejected["payload"]["snapshot"]["presentation_token"],
+                    )
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                database.close()
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -50,7 +50,8 @@ jobs:
             448d6ccd099549354fee23c5d3f6acfd08179eba \
             5759e454e9382a09f276d09b15894ae2e77d6c65 \
             66e627fb097db582bac37cde882690fe10aa89a4 \
-            1ee73ed85ac8eac3bc46c6fd5f495889e8a84d0e
+            1ee73ed85ac8eac3bc46c6fd5f495889e8a84d0e \
+            474ccb8a6299db25d5bae9462e5e9c8831c23a7b
           do
             git cat-file -e "$absorbed^{commit}"
             git merge-base --is-ancestor "$absorbed" HEAD
