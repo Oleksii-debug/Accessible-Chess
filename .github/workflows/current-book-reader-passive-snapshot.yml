@@ -80,6 +80,9 @@ jobs:
           tests.test_bookreader
           tests.test_bookreader_snapshot_bounds
           tests.test_book_progress_store
+          tests.test_book_progress_passive_ingress_current
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
           tests.test_dev1_books_training_webview_projection
           tests.test_v2_book_board_workflow
 
