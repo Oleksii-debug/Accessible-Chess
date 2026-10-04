@@ -65,7 +65,9 @@ class BookReader:
     """
 
     def __init__(self, document: BookDocument):
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
+            # BookDocument is a mutable authoring DTO. Reject subclasses before
+            # any provider-defined as_dict()/attribute hook can execute.
             raise TypeError("document must be a BookDocument")
         self.document = document
         self._indexed_document = BookDocument.from_dict(document.as_dict())
