@@ -146,6 +146,37 @@ class PositionTextAuthorityTests(unittest.TestCase):
             "Текст позиції має бути текстовим значенням",
         )
 
+    def test_string_subclass_is_rejected_before_length_hooks(self):
+        class HostilePositionText(str):
+            def __new__(cls):
+                value = super().__new__(cls, "W: K e1 B: K e8")
+                value.length_calls = 0
+                return value
+
+            def __len__(self):
+                self.length_calls += 1
+                raise AssertionError("hostile string length hook must not run")
+
+        payload = HostilePositionText()
+        with self.assertRaisesRegex(ValueError, "^position text must be text$"):
+            parse_piece_coordinate_position(payload)
+        self.assertEqual(payload.length_calls, 0)
+
+        with self.assertRaisesRegex(ValueError, "^Текст позиції має бути текстовим значенням$"):
+            parse_position_text(payload)
+        self.assertEqual(payload.length_calls, 0)
+
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        result = api.set_position_text(payload, "w")
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(
+            result["announcement"],
+            "Текст позиції має бути текстовим значенням",
+        )
+        self.assertEqual(payload.length_calls, 0)
+
     def test_move_entry_rejects_oversized_text_before_routing(self):
         canonical = "W: K e1 B: K e8"
         at_limit = canonical + (" " * (4096 - len(canonical)))
