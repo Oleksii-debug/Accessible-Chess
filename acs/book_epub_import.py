@@ -493,7 +493,13 @@ def _resolve_package_href(
             "EPUB package href contains surrounding whitespace",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    parts = urlsplit(raw_href)
+    try:
+        parts = urlsplit(raw_href)
+    except ValueError as exc:
+        raise _error(
+            "EPUB package href is malformed",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        ) from exc
     if "#" in raw_href and not allow_fragment:
         raise _error(
             "EPUB package href must not contain a fragment identifier",
@@ -770,9 +776,6 @@ def _rebase_block(block: object, entry_name: str, chapter_index: int, block_inde
 
 
 def _resolved_asset(entry_name: str, reference: str) -> str | None:
-    parts = urlsplit(reference.strip())
-    if parts.scheme or parts.netloc or not parts.path:
-        return None
     try:
         return _resolve_package_href(
             posixpath.dirname(entry_name),

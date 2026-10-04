@@ -42,7 +42,7 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            "package_identity_successor_parser='13d304826900d5ab25586fa7a0de0ee73c25a4b2'",
+            "package_identity_successor_parser='1e3bf95ee4754287fc5628d0853de3270ef563a2'",
             self.workflow,
         )
         self.assertIn(
@@ -50,7 +50,7 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            "package_identity_successor_contract_test='c0904af9b42e5cd50cf2a240145fd3cd0bfde9d2'",
+            "package_identity_successor_contract_test='938fd4ed5a336b4ccadba21731d653f6c1c3f89f'",
             self.workflow,
         )
         self.assertIn(

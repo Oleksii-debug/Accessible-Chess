@@ -20,7 +20,12 @@ CONTAINER = b'''<?xml version="1.0" encoding="UTF-8"?>
 </container>'''
 
 
-def _epub(opf: bytes) -> bytes:
+def _epub(
+    opf: bytes,
+    *,
+    chapter: bytes = b"<html><body><p>Readable package.</p></body></html>",
+    container: bytes = CONTAINER,
+) -> bytes:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         mimetype = zipfile.ZipInfo("mimetype")
@@ -28,7 +33,7 @@ def _epub(opf: bytes) -> bytes:
         archive.writestr(mimetype, b"application/epub+zip")
         archive.writestr(
             "META-INF/container.xml",
-            CONTAINER,
+            container,
             compress_type=zipfile.ZIP_DEFLATED,
         )
         archive.writestr(
@@ -38,7 +43,7 @@ def _epub(opf: bytes) -> bytes:
         )
         archive.writestr(
             "OEBPS/Text/chapter.xhtml",
-            b"<html><body><p>Readable package.</p></body></html>",
+            chapter,
             compress_type=zipfile.ZIP_DEFLATED,
         )
     return buffer.getvalue()
@@ -68,9 +73,12 @@ def _opf(*, version: str = "3.0", unique_identifier: str | None = "bookid") -> b
 
 
 class EpubPackageDocumentContractTests(unittest.TestCase):
-    def assert_malformed(self, opf: bytes) -> None:
+    def assert_malformed(self, opf: bytes, *, container: bytes = CONTAINER) -> None:
         with self.assertRaises(BookEpubImportError) as raised:
-            import_epub_book(_epub(opf), source_name="package-contract.epub")
+            import_epub_book(
+                _epub(opf, container=container),
+                source_name="package-contract.epub",
+            )
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -166,6 +174,38 @@ class EpubPackageDocumentContractTests(unittest.TestCase):
   <manifest><item id="chapter" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
 </package>'''
         self.assert_malformed(opf)
+
+    def test_malformed_url_authority_is_reported_as_stable_package_error(self) -> None:
+        opf = _opf().replace(b"Text/chapter.xhtml", b"//[bad")
+        self.assert_malformed(opf)
+
+        container = CONTAINER.replace(b"OEBPS/content.opf", b"//[bad")
+        self.assert_malformed(_opf(), container=container)
+
+    def test_malformed_image_url_is_ignored_without_aborting_readable_content(self) -> None:
+        chapter = b'''<html><body>
+<p>Readable despite broken image URL.</p>
+<img src="//[bad" alt="Broken image"/>
+</body></html>'''
+        result = import_epub_book(
+            _epub(_opf(), chapter=chapter),
+            source_name="malformed-image-url.epub",
+        )
+        self.assertEqual(result.image_references, ())
+        self.assertTrue(
+            any(
+                "external or unsafe image reference" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertIn(
+            "Readable despite broken image URL.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
 
 
 if __name__ == "__main__":
