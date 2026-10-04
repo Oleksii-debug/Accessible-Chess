@@ -1322,6 +1322,8 @@ SUPPORTED_EPUB_BOOK_CAPABILITY = MappingProxyType(
             "script execution",
             "SVG-only or image-only chapter recognition",
             "audio/video playback",
+            "Media Overlay playback/synchronization",
+            "NCX navigation rendering",
             "UTF-16 spine ingestion",
             "PDF/OCR",
         ),
