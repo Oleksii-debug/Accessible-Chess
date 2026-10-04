@@ -430,6 +430,36 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         )
 
 
+    def test_explicit_pgn_nested_inside_list_item_stays_canonical_and_in_source_order(self) -> None:
+        result = import_html_book(
+            "<html><body><ul><li id=\"rich\">Before<pre>{PGN 1}\n"
+            + _PGN
+            + "</pre>After</li></ul></body></html>",
+            source_name="nested-pgn-list-item.html",
+        )
+
+        self.assertEqual(result.pgn_games, 1)
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Paragraph", "Game", "Paragraph"],
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, ["• Before", "After"])
+        self.assertFalse(any(block.kind == "List" for block in result.document.blocks))
+
+        reader = BookReader(result.document)
+        reader.go_to(0)
+        game_location = reader.next_game()
+        self.assertEqual(game_location.index, 1)
+        self.assertIsInstance(reader.block_snapshot(game_location.index), Game)
+        after = reader.next_block()
+        self.assertEqual(after.index, 2)
+        self.assertEqual(reader.block_snapshot(after.index).text, "After")
+
+
     def test_explicit_pgn_game_keeps_crlf_source_order_and_reader_navigation(self) -> None:
         source = (
             "<html><body><h1>Before</h1><pre>{PGN 1}\r\n"
