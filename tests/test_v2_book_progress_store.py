@@ -223,6 +223,30 @@ class BookProgressStoreTests(unittest.TestCase):
                 with self.assertRaises(BookProgressStoreError):
                     self.store.has("book:one")
 
+    def test_relative_storage_path_is_bound_before_working_directory_changes(self) -> None:
+        origin = Path(self.tempdir.name) / "cwd-origin"
+        destination = Path(self.tempdir.name) / "cwd-destination"
+        origin.mkdir()
+        destination.mkdir()
+        previous_cwd = Path.cwd()
+        try:
+            os.chdir(origin)
+            relative_path = Path("relative-state") / "book-progress.json"
+            store = BookProgressStore(relative_path)
+            bound_path = origin / relative_path
+            self.assertEqual(store.path, bound_path)
+
+            os.chdir(destination)
+            reader = BookReader(self.original_document())
+            reader.go_to(1)
+            store.save("book:cwd-bound", reader)
+        finally:
+            os.chdir(previous_cwd)
+
+        self.assertTrue(bound_path.is_file())
+        self.assertTrue(bound_path.with_name(bound_path.name + ".lock").is_file())
+        self.assertFalse((destination / relative_path).exists())
+
     @unittest.skipIf(
         os.name == "nt",
         "Windows symlink creation requires environment-specific privileges",
