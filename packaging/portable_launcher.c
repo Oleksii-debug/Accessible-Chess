@@ -23,6 +23,7 @@
 #define AC_REPORT_RETRY_COUNT 40
 #define ACCESSIBILITY_HOST_INIT_EXIT_CODE 71
 #define SAFE_LOCAL_SERVER_INIT_EXIT_CODE 72
+#define RELEASE_UI_STARTUP_EXIT_CODE 73
 
 static WCHAR g_module[AC_PATH_CAP];
 static WCHAR g_root[AC_PATH_CAP];
@@ -116,6 +117,7 @@ static BOOL ac_append_u32(WCHAR *target, SIZE_T cap, DWORD value) {
 static const WCHAR *ac_child_exit_reason(DWORD code) {
     if (code == ACCESSIBILITY_HOST_INIT_EXIT_CODE) return L"ACCESSIBILITY_HOST_INIT_FAILED";
     if (code == SAFE_LOCAL_SERVER_INIT_EXIT_CODE) return L"SAFE_LOCAL_SERVER_INIT_FAILED";
+    if (code == RELEASE_UI_STARTUP_EXIT_CODE) return L"RELEASE_UI_STARTUP_FAILED";
     return L"UNKNOWN_EARLY_EXIT";
 }
 
@@ -125,6 +127,9 @@ static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     }
     if (code == SAFE_LOCAL_SERVER_INIT_EXIT_CODE) {
         return L"Не вдалося ініціалізувати безпечний локальний сервер WebView2.";
+    }
+    if (code == RELEASE_UI_STARTUP_EXIT_CODE) {
+        return L"Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
     }
     return L"Невідома рання помилка основної програми.";
 }
