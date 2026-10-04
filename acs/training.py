@@ -685,8 +685,23 @@ def _require_snapshot_field_names(
 
 
 def _canonical_definition_snapshot(definition: ExerciseDefinition) -> ExerciseDefinition:
-    if not isinstance(definition, ExerciseDefinition):
+    # ExerciseDefinition is the canonical authored Training root. Its public
+    # constructor already normalizes ordinary iterables/mappings into built-in
+    # tuple/dict/frozenset containers, so session/persistence ingress can require
+    # those closed roots before any detached-copy traversal executes hooks.
+    if type(definition) is not ExerciseDefinition:
         raise TypeError("definition must be an ExerciseDefinition")
+    if type(definition.steps) is not tuple:
+        raise ValueError("exercise definition steps must be canonical")
+    if type(definition.tags) is not tuple:
+        raise ValueError("exercise definition tags must be canonical")
+    if type(definition.metadata) is not dict:
+        raise ValueError("exercise definition metadata must be canonical")
+    for step in definition.steps:
+        if type(step) is not ExerciseStep:
+            raise ValueError("exercise definition steps must be canonical")
+        if type(step.accepted_moves) is not frozenset:
+            raise ValueError("exercise accepted moves must be canonical")
     normalized = ExerciseDefinition(
         definition.exercise_id,
         definition.start_fen,
