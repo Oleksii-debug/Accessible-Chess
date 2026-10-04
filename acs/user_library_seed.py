@@ -222,11 +222,17 @@ def _portable_name(value: object) -> str:
         raise UserLibrarySeedError("user Library seed filename is invalid")
     name = value
     windows_basename = name.split(".", 1)[0].rstrip(" .").casefold()
+    try:
+        windows_utf16_units = len(name.encode("utf-16-le", errors="strict")) // 2
+    except UnicodeEncodeError:
+        windows_utf16_units = None
     if (
         not name
         or name != name.strip()
         or name.endswith(".")
         or len(name) > 255
+        or windows_utf16_units is None
+        or windows_utf16_units > 255
         or name in {".", ".."}
         or "/" in name
         or "\\" in name
@@ -243,6 +249,10 @@ def _portable_name(value: object) -> str:
 
 def _display_name(value: object) -> str:
     if type(value) is not str:
+        raise UserLibrarySeedError("user Library seed display name is invalid")
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
         raise UserLibrarySeedError("user Library seed display name is invalid")
     if (
         not value
