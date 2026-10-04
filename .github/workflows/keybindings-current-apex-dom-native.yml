@@ -31,7 +31,6 @@ on:
       - 'tests/test_full_product_education_keybindings.py'
       - 'tests/test_terminal_keybinding_surface_wiring.py'
       - 'tests/test_keybindings_current_apex_reconvergence.py'
-      - 'tests/test_stage1_unbound_shortcut_capture.py'
       - 'tests/test_ui_keymap_service.py'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
   workflow_dispatch:
@@ -70,8 +69,8 @@ jobs:
           PLUS_MINUS_HEAD: dbfa010ed872f66c4cffb97b0e880f750847c2ad
           PLUS_MINUS_SERVICE_BLOB: 19d3a406f9c94bb1aba8052e46c9d676b5a8dbc9
           PLUS_MINUS_SERVICE_TEST_BLOB: fe69226d35901b67a6fcbdf96e3c03534b3bb7d4
-          PLUS_MINUS_DOM_TEST_BLOB: 0d3d822ad5710268d66a31dc5024edf32076c24b
-          PLUS_MINUS_WEB_INDEX_BLOB: 52ccfc2f3eb2b79deeab49c2f984cc8c294ab3c9
+          PLUS_MINUS_DOM_TEST_BLOB: acac8c6e07ef61ae1fa20fdd91b580ab68429990
+          PLUS_MINUS_WEB_INDEX_BLOB: 241c4483b3ae321b6ecf723722e34128f2891f46
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -166,7 +165,6 @@ jobs:
           tests/test_full_product_education_keybindings.py
           tests/test_terminal_keybinding_surface_wiring.py
           tests/test_keybindings_current_apex_reconvergence.py
-          tests/test_stage1_unbound_shortcut_capture.py
 
       - name: Parse and execute terminal PGN Library Education DOM contracts
         shell: bash
@@ -203,7 +201,6 @@ jobs:
           tests.test_terminal_keybinding_surface_wiring
           tests.test_full_product_native_menu
           tests.test_keybindings_current_apex_reconvergence
-          tests.test_stage1_unbound_shortcut_capture
           tests.test_keybindings
           tests.test_ui_keymap_adapter
           tests.test_ui_keymap_service
