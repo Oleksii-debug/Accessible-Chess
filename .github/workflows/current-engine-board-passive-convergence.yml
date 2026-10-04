@@ -84,6 +84,8 @@ jobs:
           python -m unittest -v
           tests.test_current_analysis_provider_resource_bounds
           tests.test_current_assisted_training_session_root
+          tests.test_book_engine_authority_passive_ingress
+          tests.test_current_engine_fen_passive_bounds
           tests.test_analysis_service
           tests.test_dev3_engine_assisted_workflows
           tests.test_board_service
@@ -93,6 +95,7 @@ jobs:
           tests.test_position_editor
           tests.test_position_editor_passive_boundary
           tests.test_v2_book_board_workflow
+          tests.test_v2_windows_book_board_adapter
 
       - name: Core selftest
         run: python -m acs.selftest
