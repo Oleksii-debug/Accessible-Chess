@@ -871,6 +871,38 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertTrue(self.app.pgn_board_active)
         self.assertEqual("board", self.app.shell.current_route.route_id)
 
+    def test_book_double_projection_failure_keeps_owner_if_recovery_route_rejects(self):
+        self._open_board()
+        before = self.app.book_delegate.view()
+        attempted = []
+
+        def reject_projection(fen):
+            attempted.append(fen)
+            return {"ok": False}
+
+        self.app._board_position_projector = reject_projection
+        real_open_route = self.app.shell.open_route
+
+        def reject_books_route(route_id, *, current_focus_id=""):
+            if route_id == "books":
+                raise RuntimeError("synthetic Books recovery route rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=reject_books_route,
+        ):
+            result = self.app.browser_command("review", "book.board_next_move")
+
+        self.assertEqual("error", result["kind"])
+        after = self.app.book_delegate.view()
+        self.assertEqual(before.cursor, after.cursor)
+        self.assertEqual(before.current_fen, after.current_fen)
+        self.assertGreaterEqual(len(attempted), 2)
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+
     def test_pgn_double_projection_failure_relinquishes_unknown_board(self):
         self._load_pgn_workspace()
         self.app.browser_command("review", "pgn.open_on_board")
@@ -892,6 +924,39 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(before_fen, attempted[-1])
         self.assertFalse(self.app.pgn_board_active)
         self.assertEqual("pgn", self.app.shell.current_route.route_id)
+
+    def test_pgn_double_projection_failure_keeps_owner_if_recovery_route_rejects(self):
+        self._load_pgn_workspace()
+        self.app.browser_command("review", "pgn.open_on_board")
+        before_cursor = self.app.session.workspace.cursor
+        before_fen = self.app.pgn_commands.current_fen()
+        attempted = []
+
+        def reject_projection(fen):
+            attempted.append(fen)
+            return {"ok": False}
+
+        self.app._board_position_projector = reject_projection
+        real_open_route = self.app.shell.open_route
+
+        def reject_pgn_route(route_id, *, current_focus_id=""):
+            if route_id == "pgn":
+                raise RuntimeError("synthetic PGN recovery route rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=reject_pgn_route,
+        ):
+            result = self.app.browser_command("review", "pgn.board_next_move")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual(before_cursor, self.app.session.workspace.cursor)
+        self.assertEqual(before_fen, self.app.pgn_commands.current_fen())
+        self.assertGreaterEqual(len(attempted), 2)
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
 
     def test_pgn_return_partial_route_commit_preserves_board_owner(self):
         self._load_pgn_workspace()
