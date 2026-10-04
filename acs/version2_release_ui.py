@@ -337,9 +337,15 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
 
         if (
             self._version2_application is not None
-            and isinstance(action_id, str)
+            and type(action_id) is str
             and action_id in VERSION2_FULL_PRODUCT_ACTION_IDS
         ):
+            if square is not None and type(square) is not str:
+                return self._error(
+                    "Дія Version 2 не приймає поле дошки."
+                    if self.lang == "uk"
+                    else "Version 2 action does not accept a board square."
+                )
             if square not in (None, ""):
                 return self._error(
                     "Дія Version 2 не приймає поле дошки."
@@ -572,18 +578,30 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         richer V2 domain payloads remain owned by their format/library adapters.
         """
 
-        if not isinstance(action_id, str) or not action_id.strip():
+        if type(action_id) is not str:
             raise ValueError("board action id is required")
+        action = action_id.strip()
+        if not action:
+            raise ValueError("board action id is required")
+
         values = {} if payload is None else payload
-        if not isinstance(values, Mapping):
-            raise TypeError("board action payload must be a mapping")
+        if type(values) is not dict:
+            raise TypeError("board action payload must be a canonical dict")
+        if len(values) > 1:
+            raise ValueError("board action payload is not supported")
+
         square: str | None = None
         if values:
-            if set(values) != {"square"} or not isinstance(values.get("square"), str):
+            key = next(iter(values))
+            if type(key) is not str or key != "square":
                 raise ValueError("board action payload is not supported")
-            square = str(values["square"])
-        result = super().dispatch_action(action_id.strip(), square)
-        if not isinstance(result, dict):
+            value = values[key]
+            if type(value) is not str:
+                raise ValueError("board action payload is not supported")
+            square = value
+
+        result = super().dispatch_action(action, square)
+        if type(result) is not dict:
             raise RuntimeError("canonical board action returned an invalid result")
         if result.get("ok") is False:
             raise ValueError("canonical board action was rejected")
