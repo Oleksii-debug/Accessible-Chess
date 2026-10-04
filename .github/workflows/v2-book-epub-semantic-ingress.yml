@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - .github/workflows/v2-book-epub-semantic-ingress.yml
       - acs/book_epub_import.py
