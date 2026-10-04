@@ -8,6 +8,9 @@ from unittest.mock import patch
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
+from acs.bookdocument import BookDocument, Exercise
+from acs.bookreader import BookReader
+from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
 from acs.version2_application import Version2Application
@@ -79,6 +82,32 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual("board", self.app.shell.current_route.route_id)
         self.assertEqual(1, len(self.projected_positions))
         return origin
+
+    def _install_training_exercise(self):
+        document = BookDocument(
+            title="Route-owned Training",
+            language="uk",
+            blocks=[
+                Exercise(
+                    fen=Board.START,
+                    prompt="Find the first move.",
+                    answer_text="e4",
+                    block_id="training-route-owner",
+                )
+            ],
+        )
+        reader = BookReader(document)
+        self.app.reader = reader
+        self.app.book_key = "book:training-route-owner"
+        self.app._restore_book_progress(
+            reader.snapshot(),
+            language=self.app.shell.language,
+            bookmark_name="default",
+        )
+        self.app.progress_store.save(self.app.book_key, self.app.reader)
+        self.app.shell.open_route("books")
+        self.app._focus = self.app.shell.restore_focus_target()
+        return reader
 
     def test_open_route_failure_rolls_back_before_release_board_projection(self):
         origin = self._open_game_book()
@@ -590,6 +619,57 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertIs(previous_books, self.app.books)
         self.assertIs(previous_workflow, self.app.book_workflow)
         self.assertEqual(previous_key, self.app.book_key)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+        self.assertEqual(origin_focus, self.app.shell.restore_focus_target())
+
+    def test_training_route_rejection_discards_staged_training_owner(self):
+        reader = self._install_training_exercise()
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app.shell.restore_focus_target()
+        real_open_route = self.app.shell.open_route
+
+        def reject_training_route(route_id, *, current_focus_id=""):
+            if route_id == "training":
+                raise RuntimeError("synthetic Training route rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=reject_training_route,
+        ):
+            result = self.app.browser_command("shell", "screen.training")
+
+        self.assertEqual("error", result["kind"])
+        self.assertIs(reader, self.app.reader)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+        self.assertEqual(origin_focus, self.app.shell.restore_focus_target())
+
+    def test_training_partial_route_commit_restores_books_and_discards_stage(self):
+        reader = self._install_training_exercise()
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app.shell.restore_focus_target()
+        real_open_route = self.app.shell.open_route
+
+        def fail_after_training_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "training":
+                raise RuntimeError("synthetic failure after Training route commit")
+            return focus
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=fail_after_training_commit,
+        ):
+            result = self.app.browser_command("shell", "screen.training")
+
+        self.assertEqual("error", result["kind"])
+        self.assertIs(reader, self.app.reader)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
         self.assertEqual(origin_route, self.app.shell.current_route.route_id)
         self.assertEqual(origin_focus, self.app.shell.restore_focus_target())
 
