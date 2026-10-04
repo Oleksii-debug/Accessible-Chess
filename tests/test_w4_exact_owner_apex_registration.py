@@ -19,7 +19,7 @@ class W4ExactOwnerApexRegistrationTests(unittest.TestCase):
             self.text,
         )
         self.assertIn(
-            "RELEASE_APEX_BRANCH: qualification/owner-portable-candidate-20261004-sol6f2",
+            "RELEASE_APEX_BRANCH: fix/owner-portable-qualification-snapshot-pin-20261004-sol56",
             self.text,
         )
         self.assertNotIn("release_apex_branch:", self.text)
