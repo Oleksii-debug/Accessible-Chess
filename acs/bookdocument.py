@@ -23,7 +23,8 @@ MAX_BOOK_DOCUMENT_WARNINGS = 4_096
 MAX_BOOK_DOCUMENT_FIELDS = 9
 # Scalar/list ceilings preserve the widest currently supported canonical content
 # while ensuring malformed exact built-ins fail before expensive strip/split scans.
-MAX_BOOK_TEXT_FIELD_CHARS = 64 * 1024 * 1024
+MAX_BOOK_TEXT_FIELD_CHARS = 12 * 1024 * 1024
+MAX_BOOK_PGN_CHARS = 64 * 1024 * 1024
 MAX_BOOK_LIST_ITEMS = 65_536
 MAX_BOOK_LIST_TOTAL_CHARS = 12 * 1024 * 1024
 
@@ -74,6 +75,31 @@ def _optional_text(value: object, field_name: str) -> str | None:
 def _optional_identifier(value: object, field_name: str) -> str | None:
     text = _optional_text(value, field_name)
     return None if text is None else text.strip()
+
+
+def _required_pgn_text(value: object, field_name: str) -> str:
+    if type(value) is not str:
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if len(value) > MAX_BOOK_PGN_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical PGN text limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if not value.strip():
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    return value
+
+
+def _optional_pgn_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return _required_pgn_text(value, field_name)
 
 
 def _fen_text(value: object, field_name: str) -> str:
@@ -257,9 +283,9 @@ class Game(BookBlock):
                 "Game PGN must be text",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if len(self.pgn) > MAX_BOOK_TEXT_FIELD_CHARS:
+        if len(self.pgn) > MAX_BOOK_PGN_CHARS:
             raise BookDocumentError(
-                "Game PGN exceeds the canonical text field limit",
+                "Game PGN exceeds the canonical PGN text limit",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         self.title = _optional_text(self.title, "Game title")
@@ -286,7 +312,7 @@ class VariationTree(BookBlock):
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
         self.root_fen = _fen_text(self.root_fen, "VariationTree root_fen")
-        self.pgn = _required_text(self.pgn, "VariationTree PGN")
+        self.pgn = _required_pgn_text(self.pgn, "VariationTree PGN")
         self.title = _optional_text(self.title, "VariationTree title")
 
 
@@ -302,7 +328,7 @@ class Exercise(BookBlock):
         BookBlock.__post_init__(self)
         self.fen = _fen_text(self.fen, "Exercise FEN")
         self.prompt = _required_text(self.prompt, "Exercise prompt")
-        self.solution_pgn = _optional_text(
+        self.solution_pgn = _optional_pgn_text(
             self.solution_pgn,
             "Exercise solution_pgn",
         )
