@@ -1751,6 +1751,33 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIsNone(self.app.books)
         self.assertEqual(self.app.shell.current_route.route_id, "library")
 
+    def test_book_recovery_confirmation_rejects_corrupt_backup_drift_as_stale(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        changed_backup = b'{"schema_version":2,"entries":'
+        store.path.write_bytes(corrupt_primary)
+        confirmations = []
+
+        def confirm_and_corrupt_backup():
+            confirmations.append(True)
+            store.backup_path.write_bytes(changed_backup)
+            return True
+
+        self.app.confirm_book_progress_recovery = confirm_and_corrupt_backup
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(confirmations, [True])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertEqual(store.backup_path.read_bytes(), changed_backup)
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.books)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+
     def test_book_recovery_confirmation_rejects_disappeared_backup_as_stale(self):
         self._open_book_game()
         store = self.app.progress_store
