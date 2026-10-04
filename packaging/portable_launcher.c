@@ -21,6 +21,7 @@
 #define AC_PATH_CAP 32768
 #define AC_UTF8_CAP (AC_PATH_CAP * 4 + 4096)
 #define AC_STARTUP_POLL_MS 100
+#define AC_STARTUP_READY_STABILITY_MS 500
 #define AC_STARTUP_WINDOW_TIMEOUT_MS 30000
 #define AC_REPORT_RETRY_MS 100
 #define AC_REPORT_RETRY_COUNT 40
@@ -379,6 +380,7 @@ void WINAPI wWinMainCRTStartup(void) {
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
     DWORD elapsed = 0;
+    DWORD ready_elapsed = 0;
 
     ac_prepare_paths();
     if (!ac_direct_directory(g_root)) {
@@ -440,7 +442,7 @@ void WINAPI wWinMainCRTStartup(void) {
     }
     CloseHandle(g_process.hThread);
     ac_write_line(report, L"PROCESS_CREATED: YES");
-    ac_write_line(report, L"STARTUP_READINESS: waiting for visible Accessible Chess window");
+    ac_write_line(report, L"STARTUP_READINESS: waiting for stable visible Accessible Chess window");
     FlushFileBuffers(report);
 
     for (;;) {
@@ -484,7 +486,12 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_fail(report, L"startup window observation", ERROR_INVALID_DATA);
         }
 
-        if (ac_has_ready_window(g_process.dwProcessId)) break;
+        if (ac_has_ready_window(g_process.dwProcessId)) {
+            if (ready_elapsed >= AC_STARTUP_READY_STABILITY_MS - AC_STARTUP_POLL_MS) break;
+            ready_elapsed += AC_STARTUP_POLL_MS;
+        } else {
+            ready_elapsed = 0;
+        }
 
         if (elapsed >= AC_STARTUP_WINDOW_TIMEOUT_MS - AC_STARTUP_POLL_MS) {
             ac_fail_startup_timeout(report);
