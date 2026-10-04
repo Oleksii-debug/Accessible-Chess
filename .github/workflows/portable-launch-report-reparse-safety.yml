@@ -25,7 +25,7 @@ permissions:
 env:
   PRODUCT_BASE: 0a077dc9431384d0cd96625e6536e428403bec2c
   LAUNCHER_BLOB: 6f0ec228a8ae1ef1f4a831f45f3d89eff3713f0f
-  CONTRACT_TEST_BLOB: d5ad1a1e46ae975d10b27471b51bc762a2925164
+  CONTRACT_TEST_BLOB: 4e8d23f24794d1167042a83f2983957a537a244f
   CORE_GUARD_TEST_BLOB: cd53f805f3a5cb0420054b0804eff752886092bf
 
 concurrency:
@@ -62,6 +62,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
+            'tests/test_portable_launcher_contract.py' \
             'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
@@ -101,6 +102,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
+            'tests/test_portable_launcher_contract.py' \
             'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
