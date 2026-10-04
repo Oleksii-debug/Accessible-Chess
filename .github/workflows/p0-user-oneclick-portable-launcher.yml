@@ -50,7 +50,7 @@ jobs:
           if not defined VSROOT exit /b 20
           call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 21
           if not exist build mkdir build
-          cl /nologo /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c packaging\portable_launcher.c /Fo:build\portable_launcher.obj || exit /b 22
+          cl /nologo /utf-8 /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c packaging\portable_launcher.c /Fo:build\portable_launcher.obj || exit /b 22
           link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /NODEFAULTLIB build\portable_launcher.obj kernel32.lib user32.lib /OUT:build\AccessibleChess.exe || exit /b 23
           dumpbin /headers build\AccessibleChess.exe > build\headers.txt || exit /b 24
           dumpbin /dependents build\AccessibleChess.exe > build\dependents.txt || exit /b 25
@@ -129,7 +129,7 @@ jobs:
               expected[i] = L'\0';
               if (!parent(expected) || !parent(expected) || !append(expected, L"\\data")) ExitProcess(42);
               if (!equal_text(env_value, expected)) ExitProcess(43);
-              Sleep(5000);
+              Sleep(7000);
               ExitProcess(0);
           }
           '@ | Set-Content -Encoding ascii build/smoke_child.c
@@ -163,9 +163,21 @@ jobs:
           )) {
             if (-not $text.Contains($required)) { throw "Launch report missing: $required" }
           }
+
+          # The smoke child is intentionally still running here. The launcher must
+          # have kept launch-report.txt private to its own lifetime so a second
+          # launch can recreate it instead of failing on a child-held handle.
+          $exclusive = [IO.File]::Open(
+            $report,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None
+          )
+          $exclusive.Dispose()
+
           $data = Join-Path $root 'data'
           if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 5
 
       - name: Diff and source hygiene
         shell: bash
@@ -179,5 +191,7 @@ jobs:
           assert 'NVDA_VERIFIED: NO' in source
           assert 'CreateProcessW(' in source
           assert 'SetEnvironmentVariableW(L"LOCALAPPDATA"' in source
+          assert 'STARTF_USESTDHANDLES' not in source
+          assert 'bInheritHandle = TRUE' not in source
           print('PORTABLE_ONECLICK_SOURCE_HYGIENE=PASS')
           PY
