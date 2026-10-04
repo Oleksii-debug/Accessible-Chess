@@ -8,11 +8,14 @@ on:
     branches:
       - work/full-product-teacher-education-reachability-20260911
       - integration/full-product-apex-books-training-regressions-20261004
+      - converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb
+      - converge/book-html-epub-semantics-20261004-c2mbezb
     paths:
       - 'acs/book_epub_import.py'
       - 'acs/version2_application.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
       - 'tests/test_epub_application_reachability_workflow.py'
+      - 'tests/test_epub_dc_metadata_identity.py'
       - 'tests/test_v2_book_epub_import.py'
       - 'tests/test_v2_book_epub_package_contract.py'
       - 'tests/test_v2_native_dialog_language.py'
@@ -57,19 +60,25 @@ jobs:
           git diff --check "$product" HEAD
 
           # Parser changes require an atomic, exact reviewed hardening set.
-          # Once that set is integrated into Product, ordinary descendants take
+          # Once a set is integrated into Product, ordinary descendants take
           # the first branch and remain byte-locked to then-current Product.
           parser_path='acs/book_epub_import.py'
           parser_test_path='tests/test_v2_book_epub_import.py'
           package_contract_test_path='tests/test_v2_book_epub_package_contract.py'
+          dc_metadata_test_path='tests/test_epub_dc_metadata_identity.py'
           product_parser="$(git rev-parse "$product:$parser_path")"
           product_parser_test="$(git rev-parse "$product:$parser_test_path")"
           candidate_parser="$(git rev-parse "HEAD:$parser_path")"
           candidate_parser_test="$(git rev-parse "HEAD:$parser_test_path")"
           candidate_package_contract_test="$(git rev-parse "HEAD:$package_contract_test_path")"
+          candidate_dc_metadata_test="$(git rev-parse "HEAD:$dc_metadata_test_path")"
           package_identity_successor_parser='13d304826900d5ab25586fa7a0de0ee73c25a4b2'
           package_identity_successor_parser_test='de189065192ca1c0bd30ce1ecec559e8f61cc1bc'
           package_identity_successor_contract_test='c0904af9b42e5cd50cf2a240145fd3cd0bfde9d2'
+          dc_metadata_successor_parser='9eaef49ac61ede991733a53611ac8f933d86990c'
+          dc_metadata_successor_parser_test='2af1740b289d0c231f1618acf9a3c25b409f5fb7'
+          dc_metadata_successor_contract_test='134cf79cf81037f4412b1eacb8e2358ddfe38163'
+          dc_metadata_successor_test='a59c4ac174dba43ce64962c1d780b6e9f49d95a6'
 
           if test "$candidate_parser" = "$product_parser" && \
              test "$candidate_parser_test" = "$product_parser_test"; then
@@ -78,9 +87,14 @@ jobs:
                test "$candidate_parser_test" = "$package_identity_successor_parser_test" && \
                test "$candidate_package_contract_test" = "$package_identity_successor_contract_test"; then
             echo "EPUB_PACKAGE_IDENTITY_SUCCESSOR=EXACT"
+          elif test "$candidate_parser" = "$dc_metadata_successor_parser" && \
+               test "$candidate_parser_test" = "$dc_metadata_successor_parser_test" && \
+               test "$candidate_package_contract_test" = "$dc_metadata_successor_contract_test" && \
+               test "$candidate_dc_metadata_test" = "$dc_metadata_successor_test"; then
+            echo "EPUB_DC_METADATA_IDENTITY_SUCCESSOR=EXACT"
           else
-            printf 'EPUB parser/test drift requires an exact reviewed hardening set: parser=%s test=%s contract=%s\n' \
-              "$candidate_parser" "$candidate_parser_test" "$candidate_package_contract_test" >&2
+            printf 'EPUB parser/test drift requires an exact reviewed hardening set: parser=%s test=%s contract=%s dc_metadata=%s\n' \
+              "$candidate_parser" "$candidate_parser_test" "$candidate_package_contract_test" "$candidate_dc_metadata_test" >&2
             exit 1
           fi
 
@@ -113,6 +127,7 @@ jobs:
           acs/version2_application.py
           acs/version2_windows_native_dialog_ownership.py
           tests/test_epub_application_reachability_workflow.py
+          tests/test_epub_dc_metadata_identity.py
           tests/test_v2_book_epub_import.py
           tests/test_v2_book_epub_package_contract.py
           tests/test_v2_native_dialog_language.py
@@ -122,6 +137,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_epub_application_reachability_workflow
+          tests.test_epub_dc_metadata_identity
           tests.test_version2_epub_application_reachability
           tests.test_v2_book_epub_import
           tests.test_v2_book_epub_package_contract
