@@ -20,12 +20,12 @@ permissions:
   contents: read
 
 env:
-  LAUNCHER_BLOB: de0fb5011cc75b7f20acc54c14b0661c07e8d6d6
-  CONTRACT_TEST_BLOB: 1db4a7883d69ae964f04a9f97599beeed26aaf97
+  LAUNCHER_BLOB: faba2231a985c34908e6e9fd1e656e70981159c0
+  CONTRACT_TEST_BLOB: c1dd7baf052798f19226d57cf14d8438e66d5414
 
 concurrency:
   group: portable-launch-report-reparse-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   contract:
