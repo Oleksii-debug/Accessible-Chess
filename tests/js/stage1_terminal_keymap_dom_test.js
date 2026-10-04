@@ -168,6 +168,11 @@ function chordFor(event) {
         ['key-context', settingsContextFilter],
         ['key-list', settingsList],
     ]);
+    for (const id of [
+        'h-settings', 'language-label', 'open-keymap', 'h-keyboard',
+        'key-search-label', 'key-context-label', 'key-reset-context',
+        'key-reset-all', 'key-export', 'key-import-label', 'close-keymap',
+    ]) settingsElements.set(id, new SettingsNode());
     const settingsSearchContext = {
         keymap: [{
             id: 'board.material',
@@ -183,6 +188,7 @@ function chordFor(event) {
         populateContextFilter() {},
         keymapContextLabel() { return this.document.documentElement.lang === 'en' ? 'Board' : 'Дошка'; },
         el(id) { return settingsElements.get(id) || null; },
+        setText(id, text) { const node = settingsElements.get(id); if (node) node.textContent = String(text || ''); },
         document: {
             documentElement: {lang: 'en'},
             activeElement: null,
@@ -198,9 +204,20 @@ function chordFor(event) {
     };
     settingsSearchContext.window = settingsSearchContext;
     vm.createContext(settingsSearchContext);
-    vm.runInContext(indexFunction('renderKeymap'), settingsSearchContext, {
+    vm.runInContext([
+        indexFunction('renderKeymap'),
+        indexFunction('applyKeymapLanguage'),
+    ].join('\\n'), settingsSearchContext, {
         filename: 'index-keymap-settings-search.js',
     });
+
+    settingsSearchContext.applyKeymapLanguage();
+    assert.strictEqual(settingsElements.get('h-settings').textContent, 'Settings');
+    assert.strictEqual(settingsElements.get('open-keymap').textContent, 'Keyboard and commands');
+    assert.strictEqual(settingsElements.get('key-search-label').textContent, 'Search');
+    assert.strictEqual(settingsElements.get('key-reset-all').textContent, 'Restore all');
+    assert.strictEqual(settingsElements.get('key-import-label').textContent, 'Import');
+    assert.strictEqual(settingsElements.get('close-keymap').textContent, 'Close');
 
     settingsSearch.value = 'material';
     settingsSearchContext.renderKeymap();
@@ -208,6 +225,13 @@ function chordFor(event) {
     assert.strictEqual(settingsList.children[0].children[0].textContent, 'Material');
 
     settingsSearchContext.document.documentElement.lang = 'uk';
+    settingsSearchContext.applyKeymapLanguage();
+    assert.strictEqual(settingsElements.get('h-settings').textContent, 'Налаштування');
+    assert.strictEqual(settingsElements.get('open-keymap').textContent, 'Клавіатура і команди');
+    assert.strictEqual(settingsElements.get('key-search-label').textContent, 'Пошук');
+    assert.strictEqual(settingsElements.get('key-reset-all').textContent, 'Відновити всі');
+    assert.strictEqual(settingsElements.get('key-import-label').textContent, 'Імпорт');
+    assert.strictEqual(settingsElements.get('close-keymap').textContent, 'Закрити');
     settingsSearch.value = 'material';
     settingsSearchContext.renderKeymap();
     assert.strictEqual(
