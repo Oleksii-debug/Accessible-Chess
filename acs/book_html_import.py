@@ -639,9 +639,10 @@ class _SemanticHtmlParser(HTMLParser):
             segment = _compact("".join(capture.parts[cursor:event.part_index]))
             if segment:
                 identity_text = legacy_text if legacy_identity_available else segment
+                identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
                 paragraph = Paragraph(
                     text=segment,
-                    block_id=self._block_id("Paragraph", identity_text),
+                    block_id=self._block_id(identity_kind, identity_text),
                     source_anchor=source_anchor if legacy_identity_available else None,
                 )
                 self._insert_block(self._block_identity_index(event.block), paragraph)
@@ -652,9 +653,10 @@ class _SemanticHtmlParser(HTMLParser):
         trailing = _compact("".join(capture.parts[cursor:]))
         if trailing:
             identity_text = legacy_text if legacy_identity_available else trailing
+            identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
             paragraph = Paragraph(
                 text=trailing,
-                block_id=self._block_id("Paragraph", identity_text),
+                block_id=self._block_id(identity_kind, identity_text),
                 source_anchor=source_anchor if legacy_identity_available else None,
             )
             if previous_event is None:
