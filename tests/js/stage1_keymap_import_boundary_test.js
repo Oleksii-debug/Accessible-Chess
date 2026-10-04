@@ -4,7 +4,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 
-const source = fs.readFileSync(process.argv[2], 'utf8');
+const source = fs.readFileSync(process.argv[2] || 'web/stage1_board_actions.js', 'utf8');
 const start = source.indexOf('function currentKeymapImportLimit()');
 const endMarker = 'installKeymapImportBoundary();';
 const end = source.indexOf(endMarker, start);
