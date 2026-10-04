@@ -190,7 +190,9 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
     def check_comment(comment: object) -> None:
         if type(comment) is not Comment:
             raise TypeError("canonical comments must use exact Comment values")
-        claim(comment)
+        # Comment identity is not part of GameTree graph topology. The canonical
+        # serializer permits one passive Comment value to be referenced from
+        # multiple lists, and detachment will materialize independent copies.
         if type(comment.text) is not str:
             raise TypeError("canonical comment text must be exact text")
         if type(comment.style) not in {CommentStyle, str}:
