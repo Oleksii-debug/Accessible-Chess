@@ -711,6 +711,82 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.assertEqual(controller.sync_chat(), ())
         self.assertEqual(self.store.room_messages("room-1"), (one, two))
 
+    def test_sync_applies_retention_redaction_without_reannouncing_content(self):
+        controller = self.controller()
+        original = self.chat.send_message(
+            ChatDraft(
+                "retention-redaction",
+                "room-1",
+                "teacher-1",
+                "Session-only secret",
+                retention="session",
+            )
+        )
+        self.assertEqual((original,), controller.sync_chat())
+        self.chat.state_updates = [
+            ChatMessageStateUpdate(
+                "room-1",
+                original.message_id,
+                0,
+                hidden=False,
+                redacted=True,
+            )
+        ]
+
+        self.assertEqual((), controller.sync_chat())
+        stored = self.store.room_messages("room-1", include_hidden=True)
+        self.assertEqual(1, len(stored))
+        self.assertEqual("", stored[0].body)
+        self.assertTrue(stored[0].redacted)
+        self.assertFalse(stored[0].hidden)
+        self.assertEqual(original.sequence_no, stored[0].sequence_no)
+        self.assertEqual(original.sent_at_unix_ms, stored[0].sent_at_unix_ms)
+        self.assertEqual(0, self.store.chat_state_revision("room-1"))
+
+        self.assertEqual((), controller.sync_chat())
+        replayed = self.store.room_messages("room-1", include_hidden=True)[0]
+        self.assertEqual("", replayed.body)
+        self.assertTrue(replayed.redacted)
+
+    def test_history_accepts_authoritative_redacted_tombstone_without_body(self):
+        controller = self.controller()
+        redacted = ChatMessageMetadata(
+            "already-redacted",
+            "room-1",
+            "teacher-1",
+            0,
+            "",
+            "transient",
+            sent_at_unix_ms=1700000000000,
+            redacted=True,
+        )
+        self.chat.ordered = [redacted]
+        self.chat.messages = {redacted.message_id: redacted}
+
+        self.assertEqual((), controller.sync_chat())
+        self.assertEqual(
+            (redacted,),
+            self.store.room_messages("room-1", include_hidden=True),
+        )
+
+    def test_live_receive_rejects_redacted_or_hidden_mutable_state(self):
+        controller = self.controller()
+        with self.assertRaisesRegex(
+            CollaborationError,
+            "live chat message cannot carry mutable state",
+        ):
+            controller.receive_chat(
+                ChatMessageMetadata(
+                    "live-redacted",
+                    "room-1",
+                    "teacher-1",
+                    0,
+                    "",
+                    sent_at_unix_ms=1700000000000,
+                    redacted=True,
+                )
+            )
+
     def test_new_chat_history_rolls_back_when_state_stream_has_gap(self):
         controller = self.controller()
         incoming = self.chat.send_message(
