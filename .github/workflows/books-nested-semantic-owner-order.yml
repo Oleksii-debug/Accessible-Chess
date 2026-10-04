@@ -1,0 +1,117 @@
+name: Book HTML Nested Semantic Owner Order
+
+on:
+  push:
+    branches:
+      - fix/books-nested-rich-owner-order-20261004-sol6u8
+    paths:
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_html_nested_semantic_owner_order.py'
+      - 'tools/apply_book_html_nested_semantic_owner_fix.py'
+      - '.github/workflows/books-nested-semantic-owner-order.yml'
+  pull_request:
+    paths:
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_html_nested_semantic_owner_order.py'
+      - 'tools/apply_book_html_nested_semantic_owner_fix.py'
+      - '.github/workflows/books-nested-semantic-owner-order.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  baseline-defect-proof:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+      - name: Prove baseline defect or already-published repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'def _needs_flat_nested_projection' acs/book_html_import.py; then
+            python -m unittest -v tests.test_book_html_nested_semantic_owner_order
+            echo 'NESTED_OWNER_BASELINE=ALREADY_REPAIRED'
+            exit 0
+          fi
+          set +e
+          python -m unittest -v tests.test_book_html_nested_semantic_owner_order > baseline.log 2>&1
+          rc=$?
+          set -e
+          cat baseline.log
+          if test "$rc" -eq 0; then
+            echo 'Nested-owner defect no longer reproduces but repair marker is absent.' >&2
+            exit 1
+          fi
+          grep -q 'FAILED' baseline.log
+          echo 'NESTED_OWNER_BASELINE_DEFECT=REPRODUCED'
+
+  patched-candidate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+      - name: Apply fail-closed candidate repair
+        run: python tools/apply_book_html_nested_semantic_owner_fix.py
+      - name: Compile focused candidate
+        run: python -m py_compile acs/book_html_import.py tests/test_book_html_nested_semantic_owner_order.py tools/apply_book_html_nested_semantic_owner_fix.py
+      - name: Run focused nested semantic owner regression
+        run: python -m unittest -v tests.test_book_html_nested_semantic_owner_order
+
+  publish-verified-candidate:
+    if: github.event_name == 'push'
+    needs: [baseline-defect-proof, patched-candidate]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+      - name: Reproduce verified source delta
+        run: python tools/apply_book_html_nested_semantic_owner_fix.py
+      - name: Re-run focused regression before publication
+        run: python -m unittest -v tests.test_book_html_nested_semantic_owner_order
+      - name: Publish verified parser source on this stacked branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- acs/book_html_import.py; then
+            echo 'NESTED_OWNER_SOURCE=ALREADY_PUBLISHED'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add acs/book_html_import.py
+          git commit -m 'Fix nested rich semantic owner source order'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
