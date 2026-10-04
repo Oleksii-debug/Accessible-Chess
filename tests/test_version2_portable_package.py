@@ -249,6 +249,47 @@ class PortableTreeTests(unittest.TestCase):
             self.assertIn("portable release manifest", observed)
             self.assertIn("portable launcher", observed)
 
+    def test_checksum_paths_use_canonical_windows_safe_grammar(self):
+        digest = "0" * 64
+        entries = portable_module._checksum_entries(
+            f"{digest}  folder\\file.txt\n".encode("utf-8"),
+            label="test checksum inventory",
+        )
+        self.assertEqual(
+            entries["folder/file.txt"],
+            ("folder/file.txt", digest),
+        )
+
+        for unsafe in (
+            "..\\escape.txt",
+            "folder\\..\\escape.txt",
+            "C:\\escape.txt",
+            "AUX.txt",
+        ):
+            with self.subTest(unsafe=unsafe):
+                payload = f"{digest}  {unsafe}\n".encode("utf-8")
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "test checksum inventory path is invalid",
+                ):
+                    portable_module._checksum_entries(
+                        payload,
+                        label="test checksum inventory",
+                    )
+
+        duplicate = (
+            f"{digest}  folder/file.txt\n"
+            f"{digest}  folder\\file.txt\n"
+        ).encode("utf-8")
+        with self.assertRaisesRegex(
+            Version2PortablePackageError,
+            "duplicate path",
+        ):
+            portable_module._checksum_entries(
+                duplicate,
+                label="test checksum inventory",
+            )
+
     def test_accepts_exact_oneclick_topology_without_prebundled_user_state(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
