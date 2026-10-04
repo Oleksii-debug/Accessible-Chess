@@ -30,7 +30,7 @@ concurrency:
 
 env:
   FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
-  RELEASE_APEX_BRANCH: qualification/owner-portable-candidate-20261004-sol6f2
+  RELEASE_APEX_BRANCH: fix/owner-portable-qualification-snapshot-pin-20261004-sol56
   WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
