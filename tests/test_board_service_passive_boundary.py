@@ -185,6 +185,37 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
 
         self.assertEqual(MaterialView(exact, exact, 0, 0).balance, 0)
 
+    def test_board_service_rejects_active_board_subclass_before_attribute_hooks(self) -> None:
+        class HostileBoard(BoardSnapshot):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if (
+                    name in {
+                        "pieces",
+                        "turn",
+                        "legal_moves",
+                        "attacks",
+                        "last_move",
+                        "last_captured_piece",
+                    }
+                    and type(self).armed
+                ):
+                    type(self).touched = True
+                    raise AssertionError("hostile BoardSnapshot attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostileBoard(_empty_pieces(), "w")
+        HostileBoard.armed = True
+
+        with self.assertRaisesRegex(TypeError, "board must be BoardSnapshot"):
+            BoardCommandService(hostile)
+        self.assertFalse(HostileBoard.touched)
+
+        exact = BoardSnapshot(_empty_pieces(), "w")
+        self.assertIs(BoardCommandService(exact).board, exact)
+
     def test_exact_builtin_values_keep_public_board_command_semantics(self) -> None:
         pieces = list(_empty_pieces())
         pieces[0] = "N"
