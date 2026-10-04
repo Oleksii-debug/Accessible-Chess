@@ -3,8 +3,10 @@ name: Training Snapshot Definition Identity V4
 on:
   push:
     branches:
-      - work/training-snapshot-definition-v4-20261004-solr8k
+      - integration/training-snapshot-live-base-gate-20261004-sol
   pull_request:
+    branches:
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
     paths:
       - 'acs/training.py'
       - 'tests/test_d08_training_canonical_resume.py'
@@ -46,18 +48,17 @@ jobs:
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
-          parent='d067245a97316c02d0ff687016c4d84aa77a0fe8'
-          git merge-base --is-ancestor "$parent" HEAD
-          test "$(git merge-base "$parent" HEAD)" = "$parent"
-          git diff --check "$parent" HEAD
+          target_base_ref='integration/current-main-windows-apex-reconvergence-20261004-sol'
+          git fetch --no-tags origin "$target_base_ref"
+          live_base="$(git rev-parse "origin/$target_base_ref")"
+          git cat-file -e "$live_base^{commit}"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
 
-          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          changed="$(git diff --name-only "$live_base" HEAD | sort)"
           expected="$(printf '%s\n' \
-            '.github/workflows/training-snapshot-definition-identity-v4.yml' \
-            'acs/training.py' \
-            'tests/test_d08_training_canonical_resume.py' \
-            'tests/test_training.py' \
-            'tests/test_training_snapshot_definition_identity_v4.py' | sort)"
+            '.github/workflows/training-snapshot-definition-identity-v4.yml' | sort)"
           test "$changed" = "$expected"
 
           test "$(git rev-parse HEAD:acs/training.py)" = '840521fe7912d2fe140180dad3fa772a191cd438'
