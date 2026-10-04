@@ -282,6 +282,42 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_manifest_media_type_requires_valid_type_and_subtype_identity(self) -> None:
+        malformed = (
+            "image/",
+            "/svg+xml",
+            "image//svg+xml",
+            "image/svg+xml; charset=utf-8",
+            "image/@svg",
+            f"image/{'a' * 128}",
+        )
+        for media_type in malformed:
+            with self.subTest(media_type=media_type):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml"/>\n'
+                            '    <item id="board" href="Images/board.svg" '
+                            f'media-type="{media_type}"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b'<html><body><img src="../Images/board.svg" '
+                            b'alt="Board diagram"/></body></html>'
+                        ),
+                        "OEBPS/Images/board.svg": b"<svg/>",
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="malformed-media-type.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
     def test_manifest_media_type_matching_remains_case_insensitive(self) -> None:
         raw = _epub(
             opf=_opf(
