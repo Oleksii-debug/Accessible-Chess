@@ -667,6 +667,49 @@ class Version2BookWorkspaceTests(unittest.TestCase):
         self.assertFalse(workflow.active)
         self.assertEqual(reader.location(), origin)
 
+    def test_browser_cannot_dispatch_semantically_disabled_board_open_alias(self):
+        cases = (
+            (
+                BookDocument(
+                    title="Position",
+                    blocks=[Position(fen=Board.START, block_id="position")],
+                ),
+                "book.open_game",
+            ),
+            (
+                BookDocument(
+                    title="Game",
+                    blocks=[
+                        Game(
+                            pgn='[Result "*"]\n\n1. e4 *',
+                            title="Game",
+                            block_id="game",
+                        )
+                    ],
+                ),
+                "book.open_position",
+            ),
+        )
+        for document, command in cases:
+            with self.subTest(command=command):
+                reader, workflow, bridge, events = self.compose(document)
+                before = reader.snapshot()
+                snapshot = bridge.projection.snapshot()
+                enabled = {
+                    action["command"]: action["enabled"]
+                    for action in snapshot["actions"]
+                }
+                self.assertFalse(enabled[command])
+
+                result = bridge.dispatch(command)
+
+                self.assertEqual(result.kind, "error")
+                self.assertNotIn("announcement", result.payload)
+                self.assertFalse(workflow.active)
+                self.assertEqual(workflow.revision, 0)
+                self.assertEqual(events, [])
+                self.assertEqual(reader.snapshot(), before)
+
     def test_browser_cannot_choose_position_or_raw_host_path(self):
         _, workflow, bridge, _ = self.compose(BookDocument(title="Study", blocks=[Position(fen=Board.START)]))
         for payload in ({"fen": Board.START}, {"path": "C:\\private\\book.txt"}, {"book_index": 2}):
