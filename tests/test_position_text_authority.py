@@ -79,6 +79,29 @@ class PositionTextAuthorityTests(unittest.TestCase):
             "Текст позиції містить забагато описів фігур",
         )
 
+    def test_position_text_character_bound_is_exact_and_failure_atomic(self):
+        canonical = "W: K e1 B: K e8"
+        at_limit = canonical + (" " * (4096 - len(canonical)))
+        self.assertEqual(
+            parse_piece_coordinate_position(at_limit).to_fen(),
+            "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+        )
+
+        too_long = at_limit + " "
+        with self.assertRaisesRegex(ValueError, "^position text is too long$"):
+            parse_piece_coordinate_position(too_long)
+        with self.assertRaisesRegex(ValueError, "^Текст позиції занадто довгий$"):
+            parse_position_text(too_long)
+        with self.assertRaisesRegex(ValueError, "^position text is too long$"):
+            parse_position_text(too_long, language="en")
+
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+        result = api.set_position_text(too_long, "w")
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(result["announcement"], "Текст позиції занадто довгий")
+
     def test_legacy_unknown_piece_diagnostic_remains_localized(self):
         with self.assertRaisesRegex(ValueError, "Невідома фігура: X"):
             parse_position_text("W: K e1 X d1 B: K e8")

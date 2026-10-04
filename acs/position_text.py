@@ -9,6 +9,8 @@ def _localized_message(exc: ValueError, language: str) -> str:
         return message
     if message == "position text must be text":
         return "Текст позиції має бути текстовим значенням"
+    if message == "position text is too long":
+        return "Текст позиції занадто довгий"
     if message == "position text must contain W: and B: sections":
         return "Потрібні секції W: і B:"
     if message == "turn must be 'w' or 'b'":

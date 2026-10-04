@@ -9,6 +9,7 @@ from .squares import FILES, parse_square
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
 MAX_COORDINATE_POSITION_TOKENS = 64 * 2
+MAX_COORDINATE_POSITION_CHARS = 4096
 _POSITION_SECTIONS_RE = re.compile(
     r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
 )
@@ -212,6 +213,8 @@ def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionSt
 
     if not isinstance(text, str):
         raise ValueError("position text must be text")
+    if len(text) > MAX_COORDINATE_POSITION_CHARS:
+        raise ValueError("position text is too long")
     if type(turn) is not str or turn not in {"w", "b"}:
         raise ValueError("turn must be 'w' or 'b'")
 
