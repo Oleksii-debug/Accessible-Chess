@@ -290,6 +290,95 @@ class PortableTreeTests(unittest.TestCase):
                 label="test checksum inventory",
             )
 
+    def test_source_manifest_semantics_are_hash_bound_to_same_stable_snapshot(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            manifest = portable_module._manifest(root)
+            inventory = portable_module._relative_files(root)
+            source_manifest = root / PORTABLE_SOURCE_METADATA_DIR / MANIFEST_NAME
+            raced_value = json.loads(source_manifest.read_text(encoding="utf-8"))
+            raced_value["race_marker"] = "changed-between-digest-and-parse"
+            raced_payload = (
+                json.dumps(raced_value, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            real_stable_bytes = portable_module._stable_bytes
+            injected = False
+
+            def mutate_then_read(path: Path, *args, **kwargs):
+                nonlocal injected
+                if (
+                    path == source_manifest
+                    and kwargs.get("label") == "canonical source release manifest"
+                    and not injected
+                ):
+                    source_manifest.write_bytes(raced_payload)
+                    injected = True
+                return real_stable_bytes(path, *args, **kwargs)
+
+            with mock.patch.object(
+                portable_module,
+                "_stable_bytes",
+                side_effect=mutate_then_read,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable source-package metadata digest is invalid",
+                ):
+                    portable_module._validate_preflighted_source_binding(
+                        root,
+                        integration_sha=_SHA,
+                        manifest=manifest,
+                        inventory=inventory,
+                    )
+
+            self.assertTrue(injected)
+
+    def test_source_checksums_semantics_are_hash_bound_to_same_stable_snapshot(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            manifest = portable_module._manifest(root)
+            inventory = portable_module._relative_files(root)
+            source_checksums = root / PORTABLE_SOURCE_METADATA_DIR / CHECKSUMS_NAME
+            original_lines = source_checksums.read_text(encoding="utf-8").splitlines()
+            self.assertGreater(len(original_lines), 1)
+            raced_payload = ("\n".join(reversed(original_lines)) + "\n").encode("utf-8")
+            self.assertNotEqual(source_checksums.read_bytes(), raced_payload)
+            real_stable_bytes = portable_module._stable_bytes
+            injected = False
+
+            def mutate_then_read(path: Path, *args, **kwargs):
+                nonlocal injected
+                if (
+                    path == source_checksums
+                    and kwargs.get("label") == "canonical source checksum inventory"
+                    and not injected
+                ):
+                    source_checksums.write_bytes(raced_payload)
+                    injected = True
+                return real_stable_bytes(path, *args, **kwargs)
+
+            with mock.patch.object(
+                portable_module,
+                "_stable_bytes",
+                side_effect=mutate_then_read,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable source-package metadata digest is invalid",
+                ):
+                    portable_module._validate_preflighted_source_binding(
+                        root,
+                        integration_sha=_SHA,
+                        manifest=manifest,
+                        inventory=inventory,
+                    )
+
+            self.assertTrue(injected)
+
     def test_accepts_exact_oneclick_topology_without_prebundled_user_state(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
