@@ -61,6 +61,9 @@ concurrency:
   group: owner-oneclick-finalizer-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
+
 jobs:
   finalize:
     runs-on: windows-2025
@@ -72,6 +75,28 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Bind finalizer to live default-branch release apex
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = "branch" || {
+            echo 'OWNER_FINALIZER_REQUIRES_BRANCH_REF' >&2
+            exit 1
+          }
+          test "$GITHUB_REF_NAME" = "$RELEASE_BRANCH" || {
+            printf 'OWNER_FINALIZER_WRONG_RELEASE_BRANCH actual=%s expected=%s\n' "$GITHUB_REF_NAME" "$RELEASE_BRANCH" >&2
+            exit 1
+          }
+          exact="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "$RELEASE_BRANCH"
+          live="$(git rev-parse "origin/$RELEASE_BRANCH")"
+          test "$exact" = "$live" || {
+            printf 'OWNER_FINALIZER_STALE_AT_START exact=%s live=%s\n' "$exact" "$live" >&2
+            exit 1
+          }
+          echo "EXACT_PRODUCT_SHA=$exact" >> "$GITHUB_ENV"
+          echo 'OWNER_FINALIZER_LIVE_RELEASE_APEX=PASS'
 
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -128,7 +153,6 @@ jobs:
           "OWNER_SEED_URL=$env:OWNER_SEED_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "FIRST_DOCX_URL=$env:FIRST_DOCX_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SECOND_DOCX_URL=$env:SECOND_DOCX_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "EXACT_PRODUCT_SHA=$env:GITHUB_SHA" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Download exact W4 artifact by run ID
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -163,6 +187,10 @@ jobs:
           if metadata.get('product_sha') != exact:
               raise SystemExit(
                   f'W4_PRODUCT_SHA_STALE actual={metadata.get("product_sha")} expected={exact}'
+              )
+          if metadata.get('workflow_sha') != exact:
+              raise SystemExit(
+                  f'W4_WORKFLOW_SHA_STALE actual={metadata.get("workflow_sha")} expected={exact}'
               )
           if metadata.get('human_tested') is not False or metadata.get('nvda_verified') is not False:
               raise SystemExit('W4_MACHINE_EVIDENCE_OVERCLAIMS_HUMAN_ACCEPTANCE')
@@ -353,6 +381,23 @@ jobs:
           Write-Host 'OWNER_ROOT_ONECLICK_MACHINE_LAUNCH=PASS'
           Write-Host 'HUMAN_TESTED=NO'
           Write-Host 'NVDA_VERIFIED=NO'
+
+      - name: Recheck live release apex immediately before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$(git rev-parse HEAD)"
+          test "$exact" = "$EXACT_PRODUCT_SHA" || {
+            printf 'OWNER_FINALIZER_CHECKOUT_DRIFT exact=%s bound=%s\n' "$exact" "$EXACT_PRODUCT_SHA" >&2
+            exit 1
+          }
+          git fetch --no-tags origin "$RELEASE_BRANCH"
+          live="$(git rev-parse "origin/$RELEASE_BRANCH")"
+          test "$EXACT_PRODUCT_SHA" = "$live" || {
+            printf 'OWNER_FINALIZER_STALE_BEFORE_UPLOAD exact=%s live=%s\n' "$EXACT_PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          echo 'OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS'
 
       - name: Upload exact owner one-click candidate and receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
