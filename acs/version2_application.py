@@ -386,7 +386,7 @@ class Version2Application:
                     reader.document,
                 )
             except BookProgressStoreError as recovery_error:
-                if recovery_error.code is BookProgressStoreErrorCode.STALE_WRITE:
+                if recovery_error.code == BookProgressStoreErrorCode.STALE_WRITE:
                     raise
                 raise error
             except (LookupError, TypeError, ValueError):
