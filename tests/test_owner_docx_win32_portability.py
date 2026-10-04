@@ -26,18 +26,32 @@ class OwnerDocxWin32PortabilityTests(unittest.TestCase):
         )
         for name in accepted:
             with self.subTest(kind="accepted", name=repr(name)):
-                self.assertEqual(owner_candidate._owner_docx_name(Path(name)), name)
+                self.assertEqual(owner_candidate._owner_docx_filename(name), name)
                 self.assertEqual(portable_package._portable_docx_name(Path(name)), name)
         for name in rejected:
             with self.subTest(kind="rejected", name=repr(name)):
-                with self.assertRaises(Exception):
-                    owner_candidate._owner_docx_name(Path(name))
-                with self.assertRaises(Exception):
+                with self.assertRaises(owner_candidate.OwnerPortableCandidateError):
+                    owner_candidate._owner_docx_filename(name)
+                with self.assertRaises(portable_package.Version2PortablePackageError):
                     portable_package._portable_docx_name(Path(name))
 
     def test_ordinary_ukrainian_docx_name_is_accepted(self) -> None:
         name = "Доступні шахи — інструкція.docx"
         self.assertEqual(owner_candidate._owner_docx_name(Path(name)), name)
+
+    def test_raw_filename_authority_rejects_path_and_drive_forms(self) -> None:
+        for name in (
+            "folder/document.docx",
+            r"folder\document.docx",
+            "C:document.docx",
+            r"C:\document.docx",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    owner_candidate.OwnerPortableCandidateError,
+                    "not Win32-portable",
+                ):
+                    owner_candidate._owner_docx_filename(name)
 
     def test_exact_255_utf16_unit_component_is_accepted(self) -> None:
         name = "a" * 250 + ".docx"
