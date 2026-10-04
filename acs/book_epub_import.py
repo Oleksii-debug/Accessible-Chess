@@ -447,16 +447,16 @@ def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> N
             )
         seen.add(raw_id)
 
-    # EPUB's id attribute is document-scoped. Count all recognized OPF
-    # id-bearing elements, plus direct Dublin Core metadata children. Foreign
-    # extension elements do not acquire EPUB ID semantics merely by spelling an
-    # attribute "id".
-    for element in package.iter():
-        if element.tag in _ID_BEARING_OPF_TAGS:
-            record(element)
+    # EPUB's id attribute is document-scoped. Count every recognized OPF
+    # id-bearing element plus Dublin Core elements anywhere the package grammar
+    # permits metadata (including metadata nested inside an outdated-but-
+    # conforming collection). Foreign extension elements do not acquire EPUB ID
+    # semantics merely by spelling an attribute "id".
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
-    for element in metadata:
-        if type(element.tag) is str and element.tag.startswith(dc_prefix):
+    for element in package.iter():
+        if element.tag in _ID_BEARING_OPF_TAGS or (
+            type(element.tag) is str and element.tag.startswith(dc_prefix)
+        ):
             record(element)
 
 

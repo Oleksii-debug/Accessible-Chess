@@ -170,7 +170,7 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
 
     def test_document_scope_id_uniqueness_successor_is_exactly_pinned(self) -> None:
         self.assertIn(
-            "document_id_successor_parser='82f575c5152893602297b1acdab745c6796fcbd8'",
+            "document_id_successor_parser='38d996fe820ff6c5c3e0f085bc87317fbc36a03a'",
             self.workflow,
         )
         self.assertIn(
@@ -182,7 +182,7 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            "document_id_successor_test='fcea29131622c0627f7179962af0111135659942'",
+            "document_id_successor_test='a47f8b6ac4d82929e9dc751e308d0265d32482cc'",
             self.workflow,
         )
         self.assertIn(
