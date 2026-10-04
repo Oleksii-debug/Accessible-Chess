@@ -1,4 +1,5 @@
 # exact-package-reconvergence: 6fca185 / p0g 6fca185 / p0-document 6fca185 / publication-parent 5cd508a
+# qualification-request: exact-6fca185-reopened
 name: Post-freeze V2 Windows Package Qualification
 
 on:
