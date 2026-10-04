@@ -22,6 +22,7 @@ from .engine_play_service import (
     dispatch_lifecycle_handoff,
     resolve_engine_game_config,
 )
+from .input_limits import MAX_FEN_CHARS
 from .engine_ports import (
     EngineContractError,
     EngineContractErrorCode,
@@ -145,7 +146,13 @@ class EngineNoMoveHandoff:
     history_node_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+            raise EngineContractError(
+                "no-move handoff FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_HANDOFF,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
             raise EngineContractError(
                 "no-move handoff FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_HANDOFF,
@@ -160,7 +167,7 @@ class EngineNoMoveHandoff:
                 "no-move handoff history_node_id must be non-empty text",
                 code=EngineContractErrorCode.INVALID_HANDOFF,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
         object.__setattr__(self, "history_node_id", self.history_node_id.strip())
 
 
@@ -777,12 +784,18 @@ class EngineGameSessionCoordinator:
 
     def _current_fen(self) -> str:
         fen = self._fen_provider()
-        if not isinstance(fen, str) or not fen.strip():
+        if type(fen) is not str or len(fen) > MAX_FEN_CHARS:
             raise EngineContractError(
                 "fen provider must return non-empty text",
                 code=EngineContractErrorCode.INVALID_PROVIDER,
             )
-        return fen.strip()
+        normalized = fen.strip()
+        if not normalized:
+            raise EngineContractError(
+                "fen provider must return non-empty text",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+        return normalized
 
     def _history_node_id(self) -> str:
         node_id = self._history_node_provider()
