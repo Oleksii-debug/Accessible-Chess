@@ -57,6 +57,7 @@ class OwnerPortableCandidateReport:
     document_sha256: tuple[str, str]
     sound_archive_sha256: str
     sound_inventory_sha256: str
+    package_checksum_sha256: str
     sound_wav_count: int
     seed_source_count: int
     seed_game_count: int
@@ -70,6 +71,7 @@ class OwnerPortableCandidateReport:
             "document_sha256": list(self.document_sha256),
             "sound_archive_sha256": self.sound_archive_sha256,
             "sound_inventory_sha256": self.sound_inventory_sha256,
+            "package_checksum_sha256": self.package_checksum_sha256,
             "sound_wav_count": self.sound_wav_count,
             "seed_source_count": self.seed_source_count,
             "seed_game_count": self.seed_game_count,
@@ -339,6 +341,11 @@ def validate_owner_portable_candidate_tree(
             "portable package failed canonical one-click validation"
         ) from exc
 
+    package_checksum = _sha256_value(
+        portable.checksum_sha256,
+        label="portable package checksum snapshot",
+    )
+
     sound_count, sound_inventory, sound_archive = _validate_owner_sound_pack(
         root / "App" / "assets" / "sounds",
         expected_archive_sha256=expected_sound_archive_sha256,
@@ -355,6 +362,7 @@ def validate_owner_portable_candidate_tree(
         "sound_wav_count": sound_count,
         "sound_inventory_sha256": sound_inventory,
         "sound_archive_sha256": sound_archive,
+        "package_checksum_sha256": package_checksum,
         "seed_source_count": seed_sources,
         "seed_game_count": seed_games,
     }
@@ -409,6 +417,7 @@ def assemble_owner_portable_candidate(
         output_zip,
         expected_integration_sha=integration_sha,
         require_user_seed=True,
+        expected_checksum_sha256=str(qualification["package_checksum_sha256"]),
     )
     if archived.archive_path is None or archived.archive_sha256 is None:
         _fail("owner portable candidate ZIP publication did not return an archive identity")
@@ -421,6 +430,7 @@ def assemble_owner_portable_candidate(
         document_sha256=(document_digests[0], document_digests[1]),
         sound_archive_sha256=str(qualification["sound_archive_sha256"]),
         sound_inventory_sha256=str(qualification["sound_inventory_sha256"]),
+        package_checksum_sha256=str(qualification["package_checksum_sha256"]),
         sound_wav_count=int(qualification["sound_wav_count"]),
         seed_source_count=int(qualification["seed_source_count"]),
         seed_game_count=int(qualification["seed_game_count"]),
