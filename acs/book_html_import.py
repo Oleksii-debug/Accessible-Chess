@@ -499,7 +499,10 @@ class _SemanticHtmlParser(HTMLParser):
             if len(self.blocks) == block_count + 1:
                 self._record_inline_semantic(self.blocks[-1])
         elif "data-acs-fen" in attrs and not self._head_depth:
+            block_count = len(self.blocks)
             self._emit_explicit_position(tag, attrs)
+            if len(self.blocks) == block_count + 1:
+                self._record_inline_semantic(self.blocks[-1])
 
         if tag in {"ol", "ul"} and self._lists:
             for capture in self._captures:
