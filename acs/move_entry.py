@@ -63,7 +63,7 @@ def parse_move_entry(
             position=parse_piece_coordinate_position(stripped, turn=position_turn),
         )
 
-    actions = registry or ActionRegistry()
+    actions = ActionRegistry() if registry is None else registry
     resolution = actions.resolve_alias(BindingContext.MOVE_ENTRY, stripped)
     if resolution is not None:
         return MoveEntryIntent(
