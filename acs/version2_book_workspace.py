@@ -6,6 +6,10 @@ It never creates the legacy presenter's independent Board return point.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import hmac
+import json
+import secrets
+from hashlib import sha256
 from typing import Any
 
 from .book_board_workflow import (
@@ -89,7 +93,63 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             raise TypeError("V2 Books requires the canonical reader and workflow")
         self._reader = reader
         self._workflow = workflow
+        self._presentation_key = secrets.token_bytes(32)
         super().__init__(Version2BookReaderPresenter(reader, language=language), dispatch, language=language)
+
+    def _presentation_token(
+        self,
+        *,
+        index: int,
+        board_active: bool,
+        workflow_revision: int,
+    ) -> str:
+        if type(index) is not int or index < 0:
+            raise ValueError("Book presentation index is invalid")
+        if type(board_active) is not bool:
+            raise ValueError("Book presentation board state is invalid")
+        if type(workflow_revision) is not int or workflow_revision < 0:
+            raise ValueError("Book presentation workflow revision is invalid")
+        payload = json.dumps(
+            {
+                "index": index,
+                "board_active": board_active,
+                "workflow_revision": workflow_revision,
+                "language": self.language.value,
+                "bookmark_name": self.bookmark_name,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return hmac.new(self._presentation_key, payload, sha256).hexdigest()
+
+    def browser_presentation_guard(
+        self,
+        token: str | None,
+    ) -> BookWebViewEvent | None:
+        if token is None:
+            # Preserve native/menu and focused Python-call compatibility. The
+            # production browser boundary separately requires a lease after a
+            # rendered Books snapshot, just like the PGN surface.
+            return None
+        try:
+            board_active, workflow_revision = self._workflow_presentation_state()
+            expected = self._presentation_token(
+                index=self._reader.index,
+                board_active=board_active,
+                workflow_revision=workflow_revision,
+            )
+        except Exception:
+            return self.generic_error()
+        if hmac.compare_digest(token, expected):
+            return None
+        # Stale DOM intent must never be reinterpreted against a newer Book
+        # cursor/workflow state. Publish the current read-only presentation
+        # instead so keyboard/NVDA users recover to the canonical block.
+        try:
+            return self._render(self._presenter.current())
+        except Exception:
+            return self.generic_error()
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
@@ -711,6 +771,11 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             actions.append(action)
         snapshot["actions"] = tuple(actions)
         snapshot["board_active"] = board_active
+        snapshot["presentation_token"] = self._presentation_token(
+            index=block.index,
+            board_active=final_board_active,
+            workflow_revision=final_workflow_revision,
+        )
         return snapshot
 
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
