@@ -21,6 +21,10 @@ from .engine_ports import (
 from .input_limits import MAX_FEN_CHARS
 
 
+ANALYSIS_MAX_LINES = 10
+ANALYSIS_MAX_PV_PLIES = 256
+
+
 @dataclass(frozen=True)
 class AnalysisLine:
     multipv: int
@@ -33,10 +37,15 @@ class AnalysisLine:
         if (
             not isinstance(self.multipv, int)
             or isinstance(self.multipv, bool)
-            or not 1 <= self.multipv <= 10
+            or not 1 <= self.multipv <= ANALYSIS_MAX_LINES
         ):
             raise EngineContractError(
                 "analysis multipv index must be an integer between 1 and 10",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if isinstance(self.pv, tuple) and len(self.pv) > ANALYSIS_MAX_PV_PLIES:
+            raise EngineContractError(
+                "analysis PV exceeds supported bound",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         raw = RawAnalysisLine(
@@ -95,9 +104,17 @@ class AnalysisResult:
                 "analysis stale flag must be boolean",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.lines, tuple) or any(
-            not isinstance(line, AnalysisLine) for line in self.lines
-        ):
+        if not isinstance(self.lines, tuple):
+            raise EngineContractError(
+                "analysis result lines must be an AnalysisLine tuple",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if len(self.lines) > ANALYSIS_MAX_LINES:
+            raise EngineContractError(
+                "analysis result contains too many lines",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if any(not isinstance(line, AnalysisLine) for line in self.lines):
             raise EngineContractError(
                 "analysis result lines must be an AnalysisLine tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -215,6 +232,11 @@ class AnalysisService:
                 "legacy analysis PV must be a move sequence",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
+        if len(pv) > ANALYSIS_MAX_PV_PLIES:
+            raise EngineContractError(
+                "legacy analysis PV exceeds supported bound",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
         score_kind, score_value = score
         raw = RawAnalysisLine(
             item_depth,
@@ -255,7 +277,7 @@ class AnalysisService:
                     f"analysis {name} must be an integer",
                     code=EngineContractErrorCode.INVALID_REQUEST,
                 )
-        return max(1, min(10, multipv)), max(1, min(40, depth))
+        return max(1, min(ANALYSIS_MAX_LINES, multipv)), max(1, min(40, depth))
 
     @classmethod
     def _snapshot_provider_result(
@@ -268,8 +290,17 @@ class AnalysisService:
                 "analysis provider must return a sequence",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
+        # Sequence is the provider protocol. Reject an advertised over-width
+        # result before tuple() can materialize provider-controlled elements.
+        if len(raw) > multipv:
+            raise EngineContractError(
+                "analysis provider returned more lines than requested",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
         items = tuple(raw)
         if len(items) > multipv:
+            # Preserve the post-materialization check for unstable provider
+            # sequences whose reported size changes while being read.
             raise EngineContractError(
                 "analysis provider returned more lines than requested",
                 code=EngineContractErrorCode.INVALID_RESULT,
