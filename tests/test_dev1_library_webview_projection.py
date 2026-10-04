@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_presenters import LibraryPresenter, SurfaceStatus
 from acs.full_product_ui_shell import UILanguage
@@ -280,33 +281,59 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         )
         self.assertEqual(ua["focus_target"], en["focus_target"])
 
-    def test_snapshot_does_not_mix_live_selection_changed_after_immutable_view_capture(self) -> None:
+    def test_presenter_subclass_is_rejected_before_presentation_hooks(self) -> None:
         service = FakeSearchService()
 
-        class MutatingAfterReadPresenter(LibraryPresenter):
-            def __init__(self, backend):
-                super().__init__(backend, language=UILanguage.EN)
-                self.view_calls = 0
-                self.live_selection_after_read = None
+        class HostilePresenter(LibraryPresenter):
+            armed = False
+            touched = False
 
-            def view(self):
-                self.view_calls += 1
-                view = super().view()
-                if self.view_calls == 1 and len(view.rows) > 1:
-                    self._selected_game_id = view.rows[1].game_id
-                    self.live_selection_after_read = self._selected_game_id
-                return view
+            def set_language(self, language):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile Library presenter hook must not execute")
+                return super().set_language(language)
 
-        presenter = MutatingAfterReadPresenter(service)
-        projection = LibraryWebViewProjection(presenter, lambda _action, _payload: None, language=UILanguage.EN)
-        # Seed pages through the base implementation so the adversarial read only
-        # applies to the final browser snapshot under test.
-        LibraryPresenter.search(presenter, GameSearchQuery(limit=2))
-        presenter.view_calls = 0
+        hostile = HostilePresenter(service, language=UILanguage.EN)
+        HostilePresenter.armed = True
+
+        with self.assertRaisesRegex(TypeError, "presenter must be LibraryPresenter"):
+            LibraryWebViewProjection(
+                hostile,
+                lambda _action, _payload: None,
+                language=UILanguage.EN,
+            )
+
+        self.assertFalse(HostilePresenter.touched)
+
+    def test_snapshot_does_not_mix_live_selection_changed_after_immutable_view_capture(self) -> None:
+        service = FakeSearchService()
+        presenter = LibraryPresenter(service, language=UILanguage.EN)
+        projection = LibraryWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+        # Seed pages before injecting re-entrant view behavior so the product
+        # ingress contract stays exact while the atomicity proof stays adversarial.
+        presenter.search(GameSearchQuery(limit=2))
         presenter._selected_game_id = 1
-        snapshot = projection.snapshot()
-        self.assertEqual(1, presenter.view_calls)
-        self.assertEqual(2, presenter.live_selection_after_read)
+        original_view = presenter.view
+        state = {"view_calls": 0, "live_selection_after_read": None}
+
+        def mutating_view():
+            state["view_calls"] += 1
+            view = original_view()
+            if state["view_calls"] == 1 and len(view.rows) > 1:
+                presenter._selected_game_id = view.rows[1].game_id
+                state["live_selection_after_read"] = presenter._selected_game_id
+            return view
+
+        with patch.object(presenter, "view", side_effect=mutating_view):
+            snapshot = projection.snapshot()
+
+        self.assertEqual(1, state["view_calls"])
+        self.assertEqual(2, state["live_selection_after_read"])
         self.assertEqual(1, snapshot["selected_game_id"])
         self.assertEqual(1, [row for row in snapshot["rows"] if row["selected"]][0]["game_id"])
 
