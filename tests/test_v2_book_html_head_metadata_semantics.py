@@ -147,6 +147,27 @@ class BookHtmlHeadMetadataSemanticsTests(unittest.TestCase):
                 rendered = "\n".join(getattr(block, "text", "") for block in result.document.blocks)
                 self.assertIn(expected, rendered)
 
+    def test_malformed_image_src_preserves_accessible_content_without_local_asset(self) -> None:
+        source = '''<html><body>
+<p>Readable before</p>
+<img src="//[bad" alt="Accessible diagram description">
+<p>Readable after</p>
+</body></html>'''
+        result = import_html_book(
+            source,
+            source_name="malformed-image-src.html",
+            available_assets={"known.png"},
+        )
+        rendered = "\n".join(getattr(block, "text", "") for block in result.document.blocks)
+        self.assertIn("Readable before", rendered)
+        self.assertIn("Readable after", rendered)
+        notes = [block for block in result.document.blocks if isinstance(block, Note)]
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].text, "Accessible diagram description")
+        self.assertEqual(notes[0].note_type, "image")
+        self.assertEqual(result.image_references, ("//[bad",))
+        self.assertEqual(result.missing_assets, ())
+
     def test_list_item_br_boundaries_remain_readable(self) -> None:
         result = import_html_book(
             "<html><body><ul><li>White<br>to move</li><li>Black<br/>to move</li></ul></body></html>",
