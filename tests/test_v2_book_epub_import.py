@@ -28,6 +28,7 @@ CONTAINER = b'''<?xml version="1.0" encoding="UTF-8"?>
 def _opf(*, manifest: str, spine: str, metadata: str | None = None) -> bytes:
     if metadata is None:
         metadata = '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
     <dc:title>Accessible EPUB Chess</dc:title>
     <dc:creator>Author One</dc:creator>
     <dc:creator>Author Two</dc:creator>
