@@ -130,14 +130,13 @@ def _launcher_identity(path: Path) -> None:
     info = _safe_info(path, label="portable launcher", directory=False)
     if info.st_size < 1024 or info.st_size > 1024 * 1024:
         _fail("portable launcher byte size is outside the accepted native-launcher envelope")
-    try:
-        with path.open("rb") as handle:
-            if handle.read(2) != b"MZ":
-                _fail("portable launcher is not a Windows PE executable")
-    except Version2PortablePackageError:
-        raise
-    except OSError as exc:
-        _fail(f"portable launcher cannot be read: {type(exc).__name__}")
+    payload = _stable_bytes(
+        path,
+        label="portable launcher",
+        maximum=1024 * 1024,
+    )
+    if payload[:2] != b"MZ":
+        _fail("portable launcher is not a Windows PE executable")
 
 
 def _strict_json_bytes(payload: bytes) -> dict[str, object]:
@@ -166,10 +165,11 @@ def _manifest(root: Path) -> dict[str, object]:
     info = _safe_info(path, label="portable release manifest", directory=False)
     if info.st_size <= 0 or info.st_size > 1024 * 1024:
         _fail("portable release manifest byte size is invalid")
-    try:
-        payload = path.read_bytes()
-    except OSError as exc:
-        _fail(f"portable release manifest cannot be read: {type(exc).__name__}")
+    payload = _stable_bytes(
+        path,
+        label="portable release manifest",
+        maximum=1024 * 1024,
+    )
     value = _strict_json_bytes(payload)
     if set(value) != _PORTABLE_MANIFEST_KEYS:
         _fail("portable release manifest contract is invalid")
