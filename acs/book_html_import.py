@@ -676,8 +676,8 @@ class _SemanticHtmlParser(HTMLParser):
             title_index = next(
                 (
                     index
-                    for index in range(len(self._captures) - 1, -1, -1)
-                    if self._captures[index].kind == "title"
+                    for index, capture in enumerate(self._captures)
+                    if capture.kind == "title"
                 ),
                 None,
             )
