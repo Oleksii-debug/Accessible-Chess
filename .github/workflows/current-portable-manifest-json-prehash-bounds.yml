@@ -34,12 +34,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact shipping-candidate ancestry and bounded scope
+      - name: Prove exact package source or combined integration scope
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          SOURCE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
+          INTEGRATION_BRANCH: converge/current-product-package-manifest-integration-20261004-3pg7jcgq
         run: |
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -51,15 +53,47 @@ jobs:
             test "$EVENT_BASE_SHA" = "$live_base"
           fi
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+
+          git fetch --no-tags origin "+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"
+          live_source="$(git rev-parse "refs/remotes/origin/$SOURCE_BRANCH")"
+          git merge-base --is-ancestor "$live_source" HEAD
+
           git diff --check "$live_base"...HEAD
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/current-portable-manifest-json-prehash-bounds.yml' \
-            'acs/version2_package_preflight.py' \
-            'acs/version2_portable_package.py' \
-            'tests/test_portable_manifest_json_prehash_bounds_current.py' | sort)"
+          if [ "$expected_head" = "$live_source" ]; then
+            expected="$(printf '%s\n' \
+              '.github/workflows/current-portable-manifest-json-prehash-bounds.yml' \
+              'acs/version2_package_preflight.py' \
+              'acs/version2_portable_package.py' \
+              'tests/test_portable_manifest_json_prehash_bounds_current.py' | sort)"
+          else
+            git fetch --no-tags origin "+refs/heads/$INTEGRATION_BRANCH:refs/remotes/origin/$INTEGRATION_BRANCH"
+            live_integration="$(git rev-parse "refs/remotes/origin/$INTEGRATION_BRANCH")"
+            test "$expected_head" = "$live_integration"
+            expected="$(printf '%s\n' \
+              '.github/workflows/current-bookdocument-total-text-budget.yml' \
+              '.github/workflows/current-bookdocument-training-resource-convergence.yml' \
+              '.github/workflows/current-bookreader-revision-barriers.yml' \
+              '.github/workflows/current-bookreader-training-resource-convergence.yml' \
+              '.github/workflows/current-portable-manifest-json-prehash-bounds.yml' \
+              '.github/workflows/current-product-portable-integration-convergence.yml' \
+              '.github/workflows/current-settings-bookreader-resource-convergence.yml' \
+              '.github/workflows/current-training-progress-json-prehash-bounds.yml' \
+              'acs/bookdocument.py' \
+              'acs/bookreader.py' \
+              'acs/settings.py' \
+              'acs/training_progress_store.py' \
+              'acs/version2_package_preflight.py' \
+              'acs/version2_portable_package.py' \
+              'tests/test_bookdocument_total_text_budget_current.py' \
+              'tests/test_bookreader.py' \
+              'tests/test_bookreader_revision_barriers_current.py' \
+              'tests/test_portable_manifest_json_prehash_bounds_current.py' \
+              'tests/test_settings_corruption_security.py' \
+              'tests/test_training_progress_json_prehash_bounds_current.py' | sort)"
+          fi
           test "$changed" = "$expected" || {
-            printf 'Unexpected package manifest prehash scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected package manifest qualification scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
