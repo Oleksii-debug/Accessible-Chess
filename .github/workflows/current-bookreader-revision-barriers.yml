@@ -58,6 +58,7 @@ jobs:
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-bookreader-revision-barriers.yml' \
             'acs/bookreader.py' \
+            'tests/test_bookreader.py' \
             'tests/test_bookreader_revision_barriers_current.py' | sort)"
           test "$changed" = "$expected_paths" || {
             printf 'Unexpected BookReader revision-barrier scope:\n%s\n' "$changed" >&2
