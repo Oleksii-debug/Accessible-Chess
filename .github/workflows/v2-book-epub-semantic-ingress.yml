@@ -5,9 +5,6 @@ on:
     branches:
       - fix/v2-epub-retained-gate-20260911
   pull_request:
-    branches:
-      - work/full-product-teacher-education-reachability-20260911
-      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - .github/workflows/v2-book-epub-semantic-ingress.yml
       - acs/book_epub_import.py
@@ -42,6 +39,9 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,18 +64,39 @@ jobs:
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove integrated EPUB ancestry and retained gate hygiene
+      - name: Prove live-base ancestry and retained EPUB authority
         shell: bash
         env:
           EPUB_INTEGRATION_SHA: b7eaab155cd86d41a6126a6a26c15c7f8bacfb53
         run: |
           set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
           integrated="$EPUB_INTEGRATION_SHA"
           git cat-file -e "${integrated}^{commit}" || git fetch --no-tags origin "$integrated"
           git merge-base --is-ancestor "$integrated" HEAD
-          git diff --check "$integrated" HEAD
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            event_base="$PR_BASE_SHA"
+            base_ref="$PR_BASE_REF"
+            test -n "$event_base"
+            test -n "$base_ref"
+            git cat-file -e "${event_base}^{commit}"
+            git fetch --no-tags origin "$base_ref"
+            live_base="$(git rev-parse "origin/$base_ref")"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            upstream="$live_base"
+          else
+            upstream="$integrated"
+          fi
+
+          git diff --check "$upstream" HEAD
           test -s acs/book_epub_import.py
           test -s tests/test_v2_book_epub_import.py
+          echo "EPUB_RETAINED_UPSTREAM=$upstream"
 
       - name: Compile EPUB adapter and regressions
         run: python -m py_compile acs/book_epub_import.py tests/test_v2_book_epub_import.py
