@@ -927,11 +927,25 @@ class TrainingProgressStore:
                     )
                 new_revision = _revision(data)
 
-                # An identical canonical payload is already durable, but the
-                # revision comparison above is still authoritative. Elide only
-                # the physical rewrite after proving under the peer lock that
-                # the caller's expected revision is still the current file.
+                # An identical canonical payload can elide the physical rewrite
+                # only after a final transaction-level CAS. Snapshot generation
+                # is caller-controlled work and may take long enough for a
+                # non-cooperating writer to replace canonical storage.
                 if current_data == data:
+                    no_op_data = self._read_progress_bytes(missing_ok=True)
+                    no_op_identity = self._progress_path_identity(missing_ok=True)
+                    if (
+                        no_op_data != current_data
+                        or transaction_identity is None
+                        or no_op_identity is None
+                        or not self._same_file_identity(
+                            transaction_identity,
+                            no_op_identity,
+                        )
+                    ):
+                        raise TrainingProgressConflictError(
+                            "training progress changed during no-op save"
+                        )
                     return new_revision
 
                 active_directory = self._active_storage_directory_identity
