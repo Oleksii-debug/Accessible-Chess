@@ -79,10 +79,25 @@ class BookReader:
     def index(self) -> int:
         return self._index
 
-    def document_warnings_snapshot(self) -> tuple[str, ...]:
-        """Return importer warnings bound to this reader's indexed document snapshot."""
+    def document_warning_count(self) -> int:
+        """Return the warning count bound to this reader's indexed document snapshot."""
         self._require_indexed_revision()
-        return tuple(self._indexed_document.warnings)
+        return len(self._indexed_document.warnings)
+
+    def document_warnings_snapshot(
+        self,
+        *,
+        limit: int | None = None,
+    ) -> tuple[str, ...]:
+        """Return bounded importer warnings from this reader's indexed snapshot."""
+        self._require_indexed_revision()
+        if limit is None:
+            return tuple(self._indexed_document.warnings)
+        if type(limit) is not int:
+            raise TypeError("Book warning snapshot limit must be an integer")
+        if limit < 0:
+            raise ValueError("Book warning snapshot limit must not be negative")
+        return tuple(islice(self._indexed_document.warnings, limit))
 
     def _require_content(self) -> None:
         self._require_indexed_revision()

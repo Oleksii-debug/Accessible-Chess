@@ -70,6 +70,24 @@ class BookDocumentWarningAccessibilityTests(unittest.TestCase):
         self.assertIn("warning captured by reader", warning)
         self.assertNotIn("later authoring warning", warning)
 
+    def test_reader_warning_snapshot_limit_is_bounded_and_counted(self) -> None:
+        document = BookDocument(
+            title="Warning snapshot limit",
+            warnings=[f"warning-{index}" for index in range(1, 6)],
+            blocks=[Paragraph(text="Readable body")],
+        )
+        reader = BookReader(document)
+
+        self.assertEqual(5, reader.document_warning_count())
+        self.assertEqual(
+            ("warning-1", "warning-2"),
+            reader.document_warnings_snapshot(limit=2),
+        )
+        with self.assertRaises(TypeError):
+            reader.document_warnings_snapshot(limit=True)
+        with self.assertRaises(ValueError):
+            reader.document_warnings_snapshot(limit=-1)
+
     def test_warning_summary_is_bounded_and_reports_hidden_items(self) -> None:
         warnings = [f"warning-{index}" for index in range(1, 6)]
         warnings[0] = "x" * 400
@@ -87,7 +105,7 @@ class BookDocumentWarningAccessibilityTests(unittest.TestCase):
     def test_projection_redacts_private_paths_from_document_warning(self) -> None:
         document = BookDocument(
             title="Private path warning",
-            warnings=[r"failed source C:\Users\Oleksii\private\chapter.xhtml"],
+            warnings=[r"failed source C:\Users\Example\private\chapter.xhtml"],
             blocks=[Paragraph(text="Readable body")],
         )
         projection = BookWebViewProjection(
@@ -101,7 +119,7 @@ class BookDocumentWarningAccessibilityTests(unittest.TestCase):
 
         self.assertIn("Import warnings:", warning)
         self.assertIn("[local path hidden]", warning)
-        self.assertNotIn("Oleksii", warning)
+        self.assertNotIn("Example", warning)
         self.assertNotIn("chapter.xhtml", warning)
 
     def test_document_warning_preserves_existing_block_accessibility_warning(self) -> None:

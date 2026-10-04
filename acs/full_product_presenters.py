@@ -499,12 +499,15 @@ class BookReaderPresenter:
     ) -> None:
         self._reader = reader
         self._language = language
-        warnings = reader.document_warnings_snapshot()
+        self._document_warning_count = reader.document_warning_count()
+        warnings = reader.document_warnings_snapshot(
+            limit=self._MAX_DOCUMENT_WARNING_ITEMS,
+        )
         if type(warnings) is not tuple or any(type(item) is not str for item in warnings):
             raise TypeError("BookDocument warnings must remain built-in text")
         # Bind presentation to BookReader's indexed document snapshot rather than
-        # the mutable authoring document. This keeps warnings consistent with the
-        # semantic blocks already frozen by the open reader session.
+        # the mutable authoring document. Keep only the presentation-owned prefix
+        # so rendering never copies or normalizes an unbounded warning collection.
         self._document_warnings = warnings
 
     def set_language(self, language: UILanguage) -> None:
@@ -533,8 +536,9 @@ class BookReaderPresenter:
                 shown.append(text)
         if not shown:
             return ""
-        hidden = len(self._document_warnings) - min(
-            len(self._document_warnings), self._MAX_DOCUMENT_WARNING_ITEMS
+        hidden = max(
+            0,
+            self._document_warning_count - len(self._document_warnings),
         )
         prefix = _localized(self._language, "Попередження імпорту", "Import warnings")
         summary = f"{prefix}: " + "; ".join(shown)
