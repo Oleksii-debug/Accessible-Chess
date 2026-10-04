@@ -249,6 +249,10 @@ def _portable_name(value: object) -> str:
 def _display_name(value: object) -> str:
     if type(value) is not str:
         raise UserLibrarySeedError("user Library seed display name is invalid")
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise UserLibrarySeedError("user Library seed display name is invalid")
     if (
         not value
         or value != value.strip()

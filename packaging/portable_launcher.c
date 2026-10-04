@@ -21,6 +21,9 @@
 #define AC_STARTUP_OBSERVE_MS 2500
 #define AC_REPORT_RETRY_MS 100
 #define AC_REPORT_RETRY_COUNT 40
+#define ACCESSIBILITY_HOST_INIT_EXIT_CODE 71
+#define SAFE_LOCAL_SERVER_INIT_EXIT_CODE 72
+#define RELEASE_UI_STARTUP_EXIT_CODE 73
 
 static WCHAR g_module[AC_PATH_CAP];
 static WCHAR g_root[AC_PATH_CAP];
@@ -109,6 +112,26 @@ static BOOL ac_append_u32(WCHAR *target, SIZE_T cap, DWORD value) {
         if (!ac_append(target, cap, one)) return FALSE;
     }
     return TRUE;
+}
+
+static const WCHAR *ac_child_exit_reason(DWORD code) {
+    if (code == ACCESSIBILITY_HOST_INIT_EXIT_CODE) return L"ACCESSIBILITY_HOST_INIT_FAILED";
+    if (code == SAFE_LOCAL_SERVER_INIT_EXIT_CODE) return L"SAFE_LOCAL_SERVER_INIT_FAILED";
+    if (code == RELEASE_UI_STARTUP_EXIT_CODE) return L"RELEASE_UI_STARTUP_FAILED";
+    return L"UNKNOWN_EARLY_EXIT";
+}
+
+static const WCHAR *ac_child_exit_user_detail(DWORD code) {
+    if (code == ACCESSIBILITY_HOST_INIT_EXIT_CODE) {
+        return L"Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.";
+    }
+    if (code == SAFE_LOCAL_SERVER_INIT_EXIT_CODE) {
+        return L"Не вдалося ініціалізувати безпечний локальний сервер WebView2.";
+    }
+    if (code == RELEASE_UI_STARTUP_EXIT_CODE) {
+        return L"Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
+    }
+    return L"Невідома рання помилка основної програми.";
 }
 
 static void ac_write_utf8(HANDLE handle, const WCHAR *text) {
@@ -320,10 +343,14 @@ void WINAPI wWinMainCRTStartup(void) {
         g_message[0] = L'\0';
         ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
         ac_write_line(report, g_message);
+        ac_write_utf8(report, L"CHILD_EXIT_REASON: ");
+        ac_write_line(report, ac_child_exit_reason(exit_code));
         FlushFileBuffers(report);
 
         ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився одразу після запуску.\r\n\r\nКод: ");
         ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
+        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nПричина: ");
+        ac_append(g_message, AC_PATH_CAP + 2048, ac_child_exit_user_detail(exit_code));
         ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nЗвіт: ");
         ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
         MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);

@@ -11,6 +11,7 @@ from acs.user_library_seed import (
     BUNDLE_KIND,
     SCHEMA_VERSION,
     UserLibrarySeedError,
+    _display_name,
     _portable_name,
     import_user_library_seed,
     load_user_library_seed,
@@ -167,9 +168,17 @@ class UserLibrarySeedTests(unittest.TestCase):
                     ):
                         load_user_library_seed(root)
 
+    def test_windows_utf16_component_limit_accepts_exact_boundary(self) -> None:
+        exactly_255_units = "😀" * 125 + "a.pgn"
+        self.assertEqual(_portable_name(exactly_255_units), exactly_255_units)
+
     def test_unpaired_surrogate_filename_is_rejected_before_path_use(self) -> None:
         with self.assertRaisesRegex(UserLibrarySeedError, "filename is unsafe"):
             _portable_name("\ud800.pgn")
+
+    def test_unpaired_surrogate_display_name_is_rejected_before_ui_use(self) -> None:
+        with self.assertRaisesRegex(UserLibrarySeedError, "display name is invalid"):
+            _display_name("Broken \udfff title")
 
     def test_byte_tampering_fails_before_library_publication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
