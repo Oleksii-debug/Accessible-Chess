@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: books-current-owner-convergence-${{ github.ref }}
+  group: books-current-owner-convergence-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - name: Checkout exact convergence head
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -46,7 +46,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
           for absorbed in \
             36cf0bb63cc45255df3e60dd160cdd4e0ad195a2 \
             64cd6bd75cef34bfc477f651919202d2774ecd74 \
