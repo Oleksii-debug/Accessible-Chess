@@ -685,24 +685,75 @@ def assemble_portable_oneclick_tree(
     except OSError as exc:
         _fail(f"portable package output parent cannot be prepared: {type(exc).__name__}")
 
+    # Freeze the live canonical source into a private snapshot and run the full
+    # canonical validator against that exact snapshot.  A successful preflight
+    # of the live source is not enough: the source directory can otherwise be
+    # coherently rewritten after preflight but before portable copying, letting
+    # bytes that never passed the canonical policy become the outer payload.
+    snapshot_container = Path(
+        tempfile.mkdtemp(prefix="accessible-chess-portable-source-")
+    )
+    canonical_snapshot = snapshot_container / "canonical"
     staged = Path(tempfile.mkdtemp(prefix=f".{output.name}.portable-", dir=output.parent))
     try:
+        _copy_tree(canonical, canonical_snapshot, label="canonical source package")
+        validate_version2_package_tree(
+            canonical_snapshot,
+            expected_integration_sha=sha,
+        )
+
         _copy_file(launcher, staged / PORTABLE_LAUNCHER_NAME, label="portable launcher")
-        _copy_tree(canonical / "AccessibleChess", staged / PORTABLE_APP_DIR, label="canonical product payload")
-        _copy_tree(canonical / "THIRD_PARTY_NOTICES", staged / "THIRD_PARTY_NOTICES", label="canonical notices payload")
+        _copy_tree(
+            canonical_snapshot / "AccessibleChess",
+            staged / PORTABLE_APP_DIR,
+            label="canonical product payload",
+        )
+        _copy_tree(
+            canonical_snapshot / "THIRD_PARTY_NOTICES",
+            staged / "THIRD_PARTY_NOTICES",
+            label="canonical notices payload",
+        )
         source_metadata = staged / PORTABLE_SOURCE_METADATA_DIR
         source_metadata.mkdir(exist_ok=False)
-        _copy_file(canonical / MANIFEST_NAME, source_metadata / MANIFEST_NAME, label="canonical source release manifest")
-        _copy_file(canonical / CHECKSUMS_NAME, source_metadata / CHECKSUMS_NAME, label="canonical source checksum inventory")
-        if _stable_digest(canonical / MANIFEST_NAME, label="canonical source release manifest") != _stable_digest(source_metadata / MANIFEST_NAME, label="copied canonical source release manifest"):
+        _copy_file(
+            canonical_snapshot / MANIFEST_NAME,
+            source_metadata / MANIFEST_NAME,
+            label="canonical source release manifest",
+        )
+        _copy_file(
+            canonical_snapshot / CHECKSUMS_NAME,
+            source_metadata / CHECKSUMS_NAME,
+            label="canonical source checksum inventory",
+        )
+        if _stable_digest(
+            canonical_snapshot / MANIFEST_NAME,
+            label="canonical source release manifest",
+        ) != _stable_digest(
+            source_metadata / MANIFEST_NAME,
+            label="copied canonical source release manifest",
+        ):
             _fail("canonical source release manifest changed while building portable package")
-        if _stable_digest(canonical / CHECKSUMS_NAME, label="canonical source checksum inventory") != _stable_digest(source_metadata / CHECKSUMS_NAME, label="copied canonical source checksum inventory"):
+        if _stable_digest(
+            canonical_snapshot / CHECKSUMS_NAME,
+            label="canonical source checksum inventory",
+        ) != _stable_digest(
+            source_metadata / CHECKSUMS_NAME,
+            label="copied canonical source checksum inventory",
+        ):
             _fail("canonical source checksum inventory changed while building portable package")
         for source, name in zip(documents, names, strict=True):
             _copy_file(source, staged / name, label="portable Word document")
 
-        _assert_tree_copy_equal(canonical / "AccessibleChess", staged / PORTABLE_APP_DIR, label="canonical product payload")
-        _assert_tree_copy_equal(canonical / "THIRD_PARTY_NOTICES", staged / "THIRD_PARTY_NOTICES", label="canonical notices payload")
+        _assert_tree_copy_equal(
+            canonical_snapshot / "AccessibleChess",
+            staged / PORTABLE_APP_DIR,
+            label="canonical product payload",
+        )
+        _assert_tree_copy_equal(
+            canonical_snapshot / "THIRD_PARTY_NOTICES",
+            staged / "THIRD_PARTY_NOTICES",
+            label="canonical notices payload",
+        )
         _write_portable_manifest(staged, sha, (names[0], names[1]))
         _write_checksums(staged)
         report = validate_portable_oneclick_tree(
@@ -719,6 +770,7 @@ def assemble_portable_oneclick_tree(
         )
     finally:
         shutil.rmtree(staged, ignore_errors=True)
+        shutil.rmtree(snapshot_container, ignore_errors=True)
 
 
 def write_portable_oneclick_zip(
