@@ -488,6 +488,8 @@ class BookReaderPresenter:
     """Semantic book projection over the canonical :class:`BookReader` cursor."""
 
     _BOARD_RETURN_POINT = "__full_product_board_return__"
+    _MAX_DOCUMENT_WARNING_ITEMS = 4
+    _MAX_DOCUMENT_WARNING_ITEM_CHARS = 180
 
     def __init__(
         self,
@@ -497,6 +499,16 @@ class BookReaderPresenter:
     ) -> None:
         self._reader = reader
         self._language = language
+        self._document_warning_count = reader.document_warning_count()
+        warnings = reader.document_warnings_snapshot(
+            limit=self._MAX_DOCUMENT_WARNING_ITEMS,
+        )
+        if type(warnings) is not tuple or any(type(item) is not str for item in warnings):
+            raise TypeError("BookDocument warnings must remain built-in text")
+        # Bind presentation to BookReader's indexed document snapshot rather than
+        # the mutable authoring document. Keep only the presentation-owned prefix
+        # so rendering never copies or normalizes an unbounded warning collection.
+        self._document_warnings = warnings
 
     def set_language(self, language: UILanguage) -> None:
         self._language = language
@@ -509,6 +521,34 @@ class BookReaderPresenter:
     def restore_cursor(self, index: int) -> None:
         """Restore a presentation transaction through BookReader's canonical API."""
         self._reader.go_to(index)
+
+    def _document_warning_summary(self) -> str:
+        if not self._document_warnings:
+            return ""
+        shown: list[str] = []
+        for raw in self._document_warnings[: self._MAX_DOCUMENT_WARNING_ITEMS]:
+            # Check length before any normalization so one malformed but still
+            # built-in string cannot make presentation scan unbounded content.
+            if len(raw) > self._MAX_DOCUMENT_WARNING_ITEM_CHARS:
+                raw = raw[: self._MAX_DOCUMENT_WARNING_ITEM_CHARS]
+            text = " ".join(raw.split())
+            if text:
+                shown.append(text)
+        if not shown:
+            return ""
+        hidden = max(
+            0,
+            self._document_warning_count - len(self._document_warnings),
+        )
+        prefix = _localized(self._language, "Попередження імпорту", "Import warnings")
+        summary = f"{prefix}: " + "; ".join(shown)
+        if hidden:
+            summary += _localized(
+                self._language,
+                f"; ще {hidden} попереджень",
+                f"; {hidden} more warnings",
+            )
+        return summary
 
     def _block_view(self, location: ReadingLocation) -> BookBlockView:
         block = self._reader.block_snapshot(location.index)
@@ -566,6 +606,9 @@ class BookReaderPresenter:
             role = "note"
             title = _localized(self._language, "Примітка", "Note")
             text = block.text
+        document_warning = self._document_warning_summary()
+        if document_warning:
+            warning = f"{warning} {document_warning}".strip()
         return BookBlockView(
             index=location.index,
             kind=location.kind,
