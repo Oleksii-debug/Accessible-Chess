@@ -191,6 +191,59 @@ os._exit(0)
 
     @unittest.skipIf(
         os.name == "nt",
+        "renaming an open storage directory is a POSIX adversarial injection",
+    )
+    def test_parent_directory_swap_after_kernel_acquire_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            storage = root / "profile"
+            storage.mkdir()
+            store = StudentProgressStore(storage / "student-progress.json")
+            revision = store.save(self._ledger(), expected_revision=None)
+            original = store.path.read_bytes()
+            displaced = root / "displaced-profile"
+            real_lock = student_progress_store_module._lock_writer_descriptor
+            injected = False
+
+            def swap_parent_after_lock(descriptor: int) -> None:
+                nonlocal injected
+                real_lock(descriptor)
+                if not injected:
+                    storage.rename(displaced)
+                    storage.mkdir()
+                    injected = True
+
+            with patch.object(
+                student_progress_store_module,
+                "_lock_writer_descriptor",
+                side_effect=swap_parent_after_lock,
+            ):
+                with self.assertRaisesRegex(
+                    StudentProgressBusyError,
+                    "directory changed during save",
+                ):
+                    store.save(
+                        self._ledger(record_id="blocked-by-parent-swap"),
+                        expected_revision=revision,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(store.path.exists())
+            self.assertEqual(
+                original,
+                (displaced / "student-progress.json").read_bytes(),
+            )
+
+            storage.rmdir()
+            displaced.rename(storage)
+            replacement_revision = store.save(
+                self._ledger(record_id="after-parent-swap"),
+                expected_revision=revision,
+            )
+            self.assertNotEqual(replacement_revision, revision)
+
+    @unittest.skipIf(
+        os.name == "nt",
         "replacing an open lock pathname is a POSIX adversarial injection",
     )
     def test_lock_path_swap_after_kernel_acquire_fails_closed_and_recovers(self) -> None:
