@@ -27,6 +27,7 @@ MAX_BOOK_TEXT_FIELD_CHARS = 12 * 1024 * 1024
 MAX_BOOK_PGN_CHARS = 64 * 1024 * 1024
 MAX_BOOK_LIST_ITEMS = 65_536
 MAX_BOOK_LIST_TOTAL_CHARS = 12 * 1024 * 1024
+MAX_BOOK_WARNING_TOTAL_CHARS = 12 * 1024 * 1024
 
 
 class BookDocumentErrorCode(str, Enum):
@@ -100,6 +101,42 @@ def _optional_pgn_text(value: object, field_name: str) -> str | None:
     if value is None:
         return None
     return _required_pgn_text(value, field_name)
+
+
+def _validate_warning_list(
+    value: object,
+    *,
+    container_message: str,
+) -> list[str]:
+    if type(value) is not list:
+        raise BookDocumentError(
+            container_message,
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if len(value) > MAX_BOOK_DOCUMENT_WARNINGS:
+        raise BookDocumentError(
+            f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    total_chars = 0
+    for warning in value:
+        if type(warning) is not str:
+            raise BookDocumentError(
+                container_message,
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        total_chars += len(warning)
+        if total_chars > MAX_BOOK_WARNING_TOTAL_CHARS:
+            raise BookDocumentError(
+                "BookDocument warning text exceeds the canonical aggregate limit",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if not warning.strip():
+            raise BookDocumentError(
+                container_message,
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+    return value
 
 
 def _fen_text(value: object, field_name: str) -> str:
@@ -460,21 +497,10 @@ class BookDocument:
         # a canonical BookDocument and fail only later at export or resolution.
         for block in self.blocks:
             block.as_dict()
-        if type(self.warnings) is not list:
-            raise BookDocumentError(
-                "Book warnings must be a list of non-empty strings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if len(self.warnings) > MAX_BOOK_DOCUMENT_WARNINGS:
-            raise BookDocumentError(
-                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if not all(type(warning) is str and warning.strip() for warning in self.warnings):
-            raise BookDocumentError(
-                "Book warnings must be a list of non-empty strings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
+        _validate_warning_list(
+            self.warnings,
+            container_message="Book warnings must be a list of non-empty strings",
+        )
         self.blocks = list(self.blocks)
         self.warnings = list(self.warnings)
 
@@ -581,21 +607,10 @@ class BookDocument:
                 "Book blocks must remain a list of supported semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if type(self.warnings) is not list:
-            raise BookDocumentError(
-                "Book warnings must remain a list of non-empty strings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if len(self.warnings) > MAX_BOOK_DOCUMENT_WARNINGS:
-            raise BookDocumentError(
-                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if not all(type(warning) is str and warning.strip() for warning in self.warnings):
-            raise BookDocumentError(
-                "Book warnings must remain a list of non-empty strings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
+        _validate_warning_list(
+            self.warnings,
+            container_message="Book warnings must remain a list of non-empty strings",
+        )
         for block in self.blocks:
             block.as_dict()
 
@@ -676,21 +691,10 @@ class BookDocument:
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         warnings = data.get("warnings", [])
-        if type(warnings) is not list:
-            raise BookDocumentError(
-                "BookDocument warnings must be a list of non-empty strings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if len(warnings) > MAX_BOOK_DOCUMENT_WARNINGS:
-            raise BookDocumentError(
-                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
-        if not all(type(item) is str and item.strip() for item in warnings):
-            raise BookDocumentError(
-                "BookDocument warnings must be a list of non-empty strings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
+        _validate_warning_list(
+            warnings,
+            container_message="BookDocument warnings must be a list of non-empty strings",
+        )
         return cls(
             title=data.get("title", ""),
             language=data.get("language"),
