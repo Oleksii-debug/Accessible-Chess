@@ -98,6 +98,33 @@ def _prepare_direct_directory_chain(
     return absolute, tuple(snapshot)
 
 
+def _snapshot_direct_directory_chain(
+    path: Path,
+    *,
+    label: str,
+) -> tuple[Path, tuple[tuple[Path, tuple[int, int]], ...]]:
+    """Inspect an existing directory chain without following link/reparse components."""
+    absolute = Path(os.path.abspath(path))
+    parts = absolute.parts
+    if not parts:
+        raise OSError(f"{label} has no filesystem anchor")
+
+    current = Path(parts[0])
+    snapshot: list[tuple[Path, tuple[int, int]]] = []
+    for index, part in enumerate(parts):
+        if index:
+            current = current / part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise OSError(f"{label} could not be inspected safely") from exc
+        _require_direct_directory(info, label)
+        snapshot.append((current, _identity(info)))
+    return absolute, tuple(snapshot)
+
+
 def _verify_direct_directory_chain(
     snapshot: tuple[tuple[Path, tuple[int, int]], ...],
     *,
@@ -403,11 +430,32 @@ class UsageStatisticsStore:
     def load(self, installation_id: str) -> UsageStatisticsSnapshot:
         normalized = normalize_installation_id(installation_id)
         self.recovered_invalid_data = False
-        if not self.path.exists():
-            return UsageStatisticsSnapshot(normalized)
         try:
-            with self.path.open("rb") as handle:
+            parent, directory_snapshot = _snapshot_direct_directory_chain(
+                self.path.parent,
+                label="statistics directory",
+            )
+            target = parent / self.path.name
+            observed = target.lstat()
+            _require_private_regular(observed, "statistics file")
+            with target.open("rb") as handle:
+                opened = os.fstat(handle.fileno())
+                _require_private_regular(opened, "statistics file")
+                if not _same_file_identity(observed, opened):
+                    raise OSError("statistics file changed while being opened")
                 encoded = handle.read(_MAX_STATS_FILE_BYTES + 1)
+                finished = os.fstat(handle.fileno())
+                _require_private_regular(finished, "statistics file")
+                if not _same_file_identity(opened, finished):
+                    raise OSError("statistics file changed while being read")
+            _verify_direct_directory_chain(
+                directory_snapshot,
+                label="statistics directory",
+            )
+            current = target.lstat()
+            _require_private_regular(current, "statistics file")
+            if not _same_file_identity(observed, current):
+                raise OSError("statistics file changed after being read")
             if len(encoded) > _MAX_STATS_FILE_BYTES:
                 raise ValueError("statistics payload exceeds the supported size")
             raw = json.loads(
@@ -420,6 +468,8 @@ class UsageStatisticsStore:
             if snapshot.installation_id != normalized:
                 raise ValueError("statistics belong to another installation")
             return snapshot
+        except FileNotFoundError:
+            return UsageStatisticsSnapshot(normalized)
         except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
             self.recovered_invalid_data = True
             return UsageStatisticsSnapshot(normalized)
