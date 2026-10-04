@@ -77,7 +77,7 @@ def _corrupt_deflated_entry(raw: bytes, name: str) -> bytes:
     if info.compress_type != zipfile.ZIP_DEFLATED or info.compress_size < 3:
         raise AssertionError("fixture entry must use a non-trivial Deflate payload")
     offset = info.header_offset
-    if damaged[offset : offset + 4] != b"PK\\x03\\x04":
+    if damaged[offset : offset + 4] != b"PK\x03\x04":
         raise AssertionError("fixture local ZIP header was not found")
     name_length = int.from_bytes(damaged[offset + 26 : offset + 28], "little")
     extra_length = int.from_bytes(damaged[offset + 28 : offset + 30], "little")
@@ -93,7 +93,7 @@ def _mark_zip_entry_encrypted(raw: bytes, name: str) -> bytes:
         central_offset = archive.start_dir
 
     local_offset = info.header_offset
-    if damaged[local_offset : local_offset + 4] != b"PK\\x03\\x04":
+    if damaged[local_offset : local_offset + 4] != b"PK\x03\x04":
         raise AssertionError("fixture local ZIP header was not found")
     local_flags = int.from_bytes(
         damaged[local_offset + 6 : local_offset + 8],
@@ -106,7 +106,7 @@ def _mark_zip_entry_encrypted(raw: bytes, name: str) -> bytes:
 
     encoded_name = name.encode("utf-8")
     cursor = central_offset
-    while damaged[cursor : cursor + 4] == b"PK\\x01\\x02":
+    while damaged[cursor : cursor + 4] == b"PK\x01\x02":
         name_length = int.from_bytes(damaged[cursor + 28 : cursor + 30], "little")
         extra_length = int.from_bytes(damaged[cursor + 30 : cursor + 32], "little")
         comment_length = int.from_bytes(damaged[cursor + 32 : cursor + 34], "little")
@@ -1461,7 +1461,7 @@ class BookEpubImportTests(unittest.TestCase):
         with zipfile.ZipFile(buffer, "w") as archive:
             mimetype = zipfile.ZipInfo("mimetype")
             mimetype.compress_type = zipfile.ZIP_STORED
-            mimetype.extra = b"\\x01\\x00\\x00\\x00"
+            mimetype.extra = b"\x01\x00\x00\x00"
             archive.writestr(mimetype, b"application/epub+zip")
 
         with self.assertRaises(BookEpubImportError) as raised:
