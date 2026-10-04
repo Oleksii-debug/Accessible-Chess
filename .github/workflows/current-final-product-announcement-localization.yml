@@ -6,9 +6,9 @@ on:
       - fix/final-product-generic-failure-localization-20261004-sol56r7
   pull_request:
     paths:
-      - "acs/version2_education_mutation_release.py"
       - "web/stage1_board_actions.js"
       - "web/p0_accessibility_runtime.js"
+      - "tests/js/p0_generic_failure_localization_test.js"
       - "tests/test_final_product_announcement_localization_current.py"
       - "tests/test_p0_semantic_document_copy.py"
       - ".github/workflows/current-final-product-announcement-localization.yml"
@@ -29,10 +29,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile changed Python surfaces
-        run: python -m py_compile acs/version2_education_mutation_release.py tests/test_final_product_announcement_localization_current.py
-      - name: Check changed JavaScript surfaces
-        run: node --check web/p0_accessibility_runtime.js && node --check web/stage1_board_actions.js
+      - name: Compile focused Python regression
+        run: python -m py_compile tests/test_final_product_announcement_localization_current.py
+      - name: Check focused JavaScript surfaces
+        run: node --check web/p0_accessibility_runtime.js && node --check web/stage1_board_actions.js && node --check tests/js/p0_generic_failure_localization_test.js
+      - name: Execute canonical P0 generic-failure localization
+        run: node tests/js/p0_generic_failure_localization_test.js
       - name: Run final-product localization and copy-order regressions
         run: python -m unittest tests.test_final_product_announcement_localization_current tests.test_p0_semantic_document_copy
       - name: Run Stage1 localized validation regression
