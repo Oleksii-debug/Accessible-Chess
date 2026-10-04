@@ -113,6 +113,7 @@ class _ListCapture:
     items: list[str] = field(default_factory=list)
     unsupported: bool = False
     nested: bool = False
+    inline_semantic_fallback: bool = False
 
 
 _BLOCK_BOUNDARY_TAGS = frozenset(
@@ -336,7 +337,11 @@ class _SemanticHtmlParser(HTMLParser):
         unsupported = captured.unsupported or not start_valid
 
         if unsupported:
-            if ordered and not start_valid:
+            if captured.inline_semantic_fallback:
+                self._list_warning(
+                    "HTML list items containing inline semantic content cannot be represented by the flat canonical List block and were preserved as readable bullet text around semantic blocks"
+                )
+            elif ordered and not start_valid:
                 self._list_warning(
                     "HTML ordered list start could not be represented canonically and was preserved as reading text because canonical List start must be positive"
                 )
