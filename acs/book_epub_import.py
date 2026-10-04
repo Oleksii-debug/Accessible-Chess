@@ -690,11 +690,11 @@ def _resolve_package_href(
     return joined
 
 
-def _package_rootfile(
+def _package_rootfiles(
     container: ET.Element,
     warnings: _Warnings,
     archive_index: dict[str, zipfile.ZipInfo],
-) -> str:
+) -> tuple[str, ...]:
     if (
         container.tag != _CONTAINER_TAG
         or container.attrib.get("version") != "1.0"
@@ -865,7 +865,7 @@ def _package_rootfile(
 
     if len(candidates) > 1:
         warnings.add("multiple EPUB package documents were present; the first supported rootfile was used")
-    return candidates[0]
+    return tuple(candidates)
 
 
 def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
@@ -1289,20 +1289,64 @@ def import_epub_book(
             _read_entry(archive, index, "META-INF/container.xml", limit=MAX_EPUB_XML_BYTES),
             "container metadata",
         )
-        opf_name = _package_rootfile(container, warnings, index)
-        package = _xml_root(
-            _read_entry(archive, index, opf_name, limit=MAX_EPUB_XML_BYTES),
-            "package metadata",
-        )
-        _validate_package_document(package)
-        opf_dir = posixpath.dirname(opf_name)
-        manifest = _manifest_items(package, opf_dir)
-        _validate_manifest_resources(
-            manifest,
-            package_entry_name=opf_name,
-            archive_index=index,
-        )
-        spine = _spine_ids(package, warnings, manifest)
+        opf_names = _package_rootfiles(container, warnings, index)
+        renditions: list[
+            tuple[str, ET.Element, dict[str, _ManifestItem], list[str]]
+        ] = []
+        selected_version: str | None = None
+        for rendition_index, rendition_name in enumerate(opf_names, start=1):
+            rendition_package = _xml_root(
+                _read_entry(
+                    archive,
+                    index,
+                    rendition_name,
+                    limit=MAX_EPUB_XML_BYTES,
+                ),
+                "package metadata",
+            )
+            _validate_package_document(rendition_package)
+            rendition_version = rendition_package.attrib["version"]
+            if selected_version is None:
+                selected_version = rendition_version
+            elif rendition_version != selected_version:
+                raise _error(
+                    "EPUB container rootfiles use different package versions",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+            rendition_dir = posixpath.dirname(rendition_name)
+            rendition_manifest = _manifest_items(
+                rendition_package,
+                rendition_dir,
+            )
+            _validate_manifest_resources(
+                rendition_manifest,
+                package_entry_name=rendition_name,
+                archive_index=index,
+            )
+            rendition_warnings = (
+                warnings if rendition_index == 1 else _Warnings()
+            )
+            rendition_spine = _spine_ids(
+                rendition_package,
+                rendition_warnings,
+                rendition_manifest,
+            )
+            for rendition_item_id in rendition_spine:
+                _supported_manifest_item(
+                    rendition_item_id,
+                    rendition_manifest,
+                )
+            renditions.append(
+                (
+                    rendition_name,
+                    rendition_package,
+                    rendition_manifest,
+                    rendition_spine,
+                )
+            )
+
+        opf_name, package, manifest, spine = renditions[0]
         manifest_by_resource = {
             item.entry_name: item
             for item in manifest.values()
