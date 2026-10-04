@@ -83,6 +83,8 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         host_install_raises: bool = False,
         server_install_raises: bool = False,
         safe_port_raises: bool = False,
+        accessibility_module_missing: bool = False,
+        safe_server_module_missing: bool = False,
     ) -> tuple[object, str]:
         accessibility = types.ModuleType("acs.webview2_accessibility")
 
@@ -126,8 +128,12 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             mock.patch.dict(
                 sys.modules,
                 {
-                    "acs.webview2_accessibility": accessibility,
-                    "acs.webview_safe_server": safe_server,
+                    "acs.webview2_accessibility": (
+                        None if accessibility_module_missing else accessibility
+                    ),
+                    "acs.webview_safe_server": (
+                        None if safe_server_module_missing else safe_server
+                    ),
                     "acs.stage1_release_ui": release_ui,
                 },
             ),
@@ -137,6 +143,30 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         ):
             runpy.run_path(str(self.root / "run_accessible_chess.py"), run_name="__main__")
         return raised.exception.code, stderr.getvalue()
+
+    def test_real_entrypoint_classifies_missing_accessibility_support_module(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            accessibility_module_missing=True,
+        )
+        self.assertEqual(code, 71)
+        self.assertIn(
+            "Accessible WebView2 renderer accessibility support could not be loaded.",
+            stderr,
+        )
+
+    def test_real_entrypoint_classifies_missing_safe_server_support_module(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            safe_server_module_missing=True,
+        )
+        self.assertEqual(code, 72)
+        self.assertIn(
+            "Accessible WebView2 local server support could not be loaded.",
+            stderr,
+        )
 
     def test_real_entrypoint_reports_renderer_accessibility_bootstrap_code(self):
         code, stderr = self._run_packaged_bootstrap(
