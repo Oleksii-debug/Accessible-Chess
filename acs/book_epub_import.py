@@ -608,6 +608,11 @@ def _resolve_package_href(
             "EPUB package href contains surrounding whitespace",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_href):
+        raise _error(
+            "EPUB package href contains an ASCII control character",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     try:
         parts = urlsplit(raw_href)
     except ValueError as exc:
@@ -642,6 +647,11 @@ def _resolve_package_href(
             "EPUB package href contains invalid UTF-8 percent encoding",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in decoded):
+        raise _error(
+            "EPUB package href decodes to an ASCII control character",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     if not decoded or "\x00" in decoded or "\\" in decoded or decoded.startswith("/") or _DRIVE_RE.match(decoded):
         raise _error(
             "EPUB manifest contains an unsafe reading href",
