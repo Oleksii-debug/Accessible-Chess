@@ -793,7 +793,11 @@ class BookProgressStore:
             parsed = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
         except BookProgressStoreError:
             raise
-        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError):
+            # Python's JSON decoder may raise a plain ValueError when an
+            # integer token exceeds the interpreter's int-string digit limit.
+            # That malformed on-disk value must stay inside the store's stable
+            # corruption contract instead of leaking an implementation error.
             raise BookProgressStoreError(
                 "book progress store is corrupt",
                 code=BookProgressStoreErrorCode.CORRUPT_STORE,
