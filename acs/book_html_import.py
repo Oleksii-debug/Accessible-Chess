@@ -791,6 +791,89 @@ class _SemanticHtmlParser(HTMLParser):
         if trailing:
             self._append_block(heading_or_fragment(trailing))
 
+    def _finish_inline_list_item(
+        self,
+        capture: _Capture,
+        *,
+        captured_list: _ListCapture | None,
+        source_anchor: str | None,
+    ) -> None:
+        """Flatten one rich list item without reordering its semantic blocks."""
+        events = [event for event in capture.inline_semantics if not event.structural]
+        if not events:
+            return
+
+        self._list_warning(
+            "HTML list items containing inline semantic content cannot be represented by the flat canonical List block and were preserved as readable bullet text around semantic blocks"
+        )
+
+        if captured_list is not None:
+            captured_list.unsupported = True
+            captured_list.inline_semantic_fallback = True
+            # Plain items preceding this rich item are still buffered in the
+            # canonical list capture. Publish them immediately before the first
+            # semantic event so an already-emitted image/position cannot jump
+            # ahead of earlier list content.
+            first_event = events[0]
+            for item in [item for item in captured_list.items if item]:
+                fallback_text = f"• {item}"
+                self._insert_block(
+                    self._block_identity_index(first_event.block),
+                    Paragraph(
+                        text=fallback_text,
+                        block_id=self._block_id("Paragraph", fallback_text),
+                        source_anchor=captured_list.attrs.get("id") or None,
+                    ),
+                )
+            captured_list.items.clear()
+
+        cursor = 0
+        item_text_started = False
+        for event in events:
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
+                raise BookHtmlImportError(
+                    "HTML inline semantic boundary is invalid",
+                    code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+                )
+            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            if segment:
+                projected = f"• {segment}" if not item_text_started else segment
+                identity_kind = (
+                    "Paragraph" if not item_text_started else "ListInlineFragment"
+                )
+                self._insert_block(
+                    self._block_identity_index(event.block),
+                    Paragraph(
+                        text=projected,
+                        block_id=self._block_id(identity_kind, projected),
+                        source_anchor=source_anchor if not item_text_started else None,
+                    ),
+                )
+                item_text_started = True
+            cursor = resume_part_index
+
+        trailing = _compact("".join(capture.parts[cursor:]))
+        if trailing:
+            projected = f"• {trailing}" if not item_text_started else trailing
+            identity_kind = "Paragraph" if not item_text_started else "ListInlineFragment"
+            self._append_block(
+                Paragraph(
+                    text=projected,
+                    block_id=self._block_id(identity_kind, projected),
+                    source_anchor=source_anchor if not item_text_started else None,
+                )
+            )
+
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
         text = _compact(raw)
@@ -800,9 +883,24 @@ class _SemanticHtmlParser(HTMLParser):
             if text and not self.title:
                 self.title = text
             return
+        source_anchor = capture.attrs.get("id") or None
+        has_direct_inline_semantics = any(
+            not event.structural for event in capture.inline_semantics
+        )
+        if capture.kind == "list_item" and has_direct_inline_semantics:
+            active_list = (
+                self._lists[-1]
+                if self._lists and capture.list_depth == len(self._lists)
+                else None
+            )
+            self._finish_inline_list_item(
+                capture,
+                captured_list=active_list,
+                source_anchor=source_anchor,
+            )
+            return
         if not text:
             return
-        source_anchor = capture.attrs.get("id") or None
         if capture.kind == "heading":
             level = int(capture.tag[1])
             if capture.inline_semantics and any(
@@ -824,9 +922,6 @@ class _SemanticHtmlParser(HTMLParser):
                     )
                 )
             return
-        has_direct_inline_semantics = any(
-            not event.structural for event in capture.inline_semantics
-        )
         if capture.kind in {"paragraph", "table_row"} and has_direct_inline_semantics:
             if capture.kind == "table_row" and not self._warned_table_flatten:
                 self._warning(
