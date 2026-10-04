@@ -824,37 +824,55 @@ class BookProgressStore:
         *,
         allow_backup_recovery: bool = False,
     ) -> tuple[dict[str, object], bytes | None, str | None]:
-        try:
-            payload, raw, revision = self._read_state_unlocked(self._path, missing_ok=True)
-        except BookProgressStoreError as primary_error:
-            if not allow_backup_recovery or primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
-                raise
+        primary_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
+        if primary_raw is not None:
             try:
-                backup_payload, backup_raw, _ = self._read_state_unlocked(
-                    self.backup_path,
-                    missing_ok=False,
-                )
-            except BookProgressStoreError:
-                raise primary_error
-            assert backup_payload is not None and backup_raw is not None
-            return backup_payload, backup_raw, _revision(backup_raw)
+                primary_payload = self._decode_payload(primary_raw)
+            except BookProgressStoreError as primary_error:
+                if (
+                    not allow_backup_recovery
+                    or primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE
+                ):
+                    raise
+                try:
+                    backup_payload, backup_raw, _ = self._read_state_unlocked(
+                        self.backup_path,
+                        missing_ok=False,
+                    )
+                except BookProgressStoreError:
+                    raise primary_error
+                assert backup_payload is not None and backup_raw is not None
+                self._require_recovery_primary_unchanged_unlocked(primary_raw)
+                return backup_payload, backup_raw, _revision(backup_raw)
+            return primary_payload, primary_raw, _revision(primary_raw)
 
-        if payload is None:
-            if allow_backup_recovery:
-                backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
-                    self.backup_path,
-                    missing_ok=True,
-                )
-                if backup_payload is not None:
-                    assert backup_raw is not None and backup_revision is not None
-                    return backup_payload, backup_raw, backup_revision
-            else:
-                # Mutation callers must not mistake recoverable orphan state for
-                # a clean first run.  The write path repeats this check to close
-                # the race where a backup appears after this load.
-                self._require_no_orphan_backup_unlocked()
-            return _empty_payload(), None, None
-        return payload, raw, revision
+        if allow_backup_recovery:
+            backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
+                self.backup_path,
+                missing_ok=True,
+            )
+            if backup_payload is not None:
+                assert backup_raw is not None and backup_revision is not None
+                self._require_recovery_primary_unchanged_unlocked(None)
+                return backup_payload, backup_raw, backup_revision
+        else:
+            # Mutation callers must not mistake recoverable orphan state for
+            # a clean first run. The write path repeats this check to close
+            # the race where a backup appears after this load.
+            self._require_no_orphan_backup_unlocked()
+        return _empty_payload(), None, None
+
+    def _require_recovery_primary_unchanged_unlocked(
+        self,
+        expected_raw: bytes | None,
+    ) -> None:
+        """Bind a backup fallback to the primary snapshot that authorized it."""
+        current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
+        if current_raw != expected_raw:
+            raise BookProgressStoreError(
+                "book progress primary data changed during recovery read",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
 
     def _load_payload_unlocked(self) -> dict[str, object]:
         payload, _, _ = self._load_state_unlocked()
