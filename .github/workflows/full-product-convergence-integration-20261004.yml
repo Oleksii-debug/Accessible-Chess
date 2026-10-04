@@ -23,6 +23,10 @@ on:
       - '.github/workflows/v2-windows-book-board-adapter.yml'
       - '.github/workflows/version2-windows-composition.yml'
       - '.github/workflows/w3-p0f-starter-books-training.yml'
+      - '.github/workflows/integration-owner-delivery-uk-docs-current.yml'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+      - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
   workflow_dispatch:
 
 permissions:
@@ -190,6 +194,20 @@ jobs:
           tests.test_v2_windows_book_board_adapter_workflow
           tests.test_v2_windows_book_board_adapter
           tests.test_v2_book_board_workflow
+
+      - name: Owner accessibility and package contracts
+        run: >-
+          python -m unittest -v
+          tests.test_owner_delivery_uk_docs
+          tests.test_dev1_full_product_ui_packages
+          tests.test_v2_board_analysis_hotkey_feedback
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_zip_topology_preflight
+          tests.test_version2_release_payload
+          tests.test_version2_release_diagnostic_composition
 
       - name: Whole product diagnostic
         run: python run_accessible_chess_v2.py --diagnostic

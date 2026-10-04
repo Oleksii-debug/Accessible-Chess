@@ -40,6 +40,8 @@ _REQUIRED_WEB = (
     "full_product_education.js",
     "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
+    "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+    "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
 )
 
 _VALID_WINFORMS_CONFIG = (
@@ -87,7 +89,9 @@ class Version2PackageAssemblerTests(unittest.TestCase):
         )
         (product / "runtime.dll").write_bytes(b"runtime")
         for name in _REQUIRED_WEB:
-            (web / name).write_text(f"// canonical fixture {name}\n", encoding="utf-8")
+            path = web / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"// canonical fixture {name}\n", encoding="utf-8")
 
         sounds = product / "assets" / "sounds"
         sounds.mkdir(parents=True)

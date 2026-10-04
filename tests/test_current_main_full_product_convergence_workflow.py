@@ -52,6 +52,11 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_v2_native_thread_runtime_workflow",
             "tests.test_v2_windows_book_board_adapter",
             "tests.test_p0f_starter_training_canonical_legality",
+            "tests.test_owner_delivery_uk_docs",
+            "tests.test_version2_package_assembler",
+            "tests.test_version2_package_preflight",
+            "tests.test_v2_package_required_resources",
+            "tests.test_version2_release_payload",
             "python run_accessible_chess_v2.py --diagnostic",
             "python -m acs.selftest",
         )
@@ -69,6 +74,10 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             ".github/workflows/v2-windows-book-board-adapter.yml",
             ".github/workflows/version2-windows-composition.yml",
             ".github/workflows/w3-p0f-starter-books-training.yml",
+            ".github/workflows/integration-owner-delivery-uk-docs-current.yml",
+            ".github/workflows/w6-v2-package-assembler.yml",
+            ".github/workflows/w6-v2-package-preflight-current-runtime.yml",
+            ".github/workflows/w6-v2-release-payload-current-assembler.yml",
         ):
             with self.subTest(path=path):
                 self.assertIn(f"      - '{path}'", self.text)

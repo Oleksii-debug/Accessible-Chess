@@ -31,6 +31,8 @@ _REQUIRED_WEB_FILES = (
     "full_product_education.js",
     "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
+    "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
+    "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
 )
 
 _VALID_WINFORMS_CONFIG = (
@@ -57,8 +59,10 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         for name in _REQUIRED_WEB_FILES:
-            (self.standalone / "web" / name).write_text(
-                f"/* {name} */\n" if name.endswith(".js") else "<main>Accessible Chess</main>\n",
+            path = self.standalone / "web" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                f"/* {name} */\n" if name.endswith(".js") else "Accessible Chess owner resource\n",
                 encoding="utf-8",
             )
 
@@ -634,7 +638,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             path = self.standalone / "web" / name
             original = path.read_bytes()
             path.unlink()
-            output = self.root / f"payload-web-{name.replace('.', '-')}"
+            output = self.root / f"payload-web-{name.replace('/', '-').replace('.', '-')}"
             with self.subTest(name=name):
                 with self.assertRaisesRegex(
                     payload.Version2ReleasePayloadError,
