@@ -1259,6 +1259,9 @@ def import_epub_book(
                 if resolved is None:
                     warnings.add(f"spine {chapter_index}: an external or unsafe image reference was not resolved")
                     continue
+                if resolved not in index:
+                    warnings.add(f"spine {chapter_index}: a referenced package image is unavailable")
+                    continue
                 manifest_item = manifest_by_resource.get(resolved)
                 if manifest_item is None:
                     warnings.add(
@@ -1269,9 +1272,6 @@ def import_epub_book(
                     warnings.add(
                         f"spine {chapter_index}: a referenced package resource is not declared as an image"
                     )
-                    continue
-                if resolved not in index:
-                    warnings.add(f"spine {chapter_index}: a referenced package image is unavailable")
                     continue
                 if resolved not in image_references:
                     image_references.append(resolved)
