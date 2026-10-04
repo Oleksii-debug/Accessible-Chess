@@ -17,6 +17,7 @@ import posixpath
 import re
 import stat
 import unicodedata
+import zlib
 from types import MappingProxyType
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
@@ -284,6 +285,11 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 "EPUB package file metadata contradicts its entry name",
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
+        if info.flag_bits & 0x1:
+            raise _error(
+                "EPUB uses ZIP encryption, which OCF does not permit",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
         if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
             raise _error(
                 "EPUB uses an unsupported ZIP compression method",
@@ -330,7 +336,7 @@ def _read_entry(
         )
     try:
         data = archive.read(info)
-    except (RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:
+    except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
         raise _error(
             "EPUB package entry could not be read safely",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
@@ -1165,6 +1171,11 @@ def import_epub_book(
         if infos[0].filename != "mimetype" or infos[0].compress_type != zipfile.ZIP_STORED:
             raise _error(
                 "EPUB mimetype entry must be the first uncompressed package entry",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        if infos[0].extra:
+            raise _error(
+                "EPUB mimetype entry must not contain a ZIP extra field",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
         mimetype = _read_entry(archive, index, "mimetype", limit=128)
