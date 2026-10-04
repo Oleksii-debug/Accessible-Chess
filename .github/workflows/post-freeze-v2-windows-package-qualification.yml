@@ -1,4 +1,5 @@
 # exact-package-reconvergence: fce6545 / p0g fce6545 / p0-document fce6545 / publication-parent 0dba62e
+# qualification-request: exact-fce6545-refresh
 name: Post-freeze V2 Windows Package Qualification
 
 on:
