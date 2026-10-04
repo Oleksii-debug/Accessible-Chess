@@ -626,6 +626,8 @@ class BookReader:
         selecting a different block. Index-only targets additionally require an
         exact semantic digest for the block currently occupying that fallback.
         """
+        if type(document) is not BookDocument:
+            raise TypeError("document must be a BookDocument")
         validated = cls.validate_snapshot_contract(snapshot)
         current_target = validated["current_target"]
         return_points = validated["return_points"]
