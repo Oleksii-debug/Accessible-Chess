@@ -622,6 +622,35 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
                 )
 
+    def test_eocd_entry_count_must_match_central_directory(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        eocd_offset = raw.rfind(b"PK\x05\x06")
+        self.assertGreaterEqual(eocd_offset, 0)
+        actual_entries = int.from_bytes(
+            raw[eocd_offset + 10 : eocd_offset + 12],
+            "little",
+        )
+        wrong_entries = actual_entries + 1
+        self.assertLessEqual(wrong_entries, 0xFFFF)
+        damaged = _set_eocd_field(
+            raw,
+            offset=8,
+            width=2,
+            value=wrong_entries,
+        )
+        damaged = _set_eocd_field(
+            damaged,
+            offset=10,
+            width=2,
+            value=wrong_entries,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="wrong-entry-count.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+
     def test_valid_zip_comment_preserves_single_disk_container(self) -> None:
         raw = _simple_epub(b"<html><body><p>Commented EPUB.</p></body></html>")
         commented = _with_zip_comment(raw, b"OCF test comment")
