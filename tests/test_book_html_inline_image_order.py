@@ -1229,6 +1229,409 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(result.document.blocks[0].source_anchor, "sample")
         self.assertIsNone(result.document.blocks[2].source_anchor)
 
+    def test_nested_blockquote_is_not_duplicated_when_outer_paragraph_splits(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A'
+            '<blockquote id="quote">B</blockquote>C'
+            '<img src="board.png" alt="Board">D</p></body></html>',
+            source_name="nested-blockquote-paragraph.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "A"),
+                ("Paragraph", "B"),
+                ("Paragraph", "C"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "D"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("B")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            1,
+        )
+        self.assertEqual(result.document.blocks[0].source_anchor, "outer")
+        self.assertEqual(result.document.blocks[1].source_anchor, "quote")
+
+    def test_nested_blockquote_is_not_duplicated_in_rich_list_fallback(self) -> None:
+        result = import_html_book(
+            '<html><body><ul id="items"><li id="rich">A'
+            '<blockquote id="quote">B</blockquote>C'
+            '<img src="board.png" alt="Board">D</li></ul></body></html>',
+            source_name="nested-blockquote-list.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "• A"),
+                ("Paragraph", "B"),
+                ("Paragraph", "C"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "D"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("B")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            1,
+        )
+        self.assertFalse(any(block.kind == "List" for block in result.document.blocks))
+        self.assertEqual(result.document.blocks[0].source_anchor, "items")
+        self.assertEqual(result.document.blocks[1].source_anchor, "quote")
+
+    def test_nested_blockquote_is_not_duplicated_when_table_row_splits(self) -> None:
+        result = import_html_book(
+            '<html><body><table><tr id="row"><td>A'
+            '<blockquote id="quote">B</blockquote>C'
+            '<img src="board.png" alt="Board">D</td></tr></table></body></html>',
+            source_name="nested-blockquote-row.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "A"),
+                ("Paragraph", "B"),
+                ("Paragraph", "C"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "D"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("B")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            1,
+        )
+        self.assertEqual(result.document.blocks[0].source_anchor, "row")
+        self.assertEqual(result.document.blocks[1].source_anchor, "quote")
+
+    def test_nested_blockquote_is_not_duplicated_when_non_pgn_pre_splits(self) -> None:
+        result = import_html_book(
+            '<html><body><pre id="sample">A'
+            '<blockquote id="quote">B</blockquote>C'
+            '<img src="board.png" alt="Board">D</pre></body></html>',
+            source_name="nested-blockquote-pre.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "A"),
+                ("Paragraph", "B"),
+                ("Paragraph", "C"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "D"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("B")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            1,
+        )
+        self.assertEqual(result.document.blocks[0].source_anchor, "sample")
+        self.assertEqual(result.document.blocks[1].source_anchor, "quote")
+
+    def test_nested_semantic_split_preserves_legacy_outer_progress_identity(self) -> None:
+        baseline = import_html_book(
+            '<html><body><p id="outer">A'
+            '<blockquote id="quote">B</blockquote>CD</p></body></html>',
+            source_name="nested-progress-baseline.html",
+        )
+        baseline_outer = next(
+            block
+            for block in baseline.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+
+        changed = import_html_book(
+            '<html><body><p id="outer">A'
+            '<blockquote id="quote">B</blockquote>C'
+            '<img src="board.png" alt="Board">D</p></body></html>',
+            source_name="nested-progress-changed.html",
+            available_assets={"board.png"},
+        )
+        changed_outer = next(
+            block
+            for block in changed.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "outer"
+        )
+
+        self.assertEqual(changed_outer.block_id, baseline_outer.block_id)
+        self.assertEqual(changed_outer.text, "A")
+
+    def test_rich_nested_capture_inside_paragraph_propagates_split_to_parent(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">Before'
+            '<blockquote id="quote">Inner<img src="board.png" alt="Board">Tail</blockquote>'
+            'After</p></body></html>',
+            source_name="nested-rich-paragraph.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Before"),
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("Inner") + block.text.count("Tail")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            2,
+        )
+        self.assertEqual(result.document.blocks[0].source_anchor, "outer")
+        self.assertEqual(result.document.blocks[1].source_anchor, "quote")
+
+    def test_rich_nested_capture_inside_list_item_propagates_split_to_parent(self) -> None:
+        result = import_html_book(
+            '<html><body><ul id="choices"><li id="rich">Before'
+            '<blockquote id="quote">Inner<img src="board.png" alt="Board">Tail</blockquote>'
+            'After</li></ul></body></html>',
+            source_name="nested-rich-list-item.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "• Before"),
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertFalse(any(block.kind == "List" for block in result.document.blocks))
+        self.assertEqual(
+            sum(
+                block.text.count("Inner") + block.text.count("Tail")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            2,
+        )
+        self.assertTrue(
+            any(
+                "inline semantic content cannot be represented" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_rich_nested_capture_inside_table_row_propagates_split_to_parent(self) -> None:
+        result = import_html_book(
+            '<html><body><table><tr id="row"><td>Before</td><td>'
+            '<blockquote id="quote">Inner<img src="board.png" alt="Board">Tail</blockquote>'
+            '</td><td>After</td></tr></table></body></html>',
+            source_name="nested-rich-table-row.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Before"),
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("Inner") + block.text.count("Tail")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            2,
+        )
+        self.assertTrue(
+            any(
+                "table structure is preserved as row text" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_rich_nested_capture_inside_non_pgn_pre_propagates_split_to_parent(self) -> None:
+        result = import_html_book(
+            '<html><body><pre id="sample">Before'
+            '<blockquote id="quote">Inner<img src="board.png" alt="Board">Tail</blockquote>'
+            'After</pre></body></html>',
+            source_name="nested-rich-pre.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Before"),
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("Inner") + block.text.count("Tail")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            2,
+        )
+
+    def test_recursive_rich_nested_capture_propagates_split_through_each_parent(self) -> None:
+        result = import_html_book(
+            '<html><body><ul><li>Before'
+            '<blockquote>Outer<blockquote>Inner'
+            '<img src="board.png" alt="Board">Tail</blockquote>OuterTail</blockquote>'
+            'After</li></ul></body></html>',
+            source_name="recursive-nested-rich-list.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "• Before"),
+                ("Paragraph", "Outer"),
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+                ("Paragraph", "OuterTail"),
+                ("Paragraph", "After"),
+            ],
+        )
+        text = " ".join(
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        )
+        self.assertEqual(text.count("Inner"), 1)
+        self.assertEqual(text.count("OuterTail"), 1)
+
+    def test_nested_explicit_position_remains_single_canonical_navigation_target(self) -> None:
+        result = import_html_book(
+            f'<html><body><ul><li>Before'
+            f'<blockquote>Inner<span data-acs-fen="{Board.START}"></span>Tail</blockquote>'
+            f'After</li></ul></body></html>',
+            source_name="nested-position-list.html",
+        )
+
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Paragraph", "Paragraph", "Position", "Paragraph", "Paragraph"],
+        )
+        self.assertEqual(result.document.blocks[0].text, "• Before")
+        self.assertEqual(result.document.blocks[1].text, "Inner")
+        self.assertEqual(result.document.blocks[3].text, "Tail")
+        self.assertEqual(result.document.blocks[4].text, "After")
+        positions = [
+            block for block in result.document.blocks if isinstance(block, Position)
+        ]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(Board(positions[0].fen).fen(), Board.START)
+
+        reader = BookReader(result.document)
+        location = reader.next_position()
+        self.assertEqual(location.index, 2)
+        self.assertEqual(Board(location.position_fen).fen(), Board.START)
+
+    def test_unclosed_nested_rich_capture_recovers_once_in_source_order(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">Before'
+            '<blockquote id="quote">Inner<img src="board.png" alt="Board">Tail',
+            source_name="unclosed-nested-rich.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Before"),
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("Inner") + block.text.count("Tail")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            2,
+        )
+        self.assertTrue(any("unclosed blockquote" in warning for warning in result.warnings))
+        self.assertTrue(any("unclosed p" in warning for warning in result.warnings))
+
+    def test_nested_rich_list_split_restores_legacy_list_progress_identity(self) -> None:
+        baseline = import_html_book(
+            '<html><body><ul id="choices"><li>Before Inner Tail After</li></ul>'
+            '</body></html>',
+            source_name="nested-rich-list-progress-baseline.html",
+        )
+        baseline_reader = BookReader(baseline.document)
+        baseline_index = next(
+            index
+            for index, block in enumerate(baseline.document.blocks)
+            if block.kind == "List"
+        )
+        baseline_location = baseline_reader.go_to(baseline_index)
+
+        changed = import_html_book(
+            '<html><body><ul id="choices"><li>Before'
+            '<blockquote>Inner<img src="board.png" alt="Board">Tail</blockquote>'
+            'After</li></ul></body></html>',
+            source_name="nested-rich-list-progress-changed.html",
+            available_assets={"board.png"},
+        )
+        first = changed.document.blocks[0]
+        self.assertIsInstance(first, Paragraph)
+        self.assertEqual(first.text, "• Before")
+        self.assertEqual(first.block_id, baseline_location.block_id)
+        self.assertEqual(first.source_anchor, "choices")
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+            store.save("nested-rich-list-progress", baseline_reader)
+            restored = store.restore(
+                "nested-rich-list-progress",
+                changed.document,
+            )
+
+        restored_location = restored.location()
+        restored_block = restored.block_snapshot(restored_location.index)
+        self.assertEqual(restored_location.block_id, baseline_location.block_id)
+        self.assertEqual(restored_location.source_anchor, "choices")
+        self.assertIsInstance(restored_block, Paragraph)
+        self.assertEqual(restored_block.text, "• Before")
+
     def test_decorative_heading_image_does_not_split_heading_text(self) -> None:
         baseline = import_html_book(
             '<html><body><h2 id="topic">BeforeAfter</h2></body></html>',
