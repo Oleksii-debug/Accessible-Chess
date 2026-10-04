@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 import re
 
+from .input_limits import MAX_CHESS_MOVE_TEXT_CHARS
 from .keybindings import ActionRegistry, BindingContext
 from .position_editor import (
     MAX_COORDINATE_POSITION_CHARS,
@@ -11,7 +12,7 @@ from .position_editor import (
     parse_piece_coordinate_position,
 )
 
-MAX_MOVE_ENTRY_CHARS = MAX_COORDINATE_POSITION_CHARS
+MAX_MOVE_ENTRY_CHARS = min(MAX_COORDINATE_POSITION_CHARS, MAX_CHESS_MOVE_TEXT_CHARS)
 
 
 class MoveEntryKind(str, Enum):
