@@ -93,6 +93,18 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_owner_run_provenance_successor_late_binds_live_equal_sha_parent(self) -> None:
+        required = (
+            "      - converge/owner-equal-apex-run-provenance-20261004-c2mbezb",
+            "      - integration/owner-equal-sha-release-convergence-20261004-ooxple7",
+            'elif [ "${GITHUB_REF_NAME:-}" = "converge/owner-equal-apex-run-provenance-20261004-c2mbezb" ]; then',
+            "live_base_ref='integration/owner-equal-sha-release-convergence-20261004-ooxple7'",
+            "FULL_PRODUCT_LIVE_RUN_PROVENANCE_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
