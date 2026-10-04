@@ -149,6 +149,7 @@ class BookReaderTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "exceeds 4096"):
             BookReader.restore_snapshot(book, fallback_snapshot)
+
     def test_boundaries_and_invalid_return_points_fail_explicitly(self):
         reader = BookReader(self.make_book())
         with self.assertRaisesRegex(LookupError, "Beginning"):
@@ -176,6 +177,59 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             reader.go_to(0)
         self.assertEqual(reader.index, 3)
+
+    def test_live_revision_rejects_blocks_list_subclass_before_iteration_hook(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        class HostileBlocks(list):
+            armed = False
+            touched = False
+
+            def __iter__(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("live blocks iteration hook must not execute")
+                return super().__iter__()
+
+        hostile = HostileBlocks(book.blocks)
+        book.blocks = hostile
+        HostileBlocks.armed = True
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertFalse(HostileBlocks.touched)
+
+    def test_live_revision_rejects_block_subclass_before_method_hook(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        class HostileHeading(Heading):
+            armed = False
+            touched = False
+
+            def as_dict(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("live block method hook must not execute")
+                return super().as_dict()
+
+        hostile = HostileHeading(text="Replacement", level=1, block_id="part-1")
+        book.blocks[0] = hostile
+        HostileHeading.armed = True
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertFalse(HostileHeading.touched)
+
+    def test_live_revision_digest_remains_blocks_only(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        book.title = "Retitled without changing reading semantics"
+        book.warnings.append("New import note")
+
+        self.assertEqual(reader.location().block_id, "part-1")
 
     def test_navigation_availability_rechecks_revision_after_semantic_scan(self):
         book = self.make_book()
