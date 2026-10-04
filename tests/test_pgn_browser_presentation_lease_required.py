@@ -46,6 +46,12 @@ class PgnBrowserPresentationLeaseRequiredTests(unittest.TestCase):
         self.assertEqual("selection", accepted["kind"])
         self.assertEqual(1, self.app.session.workspace.selected_game_index)
 
+    def test_replacing_document_before_browser_render_remains_unleased(self) -> None:
+        self.app.set_document(PgnDocumentSession.from_text(DOCUMENT))
+        accepted = self.app.browser_command("pgn", "pgn.next_game", {})
+        self.assertEqual("selection", accepted["kind"])
+        self.assertEqual(1, self.app.session.workspace.selected_game_index)
+
     def test_missing_lease_after_browser_snapshot_rejects_navigation_and_recovers(self) -> None:
         visible = self.app.snapshot()["pgn"]
         rejected = self.app.browser_command("pgn", "pgn.next_game", {})
