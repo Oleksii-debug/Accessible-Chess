@@ -497,6 +497,10 @@ class BookReaderPresenter:
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
+        # BookReader is the canonical semantic cursor authority. Reject
+        # subclasses before any overridable warning/navigation method can run.
+        if type(reader) is not BookReader:
+            raise TypeError("book presenter reader must be BookReader")
         self._reader = reader
         self._language = language
         self._document_warning_count = reader.document_warning_count()
