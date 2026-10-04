@@ -528,22 +528,27 @@
 
         let command = "";
         let payload = {};
+        let handled = false;
         if (actionId === "pgn.previous_item") {
+          handled = true;
           if (itemIndex > 0) {
             command = "pgn.move";
             payload = { delta: -1 };
           }
         } else if (actionId === "pgn.next_item") {
+          handled = true;
           if (itemIndex + 1 < snapshot.tree.length) {
             command = "pgn.move";
             payload = { delta: 1 };
           }
         } else if (actionId === "pgn.parent_variation") {
+          handled = true;
           if (item.has_parent) command = "pgn.parent";
         } else if (
           !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
           event.key === "ArrowRight"
         ) {
+          handled = true;
           if (hasChild) {
             command = "pgn.select";
             payload = { node_id: snapshot.tree[itemIndex + 1].node_id };
@@ -552,6 +557,7 @@
           !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
           event.key === "Home"
         ) {
+          handled = true;
           if (itemIndex > 0 && snapshot.tree.length) {
             command = "pgn.select";
             payload = { node_id: snapshot.tree[0].node_id };
@@ -560,20 +566,21 @@
           !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
           event.key === "End"
         ) {
+          handled = true;
           if (itemIndex + 1 < snapshot.tree.length) {
             command = "pgn.select";
             payload = {
               node_id: snapshot.tree[snapshot.tree.length - 1].node_id
             };
           }
-        } else {
-          return;
         }
 
-        if (!command) return;
+        if (!handled) return;
         event.preventDefault();
         if (typeof event.stopPropagation === "function") event.stopPropagation();
-        invokeCommand(root, invoke, announce, command, payload);
+        if (command) {
+          invokeCommand(root, invoke, announce, command, payload);
+        }
       });
       tree.appendChild(treeItem);
     });
