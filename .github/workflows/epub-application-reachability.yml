@@ -75,7 +75,7 @@ jobs:
           package_identity_successor_parser_test='de189065192ca1c0bd30ce1ecec559e8f61cc1bc'
           package_identity_successor_contract_test='c0904af9b42e5cd50cf2a240145fd3cd0bfde9d2'
           dc_metadata_successor_parser='9eaef49ac61ede991733a53611ac8f933d86990c'
-          dc_metadata_successor_parser_test='de189065192ca1c0bd30ce1ecec559e8f61cc1bc'
+          dc_metadata_successor_parser_test='2af1740b289d0c231f1618acf9a3c25b409f5fb7'
           dc_metadata_successor_contract_test='134cf79cf81037f4412b1eacb8e2358ddfe38163'
           dc_metadata_successor_test='a59c4ac174dba43ce64962c1d780b6e9f49d95a6'
 
