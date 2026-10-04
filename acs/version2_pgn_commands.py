@@ -116,6 +116,19 @@ class Version2PgnCommands:
         view = workspace.view()
         if allow_root and request.expected_content_digest != view.content_digest:
             raise ValueError("PGN document is stale")
+        if not allow_root and "expected_content_digest" in payload:
+            expected_content_digest = payload["expected_content_digest"]
+            if (
+                type(expected_content_digest) is not str
+                or len(expected_content_digest) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in expected_content_digest
+                )
+            ):
+                raise ValueError("PGN command content digest is invalid")
+            if expected_content_digest != view.content_digest:
+                raise ValueError("PGN document is stale")
         if (request.game_index, request.content_revision, request.expected_record_digest) != (
             view.selected_game_index, view.content_revision, view.current_record_digest
         ):
@@ -193,7 +206,11 @@ class Version2PgnCommands:
         if action_id == "pgn.comment_edit": allowed.add("text")
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             allowed.update({"parent_path", "parent_move_index", "variation_index"})
-        if set(payload) != allowed:
+        payload_fields = set(payload)
+        if (
+            payload_fields != allowed
+            and payload_fields != allowed | {"expected_content_digest"}
+        ):
             raise ValueError("invalid PGN command payload")
         request, cursor = self._target(
             payload,
