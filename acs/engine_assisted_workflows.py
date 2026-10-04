@@ -16,6 +16,7 @@ from .analysis_service import AnalysisLine, AnalysisResult, AnalysisService
 from .bookdocument import Exercise as BookExercise
 from .bookdocument import Position, VariationTree
 from .engine_ports import EngineContractError, EngineContractErrorCode
+from .input_limits import MAX_FEN_CHARS
 from .training import ExerciseSession
 
 
@@ -46,12 +47,20 @@ def _visibility(value: EngineVisibility | str) -> EngineVisibility:
 
 
 def _request_fen(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
+    # Reuse the canonical raw FEN representation budget. Exact built-in text is
+    # required before len/strip so provider-defined string hooks cannot execute.
+    if type(value) is not str or len(value) > MAX_FEN_CHARS:
         raise EngineContractError(
             "assisted analysis FEN must be non-empty text",
             code=EngineContractErrorCode.INVALID_REQUEST,
         )
-    return value.strip()
+    normalized = value.strip()
+    if not normalized:
+        raise EngineContractError(
+            "assisted analysis FEN must be non-empty text",
+            code=EngineContractErrorCode.INVALID_REQUEST,
+        )
+    return normalized
 
 
 def _context_revision(value: object, *, name: str) -> str | int:
@@ -94,7 +103,13 @@ class AudienceAnalysisResult:
     error: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+            raise EngineContractError(
+                "audience analysis FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
             raise EngineContractError(
                 "audience analysis FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -157,7 +172,7 @@ class AudienceAnalysisResult:
                 "teacher-only engine analysis cannot expose student lines",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
     @property
     def available_to_teacher(self) -> bool:
@@ -247,10 +262,13 @@ class EngineAssistedWorkflowService:
                 "training session must be ExerciseSession",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
+        # Reject malformed/oversized FEN before sampling mutable Training state.
+        # A rejected request must not execute session/provider work.
+        normalized_fen = _request_fen(fen)
         policy = _visibility(visibility)
         before = session.snapshot()
         result = self._analysis.analyze(
-            _request_fen(fen), multipv=multipv, depth=depth
+            normalized_fen, multipv=multipv, depth=depth
         )
         after = session.snapshot()
         return self._project(result, policy, force_stale=after != before)
