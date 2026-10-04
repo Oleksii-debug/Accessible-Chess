@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.sha }}"
-          for absorbed in             36cf0bb63cc45255df3e60dd160cdd4e0ad195a2             64cd6bd75cef34bfc477f651919202d2774ecd74             a0d0a5cfdbae45f25033f129c8d8cb82d28fce3b             74c7a2f614801fbb4bacb6ef0fe4b16763c922a1             be2061e8193fe953efdf5536548a7e964bfd829b
+          for absorbed in 36cf0bb63cc45255df3e60dd160cdd4e0ad195a2 64cd6bd75cef34bfc477f651919202d2774ecd74 a0d0a5cfdbae45f25033f129c8d8cb82d28fce3b 74c7a2f614801fbb4bacb6ef0fe4b16763c922a1 be2061e8193fe953efdf5536548a7e964bfd829b 0bf46b2561db3d1dc26f354699c5610d331edb6a
           do
             git cat-file -e "$absorbed^{commit}"
             git merge-base --is-ancestor "$absorbed" HEAD
@@ -55,6 +55,7 @@ jobs:
           acs/bookdocument.py
           acs/bookreader.py
           acs/full_product_presenters.py
+          acs/version2_application.py
           tests/test_book_html_inline_image_order.py
           tests/test_v2_book_epub_import.py
           tests/test_bookdocument.py
@@ -96,6 +97,16 @@ jobs:
           tests.test_books_semantic_host_bounds
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_books_training_webview_atomicity
+
+      - name: Qualify native accessibility and keyboard feedback
+        run: >-
+          python -m unittest -v
+          tests.test_version2_accessibility_convergence
+          tests.test_nvda_p0_contract
+          tests.test_full_product_native_menu
+          tests.test_keybindings
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_windows_book_board_adapter
 
       - name: Qualify persistence portability and semantic copy contract
         run: >-
