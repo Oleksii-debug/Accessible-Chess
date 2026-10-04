@@ -26,20 +26,24 @@ class Dev4ChessBaseIntegrityIoObservabilityTests(unittest.TestCase):
             companion.write_bytes(b"moves")
             snapshot = capture_integrity_snapshot(primary)
 
-            original_open = os.open
+            original_open = import_contract._open_readonly_no_reparse
             companion_absolute = companion.absolute()
 
-            def guarded_open(path, flags, *args, **kwargs):
-                candidate = Path(os.fsdecode(path))
+            def guarded_open(path):
+                candidate = Path(path)
                 if candidate == companion_absolute:
                     raise PermissionError("synthetic companion I/O failure")
-                return original_open(path, flags, *args, **kwargs)
+                return original_open(path)
 
             # The canonical fingerprint owns the no-follow descriptor open.
             # Exercise that boundary directly while preserving the original
             # requirement: unverifiable companion evidence must fail closed as
             # a domain error and never escape as raw filesystem diagnostics.
-            with patch.object(import_contract.os, "open", side_effect=guarded_open):
+            with patch.object(
+                import_contract,
+                "_open_readonly_no_reparse",
+                side_effect=guarded_open,
+            ):
                 with self.assertRaises(ChessBaseIntegrityIOError) as caught:
                     verify_integrity_snapshot(snapshot)
 
@@ -53,16 +57,20 @@ class Dev4ChessBaseIntegrityIoObservabilityTests(unittest.TestCase):
             primary = root / "private-primary.cbh"
             primary.write_bytes(b"header")
 
-            original_open = os.open
+            original_open = import_contract._open_readonly_no_reparse
             primary_absolute = primary.absolute()
 
-            def guarded_open(path, flags, *args, **kwargs):
-                candidate = Path(os.fsdecode(path))
+            def guarded_open(path):
+                candidate = Path(path)
                 if candidate == primary_absolute:
                     raise PermissionError("synthetic primary filesystem detail")
-                return original_open(path, flags, *args, **kwargs)
+                return original_open(path)
 
-            with patch.object(import_contract.os, "open", side_effect=guarded_open):
+            with patch.object(
+                import_contract,
+                "_open_readonly_no_reparse",
+                side_effect=guarded_open,
+            ):
                 with self.assertRaises(ChessBaseIntegrityIOError) as caught:
                     capture_integrity_snapshot(primary)
 
