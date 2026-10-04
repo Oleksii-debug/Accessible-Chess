@@ -838,7 +838,12 @@ def build_current_book_training_material(reader: BookReader) -> BookTrainingMate
             "current BookReader location is not an Exercise",
             code=BookTrainingErrorCode.INVALID_TARGET,
         )
-    return build_book_training_material(reader.document, location.index)
+    indexed_document = reader.document_snapshot()
+    material = build_book_training_material(indexed_document, location.index)
+    # Authoring can change while detached provenance work runs. Recheck the
+    # live revision before publication without traversing it outside BookReader.
+    reader.block_snapshot(location.index)
+    return material
 
 
 def resolve_book_training_origin(
@@ -891,7 +896,9 @@ def return_reader_to_book_training_origin(
         raise TypeError("reader must be a BookReader")
     if type(origin) is not BookTrainingOrigin:
         raise TypeError("origin must be a BookTrainingOrigin")
-    location = resolve_book_training_origin(reader.document, origin)
+    location = resolve_book_training_origin(reader.document_snapshot(), origin)
+    # go_to() rechecks the live authoring revision before moving the canonical
+    # reader cursor, so provenance resolution never needs to traverse live state.
     return reader.go_to(location.index)
 
 

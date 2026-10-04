@@ -115,6 +115,18 @@ class BookReader:
         if not 0 <= index < len(self._indexed_document.blocks):
             raise IndexError("Book reading index is outside the document")
         return block_from_dict(self._indexed_document.blocks[index].as_dict())
+    def document_snapshot(self) -> BookDocument:
+        """Return a detached canonical BookDocument from this indexed revision.
+
+        Book-facing application flows must not traverse the mutable public
+        document after revision validation. This snapshot keeps semantic
+        provenance on the same immutable BookIndex revision while live authoring
+        state remains only a fail-closed equality/revision authority.
+        """
+        self._require_indexed_revision()
+        snapshot = BookDocument.from_dict(self._indexed_document.as_dict())
+        self._require_indexed_revision()
+        return snapshot
 
     @staticmethod
     def _return_point_name(name: str) -> str:
