@@ -130,7 +130,10 @@ class AccessibleChessAPI:
 
     def square_label(self, square: int | str, board: Board | None = None) -> str:
         b = board or self._display_board()
-        s = parse_sq(square) if isinstance(square, str) else int(square)
+        # Use the canonical exact-int/exact-text square boundary for both forms.
+        # Coercing arbitrary values with int() can execute provider code and also
+        # turns booleans/floats/negative indices into the wrong spoken square.
+        s = parse_sq(square)
         coord = _spaced_square(sq_name(s))
         p = b.board[s]
         return coord if not p else f"{coord}, {self._piece_name(p)}"
