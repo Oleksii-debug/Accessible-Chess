@@ -5,6 +5,7 @@ on:
     paths:
       - 'tools/optional/libcbh_json_bridge.cpp'
       - 'tests/test_chessbase_libcbh_external_fixture.py'
+      - 'tests/test_chessbase_libcbh_semantic_fidelity_workflow.py'
       - 'acs/chessbase_decoder.py'
       - 'acs/gametree.py'
       - '.github/workflows/chessbase-libcbh-semantic-fidelity-current.yml'
