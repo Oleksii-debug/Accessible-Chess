@@ -12,6 +12,20 @@ class OwnerDocxWin32PortabilityTests(unittest.TestCase):
         name = "Доступні шахи — інструкція.docx"
         self.assertEqual(owner_candidate._owner_docx_name(Path(name)), name)
 
+    def test_raw_filename_authority_rejects_path_and_drive_forms(self) -> None:
+        for name in (
+            "folder/document.docx",
+            r"folder\document.docx",
+            "C:document.docx",
+            r"C:\document.docx",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    owner_candidate.OwnerPortableCandidateError,
+                    "not Win32-portable",
+                ):
+                    owner_candidate._owner_docx_filename(name)
+
     def test_exact_255_utf16_unit_component_is_accepted(self) -> None:
         name = "a" * 250 + ".docx"
         self.assertEqual(len(name.encode("utf-16-le")) // 2, 255)
