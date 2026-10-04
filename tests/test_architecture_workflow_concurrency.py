@@ -11,7 +11,7 @@ WORKFLOWS = (
     ROOT / ".github" / "workflows" / "architecture-dynamic-infrastructure-import-gate.yml",
 )
 CONCURRENCY_BLOCK = """concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 """
 TRIGGER_PATH = "      - 'tests/test_architecture_workflow_concurrency.py'"
@@ -27,15 +27,16 @@ class ArchitectureWorkflowConcurrencyTests(unittest.TestCase):
                 self.assertEqual(text.count(TRIGGER_PATH), 2)
                 self.assertIn(TEST_MODULE, text)
 
-    def test_concurrency_group_isolated_by_workflow_and_candidate(self) -> None:
+    def test_concurrency_group_isolated_by_workflow_repository_and_head(self) -> None:
         for workflow in WORKFLOWS:
             with self.subTest(workflow=workflow.name):
                 text = workflow.read_text(encoding="utf-8")
                 self.assertIn("${{ github.workflow }}", text)
                 self.assertIn(
-                    "${{ github.event.pull_request.number || github.ref }}",
+                    "${{ github.event.pull_request.head.repo.full_name || github.repository }}",
                     text,
                 )
+                self.assertIn("${{ github.head_ref || github.ref_name }}", text)
                 self.assertIn("cancel-in-progress: true", text)
 
 
