@@ -44,12 +44,16 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
     def test_shell_exports_current_synchronous_event_resolver_for_child_surfaces(self) -> None:
         source = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         self.assertIn("function keymapActionForEvent(e,uiContext)", source)
+        self.assertIn("if(!keymapReady)return null", source)
         self.assertIn("actionByChord(eventChord(e),uiContext)", source)
         self.assertIn("window.accessibleChessKeymapAction=keymapActionForEvent", source)
+        self.assertIn("keymapReady=true", source)
 
     def test_pgn_tree_uses_remappable_context_and_retains_current_roving_keys(self) -> None:
         source = (ROOT / "web" / "full_product_pgn.js").read_text(encoding="utf-8")
         self.assertIn('resolve(event, "pgn_tree")', source)
+        self.assertIn("resolved !== null && resolved !== undefined", source)
+        self.assertIn("!resolverReady", source)
         for action_id in ("pgn.previous_item", "pgn.next_item", "pgn.parent_variation"):
             self.assertIn(action_id, source)
         # These current semantic tree controls are intentionally not collapsed
@@ -62,6 +66,8 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         source = (ROOT / "web" / "full_product_library.js").read_text(encoding="utf-8")
         self.assertIn('resolve(event, "library_results")', source)
         self.assertIn('typeof resolve === "function"', source)
+        self.assertIn("resolved !== null && resolved !== undefined", source)
+        self.assertIn("!resolverReady", source)
         for action_id in ("library.previous_result", "library.next_result", "library.open_game"):
             self.assertIn(action_id, source)
 
@@ -69,6 +75,8 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         source = (ROOT / "web" / "full_product_education.js").read_text(encoding="utf-8")
         self.assertIn('resolve(event, "education_list")', source)
         self.assertIn('typeof resolve === "function"', source)
+        self.assertIn("resolved !== null && resolved !== undefined", source)
+        self.assertIn("!resolverReady", source)
         for action_id in ("education.previous_item", "education.next_item", "education.open_selected"):
             self.assertIn(action_id, source)
 
