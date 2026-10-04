@@ -10,6 +10,7 @@ import unicodedata
 SEARCH_FOLD_SQL_FUNCTION = "ACS_SEARCH_FOLD"
 SEARCH_DATE_KEY_SQL_FUNCTION = "ACS_SEARCH_DATE_KEY"
 PLAYER_COMPONENT_KEY_SQL_FUNCTION = "ACS_PLAYER_COMPONENT_KEY"
+MAX_RAW_SEARCH_TERM_CHARS = 4096
 MAX_SEARCH_TERM_CHARS = 256
 MAX_SEARCH_PAGE_SIZE = 200
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -34,6 +35,15 @@ def normalize_search_term(value: str | None, *, name: str) -> str | None:
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
+    # Bound raw caller input before Unicode normalization/splitting allocates a
+    # normalized copy. BookIndex already applies this same 4096-character fence
+    # to its direct search query before delegating here; Library/ACSDB callers
+    # must receive the same resource envelope through the shared policy itself.
+    if len(value) > MAX_RAW_SEARCH_TERM_CHARS:
+        raise ValueError(
+            f"{name} exceeds maximum raw search term length of "
+            f"{MAX_RAW_SEARCH_TERM_CHARS} characters"
+        )
     normalized = normalize_search_text(value)
     if len(normalized) > MAX_SEARCH_TERM_CHARS:
         raise ValueError(
