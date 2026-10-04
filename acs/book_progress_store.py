@@ -458,12 +458,32 @@ class BookProgressStore:
     def __init__(self, path: str | os.PathLike[str]) -> None:
         if not isinstance(path, (str, os.PathLike)):
             raise TypeError("book progress store path must be path-like")
+        raw_path = os.fspath(path)
+        if type(raw_path) is not str:
+            raise TypeError("book progress store path must resolve to text")
+        if not raw_path or "\x00" in raw_path:
+            raise BookProgressStoreError(
+                "book progress store path is invalid",
+                code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
+            )
         # Bind relative configuration to the construction-time working
         # directory without resolving symlinks. The process-lock key is already
         # absolute; keeping I/O relative would let a later os.chdir() send the
         # same store instance to a different file while it still holds the old
         # process-lock authority.
-        self._path = Path(path).absolute()
+        try:
+            bound_path = Path(raw_path).absolute()
+        except OSError:
+            raise BookProgressStoreError(
+                "book progress storage is unavailable",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
+        if not bound_path.name:
+            raise BookProgressStoreError(
+                "book progress store path must name a file",
+                code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
+            )
+        self._path = bound_path
         self._process_lock = _process_lock_for(self._path)
         self._active_storage_directory_identity: os.stat_result | None = None
         self._active_lock_descriptor: int | None = None
