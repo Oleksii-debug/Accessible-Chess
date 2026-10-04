@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - fix/current-book-training-passive-roots-20261004-c2mbezb
+      - main
     paths:
       - 'acs/pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_webview_atomicity.py'
