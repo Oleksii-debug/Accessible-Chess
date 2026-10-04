@@ -52,6 +52,60 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsNone(paragraphs[1].source_anchor)
         self.assertEqual(result.image_references, ("board.png",))
 
+    def test_inline_fragments_do_not_shift_following_legacy_paragraph_identity(self) -> None:
+        baseline = import_html_book(
+            '<html><body><p id="split">AB</p><p id="after">B</p></body></html>',
+            source_name="baseline-following-id.html",
+        )
+        baseline_after = next(
+            block
+            for block in baseline.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "after"
+        )
+
+        result = import_html_book(
+            '<html><body><p id="split">A<img src="board.png" alt="Board">B</p><p id="after">B</p></body></html>',
+            source_name="inline-following-id.html",
+            available_assets={"board.png"},
+        )
+        result_after = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.source_anchor == "after"
+        )
+
+        self.assertEqual(result_after.block_id, baseline_after.block_id)
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "A"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "B"),
+                ("Paragraph", "B"),
+            ],
+        )
+
+    def test_image_at_paragraph_edges_preserves_reading_order(self) -> None:
+        first = import_html_book(
+            '<html><body><p><img src="board.png" alt="Board">Tail</p></body></html>',
+            source_name="image-first.html",
+            available_assets={"board.png"},
+        )
+        last = import_html_book(
+            '<html><body><p>Lead<img src="board.png" alt="Board"></p></body></html>',
+            source_name="image-last.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(first.document.blocks),
+            [("ImageNote", "Board"), ("Paragraph", "Tail")],
+        )
+        self.assertEqual(
+            _semantic_signature(last.document.blocks),
+            [("Paragraph", "Lead"), ("ImageNote", "Board")],
+        )
+
     def test_inline_explicit_fen_diagram_uses_same_source_order_without_new_chess_authority(self) -> None:
         result = import_html_book(
             f'<html><body><p>Before<img src="board.png" alt="Start" data-acs-fen="{Board.START}">After</p></body></html>',
