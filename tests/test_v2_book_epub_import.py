@@ -213,6 +213,15 @@ def _insert_precentral_record(raw: bytes, record: bytes) -> bytes:
     return bytes(damaged)
 
 
+def _insert_postcentral_record(raw: bytes, record: bytes) -> bytes:
+    damaged = bytearray(raw)
+    eocd_offset = damaged.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or eocd_offset + 22 > len(damaged):
+        raise AssertionError("fixture EOCD record was not found")
+    damaged[eocd_offset:eocd_offset] = record
+    return bytes(damaged)
+
+
 def _set_eocd_field(
     raw: bytes,
     *,
@@ -443,6 +452,49 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
+    def test_local_zip_header_metadata_must_match_central_directory(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+            prepend=[("unused.bin", b"authenticated local metadata")],
+        )
+        with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+            info = archive.getinfo("unused.bin")
+        cases = (
+            ("flags", 6, 2, info.flag_bits ^ (1 << 3)),
+            ("crc", 14, 4, info.CRC ^ 1),
+            ("compressed-size", 18, 4, info.compress_size + 1),
+            ("uncompressed-size", 22, 4, info.file_size + 1),
+        )
+        for label, offset, width, value in cases:
+            with self.subTest(label=label):
+                damaged = _set_local_zip_field(
+                    raw,
+                    "unused.bin",
+                    offset=offset,
+                    width=width,
+                    value=value,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        damaged,
+                        source_name=f"local-{label}-mismatch.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
     def test_mimetype_local_zip_header_must_not_have_extra_field(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         damaged = _set_local_zip_field(
@@ -528,6 +580,21 @@ class BookEpubImportTests(unittest.TestCase):
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
 
+    def test_postcentral_zip_record_is_rejected(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        digital_signature_record = (
+            b"PK\x05\x05"
+            + (4).to_bytes(2, "little")
+            + b"sig!"
+        )
+        damaged = _insert_postcentral_record(raw, digital_signature_record)
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="postcentral-record.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
     def test_eocd_multi_disk_metadata_is_rejected(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         eocd_offset = raw.rfind(b"PK\x05\x06")
@@ -554,6 +621,35 @@ class BookEpubImportTests(unittest.TestCase):
                     raised.exception.code,
                     BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
                 )
+
+    def test_eocd_entry_count_must_match_central_directory(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        eocd_offset = raw.rfind(b"PK\x05\x06")
+        self.assertGreaterEqual(eocd_offset, 0)
+        actual_entries = int.from_bytes(
+            raw[eocd_offset + 10 : eocd_offset + 12],
+            "little",
+        )
+        wrong_entries = actual_entries + 1
+        self.assertLessEqual(wrong_entries, 0xFFFF)
+        damaged = _set_eocd_field(
+            raw,
+            offset=8,
+            width=2,
+            value=wrong_entries,
+        )
+        damaged = _set_eocd_field(
+            damaged,
+            offset=10,
+            width=2,
+            value=wrong_entries,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="wrong-entry-count.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
 
     def test_valid_zip_comment_preserves_single_disk_container(self) -> None:
         raw = _simple_epub(b"<html><body><p>Commented EPUB.</p></body></html>")
