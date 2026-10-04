@@ -886,6 +886,32 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertFalse(self.store.backup_path.exists())
 
+    def test_revision_bound_recovery_normalizes_corrupt_backup_drift_as_stale(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:backup-corrupt-after-confirm", reader)
+        reader.go_to(3)
+        self.store.save("book:backup-corrupt-after-confirm", reader)
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        self.path.write_bytes(corrupt_primary)
+        primary_revision, backup_revision = self.store.validated_recovery_revisions(
+            "book:backup-corrupt-after-confirm",
+            self.original_document(),
+        )
+        changed_backup = b'{"schema_version":2,"entries":'
+        self.store.backup_path.write_bytes(changed_backup)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.recover_from_backup(
+                expected_backup_revision=backup_revision,
+                expected_primary_revision=primary_revision,
+            )
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), corrupt_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), changed_backup)
+
     def test_revision_bound_corrupt_primary_recovery_rejects_disappeared_backup(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
