@@ -47,7 +47,13 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         self.assertIn("if(!keymapReady)return null", source)
         self.assertIn("actionByChord(eventChord(e),uiContext)", source)
         self.assertIn("window.accessibleChessKeymapAction=keymapActionForEvent", source)
+        self.assertIn("function installKeymapSnapshot(snapshot,isCentral)", source)
+        self.assertIn("const hadReadyKeymap=keymapReady", source)
+        self.assertIn("if(!hadReadyKeymap)keymapReady=false", source)
+        self.assertIn("async function applyKeymapMutation(result)", source)
+        self.assertIn("if(result.snapshot)installKeymapSnapshot(result.snapshot,true)", source)
         self.assertIn("keymapReady=true", source)
+        self.assertNotIn("async function loadKeymap(){keymapReady=false", source)
 
     def test_pgn_tree_uses_remappable_context_and_retains_current_roving_keys(self) -> None:
         source = (ROOT / "web" / "full_product_pgn.js").read_text(encoding="utf-8")
