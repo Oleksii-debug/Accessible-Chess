@@ -5,6 +5,7 @@ on:
     branches:
       - fix/current-history-snapshot-passive-20261004-sol56h2
       - fix/current-settings-duplicate-json-20261004-sol56z4p7
+      - fix/current-keybindings-passive-scalars-20261004-run57
     paths:
       - 'acs/board_service.py'
       - 'tests/test_board_service_passive_boundary.py'
@@ -51,7 +52,7 @@ jobs:
             test -n "$EVENT_BASE_SHA"
             test "$EVENT_BASE_SHA" = "$live_base"
           else
-            base_ref="fix/current-settings-duplicate-json-20261004-sol56z4p7"
+            base_ref="fix/current-keybindings-passive-scalars-20261004-run57"
             git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
             live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           fi
