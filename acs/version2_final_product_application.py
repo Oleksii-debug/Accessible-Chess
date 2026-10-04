@@ -8,6 +8,50 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_pairing import (
+    PairingBatch,
+    PairingMode,
+    assert_pairing_scope,
+    override_pairing,
+    plan_pairings,
+)
+from .child_coaching_context import (
+    ChildCoachingContextError,
+    build_child_coaching_context,
+    child_coaching_context_to_teacher_payload,
+)
+from .child_coaching_application import ChildCoachingApplication
+from .child_coaching_prepared_positions import (
+    ChildCoachingPreparedPositionError,
+    PreparedPositionNavigator,
+    PreparedPositionSnapshot,
+)
+from .child_coaching_rotation import (
+    ChildCoachingRotationError,
+    RotationActivity,
+    RotationPhase,
+    RotationPlan,
+    RotationState,
+    advance_rotation,
+    bind_pair_play_batch,
+    current_round,
+    default_group_rotation,
+    start_rotation,
+    validate_rotation_scope,
+)
+from .child_coaching_rotation_store import (
+    ChildCoachingRotationStore,
+    ChildCoachingRotationStoreConflictError,
+)
+from .classroom_prepared_position_deployment import (
+    DeploymentTarget,
+    PreparedPositionDeploymentBatch,
+    assert_prepared_position_deployment_retry,
+    assert_prepared_position_deployment_scope,
+    plan_prepared_position_deployment as build_prepared_position_deployment,
+    plan_uniform_prepared_position_deployment as build_uniform_prepared_position_deployment,
+    resolve_prepared_position_source,
+)
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -15,6 +59,8 @@ from .education_workspace_store import EducationWorkspaceStore
 from .full_product_ui_shell import UILanguage
 from .library_export_workspace import build_library_export_webview
 from .search_service import GameSearchQuery
+from .student_progress import StudentProgressLedger
+from .student_progress_store import StudentProgressStore
 from .teacher_webview_bridge import TeacherWebViewBridge
 from .teacher_webview_projection import TeacherWebViewProjection
 from .teaching_classroom_adapter import apply_classroom_action
@@ -41,6 +87,17 @@ class Version2FinalProductApplication(Version2Application):
     Corrupt/unreadable Education state is never overwritten automatically and
     does not prevent the core chess product from starting.
     """
+
+    _COACHING_KEYBOARD_ACTIONS = frozenset(
+        {
+            "teacher.prepared_previous",
+            "teacher.prepared_next",
+            "teacher.rotation_start_or_resume",
+            "teacher.rotation_advance",
+            "teacher.rotation_bind_pairing",
+            "teacher.rotation_status",
+        }
+    )
 
     def __init__(
         self,
@@ -83,6 +140,18 @@ class Version2FinalProductApplication(Version2Application):
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
         self._teaching_state: TeachingSessionState | None = None
+        self._pairing_batch: PairingBatch | None = None
+        self._prepared_position_deployment: PreparedPositionDeploymentBatch | None = None
+        self._student_progress_store: StudentProgressStore | None = None
+        self._student_progress_load_error = False
+        self._child_coaching_application: ChildCoachingApplication | None = None
+        self._prepared_position_navigator: PreparedPositionNavigator | None = None
+        self._child_coaching_load_error = False
+        self._rotation_store: ChildCoachingRotationStore | None = None
+        self._rotation_plan: RotationPlan | None = None
+        self._rotation_state: RotationState | None = None
+        self._rotation_store_revision: str | None = None
+        self._rotation_load_error = False
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -148,6 +217,11 @@ class Version2FinalProductApplication(Version2Application):
         self._education_workspace = workspace
         self._education_revision = revision
         self._education_load_error = False
+        # Pairing/deployment plans are exact projections of one D10 snapshot.
+        # Invalidate them before any caller can reuse stale membership or
+        # prepared-position revisions after an accepted workspace replacement.
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
         self._rebuild_education_bridge(self.shell.language)
         return revision
 
@@ -255,6 +329,11 @@ class Version2FinalProductApplication(Version2Application):
             self._teaching_state = None
             self._clear_teaching_binding()
             raise
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
+        self._rotation_plan = None
+        self._rotation_state = None
+        self._rotation_store_revision = None
         return state
 
     def stop_teaching_session(self) -> None:
@@ -265,6 +344,11 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("No application-owned teaching session is active")
         self._teaching_plan = None
         self._teaching_state = None
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
+        self._rotation_plan = None
+        self._rotation_state = None
+        self._rotation_store_revision = None
         self._clear_teaching_binding()
 
     def unbind_teaching_session(self) -> None:
@@ -273,7 +357,595 @@ class Version2FinalProductApplication(Version2Application):
         self._assert_thread()
         self._teaching_plan = None
         self._teaching_state = None
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
+        self._rotation_plan = None
+        self._rotation_state = None
+        self._rotation_store_revision = None
         self._clear_teaching_binding()
+
+    def _classroom_orchestration_authorities(
+        self,
+    ) -> tuple[LessonSession, EducationWorkspace]:
+        plan = self._teaching_plan
+        state = self._teaching_state
+        workspace = self._education_workspace
+        if type(plan) is not LessonSession or type(state) is not TeachingSessionState:
+            raise RuntimeError("No application-owned teaching session is active")
+        if type(workspace) is not EducationWorkspace:
+            raise RuntimeError("Education workspace is unavailable")
+        validate_lesson_session_scope(plan, workspace.classroom)
+        return plan, workspace
+
+    @property
+    def active_pairing_batch(self) -> PairingBatch | None:
+        return self._pairing_batch
+
+    @property
+    def active_prepared_position_deployment(
+        self,
+    ) -> PreparedPositionDeploymentBatch | None:
+        return self._prepared_position_deployment
+
+    def plan_classroom_pairings(
+        self,
+        *,
+        batch_id: str,
+        game_session_ids: tuple[str, ...],
+        student_ids: tuple[str, ...] | None = None,
+        mode: PairingMode | str = PairingMode.SEQUENTIAL,
+        ratings_by_student: Mapping[str, int] | None = None,
+        base_seconds: int = 0,
+        increment_seconds: int = 0,
+    ) -> PairingBatch:
+        """Plan one trusted pair-play batch against the live lesson/D10 scope."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        candidate = plan_pairings(
+            plan,
+            workspace.classroom,
+            batch_id=batch_id,
+            game_session_ids=game_session_ids,
+            student_ids=student_ids,
+            mode=mode,
+            ratings_by_student=ratings_by_student,
+            base_seconds=base_seconds,
+            increment_seconds=increment_seconds,
+        )
+        current_batch = self._pairing_batch
+        if current_batch is not None and current_batch.batch_id == candidate.batch_id:
+            assert_pairing_scope(current_batch, plan, workspace.classroom)
+            if current_batch.digest != candidate.digest:
+                raise RuntimeError("pairing batch id was reused with changed payload")
+            return current_batch
+        self._pairing_batch = candidate
+        return candidate
+
+    def override_classroom_pairing(
+        self,
+        *,
+        pairing_id: str,
+        white_student_id: str,
+        black_student_id: str,
+        base_seconds: int | None = None,
+        increment_seconds: int | None = None,
+    ) -> PairingBatch:
+        """Apply a membership-preserving color/time override to the live batch."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        current_batch = self._pairing_batch
+        if current_batch is None:
+            raise RuntimeError("No classroom pairing batch is active")
+        assert_pairing_scope(current_batch, plan, workspace.classroom)
+        updated = override_pairing(
+            current_batch,
+            pairing_id=pairing_id,
+            white_student_id=white_student_id,
+            black_student_id=black_student_id,
+            base_seconds=base_seconds,
+            increment_seconds=increment_seconds,
+        )
+        assert_pairing_scope(updated, plan, workspace.classroom)
+        self._pairing_batch = updated
+        return updated
+
+    def plan_prepared_position_deployment(
+        self,
+        *,
+        batch_id: str,
+        position_by_student: Mapping[str, str],
+        target: DeploymentTarget | None = None,
+    ) -> PreparedPositionDeploymentBatch:
+        """Plan exact prepared-position revisions for one trusted target."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        candidate = build_prepared_position_deployment(
+            plan,
+            workspace,
+            batch_id=batch_id,
+            position_by_student=position_by_student,
+            target=target,
+        )
+        current_batch = self._prepared_position_deployment
+        if current_batch is not None and current_batch.batch_id == candidate.batch_id:
+            assert_prepared_position_deployment_scope(current_batch, plan, workspace)
+            assert_prepared_position_deployment_retry(current_batch, candidate)
+            return current_batch
+        self._prepared_position_deployment = candidate
+        return candidate
+
+    def plan_uniform_prepared_position_deployment(
+        self,
+        *,
+        batch_id: str,
+        position_id: str,
+        target: DeploymentTarget | None = None,
+    ) -> PreparedPositionDeploymentBatch:
+        """Plan one durable prepared position for all students in a target."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        candidate = build_uniform_prepared_position_deployment(
+            plan,
+            workspace,
+            batch_id=batch_id,
+            position_id=position_id,
+            target=target,
+        )
+        current_batch = self._prepared_position_deployment
+        if current_batch is not None and current_batch.batch_id == candidate.batch_id:
+            assert_prepared_position_deployment_scope(current_batch, plan, workspace)
+            assert_prepared_position_deployment_retry(current_batch, candidate)
+            return current_batch
+        self._prepared_position_deployment = candidate
+        return candidate
+
+    def resolve_prepared_position_assignment(
+        self,
+        assignment_id: str,
+    ):
+        """Resolve one assignment only after revalidating the complete live batch."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        batch = self._prepared_position_deployment
+        if batch is None:
+            raise RuntimeError("No prepared-position deployment is active")
+        return resolve_prepared_position_source(
+            batch,
+            assignment_id,
+            plan,
+            workspace,
+        )
+
+    def bind_child_coaching_rotation_store(
+        self,
+        store: ChildCoachingRotationStore,
+    ) -> None:
+        """Bind one durable rotation slot without adopting stale lesson scope."""
+
+        self._assert_thread()
+        if type(store) is not ChildCoachingRotationStore:
+            raise TypeError("rotation store must be ChildCoachingRotationStore")
+        if self._rotation_store is not None and self._rotation_store is not store:
+            raise RuntimeError("Child coaching rotation store is already bound")
+        self._rotation_store = store
+
+    def _rotation_authorities(
+        self,
+    ) -> tuple[LessonSession, RotationPlan, RotationState, ChildCoachingRotationStore]:
+        lesson, _workspace = self._classroom_orchestration_authorities()
+        plan = self._rotation_plan
+        state = self._rotation_state
+        store = self._rotation_store
+        if plan is None or state is None:
+            raise RuntimeError("No group rotation is active")
+        if store is None:
+            raise RuntimeError("Group rotation store is unavailable")
+        validate_rotation_scope(plan, lesson)
+        return lesson, plan, state, store
+
+    def begin_or_resume_default_group_rotation(
+        self,
+        rotation_id: str,
+    ) -> RotationState:
+        """Create one default rotation or resume the exact durable live-lesson plan."""
+
+        self._assert_thread()
+        lesson, _workspace = self._classroom_orchestration_authorities()
+        store = self._rotation_store
+        if store is None:
+            raise RuntimeError("Group rotation store is unavailable")
+        try:
+            loaded = store.load()
+        except Exception:
+            self._rotation_load_error = True
+            raise RuntimeError("Group rotation requires recovery") from None
+
+        if loaded is None:
+            plan = default_group_rotation(lesson, rotation_id=rotation_id)
+            state = start_rotation(plan)
+            try:
+                revision = store.save(plan, state, expected_revision=None)
+            except Exception:
+                self._rotation_load_error = True
+                raise
+        else:
+            try:
+                validate_rotation_scope(loaded.plan, lesson)
+            except ChildCoachingRotationError as exc:
+                self._rotation_load_error = True
+                raise RuntimeError(
+                    "Stored group rotation belongs to a different teaching session"
+                ) from exc
+            if loaded.plan.rotation_id != rotation_id:
+                raise RuntimeError(
+                    "A different durable group rotation already exists"
+                )
+            plan = loaded.plan
+            state = loaded.state
+            revision = loaded.revision
+
+        self._rotation_plan = plan
+        self._rotation_state = state
+        self._rotation_store_revision = revision
+        self._rotation_load_error = False
+        return state
+
+    def group_rotation_snapshot(self) -> dict[str, object]:
+        """Return bounded teacher-facing phase/round facts without chess state."""
+
+        self._assert_thread()
+        _lesson, plan, state, _store = self._rotation_authorities()
+        payload: dict[str, object] = {
+            "phase": state.phase.value,
+            "round_index": state.round_index,
+            "round_count": len(plan.rounds),
+            "revision": state.revision,
+            "pair_play_bound": state.pair_play_batch_ref is not None,
+        }
+        if state.phase is not RotationPhase.COMPLETED:
+            item = current_round(plan, state)
+            payload.update(
+                {
+                    "activity": item.activity.value,
+                    "title": item.title,
+                    "minutes": item.minutes,
+                    "target": item.target.value,
+                    "target_count": len(item.target_ids),
+                }
+            )
+        return payload
+
+    def bind_current_pairing_to_group_rotation(
+        self,
+        *,
+        expected_rotation_revision: int,
+    ) -> RotationState:
+        """Bind the exact current pairing batch as the rotation's opaque pair ref."""
+
+        self._assert_thread()
+        lesson, plan, state, store = self._rotation_authorities()
+        batch = self._pairing_batch
+        if batch is None:
+            raise RuntimeError("No classroom pairing batch is active")
+        _lesson2, workspace = self._classroom_orchestration_authorities()
+        assert_pairing_scope(batch, lesson, workspace.classroom)
+        next_state = bind_pair_play_batch(
+            plan,
+            state,
+            batch.batch_id,
+            expected_revision=expected_rotation_revision,
+        )
+        expected_store_revision = self._rotation_store_revision
+        if expected_store_revision is None:
+            raise RuntimeError("Group rotation durable revision is unavailable")
+        try:
+            revision = store.save(
+                plan,
+                next_state,
+                expected_revision=expected_store_revision,
+            )
+        except ChildCoachingRotationStoreConflictError:
+            self._rotation_load_error = True
+            raise
+        self._rotation_state = next_state
+        self._rotation_store_revision = revision
+        self._rotation_load_error = False
+        return next_state
+
+    def advance_group_rotation(
+        self,
+        *,
+        expected_rotation_revision: int,
+    ) -> RotationState:
+        """Advance one CAS-bound rotation round; pair play requires a bound batch."""
+
+        self._assert_thread()
+        _lesson, plan, state, store = self._rotation_authorities()
+        next_state = advance_rotation(
+            plan,
+            state,
+            expected_revision=expected_rotation_revision,
+        )
+        expected_store_revision = self._rotation_store_revision
+        if expected_store_revision is None:
+            raise RuntimeError("Group rotation durable revision is unavailable")
+        try:
+            revision = store.save(
+                plan,
+                next_state,
+                expected_revision=expected_store_revision,
+            )
+        except ChildCoachingRotationStoreConflictError:
+            self._rotation_load_error = True
+            raise
+        self._rotation_state = next_state
+        self._rotation_store_revision = revision
+        self._rotation_load_error = False
+        return next_state
+
+    def bind_child_coaching_application(
+        self,
+        application: ChildCoachingApplication,
+    ) -> None:
+        """Bind the canonical template service and D10-backed prepared cursor."""
+
+        self._assert_thread()
+        if type(application) is not ChildCoachingApplication:
+            raise TypeError("child coaching application must be ChildCoachingApplication")
+        if (
+            self._child_coaching_application is not None
+            and self._child_coaching_application is not application
+        ):
+            raise RuntimeError("Child coaching application is already bound")
+        self._child_coaching_application = application
+        if self._prepared_position_navigator is None:
+            self._prepared_position_navigator = PreparedPositionNavigator(
+                application,
+                self._education_provider,
+            )
+
+    def open_child_coaching_catalog(self):
+        """Open or seed the canonical template catalog without browser authority."""
+
+        self._assert_thread()
+        application = self._child_coaching_application
+        if application is None:
+            raise RuntimeError("Child coaching application is unavailable")
+        try:
+            catalog = application.open_catalog()
+        except Exception:
+            self._child_coaching_load_error = True
+            raise RuntimeError("Child coaching templates require recovery") from None
+        self._child_coaching_load_error = False
+        return catalog
+
+    def _prepared_position_owner(self) -> PreparedPositionNavigator:
+        navigator = self._prepared_position_navigator
+        if navigator is None:
+            raise RuntimeError("Prepared-position coaching is unavailable")
+        return navigator
+
+    def prepared_position_snapshot(self) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().snapshot()
+
+    def select_prepared_position(self, position_id: str) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().select(position_id)
+
+    def next_prepared_position(self) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().next()
+
+    def previous_prepared_position(self) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().previous()
+
+    def start_prepared_child_lesson(
+        self,
+        template_id: str,
+        *,
+        session_id: str,
+        lesson_id: str,
+        student_ids: tuple[str, ...],
+        cohort_id: str | None,
+        require_no_notation: bool,
+        expected_template_revision: str,
+        expected_position_revision: int,
+    ) -> TeachingSessionState:
+        """Start a reviewed template from the exact selected D10 prepared source."""
+
+        self._assert_thread()
+        navigator = self._prepared_position_owner()
+        try:
+            plan = navigator.launch_current(
+                template_id,
+                session_id=session_id,
+                lesson_id=lesson_id,
+                student_ids=student_ids,
+                cohort_id=cohort_id,
+                require_no_notation=require_no_notation,
+                expected_template_revision=expected_template_revision,
+                expected_position_revision=expected_position_revision,
+            )
+        except ChildCoachingPreparedPositionError:
+            raise
+        except Exception:
+            self._child_coaching_load_error = True
+            raise
+        self._child_coaching_load_error = False
+        return self.start_teaching_session(plan)
+
+    def bind_student_progress_store(self, store: StudentProgressStore) -> None:
+        """Bind one local canonical progress store without making startup depend on it."""
+
+        self._assert_thread()
+        if not isinstance(store, StudentProgressStore):
+            raise TypeError("student progress store must be StudentProgressStore")
+        if self._student_progress_store is not None and self._student_progress_store is not store:
+            raise RuntimeError("Student progress store is already bound")
+        self._student_progress_store = store
+        try:
+            store.load()
+        except Exception:
+            # Corrupt/unreadable progress is not a clean first run. Keep the
+            # core product usable but make coaching context fail closed until a
+            # later successful reread proves one canonical ledger.
+            self._student_progress_load_error = True
+        else:
+            self._student_progress_load_error = False
+
+    def current_student_coaching_context(
+        self,
+        student_id: str,
+    ) -> dict[str, object]:
+        """Return coach-only aggregate progress for one student in the live lesson."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        if type(student_id) is not str or student_id not in plan.student_ids:
+            raise RuntimeError("Student is outside the active teaching session")
+        store = self._student_progress_store
+        if store is None:
+            raise RuntimeError("Student progress store is unavailable")
+        try:
+            loaded = store.load()
+        except Exception:
+            self._student_progress_load_error = True
+            raise RuntimeError("Student progress requires recovery") from None
+        self._student_progress_load_error = False
+        ledger = StudentProgressLedger() if loaded is None else loaded.ledger
+        try:
+            context = build_child_coaching_context(
+                workspace.classroom,
+                ledger,
+                student_id=student_id,
+                session_id=plan.session_id,
+                language=self.shell.language,
+            )
+        except ChildCoachingContextError as exc:
+            raise RuntimeError("Student coaching context is unavailable") from exc
+        return child_coaching_context_to_teacher_payload(context)
+
+    def _teacher_keyboard_announcement(self, text_uk: str, text_en: str) -> str:
+        if type(text_uk) is not str or type(text_en) is not str:
+            raise TypeError("teacher announcement text must be built-in text")
+        text = text_uk if self.shell.language is UILanguage.UA else text_en
+        self._events.append(
+            {"kind": "status", "payload": {"announcement": text}}
+        )
+        return text
+
+    def _prepared_keyboard_result(
+        self,
+        snapshot: PreparedPositionSnapshot,
+    ) -> dict[str, object]:
+        if type(snapshot) is not PreparedPositionSnapshot:
+            raise TypeError("prepared-position snapshot is invalid")
+        index = snapshot.selected_index
+        if index is None:
+            raise RuntimeError("Prepared position must be selected explicitly")
+        announcement = self._teacher_keyboard_announcement(
+            f"Підготовлена позиція {index + 1} з {snapshot.count}.",
+            f"Prepared position {index + 1} of {snapshot.count}.",
+        )
+        return {
+            "kind": "prepared-position",
+            "selected_index": index,
+            "count": snapshot.count,
+            "announcement": announcement,
+        }
+
+    def _rotation_keyboard_result(self) -> dict[str, object]:
+        snapshot = self.group_rotation_snapshot()
+        phase = snapshot["phase"]
+        if phase == RotationPhase.COMPLETED.value:
+            announcement = self._teacher_keyboard_announcement(
+                "Групову ротацію завершено.",
+                "Group rotation completed.",
+            )
+        else:
+            activity = snapshot.get("activity")
+            activity_uk = {
+                RotationActivity.DEMONSTRATION.value: "демонстрація",
+                RotationActivity.TASK_WORK.value: "самостійне завдання",
+                RotationActivity.PAIR_PLAY.value: "парна гра",
+                RotationActivity.ATTENTION_BREAK.value: "перерва",
+                RotationActivity.REVIEW.value: "підсумок",
+            }.get(activity, "етап")
+            activity_en = {
+                RotationActivity.DEMONSTRATION.value: "demonstration",
+                RotationActivity.TASK_WORK.value: "independent task",
+                RotationActivity.PAIR_PLAY.value: "pair play",
+                RotationActivity.ATTENTION_BREAK.value: "break",
+                RotationActivity.REVIEW.value: "review",
+            }.get(activity, "round")
+            index = int(snapshot["round_index"]) + 1
+            count = int(snapshot["round_count"])
+            announcement = self._teacher_keyboard_announcement(
+                f"Ротація: етап {index} з {count}, {activity_uk}.",
+                f"Rotation: round {index} of {count}, {activity_en}.",
+            )
+        return {
+            "kind": "group-rotation",
+            **snapshot,
+            "announcement": announcement,
+        }
+
+    def _dispatch_teacher_keyboard_action(
+        self,
+        action: str,
+        payload: Mapping[str, object],
+    ) -> dict[str, object]:
+        if self.shell.current_route.route_id != "teacher":
+            raise ValueError("Teacher command requires the visible Teacher workspace")
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("Close the active dialog before using Teacher commands")
+        if payload:
+            raise ValueError("Teacher keyboard command accepts no payload")
+
+        if action == "teacher.prepared_previous":
+            return self._prepared_keyboard_result(self.previous_prepared_position())
+        if action == "teacher.prepared_next":
+            return self._prepared_keyboard_result(self.next_prepared_position())
+        if action == "teacher.rotation_start_or_resume":
+            plan = self._teaching_plan
+            if type(plan) is not LessonSession:
+                raise RuntimeError("No application-owned teaching session is active")
+            rotation_id = f"rotation-{plan.digest[:24]}"
+            self.begin_or_resume_default_group_rotation(rotation_id)
+            return self._rotation_keyboard_result()
+        if action == "teacher.rotation_advance":
+            state = self._rotation_state
+            if type(state) is not RotationState:
+                raise RuntimeError("No group rotation is active")
+            self.advance_group_rotation(
+                expected_rotation_revision=state.revision,
+            )
+            return self._rotation_keyboard_result()
+        if action == "teacher.rotation_bind_pairing":
+            state = self._rotation_state
+            if type(state) is not RotationState:
+                raise RuntimeError("No group rotation is active")
+            self.bind_current_pairing_to_group_rotation(
+                expected_rotation_revision=state.revision,
+            )
+            return self._rotation_keyboard_result()
+        if action == "teacher.rotation_status":
+            return self._rotation_keyboard_result()
+        raise KeyError(f"unsupported Teacher keyboard action: {action}")
+
+    def _delegate(self, action, payload):
+        if action in self._COACHING_KEYBOARD_ACTIONS:
+            if type(action) is not str or type(payload) is not dict:
+                raise ValueError("Teacher keyboard command is malformed")
+            return self._dispatch_teacher_keyboard_action(action, payload)
+        return super()._delegate(action, payload)
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
@@ -325,6 +997,41 @@ class Version2FinalProductApplication(Version2Application):
                     "teacher_session_active": self.teacher is not None,
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
+                    "classroom_pairing_planned": self._pairing_batch is not None,
+                    "classroom_pair_count": (
+                        0 if self._pairing_batch is None else len(self._pairing_batch.pairings)
+                    ),
+                    "prepared_position_deployment_planned": (
+                        self._prepared_position_deployment is not None
+                    ),
+                    "prepared_position_assignment_count": (
+                        0
+                        if self._prepared_position_deployment is None
+                        else len(self._prepared_position_deployment.assignments)
+                    ),
+                    "student_progress_available": (
+                        self._student_progress_store is not None
+                        and not self._student_progress_load_error
+                    ),
+                    "student_progress_recovery_required": (
+                        self._student_progress_load_error
+                    ),
+                    "child_coaching_available": (
+                        self._child_coaching_application is not None
+                        and not self._child_coaching_load_error
+                    ),
+                    "child_coaching_recovery_required": self._child_coaching_load_error,
+                    "prepared_position_navigation_available": (
+                        self._prepared_position_navigator is not None
+                    ),
+                    "group_rotation_available": self._rotation_store is not None,
+                    "group_rotation_active": self._rotation_state is not None,
+                    "group_rotation_recovery_required": self._rotation_load_error,
+                    "group_rotation_phase": (
+                        None
+                        if self._rotation_state is None
+                        else self._rotation_state.phase.value
+                    ),
                     "remote_transport": "not_approved",
                 },
             }

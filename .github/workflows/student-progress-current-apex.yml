@@ -1,0 +1,81 @@
+name: Student Progress Current Apex
+
+on:
+  push:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - acs/student_progress.py
+      - acs/student_progress_store.py
+      - tests/test_dev3_student_progress_store.py
+      - tests/test_student_progress_store_safety.py
+      - .github/workflows/student-progress-current-apex.yml
+  pull_request:
+    paths:
+      - acs/student_progress.py
+      - acs/student_progress_store.py
+      - tests/test_dev3_student_progress_store.py
+      - tests/test_student_progress_store_safety.py
+      - .github/workflows/student-progress-current-apex.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: student-progress-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  student-progress:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      DOMAIN_BLOB: a470afdaff99413a1163e52192a0f12ee8b54671
+      STORE_BLOB: 101e7e370f555998092af9f844ffe52b4b442e97
+      TEST_BLOB: 2d16e756f17f5d994f6f54f7fa6db451af79858e
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+
+      - name: Prove exact bounded progress authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git hash-object acs/student_progress.py)" = "$DOMAIN_BLOB"
+          test "$(git hash-object acs/student_progress_store.py)" = "$STORE_BLOB"
+          test "$(git hash-object tests/test_dev3_student_progress_store.py)" = "$TEST_BLOB"
+          git diff --check
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile student-progress boundary
+        run: >-
+          python -m py_compile
+          acs/student_progress.py
+          acs/student_progress_store.py
+          tests/test_dev3_student_progress_store.py
+          tests/test_student_progress_store_safety.py
+
+      - name: Run progress and education authority regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev3_student_progress_store
+          tests.test_student_progress_store_safety
+          tests.test_education_records
+          tests.test_education_records_store
+          tests.test_education_classroom_integration
+
+      - name: Run core selftest
+        run: python -m acs.selftest

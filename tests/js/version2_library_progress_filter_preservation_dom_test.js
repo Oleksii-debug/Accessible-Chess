@@ -10,6 +10,7 @@ class FakeElement {
     this.parentNode = null;
     this.attributes = {};
     this.listeners = {};
+    this.dataset = {};
     this.id = "";
     this.textContent = "";
     this.value = "";
@@ -90,38 +91,67 @@ function check(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function importSnapshot(processed) {
+  return {
+    phase: "running",
+    heading: "Import",
+    description: "Running",
+    processed_games: processed,
+    total_games: 4,
+    progress_label: processed + " of 4",
+    message: "",
+    actions: [
+      { action: "library.import", dom_id: "library-import-file", label: "Import file", enabled: false },
+      { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel import", enabled: true }
+    ]
+  };
+}
+
+function libraryFilters() {
+  return [
+    { id: "player", kind: "text", label: "Player", value: "" },
+    { id: "event", kind: "text", label: "Event", value: "" },
+    { id: "eco", kind: "text", label: "ECO", value: "" },
+    { id: "opening", kind: "text", label: "Opening", value: "" },
+    { id: "result", kind: "select", label: "Result", value: "", options: [
+      { value: "", label: "Any" }, { value: "1-0", label: "1-0" },
+      { value: "0-1", label: "0-1" }, { value: "1/2-1/2", label: "1/2-1/2" },
+      { value: "*", label: "*" }
+    ] },
+    { id: "source_id", kind: "number", label: "Source identifier", value: "", minimum: 1 },
+    { id: "source_name", kind: "text", label: "Source name", value: "" },
+    { id: "limit", kind: "select", label: "Games per page", value: "25", options: [
+      { value: "25", label: "25" }, { value: "50", label: "50" },
+      { value: "100", label: "100" }, { value: "200", label: "200" }
+    ] }
+  ];
+}
+
 const initialSnapshot = {
+  document: { lang: "en", landmark: "main" },
+  status: "ready",
   heading: "Library",
   description: "Search games",
   filters_heading: "Filters",
   results_heading: "Results",
   search_label: "Search",
+  transport_error_message: "Could not complete action.",
+  import: importSnapshot(1),
+  filters: libraryFilters(),
+  rows: [],
+  selected_game_id: null,
+  focus_target: "library-search-player",
   summary: "0 games",
   message: "",
-  import: {
-    heading: "Import",
-    description: "Running",
-    total_games: 4,
-    processed_games: 1,
-    progress_label: "1 of 4",
-    actions: []
-  },
-  filters: [
-    { id: "player", kind: "text", label: "Player", value: "" },
-    { id: "event", kind: "text", label: "Event", value: "" }
-  ],
-  rows: [],
-  actions: []
+  actions: [
+    { action: "library.previous_page", label: "Previous page", enabled: false },
+    { action: "library.next_page", label: "Next page", enabled: false },
+    { action: "library.open_game", label: "Open selected game", enabled: false },
+    { action: "library.reset_filters", label: "Reset filters", enabled: false }
+  ]
 };
 
-const updatedImport = {
-  heading: "Import",
-  description: "Running",
-  total_games: 4,
-  processed_games: 2,
-  progress_label: "2 of 4",
-  actions: []
-};
+const updatedImport = importSnapshot(2);
 
 vm.runInThisContext(fs.readFileSync("web/full_product_library.js", "utf8"), {
   filename: "full_product_library.js"

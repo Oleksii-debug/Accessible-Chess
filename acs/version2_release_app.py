@@ -16,17 +16,23 @@ from .acsdb import AcsDatabase
 from .analysis_service import AnalysisService
 from .book_progress_store import BookProgressStore
 from .continuous_analysis import ContinuousAnalysisService
+from .child_coaching_application import ChildCoachingApplication
+from .child_coaching_rotation_store import ChildCoachingRotationStore
+from .child_coaching_store import ChildCoachingTemplateStore
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
-from .release_app import _sound_cache_dir, _user_root
+from .local_profile import LocalProfileStore
+from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
+from .student_progress_store import StudentProgressStore
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
 from .version2_gametree_resume import Version2GameTreeResumeCoordinator
+from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
@@ -252,20 +258,27 @@ def _share_v2_action_registry(
 ):
     """Make Stage 1 keymap editing and V2 routing use one persisted registry.
 
-    Existing Stage 1 remaps are copied into the wider V2 registry first.  The
-    KeymapService then points at that exact object, so keyboard resolution,
-    WebView commands and the native Windows menu cannot drift into parallel
-    command maps during the V2 release.
+    Production ``KeymapService`` re-adopts the persisted profile against the
+    wider V2/Product definition set before it points at that exact registry.
+    This preserves Product-only remaps across restart (including valid binding
+    swaps that cannot be replayed incrementally) while keeping keyboard
+    resolution, WebView commands and the native Windows menu on one authority.
     """
 
+    registry = application.adapter.registry
+    adopt = getattr(api.keymap_service, "adopt_registry", None)
+    if callable(adopt):
+        return adopt(registry)
+
+    # Compatibility for narrow test doubles/embedders that expose the historical
+    # editor-only service shape. Production KeymapService always takes the
+    # validated adopt_registry path above.
     source = api.keymap_service.editor.registry
     profile = source.to_profile()
     bindings = profile.get("bindings", {})
     aliases = profile.get("aliases", {})
     if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
         raise ValueError("stored keymap profile is invalid")
-
-    registry = application.adapter.registry
     for action_id, value in bindings.items():
         try:
             registry.definition(action_id)
@@ -278,7 +291,6 @@ def _share_v2_action_registry(
         except KeyError:
             continue
         registry.set_alias(action_id, value)
-
     api.keymap_service.editor.registry = registry
     return registry
 
@@ -408,11 +420,15 @@ def create_version2_release_application(
             language = UILanguage(language_value)
         except (TypeError, ValueError):
             language = UILanguage.UA
+        sound_assets = PackagedSoundAssetResolver(app_dir)
+        selected_sound_variant = _sound_variant_provider(settings, sound_assets)
+
         playback = sound_playback
         if playback is None:
             playback = WindowsSoundPlaybackAdapter(
-                PackagedSoundAssetResolver(app_dir),
+                sound_assets,
                 cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
+                variant_provider=selected_sound_variant,
             )
         sound_runtime = SoundRuntime(
             playback,
@@ -420,11 +436,13 @@ def create_version2_release_application(
         )
         game_sounds = GameSoundRuntime(sound_runtime)
 
-        api = Version2ReleaseAccessibleChessAPI(
+        api = Version2ProfileAccessibleChessAPI(
             continuous_analysis=continuous,
+            profile_store=LocalProfileStore(layout.root / "profile.json"),
             game_sounds=game_sounds,
             sound_runtime=sound_runtime,
             settings=settings,
+            sound_asset_resolver=sound_assets,
             engine_play_service=engine_play,
             lang=language.value,
         )
@@ -454,6 +472,35 @@ def create_version2_release_application(
                 copy_text=copy_text,
                 language=language,
             )
+            progress_binder = getattr(candidate, "bind_student_progress_store", None)
+            if callable(progress_binder):
+                progress_binder(
+                    StudentProgressStore(layout.root / "student-progress.json")
+                )
+            child_coaching_binder = getattr(
+                candidate,
+                "bind_child_coaching_application",
+                None,
+            )
+            if callable(child_coaching_binder):
+                child_coaching_binder(
+                    ChildCoachingApplication(
+                        ChildCoachingTemplateStore(
+                            layout.root / "child-coaching.json"
+                        )
+                    )
+                )
+            rotation_binder = getattr(
+                candidate,
+                "bind_child_coaching_rotation_store",
+                None,
+            )
+            if callable(rotation_binder):
+                rotation_binder(
+                    ChildCoachingRotationStore(
+                        layout.root / "child-coaching-rotation.json"
+                    )
+                )
             resume_coordinator.restore(candidate)
             _share_v2_action_registry(api, candidate)
             api.bind_version2_application(candidate)

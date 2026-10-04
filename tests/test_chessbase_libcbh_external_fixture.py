@@ -35,6 +35,26 @@ def _game_signature(game: PgnGame):
     return game.result, _line_signature(game.line)
 
 
+def _nag_line_signature(line: VariationLine):
+    return tuple(
+        (
+            _san(move.san),
+            tuple(move.nags),
+            tuple(_nag_line_signature(variation) for variation in move.variations),
+        )
+        for move in line.moves
+    )
+
+
+def _nag_values(line: VariationLine) -> set[str]:
+    values: set[str] = set()
+    for move in line.moves:
+        values.update(move.nags)
+        for variation in move.variations:
+            values.update(_nag_values(variation))
+    return values
+
+
 def _first_tree_difference(
     actual: VariationLine,
     expected: VariationLine,
@@ -123,6 +143,18 @@ def _bounded_token_trace(bridge: Path, source: Path) -> str:
     "pinned external libcbh fixture environment not configured",
 )
 class PinnedLibcbhFixtureIntegrationTests(unittest.TestCase):
+    def _decode(self, source: Path):
+        bridge = Path(os.environ["LIBCBH_BRIDGE"])
+        return decode_chessbase_external(
+            source,
+            ExternalChessBaseDecoderConfig(
+                bridge,
+                expected_backend_commit=BACKEND_COMMIT,
+                timeout_seconds=120,
+                library_directory=bridge.parent,
+            ),
+        )
+
     def test_with_variations_matches_upstream_reference_pgn_structure(self) -> None:
         bridge = Path(os.environ["LIBCBH_BRIDGE"])
         fixture = Path(os.environ["LIBCBH_FIXTURE_DIR"])
@@ -132,15 +164,7 @@ class PinnedLibcbhFixtureIntegrationTests(unittest.TestCase):
         self.assertTrue(reference.is_file())
 
         try:
-            decoded = decode_chessbase_external(
-                source,
-                ExternalChessBaseDecoderConfig(
-                    bridge,
-                    expected_backend_commit=BACKEND_COMMIT,
-                    timeout_seconds=120,
-                    library_directory=bridge.parent,
-                ),
-            )
+            decoded = self._decode(source)
         except ChessBaseDecodeError as exc:
             self.fail(
                 f"real libcbh semantic decode failed: {exc}; "
@@ -190,6 +214,46 @@ class PinnedLibcbhFixtureIntegrationTests(unittest.TestCase):
         self.assertIn(".cbh", extensions)
         self.assertIn(".cbg", extensions)
         self.assertIn(".cba", extensions)
+
+    @unittest.skipUnless(
+        os.environ.get("LIBCBH_ANNOTATION_FIXTURE_DIR"),
+        "pinned external libcbh annotation fixture environment not configured",
+    )
+    def test_annotation_nags_match_independent_chessbase_export(self) -> None:
+        fixture = Path(os.environ["LIBCBH_ANNOTATION_FIXTURE_DIR"])
+        source = fixture / "TestBase.cbh"
+        reference = fixture / "TestBaseExport.pgn"
+        self.assertTrue(source.is_file())
+        self.assertTrue(reference.is_file())
+
+        try:
+            decoded = self._decode(source)
+        except ChessBaseDecodeError as exc:
+            self.fail(f"real libcbh annotation decode failed: {exc}")
+        reference_games = tuple(parse_games(reference.read_text(encoding="utf-8-sig")))
+
+        self.assertFalse(
+            decoded.warnings,
+            f"pinned Annotation corpus must not require skipped records: {decoded.warnings}",
+        )
+        self.assertEqual(decoded.total_games, len(reference_games))
+        self.assertGreater(decoded.total_games, 0)
+
+        decoded_signatures = tuple(
+            _nag_line_signature(game.line) for game in decoded.games
+        )
+        reference_signatures = tuple(
+            _nag_line_signature(game.line) for game in reference_games
+        )
+        self.assertEqual(decoded_signatures, reference_signatures)
+
+        reference_nags: set[str] = set()
+        for game in reference_games:
+            reference_nags.update(_nag_values(game.line))
+        self.assertTrue(
+            {"$11", "$32", "$40", "$132", "$138"}.issubset(reference_nags),
+            "annotation oracle must exercise every fixture-backed repaired evaluation NAG",
+        )
 
 
 if __name__ == "__main__":

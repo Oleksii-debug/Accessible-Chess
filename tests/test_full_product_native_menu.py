@@ -15,6 +15,7 @@ from acs.full_product_native_menu import (
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.full_product_webview_adapter import FullProductWebViewAdapter
 from acs.ui_native_menu import native_menu_attachment_state
+from acs.version2_profile import build_version2_action_registry, build_version2_menu_spec
 
 
 class EventHook:
@@ -40,6 +41,7 @@ class FakeMenuItem:
         self.Text = label
         self.DropDownItems = ItemCollection()
         self.Click = EventHook()
+        self.DropDownOpening = EventHook()
 
 
 class FakeSeparator:
@@ -170,6 +172,69 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual("&Файл", ua[0].label)
         self.assertEqual("&Учитель/Клас", ua[11].label)
 
+    def test_books_menu_exposes_bidirectional_semantic_navigation(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
+        actions = {
+            item.action_id: item
+            for item in books_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        for action_id in (
+            "book.previous_block",
+            "book.next_block",
+            "book.previous_position",
+            "book.next_position",
+            "book.previous_game",
+            "book.next_game",
+        ):
+            with self.subTest(action_id=action_id):
+                self.assertIn(action_id, actions)
+
+        previous_position = controller.activate(actions["book.previous_position"])
+        previous_game = controller.activate(actions["book.previous_game"])
+        self.assertEqual("delegated", previous_position.kind)
+        self.assertEqual("delegated", previous_game.kind)
+        self.assertEqual(
+            [
+                ("book.previous_position", {}),
+                ("book.previous_game", {}),
+            ],
+            calls,
+        )
+        self.assertEqual([previous_position, previous_game], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_books = next(menu for menu in ua if menu.menu_id == "books")
+        ua_labels = {item.action_id: item.label for item in ua_books.items}
+        self.assertEqual("Попередній блок", ua_labels["book.previous_block"])
+        self.assertEqual("Наступний блок", ua_labels["book.next_block"])
+        self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
+        self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
+
+    def test_shipping_version2_menu_inherits_reverse_book_navigation(self) -> None:
+        registry = build_version2_action_registry()
+        menus = build_version2_menu_spec(registry, language=UILanguage.EN)
+        books_menu = next(menu for menu in menus if menu.menu_id == "books")
+        action_ids = {
+            item.action_id
+            for item in books_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        self.assertTrue(
+            {
+                "book.previous_block",
+                "book.next_block",
+                "book.previous_position",
+                "book.next_position",
+                "book.previous_game",
+                "book.next_game",
+            }.issubset(action_ids)
+        )
+
     def test_native_and_webview_actions_share_router_and_focus_restoration(self) -> None:
         controller, calls, commands, exits = make_controller()
         library = next(
@@ -191,6 +256,48 @@ class FullProductNativeMenuTests(unittest.TestCase):
         )
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
+
+    def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        menu = window._accessible_chess_native_menu
+        analysis_top = next(top for top in menu.Items if top.Text == "&Engine")
+        restart = next(
+            item for item in analysis_top.DropDownItems
+            if getattr(item, "Text", "").startswith("Restart analysis")
+        )
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+
+        controller._adapter.registry.set_binding("analysis.restart", "Ctrl+Alt+R")
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+        analysis_top.DropDownOpening.fire()
+        self.assertTrue(restart.Text.endswith("\tCtrl+Alt+R"))
+        self.assertNotIn("\tAlt+R", restart.Text)
+
+    def test_native_help_caption_tracks_live_global_remap(self) -> None:
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        menu = window._accessible_chess_native_menu
+        help_top = next(top for top in menu.Items if top.Text == "&Help")
+        help_item = next(
+            item for item in help_top.DropDownItems
+            if getattr(item, "Text", "").startswith("Keyboard and help")
+        )
+        self.assertTrue(help_item.Text.endswith("\tF1"))
+
+        controller._adapter.registry.set_binding("screen.help", "Ctrl+F1")
+        self.assertTrue(help_item.Text.endswith("\tF1"))
+        help_top.DropDownOpening.fire()
+        self.assertTrue(help_item.Text.endswith("\tCtrl+F1"))
+        self.assertNotIn("\tF1", help_item.Text.removesuffix("\tCtrl+F1"))
 
     def test_real_menu_installer_attaches_one_extended_menustrip_to_owner(self) -> None:
         controller, _calls, commands, _exits = make_controller()

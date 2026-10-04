@@ -1,0 +1,80 @@
+name: Owner Library Seed Archive Ingress
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/materialize_owner_library_seed.py'
+      - 'tests/test_materialize_owner_library_seed.py'
+      - 'acs/user_library_seed.py'
+      - '.github/workflows/owner-library-seed-ingress.yml'
+  push:
+    branches:
+      - qualification/owner-portable-candidate-20261004-sol6f2
+    paths:
+      - 'scripts/materialize_owner_library_seed.py'
+      - 'tests/test_materialize_owner_library_seed.py'
+      - '.github/workflows/owner-library-seed-ingress.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-library-seed-ingress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ingress:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile private seed ingress
+        run: >-
+          python -m py_compile
+          scripts/materialize_owner_library_seed.py
+          tests/test_materialize_owner_library_seed.py
+
+      - name: Run archive-ingress and canonical seed regressions
+        run: >-
+          python -m unittest -v
+          tests.test_materialize_owner_library_seed
+          tests.test_user_library_seed
+          tests.test_user_library_seed_parent_safety
+
+      - name: Authority boundary and whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('scripts/materialize_owner_library_seed.py').read_text(encoding='utf-8')
+          for required in (
+              'load_user_library_seed',
+              'import_user_library_seed',
+              'AcsDatabase(":memory:")',
+              'MAX_SOURCE_COUNT',
+              'expected_game_count: int = 3738',
+              'expected_source_count: int = 6',
+          ):
+              assert required in source, required
+          for forbidden in ('parse_pgn_text', 'chess.Board', 'python-chess'):
+              assert forbidden not in source, forbidden
+          print('OWNER_SEED_INGRESS_CANONICAL_AUTHORITY=PASS')
+          PY

@@ -32,6 +32,18 @@ class _StaticBookPresenter(BookReaderPresenter):
     def current(self) -> BookBlockView:
         return self._block
 
+    def navigation_availability(self) -> dict[str, bool]:
+        return {
+            "previous": False,
+            "next": False,
+            "previous_heading": False,
+            "next_heading": False,
+            "previous_position": False,
+            "next_position": False,
+            "previous_game": False,
+            "next_game": False,
+        }
+
 
 class _StaticTrainingPresenter(TrainingPresenter):
     def __init__(self, view: TrainingView) -> None:
@@ -54,6 +66,9 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         r"\\server\private-share\PrivateUser\study.pgn",
         r"\\?\C:\Users\PrivateUser\Documents\study.pgn",
         r"\\?\UNC\server\private-share\PrivateUser\study.pgn",
+        r"\Users\PrivateUser\Documents\study.pgn",
+        "~/PrivateUser/study.pgn",
+        "~PrivateUser/private/study.pgn",
         "file:///C:/Users/PrivateUser/Documents/study.pgn",
         "file:/home/PrivateUser/study.pgn",
         "/home/PrivateUser/study.pgn",
@@ -78,6 +93,9 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
         "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
         "Chapter C: White/Black to move after 1. e4 e5.",
         "A file: appendix label and file:appendix token are ordinary prose.",
+        "~1/2 is approximation prose, not a home path.",
+        "prefix~PrivateUser/private/study.pgn is embedded prose, not a home path.",
+        r"\\alpha\\beta is notation, not a Windows rooted system path.",
         "Evaluation: +0.35; план: король і пішак — звичайний текст.",
     )
 
@@ -122,6 +140,26 @@ class V2SharedPresentationPathPrivacyTests(unittest.TestCase):
                 self.assertIn("Next semantic line", rendered)
                 self.assertNotIn("PrivateUser", rendered)
                 self.assertNotIn("private-share", rendered)
+
+    def test_doubled_unc_like_notation_is_not_misclassified_as_local_path(self) -> None:
+        value = r"\\alpha\\beta is notation, not a Windows UNC share"
+        self.assertEqual(value, redact_local_paths(value, "[hidden]"))
+
+    def test_real_single_backslash_windows_root_is_redacted_without_truncation(self) -> None:
+        raw = r"\Users\PrivateUser\Documents\study.pgn"
+        rendered = redact_local_paths(
+            f"Source: {raw}\nNext semantic line",
+            "[private path hidden]",
+        )
+        self.assertEqual(
+            "Source: [private path hidden]\nNext semantic line",
+            rendered,
+        )
+        self.assertNotIn("PrivateUser", rendered)
+
+    def test_home_path_boundary_does_not_capture_embedded_tilde_prose(self) -> None:
+        value = "prefix~PrivateUser/private/study.pgn is ordinary prose"
+        self.assertEqual(value, redact_local_paths(value, "[hidden]"))
 
     def test_book_and_training_safe_text_use_the_same_bilingual_redaction_contract(self) -> None:
         for raw in self.PRIVATE_PATHS:

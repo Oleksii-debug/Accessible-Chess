@@ -3,14 +3,13 @@ name: V2 Book Index Snapshot Integrity
 on:
   pull_request:
     branches:
-      - work/full-product-teacher-education-reachability-20260911
+      - integration/canonical-nullmove-apex-20261004-sol6p3
     paths:
       - 'acs/book_index.py'
+      - 'acs/search_policy.py'
       - 'tests/test_book_index.py'
       - '.github/workflows/v2-book-index-snapshot-integrity.yml'
-  push:
-    branches:
-      - repair/book-index-snapshot-integrity-20260927
+      - '.github/workflows/v2-library-player-identity-search.yml'
   workflow_dispatch:
 
 permissions:
@@ -27,7 +26,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -38,31 +37,41 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove exact checkout and bounded ownership
+      - name: Prove exact checkout and live stacked-parent ownership
         shell: bash
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected"
 
-          # Event payload base SHAs can be stale after history-preserving
-          # reconvergence. Always scope against the fetched canonical Product
-          # branch, and fail closed if Product has advanced beyond this head.
-          base="$(git rev-parse refs/remotes/origin/work/full-product-teacher-education-reachability-20260911)"
-          git merge-base --is-ancestor "$base" HEAD
-          test "$(git merge-base "$base" HEAD)" = "$base"
-          git diff --check "$base" HEAD
-          changed="$(git diff --name-only "$base...HEAD" | LC_ALL=C sort)"
-          wanted="$(printf '%s\n' \
-            '.github/workflows/v2-book-index-snapshot-integrity.yml' \
-            'acs/book_index.py' \
-            'tests/test_book_index.py' | LC_ALL=C sort)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.base_ref }}"
+            event_base='${{ github.event.pull_request.base.sha }}'
+          else
+            base_ref='integration/canonical-nullmove-apex-20261004-sol6p3'
+            event_base=''
+          fi
+          test -n "$base_ref"
+          git fetch --no-tags origin             "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          git cat-file -e "$live_base^{commit}"
+          if [ -n "$event_base" ]; then
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+          fi
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | LC_ALL=C sort)"
+          wanted="$(printf '%s\n'             '.github/workflows/v2-book-index-snapshot-integrity.yml'             '.github/workflows/v2-library-player-identity-search.yml'             'acs/book_index.py'             'acs/search_policy.py'             'tests/test_book_index.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 
       - name: Compile Book index authority
         run: >-
           python -m py_compile
           acs/book_index.py
+          acs/search_policy.py
           tests/test_book_index.py
 
       - name: Run focused Book semantic regressions
@@ -73,3 +82,7 @@ jobs:
           tests.test_v2_accessible_book_core
           tests.test_v2_book_progress_store
           tests.test_version2_book_workspace
+          tests.test_v2_book_library_game_lookup
+
+      - name: Core selftest
+        run: python -m acs.selftest

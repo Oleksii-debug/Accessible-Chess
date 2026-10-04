@@ -1,0 +1,99 @@
+name: Book HTML Inline Image Order
+
+on:
+  push:
+    branches:
+      - fix/book-html-inline-image-order-20261004-sol8x3
+      - converge/book-inline-order-current-owner-apex-20261004-c2mbezb
+      - converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb
+    paths:
+      - 'acs/book*.py'
+      - 'acs/chesscore.py'
+      - 'acs/pgn_roundtrip.py'
+      - 'tests/test_book_html_inline_image_order.py'
+      - 'tests/test_v2_book_html_import.py'
+      - '.github/workflows/book-html-inline-image-order.yml'
+  pull_request:
+    paths:
+      - 'acs/book*.py'
+      - 'acs/chesscore.py'
+      - 'acs/pgn_roundtrip.py'
+      - 'tests/test_book_html_inline_image_order.py'
+      - 'tests/test_v2_book_html_import.py'
+      - '.github/workflows/book-html-inline-image-order.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-html-inline-image-order-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-order:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile semantic importer and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            acs/book_html_import.py \
+            tests/test_book_html_inline_image_order.py \
+            tests/test_v2_book_html_import.py
+          echo 'BOOK_HTML_INLINE_ORDER_COMPILE=PASS'
+
+      - name: Run focused HTML and EPUB semantic regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest -v \
+            tests.test_book_html_inline_image_order \
+            tests.test_v2_book_html_import
+          echo 'BOOK_HTML_INLINE_ORDER=PASS'
+
+      - name: Guard canonical chess authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('acs/book_html_import.py').read_text(encoding='utf-8')
+          assert 'from .chesscore import Board' in source
+          assert 'from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text' in source
+          assert 'python-chess' not in source
+          assert 'import chess' not in source
+          print('BOOK_HTML_CANONICAL_AUTHORITY=PASS')
+          PY
+
+      - name: Exact PR whitespace check
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PR_BASE_SHA:-}" ]; then
+            git fetch --no-tags origin "$PR_BASE_SHA"
+            git diff --check "$PR_BASE_SHA" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi

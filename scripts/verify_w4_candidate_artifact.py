@@ -37,6 +37,7 @@ RUN_METADATA_KEYS = {
     "schema_version",
     "product_sha",
     "workflow_sha",
+    "winforms_accessibility_config_sha256",
     "pre_upload_product_freshness",
     "pre_upload_workflow_freshness",
     "human_tested",
@@ -869,7 +870,7 @@ def _verify_run_metadata(
     value: dict[str, object],
     expected_sha: str,
     expected_workflow_sha: str | None,
-) -> None:
+) -> str:
     if set(value) != RUN_METADATA_KEYS:
         missing = sorted(RUN_METADATA_KEYS - set(value))
         unexpected = sorted(set(value) - RUN_METADATA_KEYS)
@@ -888,10 +889,16 @@ def _verify_run_metadata(
         raise CandidateArtifactError("run metadata workflow_sha must be lowercase exact 40-hex")
     if expected_workflow_sha is not None and workflow_sha != expected_workflow_sha:
         raise CandidateArtifactError("run metadata workflow_sha mismatch")
+    config_sha = value.get("winforms_accessibility_config_sha256")
+    if not isinstance(config_sha, str) or not HEX64.fullmatch(config_sha):
+        raise CandidateArtifactError(
+            "run metadata winforms_accessibility_config_sha256 must be lowercase exact 64-hex"
+        )
     _require_true(value, "pre_upload_product_freshness", "run metadata")
     _require_true(value, "pre_upload_workflow_freshness", "run metadata")
     _require_false(value, "human_tested", "run metadata")
     _require_false(value, "nvda_verified", "run metadata")
+    return config_sha
 
 
 def verify(
@@ -984,7 +991,11 @@ def verify(
         p0g_evidence = _load_json(outer.read(p0g_name), "P0-G evidence")
         uia_evidence = _load_json(outer.read(uia_name), "strict UIA evidence")
         run_metadata = _load_json(outer.read(RUN_METADATA_PATH), "run metadata")
-        _verify_run_metadata(run_metadata, expected_sha, expected_workflow_sha)
+        expected_config_sha = _verify_run_metadata(
+            run_metadata,
+            expected_sha,
+            expected_workflow_sha,
+        )
         _verify_strict_uia_evidence(uia_evidence, expected_sha)
         _verify_p0_evidence(
             copy_evidence,
@@ -1034,6 +1045,7 @@ def verify(
             "RELEASE_MANIFEST.json",
             "SHA256SUMS.txt",
             "AccessibleChess/AccessibleChess.exe",
+            "AccessibleChess/AccessibleChess.exe.config",
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "AccessibleChess/release-content/w2-starter/manifest.json",
             "AccessibleChess/release-content/w2-starter/starter_uk.pgn",
@@ -1056,7 +1068,6 @@ def verify(
             "AccessibleChess/engines/stockfish/stockfish.exe",
             "Stockfish executable",
         )
-
         for metadata_name in (
             "RELEASE_MANIFEST.json",
             "SHA256SUMS.txt",
@@ -1067,6 +1078,13 @@ def verify(
                 raise CandidateArtifactError(
                     f"candidate metadata size is outside accepted bounds: {metadata_name}"
                 )
+
+        config_name = "AccessibleChess/AccessibleChess.exe.config"
+        config_info = members[config_name]
+        if config_info.is_dir() or config_info.file_size <= 0 or config_info.file_size > MAX_CANDIDATE_METADATA_BYTES:
+            raise CandidateArtifactError(
+                "WinForms accessibility app-config size is outside accepted bounds"
+            )
 
         manifest = _load_json(candidate.read("RELEASE_MANIFEST.json"), "release manifest")
         integration_sha = manifest.get("integration_sha")
@@ -1094,6 +1112,10 @@ def verify(
             actual = _sha256_member(candidate, name)
             if actual != expected:
                 raise CandidateArtifactError(f"candidate checksum mismatch: {name}")
+        if checksums.get(config_name) != expected_config_sha:
+            raise CandidateArtifactError(
+                "WinForms accessibility app-config SHA-256 mismatch against run metadata"
+            )
 
         _verify_starter_bundle(candidate, members)
 

@@ -108,8 +108,10 @@ _TEXT = {
         "previous_pv": "Previous variation", "next_pv": "Next variation",
         "explore_pv": "Temporarily explore variation", "insert_move": "Insert selected move",
         "insert_line": "Insert selected variation", "books_screen": "Book Library",
+        "book_previous_block": "Previous block", "book_next_block": "Next block",
         "book_previous_heading": "Previous heading", "book_next_heading": "Next heading",
-        "book_next_position": "Next position", "book_next_game": "Next book game",
+        "book_previous_position": "Previous position", "book_next_position": "Next position",
+        "book_previous_game": "Previous book game", "book_next_game": "Next book game",
         "book_bookmark": "Save bookmark", "book_open_position": "Open position on board",
         "book_open_file": "Open book", "book_previous_move": "Previous book move", "book_next_move": "Next book move",
         "book_return": "Return to book", "training_screen": "Training",
@@ -142,8 +144,10 @@ _TEXT = {
         "previous_pv": "Попередній варіант", "next_pv": "Наступний варіант",
         "explore_pv": "Тимчасово переглянути варіант", "insert_move": "Вставити вибраний хід",
         "insert_line": "Вставити вибраний варіант", "books_screen": "Бібліотека книг",
+        "book_previous_block": "Попередній блок", "book_next_block": "Наступний блок",
         "book_previous_heading": "Попередній заголовок", "book_next_heading": "Наступний заголовок",
-        "book_next_position": "Наступна позиція", "book_next_game": "Наступна партія в книзі",
+        "book_previous_position": "Попередня позиція", "book_next_position": "Наступна позиція",
+        "book_previous_game": "Попередня партія в книзі", "book_next_game": "Наступна партія в книзі",
         "book_bookmark": "Зберегти закладку", "book_open_position": "Відкрити позицію на дошці",
         "book_open_file": "Відкрити книгу", "book_previous_move": "Попередній хід із книги", "book_next_move": "Наступний хід із книги",
         "book_return": "Повернутися до книги", "training_screen": "Тренування",
@@ -216,7 +220,7 @@ def build_full_product_menu_spec(
         "export": (action("library_export", "library.export"), action("export_pgn", "pgn.export_selection")),
         "engine": (action("analysis_screen", "screen.analysis"), action("analysis_restart", "analysis.restart"), action("analysis_lock", "analysis.lock_target"), action("analysis_return", "analysis.return")),
         "analysis": (action("previous_pv", "analysis.previous_pv"), action("next_pv", "analysis.next_pv"), action("explore_pv", "analysis.explore_pv"), separator, action("insert_move", "analysis.insert_move"), action("insert_line", "analysis.insert_line")),
-        "books": (action("books_screen", "screen.books"), action("book_open_file", "book.open"), action("book_previous_heading", "book.previous_heading"), action("book_next_heading", "book.next_heading"), action("book_next_position", "book.next_position"), action("book_next_game", "book.next_game"), action("book_bookmark", "book.bookmark"), action("book_open_position", "book.open_position"), action("book_previous_move", "book.board_previous_move"), action("book_next_move", "book.board_next_move"), action("book_return", "book.return")),
+        "books": (action("books_screen", "screen.books"), action("book_open_file", "book.open"), action("book_previous_block", "book.previous_block"), action("book_next_block", "book.next_block"), action("book_previous_heading", "book.previous_heading"), action("book_next_heading", "book.next_heading"), action("book_previous_position", "book.previous_position"), action("book_next_position", "book.next_position"), action("book_previous_game", "book.previous_game"), action("book_next_game", "book.next_game"), action("book_bookmark", "book.bookmark"), action("book_open_position", "book.open_position"), action("book_previous_move", "book.board_previous_move"), action("book_next_move", "book.board_next_move"), action("book_return", "book.return")),
         "training": (action("training_screen", "screen.training"), action("training_hint", "training.hint"), action("training_reveal", "training.reveal_solution"), action("training_retry", "training.retry"), action("training_reset", "training.reset")),
         "teacher": (action("teacher_screen", "screen.teacher"), action("teacher_pointer_clear", "teacher.pointer_clear"), action("teacher_coordinates", "teacher.coordinates_toggle"), action("teacher_orientation", "teacher.orientation_toggle"), action("teacher_event", "teacher.read_student_event"), action("classes_screen", "screen.classes")),
         "settings": (action("settings_screen", "screen.settings"),),
@@ -324,6 +328,23 @@ def install_full_product_windows_native_menu(
         top = ToolStripMenuItem(top_spec.label)
         for child in top_spec.items:
             top.DropDownItems.Add(item(child))
+
+        def refresh_live_captions(sender, event, menu_id=top_spec.menu_id, menu_item=top):
+            live = next(
+                (candidate for candidate in controller.spec() if candidate.menu_id == menu_id),
+                None,
+            )
+            if live is None:
+                return
+            controls = list(menu_item.DropDownItems)
+            if len(controls) != len(live.items):
+                return
+            for control, live_spec in zip(controls, live.items):
+                if live_spec.kind is not NativeMenuItemKind.SEPARATOR:
+                    control.Text = live_spec.label
+
+        handlers.append(refresh_live_captions)
+        top.DropDownOpening += refresh_live_captions
         menu.Items.Add(top)
 
     setattr(window, "_accessible_chess_native_menu", menu)

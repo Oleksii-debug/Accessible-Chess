@@ -10,6 +10,7 @@ import unicodedata
 SEARCH_FOLD_SQL_FUNCTION = "ACS_SEARCH_FOLD"
 SEARCH_DATE_KEY_SQL_FUNCTION = "ACS_SEARCH_DATE_KEY"
 PLAYER_COMPONENT_KEY_SQL_FUNCTION = "ACS_PLAYER_COMPONENT_KEY"
+MAX_RAW_SEARCH_TERM_CHARS = 4096
 MAX_SEARCH_TERM_CHARS = 256
 MAX_SEARCH_PAGE_SIZE = 200
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -21,13 +22,33 @@ _COMPLETE_PGN_DATE_RE = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})$")
 _PLAYER_COMPONENT_SPLIT_RE = re.compile(r"[,\s'\u2018\u2019\u02bc\-\u2010\u2011]+")
 
 
+def normalize_search_text(value: str) -> str:
+    """NFKC-normalize text and collapse Unicode whitespace for search comparison."""
+    if type(value) is not str:
+        raise TypeError("search text must be text")
+    return " ".join(unicodedata.normalize("NFKC", value).split())
+
+
+def _require_bounded_raw_search_text(value: str, *, name: str) -> None:
+    """Reject oversized caller text before Unicode normalization allocates copies."""
+    if len(value) > MAX_RAW_SEARCH_TERM_CHARS:
+        raise ValueError(
+            f"{name} exceeds maximum raw search term length of "
+            f"{MAX_RAW_SEARCH_TERM_CHARS} characters"
+        )
+
+
 def normalize_search_term(value: str | None, *, name: str) -> str | None:
-    """Validate and NFKC-normalize one optional user-facing search term."""
+    """Validate and normalize one bounded optional user-facing search term."""
     if value is None:
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
-    normalized = " ".join(unicodedata.normalize("NFKC", value).split())
+    # BookIndex already applies this same 4096-character fence to its direct
+    # search query before delegating here. Library/ACSDB callers must receive the
+    # same pre-normalization resource envelope through the shared policy itself.
+    _require_bounded_raw_search_text(value, name=name)
+    normalized = normalize_search_text(value)
     if len(normalized) > MAX_SEARCH_TERM_CHARS:
         raise ValueError(
             f"{name} exceeds maximum search term length of {MAX_SEARCH_TERM_CHARS} characters"
@@ -105,9 +126,13 @@ def normalize_search_source_id(value: object | None) -> int | None:
     return value
 
 
-def normalize_search_result(value: object | None) -> object | None:
-    """Validate the canonical PGN result tokens accepted by game search."""
-    if value is not None and value not in SEARCH_RESULTS:
+def normalize_search_result(value: object | None) -> str | None:
+    """Validate canonical PGN result tokens before any hashing or coercion."""
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise TypeError("result must be text")
+    if value not in SEARCH_RESULTS:
         raise ValueError(f"Unsupported chess result: {value}")
     return value
 
@@ -146,6 +171,7 @@ def normalize_search_date_bound(value: object | None, *, name: str) -> str | Non
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
+    _require_bounded_raw_search_text(value, name=name)
     normalized = unicodedata.normalize("NFKC", value).strip()
     key = search_date_key(normalized)
     if key is None:
