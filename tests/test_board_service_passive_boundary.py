@@ -101,6 +101,34 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
             BoardSnapshot(pieces, "w", attacks={0: HostileTuple((1,))})
         self.assertFalse(HostileTuple.touched)
 
+    def test_moveview_subclasses_are_rejected_before_attribute_hooks(self) -> None:
+        class HostileMove(MoveView):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"frm", "to", "san", "is_capture"} and type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile MoveView attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostileMove(0, 1, "Na2", False)
+        HostileMove.armed = True
+        pieces = _empty_pieces()
+
+        with self.assertRaisesRegex(TypeError, "legal_moves must be a tuple of MoveView"):
+            BoardSnapshot(pieces, "w", legal_moves=(hostile,))
+        self.assertFalse(HostileMove.touched)
+
+        with self.assertRaisesRegex(TypeError, "last_move must be MoveView or None"):
+            BoardSnapshot(pieces, "w", last_move=hostile)
+        self.assertFalse(HostileMove.touched)
+
+        exact = MoveView(0, 1, "Na2", False)
+        snapshot = BoardSnapshot(pieces, "w", legal_moves=(exact,), last_move=exact)
+        self.assertIs(snapshot.legal_moves[0], exact)
+        self.assertIs(snapshot.last_move, exact)
+
     def test_material_mapping_rejects_active_keys_before_hash_or_equality(self) -> None:
         class HostileText(str):
             touched = False
