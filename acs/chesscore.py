@@ -7,8 +7,12 @@ PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий 
 
 def sq_name(s): return square_name(s)
 def parse_sq(t):
-    try: return parse_square(t)
-    except ValueError as exc: raise ValueError('Неправильне поле: '+repr(t)) from exc
+    try:
+        return parse_square(t)
+    except ValueError as exc:
+        # Rejected square input is untrusted.  Do not repr()/str() it while
+        # translating the canonical square error into the legacy chesscore API.
+        raise ValueError('Неправильне поле') from exc
 
 def color_of(p): return 'w' if p and p.isupper() else ('b' if p else None)
 
