@@ -408,6 +408,19 @@ class TrainingProgressStore:
         ):
             raise ValueError("training progress temporary file is not private")
 
+    def _progress_path_identity(self, *, missing_ok: bool) -> os.stat_result | None:
+        """Return the current private progress inode identity, or a stable missing state."""
+        try:
+            metadata = os.lstat(self.path)
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise ValueError("training progress file is unavailable") from None
+        except OSError as exc:
+            raise ValueError("training progress file could not be inspected") from exc
+        self._require_regular_progress(metadata)
+        return metadata
+
     @classmethod
     def _quarantine_owned_path(
         cls,
@@ -876,7 +889,24 @@ class TrainingProgressStore:
         temporary_identity: os.stat_result | None = None
         with self._exclusive_access():
             try:
+                transaction_identity = self._progress_path_identity(missing_ok=True)
                 current_data = self._read_progress_bytes(missing_ok=True)
+                observed_identity = self._progress_path_identity(missing_ok=True)
+                if (transaction_identity is None) != (current_data is None):
+                    raise TrainingProgressConflictError(
+                        "training progress changed since the caller last observed it"
+                    )
+                if transaction_identity is not None:
+                    if (
+                        observed_identity is None
+                        or not self._same_file_identity(
+                            transaction_identity,
+                            observed_identity,
+                        )
+                    ):
+                        raise TrainingProgressConflictError(
+                            "training progress changed since the caller last observed it"
+                        )
                 current_revision = None if current_data is None else _revision(current_data)
                 if current_revision != expected:
                     raise TrainingProgressConflictError(
@@ -934,13 +964,29 @@ class TrainingProgressStore:
                     raise
 
                 publication_base = self._read_progress_bytes(missing_ok=True)
+                publication_identity = self._progress_path_identity(missing_ok=True)
                 publication_revision = (
                     None if publication_base is None else _revision(publication_base)
                 )
-                if publication_revision != current_revision:
+                if (
+                    publication_revision != current_revision
+                    or publication_base != current_data
+                    or (transaction_identity is None) != (publication_base is None)
+                ):
                     raise TrainingProgressConflictError(
                         "training progress changed during publication"
                     )
+                if transaction_identity is not None:
+                    if (
+                        publication_identity is None
+                        or not self._same_file_identity(
+                            transaction_identity,
+                            publication_identity,
+                        )
+                    ):
+                        raise TrainingProgressConflictError(
+                            "training progress changed during publication"
+                        )
 
                 try:
                     current_temp = os.lstat(temporary)
