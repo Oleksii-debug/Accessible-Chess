@@ -233,9 +233,11 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
         self.assertNotIn("bInheritHandle = TRUE", self.source)
         self.assertIn(
-            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT,",
+            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
             self.source,
         )
+        self.assertIn("DuplicateHandle(", self.source)
+        self.assertIn("DUPLICATE_SAME_ACCESS", self.source)
         root_check = self.source.index("if (!ac_direct_directory(g_root))")
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
@@ -303,6 +305,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "$second.WaitForExit(10000)",
             "Overlapping second portable launcher smoke failed",
             "Launch report missing after overlapping launchers",
+            "PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE",
+            "$ownedChildren.Count -ne 1",
+            "Expected exactly one package-local child after overlapping launchers",
+            "Single package-local child PID mismatch",
             "Start-Sleep -Seconds 7",
         ):
             with self.subTest(token=token):

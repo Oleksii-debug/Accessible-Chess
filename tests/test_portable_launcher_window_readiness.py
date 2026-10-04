@@ -41,6 +41,56 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
         self.assertIn("CHILD_PROCESS_ID: ", self.source)
         self.assertIn("g_process.dwProcessId", self.source)
 
+    def test_package_local_state_has_one_live_process_owner(self):
+        for token in (
+            'L".accessible-chess-instance.lock"',
+            "static HANDLE ac_open_instance_lock(void)",
+            "GENERIC_READ | GENERIC_WRITE",
+            "FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_OPEN_REPARSE_POINT",
+            "file_info.nNumberOfLinks != 1",
+            "g_instance_lock = ac_open_instance_lock();",
+            "ERROR_SHARING_VIOLATION",
+            "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED",
+            "DuplicateHandle(",
+            "g_process.hProcess",
+            "DUPLICATE_SAME_ACCESS",
+            "ResumeThread(g_process.hThread)",
+            "CloseHandle(g_instance_lock)",
+            "PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
+
+        lock = self.source.index("g_instance_lock = ac_open_instance_lock();")
+        report = self.source.index("report = ac_open_report();")
+        create = self.source.index("if (!CreateProcessW(")
+        transfer = self.source.index("if (!DuplicateHandle(")
+        resume = self.source.index("resume_result = ResumeThread(g_process.hThread);")
+        release_parent = self.source.index("CloseHandle(g_instance_lock);", resume)
+        self.assertLess(lock, report)
+        self.assertLess(report, create)
+        self.assertLess(create, transfer)
+        self.assertLess(transfer, resume)
+        self.assertLess(resume, release_parent)
+
+    def test_duplicate_launch_coalesces_without_touching_shared_report(self):
+        lock = self.source.index("g_instance_lock = ac_open_instance_lock();")
+        duplicate = self.source.index("error == ERROR_SHARING_VIOLATION", lock)
+        coalesce = self.source.index("ExitProcess(0);", duplicate)
+        report = self.source.index("report = ac_open_report();", lock)
+        self.assertLess(lock, duplicate)
+        self.assertLess(duplicate, coalesce)
+        self.assertLess(coalesce, report)
+
+    def test_instance_lock_is_not_inherited_wholesale(self):
+        self.assertIn(
+            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
+            self.source,
+        )
+        self.assertIn("DuplicateHandle(", self.source)
+        self.assertIn("DUPLICATE_SAME_ACCESS", self.source)
+        self.assertNotIn("bInheritHandle = TRUE", self.source)
+
     def test_transient_window_must_remain_stable_before_success(self):
         for token in (
             "ULONGLONG ready_started = 0;",

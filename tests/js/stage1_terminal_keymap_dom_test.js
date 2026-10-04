@@ -142,22 +142,35 @@ function chordFor(event) {
     const editableActions = [];
     const resolutionCalls = [];
     const selection = {text: ''};
+    let deferEditableResolution = false;
+    let finishEditableResolution = null;
     const editableContext = {
         capture: null,
         eventChord: chordFor,
+        keymapActionForEvent: (event, uiContext) => {
+            const chord = chordFor(event);
+            if (uiContext === 'global' && chord === 'F1') return 'screen.help';
+            if (uiContext === 'global' && chord === 'Ctrl+N') return 'file.new';
+            if (uiContext === 'analysis' && chord === 'Alt+R') return 'analysis.restart';
+            return '';
+        },
         executeAction: actionId => { editableActions.push(actionId); },
-        resolveBinding: async (chord, registryContext, uiContext) => {
+        resolveBinding: (chord, registryContext, uiContext) => {
             resolutionCalls.push([chord, registryContext, uiContext]);
+            let result = null;
             if (registryContext === 'global' && chord === 'F1') {
-                return {actionId: 'screen.help', context: 'global'};
+                result = {actionId: 'screen.help', context: 'global'};
+            } else if (registryContext === 'global' && chord === 'Ctrl+N') {
+                result = {actionId: 'file.new', context: 'global'};
+            } else if (registryContext === 'analysis' && chord === 'Alt+R') {
+                result = {actionId: 'analysis.restart', context: 'analysis'};
             }
-            if (registryContext === 'global' && chord === 'Ctrl+N') {
-                return {actionId: 'file.new', context: 'global'};
+            if (deferEditableResolution) {
+                return new Promise(resolve => {
+                    finishEditableResolution = () => resolve(result);
+                });
             }
-            if (registryContext === 'analysis' && chord === 'Alt+R') {
-                return {actionId: 'analysis.restart', context: 'analysis'};
-            }
-            return null;
+            return Promise.resolve(result);
         },
         document: {
             addEventListener(type, listener) {
@@ -187,10 +200,19 @@ function chordFor(event) {
         closest: () => null,
     };
 
+    // F1 is browser-owned unless the app claims it during synchronous dispatch.
+    // Keep canonical validation pending and prove Help already cancelled native F1.
+    deferEditableResolution = true;
     const helpInInput = eventFor('F1', inputTarget);
-    await documentKeydown(helpInInput);
+    const pendingHelpInInput = documentKeydown(helpInInput);
     assert.strictEqual(helpInInput.prevented, true);
     assert.strictEqual(helpInInput.stopped, true);
+    assert.deepStrictEqual(editableActions, []);
+    assert.ok(finishEditableResolution, 'help resolver reached after synchronous cancellation');
+    finishEditableResolution();
+    await pendingHelpInInput;
+    deferEditableResolution = false;
+    finishEditableResolution = null;
     assert.deepStrictEqual(editableActions, ['screen.help']);
 
     const newGameInInput = eventFor('n', inputTarget);
@@ -301,20 +323,49 @@ function chordFor(event) {
     assert.deepStrictEqual(focusCalls, []);
     assert.strictEqual(oldDown.prevented, false);
 
+    // Owned browser gestures must be cancelled synchronously, before the async
+    // canonical resolver settles. Otherwise browser keydown dispatch can perform
+    // native Arrow/Space/Enter behavior before our Promise continuation runs.
+    let finishBoardResolution = null;
+    context.resolveBinding = () => new Promise(resolve => { finishBoardResolution = resolve; });
     const remappedDown = eventFor('J', cell);
-    await context.onBoardKey(remappedDown);
-    assert.deepStrictEqual(focusCalls, [8]);
+    const pendingRemappedDown = context.onBoardKey(remappedDown);
     assert.strictEqual(remappedDown.prevented, true);
     assert.strictEqual(remappedDown.stopped, true);
+    assert.deepStrictEqual(focusCalls, []);
+    assert.ok(finishBoardResolution, 'board resolver reached after synchronous cancellation');
+    finishBoardResolution({actionId: 'board.cursor_down'});
+    await pendingRemappedDown;
+    assert.deepStrictEqual(focusCalls, [8]);
 
-    // The board still delegates to the canonical resolver so GLOBAL fallback is retained.
+    // A stale/disagreeing async resolution is fail-closed: the browser event
+    // remains claimed, but neither the projected nor the stale action executes.
+    let finishStaleResolution = null;
+    context.resolveBinding = () => new Promise(resolve => { finishStaleResolution = resolve; });
+    const staleBoardAction = eventFor('J', cell);
+    const pendingStaleBoardAction = context.onBoardKey(staleBoardAction);
+    assert.strictEqual(staleBoardAction.prevented, true);
+    assert.strictEqual(staleBoardAction.stopped, true);
+    finishStaleResolution({actionId: 'edit.undo'});
+    await pendingStaleBoardAction;
+    assert.deepStrictEqual(focusCalls, [8]);
+    assert.deepStrictEqual(baseActionCalls, []);
+
+    // The board still delegates to the canonical resolver so GLOBAL fallback is
+    // retained, but GLOBAL ownership is projected synchronously before await.
     context.resolveBinding = async chord => chord === 'Ctrl+Z' ? {actionId: 'edit.undo'} : null;
-    context.accessibleChessKeymapAction = () => '';
+    context.accessibleChessKeymapAction = (event, uiContext) => (
+        uiContext === 'global' && event.ctrlKey && String(event.key).toLowerCase() === 'z'
+            ? 'edit.undo'
+            : ''
+    );
     const globalUndo = eventFor('z', cell);
     globalUndo.ctrlKey = true;
-    await context.onBoardKey(globalUndo);
-    assert.deepStrictEqual(baseActionCalls, ['edit.undo']);
+    const pendingGlobalUndo = context.onBoardKey(globalUndo);
     assert.strictEqual(globalUndo.prevented, true);
+    assert.strictEqual(globalUndo.stopped, true);
+    await pendingGlobalUndo;
+    assert.deepStrictEqual(baseActionCalls, ['edit.undo']);
     delete context.resolveBinding;
 
     // Activation obeys the remap and preserves the temporary-analysis mutation guard.
