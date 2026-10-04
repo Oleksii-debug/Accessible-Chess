@@ -8,6 +8,22 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_pairing import (
+    PairingBatch,
+    PairingMode,
+    assert_pairing_scope,
+    override_pairing,
+    plan_pairings,
+)
+from .classroom_prepared_position_deployment import (
+    DeploymentTarget,
+    PreparedPositionDeploymentBatch,
+    assert_prepared_position_deployment_retry,
+    assert_prepared_position_deployment_scope,
+    plan_prepared_position_deployment as build_prepared_position_deployment,
+    plan_uniform_prepared_position_deployment as build_uniform_prepared_position_deployment,
+    resolve_prepared_position_source,
+)
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -83,6 +99,8 @@ class Version2FinalProductApplication(Version2Application):
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
         self._teaching_state: TeachingSessionState | None = None
+        self._pairing_batch: PairingBatch | None = None
+        self._prepared_position_deployment: PreparedPositionDeploymentBatch | None = None
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -148,6 +166,11 @@ class Version2FinalProductApplication(Version2Application):
         self._education_workspace = workspace
         self._education_revision = revision
         self._education_load_error = False
+        # Pairing/deployment plans are exact projections of one D10 snapshot.
+        # Invalidate them before any caller can reuse stale membership or
+        # prepared-position revisions after an accepted workspace replacement.
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
         self._rebuild_education_bridge(self.shell.language)
         return revision
 
@@ -255,6 +278,8 @@ class Version2FinalProductApplication(Version2Application):
             self._teaching_state = None
             self._clear_teaching_binding()
             raise
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
         return state
 
     def stop_teaching_session(self) -> None:
@@ -265,6 +290,8 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("No application-owned teaching session is active")
         self._teaching_plan = None
         self._teaching_state = None
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
         self._clear_teaching_binding()
 
     def unbind_teaching_session(self) -> None:
@@ -273,7 +300,166 @@ class Version2FinalProductApplication(Version2Application):
         self._assert_thread()
         self._teaching_plan = None
         self._teaching_state = None
+        self._pairing_batch = None
+        self._prepared_position_deployment = None
         self._clear_teaching_binding()
+
+    def _classroom_orchestration_authorities(
+        self,
+    ) -> tuple[LessonSession, EducationWorkspace]:
+        plan = self._teaching_plan
+        state = self._teaching_state
+        workspace = self._education_workspace
+        if type(plan) is not LessonSession or type(state) is not TeachingSessionState:
+            raise RuntimeError("No application-owned teaching session is active")
+        if type(workspace) is not EducationWorkspace:
+            raise RuntimeError("Education workspace is unavailable")
+        validate_lesson_session_scope(plan, workspace.classroom)
+        return plan, workspace
+
+    @property
+    def active_pairing_batch(self) -> PairingBatch | None:
+        return self._pairing_batch
+
+    @property
+    def active_prepared_position_deployment(
+        self,
+    ) -> PreparedPositionDeploymentBatch | None:
+        return self._prepared_position_deployment
+
+    def plan_classroom_pairings(
+        self,
+        *,
+        batch_id: str,
+        game_session_ids: tuple[str, ...],
+        student_ids: tuple[str, ...] | None = None,
+        mode: PairingMode | str = PairingMode.SEQUENTIAL,
+        ratings_by_student: Mapping[str, int] | None = None,
+        base_seconds: int = 0,
+        increment_seconds: int = 0,
+    ) -> PairingBatch:
+        """Plan one trusted pair-play batch against the live lesson/D10 scope."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        candidate = plan_pairings(
+            plan,
+            workspace.classroom,
+            batch_id=batch_id,
+            game_session_ids=game_session_ids,
+            student_ids=student_ids,
+            mode=mode,
+            ratings_by_student=ratings_by_student,
+            base_seconds=base_seconds,
+            increment_seconds=increment_seconds,
+        )
+        current_batch = self._pairing_batch
+        if current_batch is not None and current_batch.batch_id == candidate.batch_id:
+            assert_pairing_scope(current_batch, plan, workspace.classroom)
+            if current_batch.digest != candidate.digest:
+                raise RuntimeError("pairing batch id was reused with changed payload")
+            return current_batch
+        self._pairing_batch = candidate
+        return candidate
+
+    def override_classroom_pairing(
+        self,
+        *,
+        pairing_id: str,
+        white_student_id: str,
+        black_student_id: str,
+        base_seconds: int | None = None,
+        increment_seconds: int | None = None,
+    ) -> PairingBatch:
+        """Apply a membership-preserving color/time override to the live batch."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        current_batch = self._pairing_batch
+        if current_batch is None:
+            raise RuntimeError("No classroom pairing batch is active")
+        assert_pairing_scope(current_batch, plan, workspace.classroom)
+        updated = override_pairing(
+            current_batch,
+            pairing_id=pairing_id,
+            white_student_id=white_student_id,
+            black_student_id=black_student_id,
+            base_seconds=base_seconds,
+            increment_seconds=increment_seconds,
+        )
+        assert_pairing_scope(updated, plan, workspace.classroom)
+        self._pairing_batch = updated
+        return updated
+
+    def plan_prepared_position_deployment(
+        self,
+        *,
+        batch_id: str,
+        position_by_student: Mapping[str, str],
+        target: DeploymentTarget | None = None,
+    ) -> PreparedPositionDeploymentBatch:
+        """Plan exact prepared-position revisions for one trusted target."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        candidate = build_prepared_position_deployment(
+            plan,
+            workspace,
+            batch_id=batch_id,
+            position_by_student=position_by_student,
+            target=target,
+        )
+        current_batch = self._prepared_position_deployment
+        if current_batch is not None and current_batch.batch_id == candidate.batch_id:
+            assert_prepared_position_deployment_scope(current_batch, plan, workspace)
+            assert_prepared_position_deployment_retry(current_batch, candidate)
+            return current_batch
+        self._prepared_position_deployment = candidate
+        return candidate
+
+    def plan_uniform_prepared_position_deployment(
+        self,
+        *,
+        batch_id: str,
+        position_id: str,
+        target: DeploymentTarget | None = None,
+    ) -> PreparedPositionDeploymentBatch:
+        """Plan one durable prepared position for all students in a target."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        candidate = build_uniform_prepared_position_deployment(
+            plan,
+            workspace,
+            batch_id=batch_id,
+            position_id=position_id,
+            target=target,
+        )
+        current_batch = self._prepared_position_deployment
+        if current_batch is not None and current_batch.batch_id == candidate.batch_id:
+            assert_prepared_position_deployment_scope(current_batch, plan, workspace)
+            assert_prepared_position_deployment_retry(current_batch, candidate)
+            return current_batch
+        self._prepared_position_deployment = candidate
+        return candidate
+
+    def resolve_prepared_position_assignment(
+        self,
+        assignment_id: str,
+    ):
+        """Resolve one assignment only after revalidating the complete live batch."""
+
+        self._assert_thread()
+        plan, workspace = self._classroom_orchestration_authorities()
+        batch = self._prepared_position_deployment
+        if batch is None:
+            raise RuntimeError("No prepared-position deployment is active")
+        return resolve_prepared_position_source(
+            batch,
+            assignment_id,
+            plan,
+            workspace,
+        )
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
@@ -325,6 +511,18 @@ class Version2FinalProductApplication(Version2Application):
                     "teacher_session_active": self.teacher is not None,
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
+                    "classroom_pairing_planned": self._pairing_batch is not None,
+                    "classroom_pair_count": (
+                        0 if self._pairing_batch is None else len(self._pairing_batch.pairings)
+                    ),
+                    "prepared_position_deployment_planned": (
+                        self._prepared_position_deployment is not None
+                    ),
+                    "prepared_position_assignment_count": (
+                        0
+                        if self._prepared_position_deployment is None
+                        else len(self._prepared_position_deployment.assignments)
+                    ),
                     "remote_transport": "not_approved",
                 },
             }
