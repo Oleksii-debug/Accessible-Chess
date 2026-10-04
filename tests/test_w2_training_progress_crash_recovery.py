@@ -354,7 +354,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             ):
                 progress_store_module._sync_published_path(path)
 
-            open_bound.assert_called_once_with(path, create=False)
+            open_bound.assert_called_once_with(path, create=False, writable=True)
             fsync.assert_called_once_with(descriptor)
             with self.assertRaises(OSError):
                 os.fstat(descriptor)
