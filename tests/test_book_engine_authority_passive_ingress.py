@@ -9,6 +9,7 @@ from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.engine_ports import EngineContractError, EngineContractErrorCode
+from acs.training import ExerciseSession
 
 
 class _IdleEngine:
@@ -52,6 +53,29 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
         ):
             BookBoardWorkflow(self._reader(), hostile)
 
+    def test_assisted_training_rejects_session_subclass_before_snapshot_hook(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        assisted = EngineAssistedWorkflowService(analysis)
+
+        class HostileSession(ExerciseSession):
+            touched = False
+
+            def snapshot(self):
+                type(self).touched = True
+                raise AssertionError("rejected Training session subclass must stay passive")
+
+        hostile = HostileSession.__new__(HostileSession)
+        HostileSession.touched = False
+
+        with self.assertRaises(EngineContractError) as caught:
+            assisted.analyze_training(
+                hostile,
+                Board.START,
+            )
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_REQUEST)
+        self.assertFalse(HostileSession.touched)
     def test_book_block_analysis_rejects_semantic_subclass_before_attribute_hooks(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
