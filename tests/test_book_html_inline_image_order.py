@@ -265,8 +265,8 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
   </rootfiles>
 </container>'''
         opf = b'''<?xml version="1.0" encoding="UTF-8"?>
-<package version="3.0" xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <metadata><dc:title>Inline image EPUB</dc:title><dc:language>en</dc:language></metadata>
+<package version="3.0" unique-identifier="bookid" xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:identifier id="bookid">urn:uuid:inline-image-test</dc:identifier><dc:title>Inline image EPUB</dc:title><dc:language>en</dc:language></metadata>
   <manifest>
     <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>
     <item id="board" href="Images/board.png" media-type="image/png"/>
@@ -724,6 +724,158 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
                 ("ImageNote", "Image"),
                 ("Paragraph", "C"),
             ],
+        )
+
+
+    def test_inline_heading_image_preserves_source_order_legacy_identity_and_heading_navigation(self) -> None:
+        baseline = import_html_book(
+            '<html><body><h2 id="topic">BeforeAfter</h2><h2>Next</h2></body></html>',
+            source_name="heading-baseline.html",
+        )
+        baseline_headings = [
+            block for block in baseline.document.blocks if isinstance(block, Heading)
+        ]
+        self.assertEqual(len(baseline_headings), 2)
+
+        result = import_html_book(
+            '<html><body><h2 id="topic">Before<img src="board.png" alt="Board">After</h2>'
+            '<h2>Next</h2></body></html>',
+            source_name="heading-inline.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            [
+                (
+                    block.kind,
+                    block.text if isinstance(block, (Heading, Paragraph, Note)) else "",
+                )
+                for block in result.document.blocks
+            ],
+            [
+                ("Heading", "Before"),
+                ("Note", "Board"),
+                ("Paragraph", "After"),
+                ("Heading", "Next"),
+            ],
+        )
+        first_heading = result.document.blocks[0]
+        next_heading = result.document.blocks[3]
+        self.assertIsInstance(first_heading, Heading)
+        self.assertEqual(first_heading.level, 2)
+        self.assertEqual(first_heading.source_anchor, "topic")
+        self.assertEqual(first_heading.block_id, baseline_headings[0].block_id)
+        self.assertIsInstance(next_heading, Heading)
+        self.assertEqual(next_heading.block_id, baseline_headings[1].block_id)
+
+        reader = BookReader(result.document)
+        reader.go_to(0)
+        location = reader.next_heading()
+        self.assertEqual(location.index, 3)
+        self.assertEqual(reader.block_snapshot(location.index).text, "Next")
+
+    def test_inline_heading_image_edges_keep_true_source_order(self) -> None:
+        image_first = import_html_book(
+            '<html><body><h3><img src="board.png" alt="Board">Tail</h3></body></html>',
+            source_name="heading-image-first.html",
+            available_assets={"board.png"},
+        )
+        self.assertEqual(
+            [
+                (block.kind, block.text if isinstance(block, (Heading, Paragraph, Note)) else "")
+                for block in image_first.document.blocks
+            ],
+            [("Note", "Board"), ("Heading", "Tail")],
+        )
+
+        image_last = import_html_book(
+            '<html><body><h3>Lead<img src="board.png" alt="Board"></h3></body></html>',
+            source_name="heading-image-last.html",
+            available_assets={"board.png"},
+        )
+        self.assertEqual(
+            [
+                (block.kind, block.text if isinstance(block, (Heading, Paragraph, Note)) else "")
+                for block in image_last.document.blocks
+            ],
+            [("Heading", "Lead"), ("Note", "Board")],
+        )
+
+    def test_inline_heading_explicit_position_keeps_heading_position_text_order(self) -> None:
+        result = import_html_book(
+            f'<html><body><h1 id="chapter">Before'
+            f'<span data-acs-fen="{Board.START}"></span>After</h1></body></html>',
+            source_name="heading-position.html",
+        )
+
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Heading", "Position", "Paragraph"],
+        )
+        heading, position, trailing = result.document.blocks
+        self.assertIsInstance(heading, Heading)
+        self.assertEqual(heading.text, "Before")
+        self.assertEqual(heading.source_anchor, "chapter")
+        self.assertIsInstance(position, Position)
+        self.assertEqual(Board(position.fen).fen(), Board.START)
+        self.assertIsInstance(trailing, Paragraph)
+        self.assertEqual(trailing.text, "After")
+
+    def test_heading_progress_restores_to_legacy_identity_fragment_after_inline_split(self) -> None:
+        baseline = import_html_book(
+            '<html><body><h2 id="topic">BeforeAfter</h2><p>Body</p></body></html>',
+            source_name="heading-progress-baseline.html",
+        )
+        baseline_reader = BookReader(baseline.document)
+        baseline_location = baseline_reader.go_to(0)
+
+        changed = import_html_book(
+            '<html><body><h2 id="topic">Before<img src="board.png" alt="Board">After</h2>'
+            '<p>Body</p></body></html>',
+            source_name="heading-progress-changed.html",
+            available_assets={"board.png"},
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+            store.save("inline-heading-progress", baseline_reader)
+            restored = store.restore("inline-heading-progress", changed.document)
+
+        location = restored.location()
+        block = restored.block_snapshot(location.index)
+        self.assertEqual(location.block_id, baseline_location.block_id)
+        self.assertEqual(location.source_anchor, "topic")
+        self.assertIsInstance(block, Heading)
+        self.assertEqual(block.text, "Before")
+        self.assertEqual(block.level, 2)
+
+    def test_unclosed_inline_heading_recovers_source_order_without_losing_heading_identity(self) -> None:
+        baseline = import_html_book(
+            '<html><body><h2 id="topic">AB</h2></body></html>',
+            source_name="heading-unclosed-baseline.html",
+        )
+        baseline_heading = next(
+            block for block in baseline.document.blocks if isinstance(block, Heading)
+        )
+
+        result = import_html_book(
+            '<html><body><h2 id="topic">A<img src="board.png" alt="Board">B',
+            source_name="heading-unclosed.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            [
+                (block.kind, block.text if isinstance(block, (Heading, Paragraph, Note)) else "")
+                for block in result.document.blocks
+            ],
+            [("Heading", "A"), ("Note", "Board"), ("Paragraph", "B")],
+        )
+        recovered_heading = result.document.blocks[0]
+        self.assertIsInstance(recovered_heading, Heading)
+        self.assertEqual(recovered_heading.block_id, baseline_heading.block_id)
+        self.assertTrue(
+            any("unclosed h2 element" in warning for warning in result.warnings)
         )
 
 
