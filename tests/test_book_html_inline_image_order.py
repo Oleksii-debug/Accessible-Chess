@@ -879,5 +879,45 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         )
 
 
+    def test_nested_inline_heading_does_not_duplicate_heading_text_in_outer_split(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A'
+            '<h2 id="inner">H1<img src="inner.png" alt="Inner">H2</h2>'
+            'B<img src="outer.png" alt="Outer">C</p></body></html>',
+            source_name="nested-inline-heading.html",
+            available_assets={"inner.png", "outer.png"},
+        )
+
+        projected = []
+        for block in result.document.blocks:
+            if isinstance(block, Heading):
+                projected.append(("Heading", block.text))
+            elif isinstance(block, Paragraph):
+                projected.append(("Paragraph", block.text))
+            elif isinstance(block, Note) and block.note_type == "image":
+                projected.append(("ImageNote", block.text))
+
+        self.assertEqual(
+            projected,
+            [
+                ("Paragraph", "A"),
+                ("Heading", "H1"),
+                ("ImageNote", "Inner"),
+                ("Paragraph", "H2"),
+                ("Paragraph", "B"),
+                ("ImageNote", "Outer"),
+                ("Paragraph", "C"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("H1") + block.text.count("H2")
+                for block in result.document.blocks
+                if isinstance(block, (Heading, Paragraph))
+            ),
+            2,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
