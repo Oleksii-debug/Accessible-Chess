@@ -125,6 +125,26 @@ def _mark_zip_entry_encrypted(raw: bytes, name: str) -> bytes:
     raise AssertionError("fixture central ZIP entry was not found")
 
 
+def _set_local_zip_field(
+    raw: bytes,
+    name: str,
+    *,
+    offset: int,
+    width: int,
+    value: int,
+) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+    local_offset = info.header_offset
+    if damaged[local_offset : local_offset + 4] != b"PK\x03\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    damaged[
+        local_offset + offset : local_offset + offset + width
+    ] = value.to_bytes(width, "little")
+    return bytes(damaged)
+
+
 def _simple_epub(chapter: bytes) -> bytes:
     return _epub(
         opf=_opf(
@@ -136,6 +156,77 @@ def _simple_epub(chapter: bytes) -> bytes:
 
 
 class BookEpubImportTests(unittest.TestCase):
+    def test_local_zip_header_extract_version_must_be_ocf_supported(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        damaged = _set_local_zip_field(
+            raw,
+            "OEBPS/Text/ch1.xhtml",
+            offset=4,
+            width=2,
+            value=63,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="bad-local-version.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_local_zip_header_compression_method_is_authoritative(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+            prepend=[("unused.bin", b"unused")],
+        )
+        damaged = _set_local_zip_field(
+            raw,
+            "unused.bin",
+            offset=8,
+            width=2,
+            value=12,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="bad-local-compression.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_mimetype_local_zip_header_must_not_have_extra_field(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        damaged = _set_local_zip_field(
+            raw,
+            "mimetype",
+            offset=28,
+            width=2,
+            value=1,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="mimetype-local-extra.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_prefixed_self_extracting_zip_is_not_an_ocf_container(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(b"MZ-preface" + raw, source_name="prefixed.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
     def test_spine_metadata_lists_positions_images_and_pgn_are_semantic(self) -> None:
         chapter1 = f'''<!doctype html><html lang="uk"><head><title>Chapter One</title></head><body>
 <h1 id="strategy">Стратегія</h1>
