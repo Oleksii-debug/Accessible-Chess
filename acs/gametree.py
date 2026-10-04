@@ -19,9 +19,14 @@ from typing import Iterable
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
 TAG_RE = re.compile(r'^\s*\[\s*([A-Za-z0-9_]+)\s*"((?:\\.|[^"\\])*)"\s*\]\s*$')
 MOVE_NUMBER_RE = re.compile(r"^(\d+)\.(\.\.)?$")
+# Import format permits zero or more periods; export-style one/three-dot
+# spelling remains represented separately by MOVE_NUMBER_RE.
+MOVE_NUMBER_TOKEN_RE = re.compile(r"^\d+\.*$")
+MOVE_NUMBER_ATTACHED_RE = re.compile(r"^(\d+\.+)(.+)$")
+MOVE_NUMBER_PERIODS_RE = re.compile(r"^\.+$")
+MOVE_NUMBER_PERIODS_ATTACHED_RE = re.compile(r"^(\.+)(.+)$")
 TAG_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 NAG_RE = re.compile(r"^\$\d+$")
-MOVE_NUMBER_TOKEN_RE = re.compile(r"^\d+\.{1,3}$")
 NAG_SYMBOLS = frozenset({"!", "?", "!!", "??", "!?", "?!"})
 MAX_NUMERIC_NAG = 255
 
@@ -239,17 +244,32 @@ def tokenize_movetext(text: str) -> list[_Token]:
         while j < n and not text[j].isspace() and text[j] not in "{};()$":
             j += 1
         value = text[i:j]
+        if MOVE_NUMBER_TOKEN_RE.fullmatch(value):
+            out.append(_Token("MOVE_NUMBER", value))
+            i = j
+            continue
+        if MOVE_NUMBER_PERIODS_RE.fullmatch(value):
+            out.append(_Token("MOVE_NUMBER_PERIODS", value))
+            i = j
+            continue
+
+        attached_number = MOVE_NUMBER_ATTACHED_RE.fullmatch(value)
+        if attached_number is not None:
+            out.append(_Token("MOVE_NUMBER", attached_number.group(1)))
+            value = attached_number.group(2)
+        else:
+            attached_periods = MOVE_NUMBER_PERIODS_ATTACHED_RE.fullmatch(value)
+            if attached_periods is not None:
+                out.append(_Token("MOVE_NUMBER_PERIODS", attached_periods.group(1)))
+                value = attached_periods.group(2)
+
         if value in RESULTS:
             kind = "RESULT"
-        elif MOVE_NUMBER_RE.fullmatch(value) or re.fullmatch(r"\d+\.{1,3}", value):
-            kind = "MOVE_NUMBER"
+        elif MOVE_NUMBER_PERIODS_RE.fullmatch(value):
+            kind = "MOVE_NUMBER_PERIODS"
         elif value in NAG_SYMBOLS:
             kind = "NAG_SYMBOL"
         else:
-            m = re.match(r"^(\d+\.{1,3})(.+)$", value)
-            if m:
-                out.append(_Token("MOVE_NUMBER", m.group(1)))
-                value = m.group(2)
             kind = "SAN"
         if value:
             out.append(_Token(kind, value))
@@ -336,13 +356,26 @@ def _parse_line(
             pos += 1
             continue
         if tok.kind == "MOVE_NUMBER":
+            if pending_number is not None:
+                warnings.append(f"orphan move number {pending_number}")
             pending_number = tok.value
+            pos += 1
+            continue
+        if tok.kind == "MOVE_NUMBER_PERIODS":
+            if (
+                pending_number is None
+                or not pending_number.isdigit()
+                or pending_comments
+            ):
+                warnings.append(f"orphan move-number periods {tok.value}")
+            else:
+                pending_number += tok.value
             pos += 1
             continue
         if tok.kind in {"NAG", "NAG_SYMBOL"}:
             if tok.kind == "NAG" and not _numeric_nag_is_in_range(tok.value):
                 warnings.append(f"numeric annotation glyph out of range {tok.value}")
-            if last is None:
+            if last is None or pending_number is not None:
                 warnings.append(f"orphan annotation {tok.value}")
             else:
                 last.nags.append(tok.value)
@@ -379,6 +412,8 @@ def _parse_line(
         warnings.append(f"unknown token {tok.kind}:{tok.value}")
         pos += 1
 
+    if pending_number is not None:
+        warnings.append(f"orphan move number {pending_number}")
     if pending_comments:
         if line.moves:
             line.trailing_comments.extend(pending_comments)
@@ -470,16 +505,17 @@ class CanonicalPgnGameFramer:
         self._frame_bytes = 0
 
     def _append_raw(self, line: str) -> None:
-        line_bytes = len(line.encode("utf-8")) + 1
-        if (
-            self._max_frame_bytes is not None
-            and self._frame_bytes + line_bytes > self._max_frame_bytes
-        ):
-            raise PgnGameFrameSizeError(
-                "PGN game exceeds the configured frame safety limit"
-            )
+        # Whole-text callers already hold a bounded decoded string and do not
+        # need a second transient UTF-8 copy merely to maintain an unused byte
+        # counter. Only streaming/frame-bounded callers pay the byte-count cost.
+        if self._max_frame_bytes is not None:
+            line_bytes = len(line.encode("utf-8")) + 1
+            if self._frame_bytes + line_bytes > self._max_frame_bytes:
+                raise PgnGameFrameSizeError(
+                    "PGN game exceeds the configured frame safety limit"
+                )
+            self._frame_bytes += line_bytes
         self._raw_lines.append(line)
-        self._frame_bytes += line_bytes
 
     def _flush(self) -> PgnGameFrame | None:
         if not self._tags and not any(line.strip() for line in self._moves):
@@ -627,6 +663,9 @@ def _validate_san(san: object) -> None:
         or any(character in "{};()$" for character in san)
         or san in RESULTS
         or MOVE_NUMBER_TOKEN_RE.fullmatch(san)
+        or MOVE_NUMBER_ATTACHED_RE.fullmatch(san)
+        or MOVE_NUMBER_PERIODS_RE.fullmatch(san)
+        or MOVE_NUMBER_PERIODS_ATTACHED_RE.fullmatch(san)
         or NAG_RE.fullmatch(san)
         or san in NAG_SYMBOLS
     ):
@@ -732,7 +771,7 @@ def _validate_line_for_serialization(
             or not MOVE_NUMBER_TOKEN_RE.fullmatch(node.move_number)
         ):
             raise GameTreeSerializationError(
-                "move_number must be a canonical PGN move-number token",
+                "move_number must be a representable PGN import move-number token",
                 code=GameTreeErrorCode.INVALID_MOVE,
             )
         _validate_nags(node.nags)

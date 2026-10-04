@@ -9,6 +9,7 @@ from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportControlError,
     LibraryImportProgress,
+    LibraryImportResult,
     LibraryImportService,
     LibraryImportStorageError,
 )
@@ -141,6 +142,118 @@ class D07LibraryImportServiceTests(unittest.TestCase):
         self.assertEqual(attempt["game_count"], 3)
         self.assertEqual(attempt["warning_count"], 1)
         self.assertIsNone(attempt["error_message"])
+
+    def test_mutable_input_sequence_is_snapshotted_before_cancel_callback(self) -> None:
+        caller_games = [game(0), game(1)]
+        mutated = False
+
+        def cancel() -> bool:
+            nonlocal mutated
+            if not mutated:
+                caller_games[:] = [game(90), game(91)]
+                mutated = True
+            return False
+
+        result = self.service.import_games(
+            caller_games,
+            source_name="snapshot-cancel.pgn",
+            source_format="pgn",
+            source_sha256=DIGEST,
+            cancel_check=cancel,
+        )
+
+        self.assertEqual(result.game_count, 2)
+        self.assertEqual([item.source_index for item in caller_games], [90, 91])
+        rows = self.db.conn.execute("SELECT source_index FROM games ORDER BY id").fetchall()
+        self.assertEqual([int(row["source_index"]) for row in rows], [0, 1])
+
+    def test_mutable_input_sequence_is_snapshotted_before_progress_callback(self) -> None:
+        caller_games = [game(0), game(1), game(2)]
+
+        def progress(item: LibraryImportProgress) -> None:
+            if item.processed_games == 0:
+                caller_games[:] = [game(70), game(71), game(72)]
+
+        result = self.service.import_games(
+            caller_games,
+            source_name="snapshot-progress.pgn",
+            source_format="pgn",
+            source_sha256=DIGEST,
+            progress_callback=progress,
+        )
+
+        self.assertEqual(result.game_count, 3)
+        self.assertEqual([item.source_index for item in caller_games], [70, 71, 72])
+        rows = self.db.conn.execute("SELECT source_index FROM games ORDER BY id").fetchall()
+        self.assertEqual([int(row["source_index"]) for row in rows], [0, 1, 2])
+
+    def test_progress_callback_cannot_mutate_validated_game_warnings(self) -> None:
+        parsed_game = game(0)
+
+        def progress(item: LibraryImportProgress) -> None:
+            if item.processed_games == 0:
+                parsed_game.warnings.append("late callback warning")
+
+        with self.assertRaisesRegex(
+            LibraryImportControlError,
+            "Library import game changed after validation",
+        ):
+            self.service.import_games(
+                [parsed_game],
+                source_name="mutated-warning.pgn",
+                source_format="pgn",
+                source_sha256=DIGEST,
+                progress_callback=progress,
+            )
+
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0], 0)
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 0)
+        attempt = self.db.list_import_attempts()[0]
+        self.assertEqual(attempt["status"], "failed")
+        self.assertEqual(attempt["game_count"], 0)
+        self.assertEqual(attempt["warning_count"], 0)
+        self.assertEqual(
+            attempt["error_message"],
+            "Library import game changed after validation",
+        )
+
+    def test_reuse_fails_closed_if_callback_mutates_validated_canonical_game(self) -> None:
+        original = self.service.import_games(
+            (game(0),),
+            source_name="original.pgn",
+            source_format="pgn",
+            source_sha256=DIGEST,
+        )
+        retry_game = game(0)
+
+        def progress(item: LibraryImportProgress) -> None:
+            if item.processed_games == 0:
+                retry_game.tags["Event"] = "Retargeted after validation"
+
+        with self.assertRaisesRegex(
+            LibraryImportControlError,
+            "Library import game changed after validation",
+        ):
+            self.service.import_games(
+                [retry_game],
+                source_name="retry.pgn",
+                source_format="pgn",
+                source_sha256=DIGEST,
+                progress_callback=progress,
+            )
+
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0], 1)
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0], 1)
+        stored = self.db.get_game(original.first_game_id)
+        self.assertEqual(stored["event"], "Library 0")
+        attempts = self.db.list_import_attempts()
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0]["status"], "failed")
+        self.assertIsNone(attempts[0]["source_id"])
+        self.assertEqual(
+            attempts[0]["error_message"],
+            "Library import game changed after validation",
+        )
 
     def test_progress_callback_failure_is_sanitized_and_atomic(self) -> None:
         def progress(item: LibraryImportProgress) -> None:
@@ -299,6 +412,59 @@ class D07LibraryImportServiceTests(unittest.TestCase):
             if os.path.exists(path):
                 os.unlink(path)
 
+    def test_result_dto_rejects_coercion_and_impossible_identities(self) -> None:
+        canonical = LibraryImportResult(
+            attempt_id=1,
+            source_id=2,
+            game_count=3,
+            warning_count=0,
+            first_game_id=10,
+            last_game_id=12,
+            reused=False,
+        )
+        self.assertEqual(canonical.game_count, 3)
+        self.assertFalse(canonical.reused)
+
+        coercive = (
+            {"attempt_id": True},
+            {"source_id": 2.0},
+            {"game_count": "3"},
+            {"warning_count": False},
+            {"first_game_id": 10.0},
+            {"last_game_id": "12"},
+            {"reused": 1},
+        )
+        defaults = {
+            "attempt_id": 1,
+            "source_id": 2,
+            "game_count": 3,
+            "warning_count": 0,
+            "first_game_id": 10,
+            "last_game_id": 12,
+            "reused": False,
+        }
+        for override in coercive:
+            with self.subTest(override=override):
+                with self.assertRaises(TypeError):
+                    LibraryImportResult(**(defaults | override))
+
+        invalid = (
+            {"attempt_id": 0},
+            {"source_id": -1},
+            {"game_count": 0},
+            {"warning_count": -1},
+            {"first_game_id": 0},
+            {"last_game_id": 0},
+            {"first_game_id": 13, "last_game_id": 12},
+            {"game_count": 3, "first_game_id": 10, "last_game_id": 11},
+            {"attempt_id": 2**63},
+            {"warning_count": 2**63},
+        )
+        for override in invalid:
+            with self.subTest(override=override):
+                with self.assertRaises(ValueError):
+                    LibraryImportResult(**(defaults | override))
+
     def test_progress_dto_rejects_coercion_and_impossible_counts(self) -> None:
         for args, error_type in (
             ((True, 0, 1), TypeError),
@@ -308,6 +474,9 @@ class D07LibraryImportServiceTests(unittest.TestCase):
             ((1, -1, 1), ValueError),
             ((1, 2, 1), ValueError),
             ((1, 0, 0), ValueError),
+            ((2**63, 0, 1), ValueError),
+            ((1, 2**63, 2**63), ValueError),
+            ((1, 0, 2**63), ValueError),
         ):
             with self.subTest(args=args):
                 with self.assertRaises(error_type):
