@@ -34,22 +34,40 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
-    def test_epub_parser_successor_is_exact_pair_and_application_oracle_stays_locked(self) -> None:
+    def test_epub_parser_successor_is_exact_hardening_set_and_application_oracle_stays_locked(self) -> None:
         self.assertIn("parser_path='acs/book_epub_import.py'", self.workflow)
         self.assertIn("parser_test_path='tests/test_v2_book_epub_import.py'", self.workflow)
-        self.assertIn("successor_parser='f86d1c0881b82520b7bec0a82fe88fc0903be00a'", self.workflow)
-        self.assertIn("successor_parser_test='dce2f3042a254e2b6130ebbb2762c87acb9358bb'", self.workflow)
         self.assertIn(
-            'test "$candidate_parser" = "$successor_parser"',
+            "package_contract_test_path='tests/test_v2_book_epub_package_contract.py'",
             self.workflow,
         )
         self.assertIn(
-            'test "$candidate_parser_test" = "$successor_parser_test"',
+            "package_identity_successor_parser='13d304826900d5ab25586fa7a0de0ee73c25a4b2'",
             self.workflow,
         )
-        self.assertIn("EPUB_XML_DECLARATION_SUCCESSOR=EXACT", self.workflow)
         self.assertIn(
-            "EPUB parser/test drift requires an exact reviewed successor pair",
+            "package_identity_successor_parser_test='de189065192ca1c0bd30ce1ecec559e8f61cc1bc'",
+            self.workflow,
+        )
+        self.assertIn(
+            "package_identity_successor_contract_test='c0904af9b42e5cd50cf2a240145fd3cd0bfde9d2'",
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_parser" = "$package_identity_successor_parser"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_parser_test" = "$package_identity_successor_parser_test"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_package_contract_test" = "$package_identity_successor_contract_test"',
+            self.workflow,
+        )
+        self.assertIn("EPUB_PACKAGE_IDENTITY_SUCCESSOR=EXACT", self.workflow)
+        self.assertIn(
+            "EPUB parser/test drift requires an exact reviewed hardening set",
             self.workflow,
         )
 
@@ -63,6 +81,7 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("'acs/book_epub_import.py'", protected_block)
         self.assertNotIn("'tests/test_v2_book_epub_import.py'", protected_block)
+        self.assertNotIn("'tests/test_v2_book_epub_package_contract.py'", protected_block)
         self.assertIn(
             'product_blob="$(git rev-parse "$product:$path")"',
             self.workflow,
@@ -88,19 +107,28 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
         for suite in (
             "tests.test_version2_epub_application_reachability",
             "tests.test_v2_book_epub_import",
+            "tests.test_v2_book_epub_package_contract",
             "tests.test_v2_native_dialog_language",
             "tests.test_version2_application",
         ):
             with self.subTest(suite=suite):
                 self.assertIn(suite, self.workflow)
 
-    def test_contract_test_is_part_of_trigger_compile_and_focused_gate(self) -> None:
+    def test_contract_tests_are_part_of_trigger_compile_and_focused_gate(self) -> None:
         self.assertGreaterEqual(
             self.workflow.count("tests/test_epub_application_reachability_workflow.py"),
             2,
         )
+        self.assertGreaterEqual(
+            self.workflow.count("tests/test_v2_book_epub_package_contract.py"),
+            3,
+        )
         self.assertIn(
             "tests.test_epub_application_reachability_workflow",
+            self.workflow,
+        )
+        self.assertIn(
+            "tests.test_v2_book_epub_package_contract",
             self.workflow,
         )
 

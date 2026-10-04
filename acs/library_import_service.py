@@ -13,6 +13,7 @@ repeated-source idempotency.
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+import hashlib
 import json
 import re
 import sqlite3
@@ -24,6 +25,7 @@ from .gametree import PgnGame, serialize_game
 _SQLITE_INTEGER_MAX = (1 << 63) - 1
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _BUSY_RETRY_SLICE_MS = 50
+_GameAuthorityFingerprint = tuple[int, bytes, bytes]
 
 
 class LibraryImportCancelledError(RuntimeError):
@@ -67,6 +69,13 @@ class LibraryImportProgress:
         ):
             if type(value) is not int:
                 raise TypeError(f"{name} must be an integer")
+        for name, value in (
+            ("attempt_id", self.attempt_id),
+            ("processed_games", self.processed_games),
+            ("total_games", self.total_games),
+        ):
+            if value > _SQLITE_INTEGER_MAX:
+                raise ValueError(f"{name} exceeds SQLite integer range")
         if self.attempt_id < 1:
             raise ValueError("attempt_id must be positive")
         if self.total_games < 1:
@@ -93,6 +102,40 @@ class LibraryImportResult:
     first_game_id: int
     last_game_id: int
     reused: bool = False
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("attempt_id", self.attempt_id),
+            ("source_id", self.source_id),
+            ("game_count", self.game_count),
+            ("warning_count", self.warning_count),
+            ("first_game_id", self.first_game_id),
+            ("last_game_id", self.last_game_id),
+        ):
+            if type(value) is not int:
+                raise TypeError(f"{name} must be an integer")
+            if value > _SQLITE_INTEGER_MAX:
+                raise ValueError(f"{name} exceeds SQLite integer range")
+
+        for name, value in (
+            ("attempt_id", self.attempt_id),
+            ("source_id", self.source_id),
+            ("first_game_id", self.first_game_id),
+            ("last_game_id", self.last_game_id),
+        ):
+            if value < 1:
+                raise ValueError(f"{name} must be positive")
+
+        if self.game_count < 1:
+            raise ValueError("game_count must be positive")
+        if self.warning_count < 0:
+            raise ValueError("warning_count must be non-negative")
+        if self.first_game_id > self.last_game_id:
+            raise ValueError("first_game_id must not exceed last_game_id")
+        if self.game_count > self.last_game_id - self.first_game_id + 1:
+            raise ValueError("game_count exceeds inclusive game id span")
+        if type(self.reused) is not bool:
+            raise TypeError("reused must be a boolean")
 
 
 CancelCheck = Callable[[], bool]
@@ -203,25 +246,71 @@ def _source_metadata(
     return source_name, normalized_format, source_sha256.lower()
 
 
-def _validate_games(games: object) -> tuple[Sequence[PgnGame], int]:
+def _validated_game_source_index(game: PgnGame) -> int:
+    source_index = game.source_index
+    if type(source_index) is not int:
+        raise TypeError("game source_index must be an integer")
+    if source_index < 0:
+        raise ValueError("game source_index must be non-negative")
+    if source_index > _SQLITE_INTEGER_MAX:
+        raise ValueError("game source_index exceeds SQLite integer range")
+    return source_index
+
+
+def _game_authority_payload(
+    game: PgnGame,
+) -> tuple[_GameAuthorityFingerprint, str, str]:
+    """Return compact mutation evidence plus current canonical publication text."""
+
+    source_index = _validated_game_source_index(game)
+    warnings_json = json.dumps(game.warnings, ensure_ascii=False)
+    pgn_text = serialize_game(game)
+    fingerprint = (
+        source_index,
+        hashlib.sha256(warnings_json.encode("utf-8")).digest(),
+        hashlib.sha256(pgn_text.encode("utf-8")).digest(),
+    )
+    return fingerprint, warnings_json, pgn_text
+
+
+def _assert_game_authority_unchanged(
+    game: PgnGame,
+    expected: _GameAuthorityFingerprint,
+) -> tuple[str, str]:
+    """Fail closed if observer code mutated a validated canonical game."""
+
+    try:
+        current, warnings_json, pgn_text = _game_authority_payload(game)
+    except Exception as exc:
+        raise LibraryImportControlError("Library import game changed after validation") from exc
+    if current != expected:
+        raise LibraryImportControlError("Library import game changed after validation")
+    return warnings_json, pgn_text
+
+
+def _validate_games(
+    games: object,
+) -> tuple[tuple[PgnGame, ...], int, tuple[_GameAuthorityFingerprint, ...]]:
     if isinstance(games, (str, bytes, bytearray)) or not isinstance(games, Sequence):
         raise TypeError("games must be a sequence of PgnGame objects")
-    total = len(games)
+    # Callbacks run after this boundary and may retain the caller's mutable list.
+    # Validate and publish from one stable container snapshot so replacing,
+    # reordering or removing later list entries cannot change which games are
+    # committed under the already-supplied immutable source digest.
+    parsed_games = tuple(games)
+    total = len(parsed_games)
     if total < 1:
         raise ValueError("games must contain at least one parsed game")
     if total > _SQLITE_INTEGER_MAX:
         raise ValueError("game count exceeds SQLite integer range")
-    for game in games:
+    fingerprints: list[_GameAuthorityFingerprint] = []
+    for game in parsed_games:
         if not isinstance(game, PgnGame):
             raise TypeError("games must contain only PgnGame objects")
-        source_index = game.source_index
-        if type(source_index) is not int:
-            raise TypeError("game source_index must be an integer")
-        if source_index < 0:
-            raise ValueError("game source_index must be non-negative")
-        if source_index > _SQLITE_INTEGER_MAX:
-            raise ValueError("game source_index exceeds SQLite integer range")
-    return games, total
+        _validated_game_source_index(game)
+        fingerprint, _, _ = _game_authority_payload(game)
+        fingerprints.append(fingerprint)
+    return parsed_games, total, tuple(fingerprints)
 
 
 def _validate_source_warning_count(value: object) -> int:
@@ -385,16 +474,16 @@ class LibraryImportService:
         self,
         source_id: int,
         games: Sequence[PgnGame],
+        fingerprints: Sequence[_GameAuthorityFingerprint],
     ) -> tuple[int, int]:
-        """Prove stored canonical content equals the current decoded batch.
+        """Prove stored canonical content equals the validated decoded batch.
 
         Comparison streams stored rows in durable publication order, matching the
-        caller sequence that the first atomic publication inserted. This keeps
-        exact retries deterministic even when valid ``source_index`` values are
-        non-monotonic, without sorting/copying the potentially large input batch.
-        The existing canonical GameTree serializer remains the sole content oracle.
-        Any canonical drift for the same immutable source identity fails closed
-        rather than silently reusing or overwriting old Library truth.
+        stable caller snapshot that the first atomic publication inserted. The
+        existing canonical GameTree serializer remains the sole content oracle.
+        Observer mutation after validation fails closed before reuse can publish.
+        Persisted comparison scalars are also exact-typed here: malformed SQLite
+        storage must not be coerced back into an apparently canonical game.
         """
 
         cursor = self._db.conn.execute(
@@ -404,25 +493,38 @@ class LibraryImportService:
         )
         first_game_id: int | None = None
         last_game_id: int | None = None
-        for game in games:
+        for game, fingerprint in zip(games, fingerprints, strict=True):
             row = cursor.fetchone()
             if row is None:
                 raise LibraryImportConflictError(
                     "Library source canonical content differs from existing import"
                 )
+            expected_warnings, expected_pgn = _assert_game_authority_unchanged(
+                game,
+                fingerprint,
+            )
             expected_status = "warning" if game.warnings else "full"
-            expected_warnings = json.dumps(game.warnings, ensure_ascii=False)
-            expected_pgn = serialize_game(game)
+            game_id = row["id"]
+            stored_source_index = row["source_index"]
+            stored_status = row["import_status"]
+            stored_warnings = row["warnings_json"]
+            stored_pgn = row["pgn_text"]
             if (
-                int(row["source_index"]) != game.source_index
-                or str(row["import_status"]) != expected_status
-                or str(row["warnings_json"]) != expected_warnings
-                or str(row["pgn_text"]) != expected_pgn
+                type(game_id) is not int
+                or not 1 <= game_id <= _SQLITE_INTEGER_MAX
+                or type(stored_source_index) is not int
+                or not 0 <= stored_source_index <= _SQLITE_INTEGER_MAX
+                or type(stored_status) is not str
+                or type(stored_warnings) is not str
+                or type(stored_pgn) is not str
+                or stored_source_index != game.source_index
+                or stored_status != expected_status
+                or stored_warnings != expected_warnings
+                or stored_pgn != expected_pgn
             ):
                 raise LibraryImportConflictError(
                     "Library source canonical content differs from existing import"
                 )
-            game_id = int(row["id"])
             if first_game_id is None:
                 first_game_id = game_id
             last_game_id = game_id
@@ -458,7 +560,9 @@ class LibraryImportService:
         event. A single existing identity is reusable only after every stored game
         matches source index, import status, warnings and canonical serialized PGN.
         Multiple legacy candidates or semantic drift fail closed; no historical row
-        is merged, deleted or overwritten automatically.
+        is merged, deleted or overwritten automatically. Mutable caller containers
+        are snapshotted once and observer mutation of validated game semantics fails
+        closed before those changed semantics can be reused or committed.
 
         Reuse emits only the truthful zero-staged progress event. Successful return
         with ``result.reused`` is the terminal signal; no fake 100% staging event is
@@ -471,7 +575,7 @@ class LibraryImportService:
             source_sha256=source_sha256,
         )
         source_warning_count = _validate_source_warning_count(source_warning_count)
-        parsed_games, total_games = _validate_games(games)
+        parsed_games, total_games, game_fingerprints = _validate_games(games)
         _validate_callback(cancel_check, name="cancel_check")
         _validate_callback(progress_callback, name="progress_callback")
         game_warning_count = _game_warning_count(parsed_games)
@@ -507,8 +611,19 @@ class LibraryImportService:
                     first_game_id, last_game_id = self._verify_reusable_source(
                         existing_source_id,
                         parsed_games,
+                        game_fingerprints,
                     )
                     _poll_cancel(cancel_check, database=self._db)
+                    # The final cancellation observer runs after canonical-row
+                    # comparison. It may retain and mutate the caller's PgnGame
+                    # objects while returning False, so bind reuse success to the
+                    # same validated authority again at the commit boundary.
+                    for game, fingerprint in zip(
+                        parsed_games,
+                        game_fingerprints,
+                        strict=True,
+                    ):
+                        _assert_game_authority_unchanged(game, fingerprint)
                     self._db._finish_import_attempt(
                         attempt_id,
                         status="warning" if warning_count else "full",
@@ -534,12 +649,17 @@ class LibraryImportService:
                 )
                 first_game_id: int | None = None
                 last_game_id: int | None = None
-                for processed_games, game in enumerate(parsed_games, start=1):
+                for processed_games, (game, fingerprint) in enumerate(
+                    zip(parsed_games, game_fingerprints, strict=True),
+                    start=1,
+                ):
                     _poll_cancel(cancel_check, database=self._db)
+                    _, pgn_text = _assert_game_authority_unchanged(game, fingerprint)
                     status = "warning" if game.warnings else "full"
                     game_id = self._db._insert_game(
                         game,
                         source_id,
+                        raw_pgn=pgn_text,
                         import_status=status,
                     )
                     if first_game_id is None:

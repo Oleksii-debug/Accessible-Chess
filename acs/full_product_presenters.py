@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
-from .bookdocument import Diagram, Exercise, Game, Heading, Note, Paragraph, Position, VariationTree
+from .bookdocument import Diagram, Exercise, Game, Heading, ListBlock, Note, Paragraph, Position, VariationTree
 from .bookreader import BookReader, ReadingLocation
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .gametree import PgnGame, VariationLine
@@ -53,6 +53,10 @@ class PgnTreeItem:
     san: str | None = None
     comments: tuple[str, ...] = ()
     nags: tuple[str, ...] = ()
+    trailing_comments: tuple[str, ...] = ()
+    comments_before: tuple[str, ...] = ()
+    comments_after: tuple[str, ...] = ()
+    result: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +170,10 @@ class PgnTreePresenter:
                     label=variation_label,
                     parent_id=parent_id,
                     comments=tuple(comment.text for comment in line.leading_comments),
+                    trailing_comments=tuple(
+                        comment.text for comment in line.trailing_comments
+                    ),
+                    result=line.result,
                 )
             )
             parent_id = line_id
@@ -173,11 +181,19 @@ class PgnTreePresenter:
         for move_index, move in enumerate(line.moves):
             node_id = f"{line_id}/m{move_index}"
             number = f"{move.move_number} " if move.move_number else ""
-            comments = tuple(
+            comments_before = tuple(
                 comment.text
-                for comment in (*move.comments_before, *move.comments_after)
+                for comment in move.comments_before
                 if comment.text.strip()
             )
+            comments_after = tuple(
+                comment.text
+                for comment in move.comments_after
+                if comment.text.strip()
+            )
+            # Preserve the historical aggregate for PGN editing callers while
+            # exposing exact before/after slots to read-only semantic readers.
+            comments = comments_before + comments_after
             annotation = " ".join(move.nags)
             label = f"{number}{move.san}"
             if annotation:
@@ -192,6 +208,8 @@ class PgnTreePresenter:
                     san=move.san,
                     comments=comments,
                     nags=tuple(move.nags),
+                    comments_before=comments_before,
+                    comments_after=comments_after,
                 )
             )
             for variation_index, variation in enumerate(move.variations):
@@ -461,6 +479,9 @@ class BookBlockView:
     heading_path: tuple[str, ...]
     source_anchor: str
     warning: str = ""
+    list_items: tuple[str, ...] = ()
+    list_ordered: bool = False
+    list_start: int | None = None
 
 
 class BookReaderPresenter:
@@ -480,13 +501,25 @@ class BookReaderPresenter:
     def set_language(self, language: UILanguage) -> None:
         self._language = language
 
+    @property
+    def cursor_index(self) -> int:
+        """Expose the transient canonical cursor for presentation transactions."""
+        return self._reader.index
+
+    def restore_cursor(self, index: int) -> None:
+        """Restore a presentation transaction through BookReader's canonical API."""
+        self._reader.go_to(index)
+
     def _block_view(self, location: ReadingLocation) -> BookBlockView:
-        block = self._reader.document.blocks[location.index]
+        block = self._reader.block_snapshot(location.index)
         role = "group"
         title = ""
         text = ""
         heading_level: int | None = None
         warning = ""
+        list_items: tuple[str, ...] = ()
+        list_ordered = False
+        list_start: int | None = None
         if isinstance(block, Heading):
             role = "heading"
             title = block.text
@@ -495,6 +528,11 @@ class BookReaderPresenter:
         elif isinstance(block, Paragraph):
             role = "paragraph"
             text = block.text
+        elif isinstance(block, ListBlock):
+            role = "list"
+            list_items = tuple(block.items)
+            list_ordered = block.ordered
+            list_start = block.start
         elif isinstance(block, Diagram):
             role = "img"
             title = block.caption or _localized(self._language, "Діаграма", "Diagram")
@@ -514,7 +552,10 @@ class BookReaderPresenter:
             title = block.title or _localized(self._language, "Партія", "Game")
             text = title
         elif isinstance(block, VariationTree):
-            role = "tree"
+            # Until the structured semantic GameTree projection is converged into
+            # this lineage, expose the flat summary as a read-only group rather
+            # than claiming an interactive ARIA tree contract.
+            role = "group"
             title = block.title or _localized(self._language, "Дерево варіантів", "Variation tree")
             text = title
         elif isinstance(block, Exercise):
@@ -536,6 +577,9 @@ class BookReaderPresenter:
             heading_path=location.heading_path,
             source_anchor=_safe_source_label(location.source_anchor),
             warning=warning,
+            list_items=list_items,
+            list_ordered=list_ordered,
+            list_start=list_start,
         )
 
     def current(self) -> BookBlockView:
@@ -556,8 +600,17 @@ class BookReaderPresenter:
     def next_position(self) -> BookBlockView:
         return self._block_view(self._reader.next_position())
 
+    def previous_position(self) -> BookBlockView:
+        return self._block_view(self._reader.previous_position())
+
     def next_game(self) -> BookBlockView:
         return self._block_view(self._reader.next_game())
+
+    def previous_game(self) -> BookBlockView:
+        return self._block_view(self._reader.previous_game())
+
+    def navigation_availability(self) -> dict[str, bool]:
+        return self._reader.navigation_availability()
 
     def bookmark(self, name: str = "default") -> BookBlockView:
         return self._block_view(self._reader.save_return_point(name))
@@ -577,6 +630,13 @@ class BookReaderPresenter:
                 "book_index": current.index,
             },
         )
+
+    def open_current_game(self, dispatch: CommandDispatch) -> Any:
+        current = self.current()
+        if current.kind != "Game":
+            raise LookupError("Current book block is not a game")
+        self._reader.save_return_point(self._BOARD_RETURN_POINT)
+        return dispatch("book.open_game", {})
 
     def return_from_board(self) -> BookBlockView:
         return self.restore_bookmark(self._BOARD_RETURN_POINT)
@@ -598,29 +658,110 @@ class TrainingView:
 class TrainingPresenter:
     """Explicit-action feedback over the canonical :class:`ExerciseSession`."""
 
+    _PRESENTATION_MESSAGES = {
+        "completed": ("Вправу завершено.", "Exercise completed."),
+        "accepted": ("Правильно. Наступний крок.", "Correct. Next step."),
+        "retry": ("Спробуйте ще раз.", "Try again."),
+        "no_hint": (
+            "Підказки для цього кроку немає.",
+            "No hint is available for this step.",
+        ),
+        "revealed": ("Розв’язок показано.", "Solution revealed."),
+    }
+
     def __init__(
         self,
         session: ExerciseSession,
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
+        message_key: str | None = None,
     ) -> None:
+        if not isinstance(session, ExerciseSession):
+            raise TypeError("training presenter session must be ExerciseSession")
+        if not isinstance(language, UILanguage):
+            raise TypeError("training presenter language must be UILanguage")
+        self._validate_message(message)
+        self._validate_message_key(message_key)
         self._session = session
         self._language = language
         self._message = ""
+        self._message_key: str | None = None
+        self._restore_message(message=message, message_key=message_key)
 
     @property
     def session(self) -> ExerciseSession:
         return self._session
 
+    @property
+    def message(self) -> str:
+        return self._message
+
+    @property
+    def message_key(self) -> str | None:
+        return self._message_key
+
+    @staticmethod
+    def _validate_message(message: object) -> None:
+        if type(message) is not str:
+            raise TypeError("training presenter message must be text")
+        if len(message) > 4096:
+            raise ValueError("training presenter message is too long")
+
+    @classmethod
+    def _validate_message_key(cls, message_key: object) -> None:
+        if message_key is None:
+            return
+        if type(message_key) is not str:
+            raise TypeError("training presenter message key must be text or None")
+        if message_key not in cls._PRESENTATION_MESSAGES:
+            raise ValueError("training presenter message key is invalid")
+
+    def _set_presentation_message(self, key: str) -> None:
+        self._validate_message_key(key)
+        uk, en = self._PRESENTATION_MESSAGES[key]
+        self._message_key = key
+        self._message = _localized(self._language, uk, en)
+
+    def _set_authored_message(self, message: str) -> None:
+        self._validate_message(message)
+        self._message_key = None
+        self._message = message
+
+    def _restore_message(self, *, message: str, message_key: str | None) -> None:
+        self._validate_message(message)
+        self._validate_message_key(message_key)
+        if message_key is None:
+            self._set_authored_message(message)
+        else:
+            self._set_presentation_message(message_key)
+
+    def restore_state(
+        self,
+        snapshot: Mapping[str, object],
+        *,
+        message: str,
+        message_key: str | None = None,
+    ) -> None:
+        self._validate_message(message)
+        self._validate_message_key(message_key)
+        self._session.restore_state(snapshot)
+        self._restore_message(message=message, message_key=message_key)
+
     def set_language(self, language: UILanguage) -> None:
+        if not isinstance(language, UILanguage):
+            raise TypeError("training presenter language must be UILanguage")
         self._language = language
+        if self._message_key is not None:
+            self._set_presentation_message(self._message_key)
 
     def view(self) -> TrainingView:
-        total = len(self._session.definition.steps)
+        definition = self._session.canonical_definition
+        total = len(definition.steps)
         visible_step = min(self._session.step_index + 1, total)
         return TrainingView(
             status=self._session.status,
-            title=self._session.definition.title,
+            title=definition.title,
             step_number=visible_step,
             total_steps=total,
             attempts=self._session.attempts,
@@ -633,56 +774,39 @@ class TrainingPresenter:
     def submit(self, answer: str) -> tuple[ExerciseResult, TrainingView]:
         result = self._session.submit(answer)
         if result.completed:
-            self._message = _localized(
-                self._language,
-                "Вправу завершено.",
-                "Exercise completed.",
-            )
+            self._set_presentation_message("completed")
         elif result.accepted:
-            self._message = result.explanation or _localized(
-                self._language,
-                "Правильно. Наступний крок.",
-                "Correct. Next step.",
-            )
+            if result.explanation:
+                self._set_authored_message(result.explanation)
+            else:
+                self._set_presentation_message("accepted")
         else:
-            self._message = _localized(
-                self._language,
-                "Спробуйте ще раз.",
-                "Try again.",
-            )
+            self._set_presentation_message("retry")
         return result, self.view()
 
     def request_hint(self) -> tuple[HintResult, TrainingView]:
         hint = self._session.request_hint()
         if hint.available:
-            self._message = hint.hint or ""
+            self._set_authored_message(hint.hint or "")
         else:
-            self._message = _localized(
-                self._language,
-                "Підказки для цього кроку немає.",
-                "No hint is available for this step.",
-            )
+            self._set_presentation_message("no_hint")
         return hint, self.view()
 
     def reveal_solution(self) -> tuple[str, ...]:
         step = self._session.current_step()
         if step is None:
             return ()
-        self._message = _localized(
-            self._language,
-            "Розв’язок показано.",
-            "Solution revealed.",
-        )
+        self._set_presentation_message("revealed")
         return tuple(sorted(step.accepted_moves))
 
     def retry(self) -> TrainingView:
         """Clear transient UI feedback without changing canonical progress."""
-        self._message = ""
+        self._set_authored_message("")
         return self.view()
 
     def reset(self) -> TrainingView:
         self._session.reset()
-        self._message = ""
+        self._set_authored_message("")
         return self.view()
 
     def snapshot(self) -> dict[str, object]:
@@ -695,5 +819,12 @@ class TrainingPresenter:
         snapshot: Mapping[str, object],
         *,
         language: UILanguage = UILanguage.UA,
+        message: str = "",
+        message_key: str | None = None,
     ) -> "TrainingPresenter":
-        return cls(ExerciseSession.restore(definition, snapshot), language=language)
+        return cls(
+            ExerciseSession.restore(definition, snapshot),
+            language=language,
+            message=message,
+            message_key=message_key,
+        )

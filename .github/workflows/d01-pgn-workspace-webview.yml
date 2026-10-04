@@ -150,10 +150,32 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          acs/full_product_presenters.py=a752bb6b837d0332ad69047912dffeb537c7bd3f
-          acs/full_product_actions.py=b6be4376cbe0695136210c3b5b850cdf562f85a4
           run_accessible_chess.py=fb8914d7e63f5c5fa7dfa1669798d571bcf8d1fb
           LOCKS
+
+          # Books reverse semantic navigation is an independently-reviewed
+          # successor of the shared presenter/action registry. Keep exact
+          # identities branch-independent so convergence descendants inherit
+          # qualified bytes without depending on a historical ref name.
+          presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
+          case "$presenter_actual" in
+            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|48a9f697120654bd029903b554b969eb768984b6)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/full_product_presenters.py actual=%s\n' "$presenter_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
+          case "$actions_actual" in
+            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c|8f331bbf722e5e859a153ebd1582ed0711bc490b)
+              ;;
+            *)
+              printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
+              exit 1
+              ;;
+          esac
 
           keybindings_actual="$(git rev-parse HEAD:acs/keybindings.py)"
           native_menu_actual="$(git rev-parse HEAD:acs/ui_native_menu.py)"
@@ -212,7 +234,7 @@ jobs:
           # during current-runtime convergence; any third identity fails closed.
           shell_actual="$(git rev-parse HEAD:acs/full_product_ui_shell.py)"
           case "$shell_actual" in
-            4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040)
+            4745468f0939bdf02a4df215eda36f3de4010280|ffb173c4c07e56b4d2204589dceac8e0e6ee8040|4607b6621146a6d4c75627c4dc753d62557f88e9)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_ui_shell.py actual=%s\n' "$shell_actual" >&2
@@ -232,20 +254,50 @@ jobs:
             }
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
-          acs/pgn_webview_bridge.py=c8f108c8dcc01c37503833abb5c626d89093145e
           acs/pgn_workspace_webview_adapter.py=4343fa698f7503cf257218868aa927b099ddf21b
-          tests/test_dev1_pgn_webview_projection.py=2b2c655c82f2427b046eb63d7925e4ceb9c303d4
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
           tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
-          tests/js/pgn_surface_dom_test.js=d2539b0674e68aa5ff1f040161be4f34943b5cf6
           LOCKS
+
+          # Browser-contract hardening is an intentional successor of the
+          # reviewed D01 bridge/projection/DOM suite. Accept only exact prior or
+          # reviewed successor identities; every third identity remains fail-closed.
+          bridge_actual="$(git rev-parse HEAD:acs/pgn_webview_bridge.py)"
+          case "$bridge_actual" in
+            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c)
+              ;;
+            *)
+              printf 'Feature blob mismatch: acs/pgn_webview_bridge.py actual=%s\n' "$bridge_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          projection_test_actual="$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)"
+          case "$projection_test_actual" in
+            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e)
+              ;;
+            *)
+              printf 'Feature blob mismatch: tests/test_dev1_pgn_webview_projection.py actual=%s\n' "$projection_test_actual" >&2
+              exit 1
+              ;;
+          esac
+
+          dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
+          case "$dom_test_actual" in
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b)
+              ;;
+            *)
+              printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
+              exit 1
+              ;;
+          esac
 
           # Presentation privacy is an intentional successor of the exact D01
           # projection. Accept only the prior projection or the reviewed privacy
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -264,7 +316,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2

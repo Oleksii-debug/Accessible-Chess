@@ -22,6 +22,11 @@ from .bookdocument import (
     Position,
     VariationTree,
 )
+from .search_policy import normalize_search_term, normalize_search_text, search_fold
+
+
+_MAX_BOOK_TARGET_KEY_CHARS = 4096
+_MAX_BOOK_SEARCH_QUERY_CHARS = 4096
 
 
 class BookEntryKind(str, Enum):
@@ -72,12 +77,29 @@ class BookIndex:
         # the validate-then-reread TOCTOU window without introducing a second
         # Book parser or chess-rules authority.
         snapshot = BookDocument.from_dict(document.as_dict())
-        self.document = document
+        self._document_snapshot = snapshot
         self._entries = tuple(self._build_entries(snapshot))
+        # A ListBlock has one stable navigation target and a concise first-item
+        # label. Search-only projections cover its remaining visible items from
+        # the SAME detached snapshot, preserving item boundaries and avoiding
+        # duplicate navigation results.
+        self._additional_list_search_texts = {
+            index: tuple(
+                search_fold(normalize_search_text(item)) or ""
+                for item in block.items[1:]
+            )
+            for index, block in enumerate(snapshot.blocks)
+            if isinstance(block, ListBlock) and len(block.items) > 1
+        }
         by_key: dict[str, list[BookIndexEntry]] = {}
         for entry in self._entries:
             by_key.setdefault(entry.target.key, []).append(entry)
         self._by_key = {key: tuple(entries) for key, entries in by_key.items()}
+
+    @property
+    def document(self) -> BookDocument:
+        """Return a detached copy of the exact snapshot owned by this index."""
+        return BookDocument.from_dict(self._document_snapshot.as_dict())
 
     @property
     def entries(self) -> tuple[BookIndexEntry, ...]:
@@ -86,9 +108,19 @@ class BookIndex:
     @staticmethod
     def _target(index: int, block) -> BookTarget:
         if block.block_id:
-            key = f"block:{block.block_id}"
+            prefix = "block:"
+            if len(block.block_id) > _MAX_BOOK_TARGET_KEY_CHARS - len(prefix):
+                raise ValueError(
+                    f"Book target key exceeds {_MAX_BOOK_TARGET_KEY_CHARS} characters"
+                )
+            key = prefix + block.block_id
         elif block.source_anchor:
-            key = f"source:{block.source_anchor}"
+            prefix = "source:"
+            if len(block.source_anchor) > _MAX_BOOK_TARGET_KEY_CHARS - len(prefix):
+                raise ValueError(
+                    f"Book target key exceeds {_MAX_BOOK_TARGET_KEY_CHARS} characters"
+                )
+            key = prefix + block.source_anchor
         else:
             key = f"index:{index}"
         return BookTarget(key, index, block.block_id, block.source_anchor)
@@ -179,9 +211,21 @@ class BookIndex:
         source-preserving conversion. Index-only targets intentionally describe a
         snapshot and therefore resolve by their exact generated key.
         """
-        if not isinstance(target, (BookTarget, str)):
+        if isinstance(target, BookTarget):
+            key = target.key
+            if type(key) is not str:
+                raise TypeError("Book target key must be a string")
+        elif type(target) is str:
+            key = target
+        else:
             raise TypeError("Book target must be a BookTarget or string")
-        key = target.key if isinstance(target, BookTarget) else target
+        # Bound the raw scalar before dictionary lookup hashes caller-controlled
+        # text. This keeps malformed target resolution within a fixed resource
+        # envelope even when BookIndex is used directly outside BookReader.
+        if len(key) > _MAX_BOOK_TARGET_KEY_CHARS:
+            raise ValueError(
+                f"Book target key exceeds {_MAX_BOOK_TARGET_KEY_CHARS} characters"
+            )
         matches = self._by_key.get(key, ())
         if not matches:
             raise LookupError(f"Unknown book target: {key}")
@@ -190,7 +234,7 @@ class BookIndex:
         return matches[0]
 
     def find(self, text: str, *, kinds: set[BookEntryKind] | None = None) -> tuple[BookIndexEntry, ...]:
-        """Case-insensitive semantic label search preserving linear reading order."""
+        """Search semantic labels and every list item in linear reading order."""
         if type(text) is not str:
             raise TypeError("Search text must be a string")
         if kinds is not None:
@@ -198,11 +242,33 @@ class BookIndex:
                 isinstance(kind, BookEntryKind) for kind in kinds
             ):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
-        needle = text.strip().casefold()
-        if not needle:
+        # Preserve the current raw resource fence before any Unicode
+        # normalization/allocation, then delegate semantic query policy to the
+        # shared Library/Search authority (including its normalized 256-char
+        # user-term limit).
+        if len(text) > _MAX_BOOK_SEARCH_QUERY_CHARS:
+            raise ValueError(
+                f"Search text exceeds {_MAX_BOOK_SEARCH_QUERY_CHARS} characters"
+            )
+        normalized_needle = normalize_search_term(text, name="Book search text")
+        if normalized_needle is None:
             raise ValueError("Search text must not be empty")
+        needle = search_fold(normalized_needle)
+        assert needle is not None
         return tuple(
             entry
             for entry in self._entries
-            if (kinds is None or entry.kind in kinds) and needle in entry.label.casefold()
+            if (kinds is None or entry.kind in kinds)
+            and (
+                needle in (search_fold(normalize_search_text(entry.label)) or "")
+                or (
+                    entry.kind is BookEntryKind.LIST
+                    and any(
+                        needle in item
+                        for item in self._additional_list_search_texts.get(
+                            entry.target.index, ()
+                        )
+                    )
+                )
+            )
         )

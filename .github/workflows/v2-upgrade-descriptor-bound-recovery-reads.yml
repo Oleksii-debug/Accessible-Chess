@@ -1,0 +1,92 @@
+name: V2 Upgrade Descriptor Bound Recovery Reads
+
+on:
+  push:
+    branches:
+      - fix/v2-upgrade-descriptor-bound-recovery-reads-20261003
+  pull_request:
+    branches:
+      - fix/v2-upgrade-exact-file-removal-20261003
+    paths:
+      - 'acs/version2_upgrade_base.py'
+      - 'tests/test_v2_upgrade_publish_race_audit.py'
+      - '.github/workflows/v2-upgrade-descriptor-bound-recovery-reads.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-upgrade-descriptor-bound-recovery-reads-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact recovery parent and read scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='1c597b1ca103fbca744a7a264b8cb7b7f175bbd1'
+          git cat-file -e "$parent^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test '${{ github.event.pull_request.base.ref }}' = 'fix/v2-upgrade-exact-file-removal-20261003'
+            test '${{ github.event.pull_request.base.sha }}' = "$parent"
+          fi
+
+          git diff --check "$parent" HEAD
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/v2-upgrade-descriptor-bound-recovery-reads.yml'             'acs/version2_upgrade_base.py'             'tests/test_v2_upgrade_publish_race_audit.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/version2_upgrade_base.py)" = "53e95442790a72867db0466e7a8157f64c11b538"
+          test "$(git rev-parse HEAD:tests/test_v2_upgrade_publish_race_audit.py)" = "372277dec6a58b1890186f876145e53b9ad174ad"
+
+          echo 'V2_UPGRADE_DESCRIPTOR_BOUND_READ_SCOPE=PASS'
+
+      - name: Compile recovery read surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_upgrade_base.py
+          tests/test_v2_upgrade_publish_race_audit.py
+
+      - name: Recovery read and publication race regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_upgrade_publish_race_audit
+          tests.test_v2_upgrade_generated_artifact_authentication
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_v2_upgrade_root_writer_artifact_grammar
+
+      - name: Upgrade integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_data_upgrade
+          tests.test_v2_data_upgrade_v6
+
+      - name: Core selftest
+        run: python -m acs.selftest
