@@ -213,7 +213,7 @@ class BookIndex:
         source-preserving conversion. Index-only targets intentionally describe a
         snapshot and therefore resolve by their exact generated key.
         """
-        if isinstance(target, BookTarget):
+        if type(target) is BookTarget:
             key = target.key
             if type(key) is not str:
                 raise TypeError("Book target key must be a string")
