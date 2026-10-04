@@ -2336,6 +2336,49 @@ class BookEpubImportTests(unittest.TestCase):
                     import_epub_book(raw, source_name="invalid-container-links.epub")
                 self.assertEqual(raised.exception.code, expected_code)
 
+    def test_container_link_controls_cannot_be_repaired_by_url_parser(self) -> None:
+        rootfiles = (
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles>'
+        )
+        for entity in ("&#x9;", "&#xA;", "&#xD;"):
+            with self.subTest(entity=entity):
+                links = (
+                    f'<links><link href="OEBPS/chap{entity}ter.xhtml" '
+                    'rel="alternate"/></links>'
+                )
+                container = (
+                    '<container version="1.0" '
+                    'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    f"{rootfiles}{links}</container>"
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        raw,
+                        source_name="container-link-control-alias.epub",
+                    )
+
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
     def test_container_link_path_query_fragment_and_rel_tokens_are_preserved(self) -> None:
         container = b'''<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
