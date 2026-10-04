@@ -17,6 +17,7 @@ from types import MappingProxyType
 
 from .bookdocument import (
     BookDocument,
+    MAX_BOOK_DOCUMENT_BLOCKS,
     Diagram,
     Game,
     Heading,
@@ -32,7 +33,7 @@ from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 MAX_TEXT_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_TEXT_VISIBLE_CHARS = 12 * 1024 * 1024
-MAX_TEXT_BLOCKS = 50_000
+MAX_TEXT_BLOCKS = MAX_BOOK_DOCUMENT_BLOCKS
 MAX_TEXT_FENCE_CHARS = 1 * 1024 * 1024
 MAX_TEXT_WARNINGS = 2_048
 
