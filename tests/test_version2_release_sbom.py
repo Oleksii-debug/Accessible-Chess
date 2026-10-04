@@ -58,6 +58,14 @@ class Version2ReleaseSbomTests(unittest.TestCase):
                 "Redistribution is permitted under version 3 or any later version.\n",
                 encoding="utf-8",
             )
+            provenance_path = notices / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            for entry in provenance["events"].values():
+                entry["license_id"] = "USER_PROVIDED"
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
             _write_package_checksums(package)
 
             output = root / SBOM_NAME
@@ -79,6 +87,19 @@ class Version2ReleaseSbomTests(unittest.TestCase):
             self.assertEqual(summary["package_files"], summary["sbom_files"])
             self.assertEqual(summary["sbom_files"], len(document["files"]))
             self.assertIs(summary["nvda_verified"], False)
+            sound_rows = [
+                row
+                for row in document["files"]
+                if row["fileName"].startswith("./AccessibleChess/assets/sounds/")
+                and row["fileName"].casefold().endswith(".wav")
+            ]
+            self.assertTrue(sound_rows)
+            self.assertTrue(
+                all(row["licenseConcluded"] == "NOASSERTION" for row in sound_rows)
+            )
+            self.assertTrue(
+                all(row["licenseInfoInFiles"] == ["NOASSERTION"] for row in sound_rows)
+            )
 
     def test_cli_revalidates_package_after_preflight_before_accepting_sbom(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -235,6 +256,32 @@ class Version2ReleaseSbomTests(unittest.TestCase):
             self.assertEqual(stockfish["versionInfo"], "18")
             self.assertNotIn("packageVerificationCode", stockfish)
             self.assertIn("Stockfish-COPYING.txt", stockfish["comment"])
+
+    def test_user_provided_sound_provenance_maps_to_spdx_noassertion(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            provenance_path = package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"]["move"]["license_id"] = "USER_PROVIDED"
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            document = build_version2_release_sbom(
+                package,
+                integration_sha=_SHA,
+                inventory=self._inventory(package),
+            )
+            sound = next(
+                row
+                for row in document["files"]
+                if row["fileName"] == "./AccessibleChess/assets/sounds/move.wav"
+            )
+            self.assertEqual(sound["licenseConcluded"], "NOASSERTION")
+            self.assertEqual(sound["licenseInfoInFiles"], ["NOASSERTION"])
+            self.assertNotEqual(sound["licenseConcluded"], "USER_PROVIDED")
 
     def test_every_packaged_sound_requires_authoritative_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as td:
