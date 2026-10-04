@@ -71,7 +71,7 @@ class PositionSnapshot:
     context: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if type(self.fen) is not str or not self.fen.strip():
             raise HistoryError(
                 "snapshot FEN must be non-empty text",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
@@ -80,13 +80,15 @@ class PositionSnapshot:
         for field_name in ("san", "last_move"):
             value = getattr(self, field_name)
             if value is not None and (
-                not isinstance(value, str) or not value.strip()
+                type(value) is not str or not value.strip()
             ):
                 raise HistoryError(
                     f"snapshot {field_name} must be non-empty text or None",
                     code=HistoryErrorCode.INVALID_SNAPSHOT,
                 )
-        if self.side not in (None, "w", "b"):
+        if self.side is not None and (
+            type(self.side) is not str or self.side not in ("w", "b")
+        ):
             raise HistoryError(
                 "snapshot side must be 'w', 'b', or None",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
