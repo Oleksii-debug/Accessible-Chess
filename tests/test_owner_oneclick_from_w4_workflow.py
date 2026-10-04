@@ -61,7 +61,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
             "id: w4_run_provenance",
             "${{ github.api_url }}",
             "/actions/runs/$env:W4_RUN_ID",
-            "scripts/verify_owner_w4_run_provenance.py",
+            "scripts.verify_owner_w4_run_provenance",
             "--run-id $env:W4_RUN_ID",
             "--repository '${{ github.repository }}'",
             "--default-branch $env:RELEASE_BRANCH",
@@ -74,7 +74,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
 
     def test_final_receipt_receives_verified_w4_workflow_authority(self) -> None:
         for token in (
-            "scripts/finalize_owner_final_receipt.py",
+            "scripts.finalize_owner_final_receipt",
             "--w4-run-id $env:W4_RUN_ID",
             "--w4-run-attempt $env:W4_RUN_ATTEMPT",
             "--w4-workflow-id $env:W4_RUN_WORKFLOW_ID",
@@ -133,8 +133,18 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("assemble_version2_package_tree(", self.text)
         self.assertIn("OWNER_CANONICAL_INNER_WITH_PRIVATE_SEED=PASS", self.text)
 
+    def test_python_helpers_execute_as_repo_root_modules(self) -> None:
+        for command in (
+            "python -m scripts.verify_owner_w4_run_provenance",
+            "python -m scripts.build_owner_portable_candidate",
+            "python -m scripts.finalize_owner_final_receipt",
+        ):
+            self.assertIn(command, self.text)
+        self.assertNotIn("python scripts/build_owner_portable_candidate.py", self.text)
+        self.assertNotIn("python scripts/finalize_owner_final_receipt.py", self.text)
+
     def test_final_outer_package_uses_canonical_owner_gate(self) -> None:
-        self.assertIn("scripts/build_owner_portable_candidate.py", self.text)
+        self.assertIn("scripts.build_owner_portable_candidate", self.text)
         self.assertIn("--seed-source-count 6", self.text)
         self.assertIn("--seed-game-count 3738", self.text)
         self.assertIn("--sound-archive-sha256", self.text)
@@ -155,7 +165,7 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
     def test_final_receipt_authority_runs_after_machine_launch_and_freshness(self) -> None:
         for token in (
             "Finalize exact owner provenance receipt",
-            "scripts/finalize_owner_final_receipt.py",
+            "scripts.finalize_owner_final_receipt",
             "--receipt owner-final-receipt.json",
             "--final-zip Accessible-Chess-ONECLICK-OWNER-FINAL.zip",
             "--product-sha $env:EXACT_PRODUCT_SHA",
