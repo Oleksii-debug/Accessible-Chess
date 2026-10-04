@@ -211,6 +211,43 @@ class PositionTextAuthorityTests(unittest.TestCase):
         )
         self.assertEqual(payload.length_calls, 0)
 
+    def test_stage1_move_text_rejects_non_text_before_custom_hooks(self):
+        class HostileMoveText(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile move-text hook must not execute")
+
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+
+        hostile = HostileMoveText("e4")
+        result = api.make_move(hostile)
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["announcement"],
+            "Текст ходу має бути текстовим значенням.",
+        )
+        self.assertEqual(api.board.fen(), before)
+        self.assertFalse(HostileMoveText.touched)
+
+        for payload in (None, 0, False, []):
+            with self.subTest(payload=payload):
+                result = api.make_move(payload)  # type: ignore[arg-type]
+                self.assertFalse(result["ok"])
+                self.assertEqual(
+                    result["announcement"],
+                    "Текст ходу має бути текстовим значенням.",
+                )
+                self.assertEqual(api.board.fen(), before)
+
+        api_en = AccessibleChessAPI(lang="en")
+        result = api_en.make_move(HostileMoveText("e4"))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Move text must be a text value.")
+        self.assertFalse(HostileMoveText.touched)
+
     def test_move_entry_rejects_oversized_text_before_routing(self):
         canonical = "W: K e1 B: K e8"
         at_limit = canonical + (" " * (4096 - len(canonical)))
