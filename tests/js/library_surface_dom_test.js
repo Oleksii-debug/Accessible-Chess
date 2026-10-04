@@ -225,6 +225,43 @@ check(
   "canonical export checkbox focus target was rejected"
 );
 
+async function runNavigationContract() {
+const liveResolver = window.accessibleChessKeymapAction;
+
+// Resolver presence before keymap readiness must not suppress default keyboard
+// navigation. null means "not ready"; an empty string below still means
+// "ready, but no action is bound".
+window.accessibleChessKeymapAction = function () { return null; };
+const startupCalls = [];
+const startupRoot = new FakeElement("div");
+window.AccessibleChessLibrarySurface.render(
+  startupRoot,
+  exportSnapshot,
+  (command, payload) => {
+    startupCalls.push([command, payload || {}]);
+    return { kind: "error", payload: { message: "" } };
+  },
+  announce,
+  exportDomId
+);
+const startupOption = startupRoot.querySelectorAll('[role="option"]')[0];
+let startupPrevented = false;
+startupOption.listeners.keydown({
+  key: "ArrowDown",
+  preventDefault: () => { startupPrevented = true; },
+  stopPropagation: () => {}
+});
+await Promise.resolve();
+await Promise.resolve();
+check(startupPrevented, "not-ready Library resolver suppressed default ArrowDown");
+check(
+  startupCalls.length === 1 &&
+    startupCalls[0][0] === "library.move" &&
+    startupCalls[0][1].delta === 1,
+  "not-ready Library resolver did not preserve default navigation"
+);
+window.accessibleChessKeymapAction = liveResolver;
+
 const navigationCalls = [];
 const navigationRoot = new FakeElement("div");
 window.AccessibleChessLibrarySurface.render(
@@ -303,6 +340,7 @@ check(!copyPrevented && !copyStopped, "Ctrl+C was hijacked by Library navigation
 check(navigationCalls.length === beforeCopy, "Ctrl+C unexpectedly became a Library command");
 libraryBindings.ArrowDown = "library.next_result";
 delete libraryBindings.j;
+}
 
 // Continue the partial-import test on the original base Library surface.
 search.focus();
@@ -483,4 +521,9 @@ check(
   "malformed Library filter partially replaced the surface"
 );
 
-console.log("Library partial/full snapshot DOM contract PASS");
+runNavigationContract().then(function () {
+  console.log("Library partial/full snapshot and remappable result navigation DOM contract PASS");
+}).catch(function (error) {
+  console.error(error);
+  process.exitCode = 1;
+});

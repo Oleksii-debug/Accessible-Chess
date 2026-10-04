@@ -243,6 +243,39 @@ async function run() {
   check(document.activeElement.id === "education-class-" + "a".repeat(64), "initial focus missing");
   check(root.querySelector("#education-detail").getAttribute("hidden") === "hidden", "empty detail region must start hidden");
 
+  const liveResolver = window.accessibleChessKeymapAction;
+  window.accessibleChessKeymapAction = function () { return null; };
+  const startupCalls = [];
+  const startupRoot = new FakeElement("div");
+  window.AccessibleChessEducationSurface.render(
+    startupRoot,
+    initialSnapshot(),
+    (command, payload) => {
+      startupCalls.push([command, payload || {}]);
+      return null;
+    },
+    () => {},
+    "education-class-" + "a".repeat(64),
+    "Action failed"
+  );
+  const startupOption = startupRoot.querySelector("#education-class-" + "a".repeat(64));
+  let startupPrevented = false;
+  startupOption.listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { startupPrevented = true; },
+    stopPropagation: () => {}
+  });
+  await flushPromises();
+  check(startupPrevented, "not-ready Education resolver suppressed default ArrowDown");
+  check(
+    startupCalls.length === 1 &&
+      startupCalls[0][0] === "education.move" &&
+      startupCalls[0][1].kind === "class" &&
+      startupCalls[0][1].direction === 1,
+    "not-ready Education resolver did not preserve default navigation"
+  );
+  window.accessibleChessKeymapAction = liveResolver;
+
   const wholeRenders = root.replaceChildrenCalls;
   root.querySelector("#education-class-" + keyB).listeners.click();
   await flushPromises();

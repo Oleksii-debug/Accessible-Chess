@@ -648,9 +648,16 @@
       option.addEventListener("keydown", function (event) {
         const resolve = global.accessibleChessKeymapAction;
         let actionId = "";
+        let resolverReady = false;
         if (typeof resolve === "function") {
-          actionId = resolve(event, "library_results");
-        } else if (
+          const resolved = resolve(event, "library_results");
+          if (resolved !== null && resolved !== undefined) {
+            resolverReady = true;
+            actionId = typeof resolved === "string" ? resolved : "";
+          }
+        }
+        if (
+          !resolverReady &&
           !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
         ) {
           if (event.key === "ArrowUp") actionId = "library.previous_result";
