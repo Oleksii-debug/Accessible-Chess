@@ -100,6 +100,29 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
             "failed Book route acquisition must not discard the previous Board owner flag",
         )
 
+    def test_open_focus_precommit_failure_rolls_back_before_release_projection(self):
+        origin = self._open_game_book()
+        self.projected_positions.clear()
+        real_record_focus = self.app.shell.record_focus
+
+        def fail_board_launch_focus(element_id):
+            if element_id == "board-launcher":
+                raise RuntimeError("synthetic Board focus ownership rejection")
+            return real_record_focus(element_id)
+
+        with patch.object(
+            self.app.shell,
+            "record_focus",
+            side_effect=fail_board_launch_focus,
+        ):
+            result = self.app.browser_command("books", "book.open_game")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual([], self.projected_positions)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
     def test_navigation_route_failure_restores_cursor_before_projection(self):
         self._open_board()
         before = self.app.book_delegate.view()
