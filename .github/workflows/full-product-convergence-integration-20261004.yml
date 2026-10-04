@@ -27,6 +27,7 @@ on:
       - '.github/workflows/current-user-library-seed.yml'
       - '.github/workflows/full-product-book-command-authority.yml'
       - '.github/workflows/p0-dynamic-selection-executable.yml'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/integration-owner-delivery-uk-docs-current.yml'
       - '.github/workflows/w6-v2-package-assembler.yml'
       - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
@@ -248,6 +249,8 @@ jobs:
           tests.test_dev1_full_product_ui_packages
           tests.test_v2_board_analysis_hotkey_feedback
           tests.test_version2_package_assembler
+          tests.test_portable_launcher_contract
+          tests.test_version2_portable_package
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
