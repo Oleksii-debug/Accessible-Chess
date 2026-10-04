@@ -1020,6 +1020,7 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
             _semantic_signature(result.document.blocks),
             [
                 ("Paragraph", "• First"),
+                ("Paragraph", "•"),
                 ("ImageNote", "Board"),
                 ("Paragraph", "• Last"),
             ],
@@ -1031,6 +1032,66 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
                 for warning in result.warnings
             )
         )
+
+    def test_rich_list_fallback_preserves_legacy_list_progress_target(self) -> None:
+        baseline = import_html_book(
+            '<html><body><ul id="choices"><li>BeforeAfter</li><li>Last</li>'
+            '</ul></body></html>',
+            source_name="list-progress-baseline.html",
+        )
+        baseline_index = next(
+            index
+            for index, block in enumerate(baseline.document.blocks)
+            if block.kind == "List"
+        )
+        baseline_reader = BookReader(baseline.document)
+        baseline_location = baseline_reader.go_to(baseline_index)
+
+        changed = import_html_book(
+            '<html><body><ul id="choices"><li>Before'
+            '<img src="board.png" alt="Board">After</li><li>Last</li>'
+            '</ul></body></html>',
+            source_name="list-progress-changed.html",
+            available_assets={"board.png"},
+        )
+
+        first_fallback = changed.document.blocks[0]
+        self.assertIsInstance(first_fallback, Paragraph)
+        self.assertEqual(first_fallback.text, "• Before")
+        self.assertEqual(first_fallback.block_id, baseline_location.block_id)
+        self.assertEqual(first_fallback.source_anchor, "choices")
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+            store.save("rich-list-progress", baseline_reader)
+            restored = store.restore("rich-list-progress", changed.document)
+
+        restored_location = restored.location()
+        restored_block = restored.block_snapshot(restored_location.index)
+        self.assertEqual(restored_location.block_id, baseline_location.block_id)
+        self.assertEqual(restored_location.source_anchor, "choices")
+        self.assertIsInstance(restored_block, Paragraph)
+        self.assertEqual(restored_block.text, "• Before")
+
+    def test_list_inline_position_uses_canonical_board_and_true_source_order(self) -> None:
+        result = import_html_book(
+            f'<html><body><ul><li>Before'
+            f'<span data-acs-fen="{Board.START}"></span>After</li></ul>'
+            f'</body></html>',
+            source_name="list-inline-position.html",
+        )
+
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Paragraph", "Position", "Paragraph"],
+        )
+        leading, position, trailing = result.document.blocks
+        self.assertIsInstance(leading, Paragraph)
+        self.assertEqual(leading.text, "• Before")
+        self.assertIsInstance(position, Position)
+        self.assertEqual(Board(position.fen).fen(), Board.START)
+        self.assertIsInstance(trailing, Paragraph)
+        self.assertEqual(trailing.text, "After")
 
     def test_malformed_nested_list_inline_event_does_not_escape_to_outer_owner(self) -> None:
         result = import_html_book(
