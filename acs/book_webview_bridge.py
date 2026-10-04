@@ -57,6 +57,30 @@ class BookWebViewBridge:
             if not command_id:
                 raise ValueError("invalid book browser command")
             data = self._payload(payload)
+            has_presentation_token = "presentation_token" in data
+            raw_presentation_token = data.pop("presentation_token", None)
+            presentation_token: str | None = None
+            if has_presentation_token:
+                if (
+                    type(raw_presentation_token) is not str
+                    or len(raw_presentation_token) != 64
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in raw_presentation_token
+                    )
+                ):
+                    raise ValueError("Book presentation token is invalid")
+                presentation_token = raw_presentation_token
+
+            if command_id == "book.refresh":
+                self._exact(data, set())
+                return self._projection.refresh()
+
+            guard = getattr(self._projection, "browser_presentation_guard", None)
+            if guard is not None:
+                guarded = guard(presentation_token)
+                if guarded is not None:
+                    return guarded
 
             no_payload = {
                 "book.previous": self._projection.previous,
