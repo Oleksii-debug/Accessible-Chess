@@ -958,7 +958,10 @@ class Version2Application:
         # they mutate Board projection or ownership flags. Otherwise open_route()
         # can reject the transition after domain state has already moved.
         if (
-            action in {"pgn.open_on_board", "pgn.return"}
+            (
+                action in {"pgn.open_on_board", "pgn.return"}
+                or action in self._PGN_BOARD_ACTIVE_COMMANDS
+            )
             and self.shell.active_dialog_id is not None
         ):
             raise ValueError("close the active dialog before changing PGN Board state")
@@ -1027,7 +1030,12 @@ class Version2Application:
                 try:
                     self._project_pgn_position(before_fen)
                 except Exception:
-                    pass
+                    # The canonical cursor is restored, but the release Board no
+                    # longer has a trustworthy projection. Relinquish Board
+                    # ownership and return to the PGN workspace rather than
+                    # leaving a live review over unknown external state.
+                    self.pgn_board_active = False
+                    self._focus = self.shell.open_route("pgn")
                 raise
             return None
         if action.startswith("pgn.") and action not in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
