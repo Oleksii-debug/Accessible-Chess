@@ -1,0 +1,62 @@
+name: V2 Upgrade Atomic Bytes Current Bootstrap
+
+on:
+  push:
+    branches:
+      - fix/v2-upgrade-atomic-bytes-regression-20261004-sol56q
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v2-upgrade-atomic-bytes-current-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repair-and-verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: fix/v2-upgrade-atomic-bytes-regression-20261004-sol56q
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Apply exact bounded repair and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('acs/version2_upgrade_base.py')
+          text = source.read_text(encoding='utf-8')
+          bad = '''        copied_digest = digest.hexdigest()\n        if expected_size is not None and int(after.st_size) != expected_size:\n            raise Version2UpgradeError("user-data source size does not match expected copy")\n        if expected_sha256 is not None and copied_digest != expected_sha256:\n            raise Version2UpgradeError("user-data source digest does not match expected copy")\n\n'''
+          count = text.count(bad)
+          if count != 1:
+              raise SystemExit(f'expected exactly one misplaced atomic-write block, found {count}')
+          source.write_text(text.replace(bad, '', 1), encoding='utf-8', newline='\n')
+
+          test = Path('tests/test_v2_upgrade_atomic_bytes_current.py')
+          test.write_text('''from __future__ import annotations\n\nimport json\nfrom pathlib import Path\nimport tempfile\nimport unittest\n\nfrom acs.version2_upgrade_base import (\n    UserDataLayout,\n    Version2UpgradeCoordinator,\n    _atomic_bytes,\n)\n\n\nclass V2UpgradeAtomicBytesCurrentTests(unittest.TestCase):\n    def test_atomic_bytes_publishes_and_replaces_exact_payload_without_residue(self):\n        with tempfile.TemporaryDirectory() as td:\n            root = Path(td)\n            target = root / "state.json"\n            first = b"first-current-apex-payload"\n            second = b"second-current-apex-payload"\n\n            _atomic_bytes(target, first)\n            self.assertEqual(first, target.read_bytes())\n            _atomic_bytes(target, second)\n            self.assertEqual(second, target.read_bytes())\n            self.assertEqual(\n                [],\n                [\n                    path.name\n                    for path in root.iterdir()\n                    if path.name != target.name\n                ],\n            )\n\n    def test_phase_journal_uses_production_atomic_writer_and_round_trips(self):\n        with tempfile.TemporaryDirectory() as td:\n            root = Path(td) / "AccessibleChess"\n            coordinator = Version2UpgradeCoordinator(UserDataLayout(root))\n            coordinator._ensure_roots()\n            upgrade_id = "v2-20261004T072627Z-atomicreg"\n\n            coordinator._write_phase(\n                upgrade_id,\n                "prepared",\n                recovered=False,\n                notify=False,\n            )\n\n            self.assertTrue(coordinator.layout.journal_path.is_file())\n            raw = json.loads(\n                coordinator.layout.journal_path.read_text(encoding="utf-8")\n            )\n            self.assertEqual(upgrade_id, raw["upgrade_id"])\n            self.assertEqual("prepared", raw["phase"])\n            self.assertEqual({}, raw["owned_states"])\n            self.assertEqual(upgrade_id, coordinator._journal()["upgrade_id"])\n\n\nif __name__ == "__main__":\n    unittest.main()\n''', encoding='utf-8', newline='\n')
+          PY
+      - name: Compile repaired recovery surfaces
+        run: python -m compileall -q acs/version2_upgrade_base.py tests/test_v2_upgrade_atomic_bytes_current.py tests/test_v2_upgrade_generated_artifact_authentication.py
+      - name: Focused atomic writer and adversarial recovery regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_upgrade_atomic_bytes_current
+          tests.test_v2_upgrade_generated_artifact_authentication
+      - name: Commit verified repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name 'accessible-chess-automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add acs/version2_upgrade_base.py tests/test_v2_upgrade_atomic_bytes_current.py
+          test -n "$(git status --porcelain)" || { echo 'No repair delta produced' >&2; exit 1; }
+          git commit -m 'Fix V2 atomic upgrade publication regression'
+          git push origin HEAD:fix/v2-upgrade-atomic-bytes-regression-20261004-sol56q
