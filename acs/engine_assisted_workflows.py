@@ -179,7 +179,10 @@ class EngineAssistedWorkflowService:
     SAFE_ERROR = "engine analysis unavailable"
 
     def __init__(self, analysis_service: AnalysisService) -> None:
-        if not isinstance(analysis_service, AnalysisService):
+        # AnalysisService is the single canonical analysis coordinator. Engine
+        # providers are injected through its factory; subclasses here would create
+        # a second overridable analysis authority above that provider seam.
+        if type(analysis_service) is not AnalysisService:
             raise EngineContractError(
                 "analysis_service must be AnalysisService",
                 code=EngineContractErrorCode.INVALID_PROVIDER,
