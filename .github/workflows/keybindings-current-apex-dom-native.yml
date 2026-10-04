@@ -14,6 +14,7 @@ on:
       - 'web/index.html'
       - 'web/keybindings.json'
       - 'web/stage1_board_actions.js'
+      - 'web/stage1_release_bootstrap.js'
       - 'web/full_product_pgn.js'
       - 'web/full_product_library.js'
       - 'web/full_product_education.js'
@@ -110,7 +111,8 @@ jobs:
             'web/full_product_pgn.js' \
             'web/index.html' \
             'web/keybindings.json' \
-            'web/stage1_board_actions.js' | sort)"
+            'web/stage1_board_actions.js' \
+            'web/stage1_release_bootstrap.js' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected keybinding convergence scope:\n%s\n' "$changed" >&2
             exit 1
@@ -141,6 +143,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check web/stage1_board_actions.js
+          node --check web/stage1_release_bootstrap.js
           node --check web/full_product_pgn.js
           node --check web/full_product_library.js
           node --check web/full_product_education.js
