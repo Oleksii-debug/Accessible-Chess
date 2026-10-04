@@ -6,3 +6,4 @@ enforce the same boundary before allocating split/token structures.
 """
 
 MAX_FEN_CHARS = 4096
+MAX_CHESS_MOVE_TEXT_CHARS = 4096
