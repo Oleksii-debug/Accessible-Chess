@@ -42,6 +42,8 @@ _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _EPUB_CONTENT_DOCUMENT_MEDIA_TYPES = frozenset(
     {"application/xhtml+xml", "image/svg+xml"}
 )
+_MEDIA_OVERLAY_MEDIA_TYPE = "application/smil+xml"
+_NCX_MEDIA_TYPE = "application/x-dtbncx+xml"
 _CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
 _CONTAINER_TAG = f"{{{_CONTAINER_NAMESPACE}}}container"
 _ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
@@ -102,6 +104,7 @@ class _ManifestItem:
     entry_name: str
     media_type: str
     fallback: str | None
+    media_overlay: str | None
 
 
 class _Warnings:
@@ -736,6 +739,7 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
         raw_media_type = element.attrib.get("media-type")
         href = element.attrib.get("href")
         raw_fallback = element.attrib.get("fallback")
+        raw_media_overlay = element.attrib.get("media-overlay")
         if (
             not _is_exact_identifier(raw_item_id)
             or type(raw_media_type) is not str
@@ -758,6 +762,15 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             )
         else:
             fallback = raw_fallback
+        if raw_media_overlay is None:
+            media_overlay = None
+        elif not _is_exact_identifier(raw_media_overlay):
+            raise _error(
+                "EPUB manifest media-overlay identifier is malformed",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        else:
+            media_overlay = raw_media_overlay
         if item_id in output:
             raise _error(
                 "EPUB manifest contains duplicate item identifiers",
@@ -776,6 +789,7 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             entry_name=entry_name,
             media_type=media_type,
             fallback=fallback,
+            media_overlay=media_overlay,
         )
     if not output:
         raise _error(
@@ -783,7 +797,33 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     _validate_manifest_fallback_graph(output)
+    _validate_manifest_media_overlays(output)
     return output
+
+
+def _validate_manifest_media_overlays(
+    manifest: dict[str, _ManifestItem],
+) -> None:
+    for item in manifest.values():
+        overlay_id = item.media_overlay
+        if overlay_id is None:
+            continue
+        if item.media_type not in _EPUB_CONTENT_DOCUMENT_MEDIA_TYPES:
+            raise _error(
+                "EPUB media-overlay is only valid on EPUB content documents",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        overlay = manifest.get(overlay_id)
+        if overlay is None:
+            raise _error(
+                "EPUB media-overlay references an unknown manifest item",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if overlay.media_type != _MEDIA_OVERLAY_MEDIA_TYPE:
+            raise _error(
+                "EPUB media-overlay target has an invalid media type",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
 
 def _validate_manifest_fallback_graph(
@@ -847,13 +887,36 @@ def _validate_manifest_resources(
             )
 
 
-def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
+def _spine_ids(
+    package: ET.Element,
+    warnings: _Warnings,
+    manifest: dict[str, _ManifestItem],
+) -> list[str]:
     spine = _required_unique_direct_child(package, "spine")
     if (spine.text or "").strip():
         raise _error(
             "EPUB spine contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    raw_toc = spine.attrib.get("toc")
+    if raw_toc is not None:
+        if not _is_exact_identifier(raw_toc):
+            raise _error(
+                "EPUB spine toc identifier is malformed",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        toc_item = manifest.get(raw_toc)
+        if toc_item is None:
+            raise _error(
+                "EPUB spine toc references an unknown manifest item",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if toc_item.media_type != _NCX_MEDIA_TYPE:
+            raise _error(
+                "EPUB spine toc target is not an NCX resource",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
     page_progression = spine.attrib.get("page-progression-direction")
     if page_progression is not None and page_progression not in {
         "ltr",
@@ -1069,7 +1132,7 @@ def import_epub_book(
             package_entry_name=opf_name,
             archive_index=index,
         )
-        spine = _spine_ids(package, warnings)
+        spine = _spine_ids(package, warnings, manifest)
 
         metadata = _direct_child(package, "metadata")
         package_titles = _metadata_values(metadata, "title")
