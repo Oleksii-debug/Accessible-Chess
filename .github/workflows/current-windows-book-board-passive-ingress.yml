@@ -1,4 +1,5 @@
 name: Current Windows BookBoard Passive Ingress
+# Serial exact-head qualification for the retargeted #1868 successor.
 
 on:
   pull_request:
