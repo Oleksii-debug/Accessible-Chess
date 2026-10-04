@@ -7,8 +7,10 @@ on:
   pull_request:
     paths:
       - 'acs/book_progress_store.py'
+      - 'acs/version2_application.py'
       - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
+      - 'tests/test_version2_application.py'
       - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
 
@@ -74,6 +76,11 @@ jobs:
       CWD_BOUND_STORE_BLOB: 39502e72ed5a12efd4746f500ccb2ede589d4152
       CWD_BOUND_BASE_TEST_BLOB: 810b8cbe1f9fbba835cba95e721b702acd924b56
       CWD_BOUND_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      RECOVERY_CONSENT_STORE_BLOB: 08dc0bc458837489876dc24a4ce9eae15893e50b
+      RECOVERY_CONSENT_BASE_TEST_BLOB: 84a6a4f05972d8da8a1194033e28a74e874ee189
+      RECOVERY_CONSENT_APPLICATION_BLOB: 62f3a0063bf31d069ad3df61709d81cb5bda54c0
+      RECOVERY_CONSENT_APPLICATION_TEST_BLOB: 2a6842636c6c9c0af23a059104d46a5ce0a00f0f
+      RECOVERY_CONSENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -121,8 +128,10 @@ jobs:
             allowed="$(printf '%s\n' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
               'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
-              'tests/test_v2_book_progress_store_production.py' | sort)"
+              'tests/test_v2_book_progress_store_production.py' \
+              'tests/test_version2_application.py' | sort)"
             unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$allowed"))"
             if [ -z "$unexpected" ] \
               && printf '%s\n' "$changed" | grep -Fqx 'acs/book_progress_store.py' \
@@ -287,6 +296,8 @@ jobs:
           candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
           candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
           candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+          candidate_application="$(git rev-parse HEAD:acs/version2_application.py)"
+          candidate_application_test="$(git rev-parse HEAD:tests/test_version2_application.py)"
           if [ "$candidate_store" = "$CURRENT_STORE_BLOB" ] \
             && [ "$candidate_base_test" = "$CURRENT_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$CURRENT_PRODUCTION_TEST_BLOB" ]; then
@@ -343,6 +354,12 @@ jobs:
             && [ "$candidate_base_test" = "$CWD_BOUND_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$CWD_BOUND_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=CWD_BOUND_SUCCESSOR'
+          elif [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+            && [ "$candidate_application" = "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
+            && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_CONSENT_SUCCESSOR'
           else
             printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
               "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2
@@ -354,8 +371,10 @@ jobs:
         run: >-
           python -m compileall -q
           acs/book_progress_store.py
+          acs/version2_application.py
           tests/test_v2_book_progress_store_production.py
           tests/test_v2_book_progress_store.py
+          tests/test_version2_application.py
 
       - name: Deterministic production Book progress regressions
         run: python -m unittest -v tests.test_v2_book_progress_store_production
@@ -364,6 +383,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_book_progress_store
+          tests.test_version2_application
           tests.test_bookreader
           tests.test_bookdocument
 
