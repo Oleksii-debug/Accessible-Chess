@@ -274,6 +274,37 @@ class PositionTextAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^move entry text is too long$"):
             parse_move_entry(at_limit + " ")
 
+    def test_stage1_history_target_rejects_non_text_before_custom_hooks(self):
+        class HostileHistoryTarget(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile history-target hook must not execute")
+
+        api = AccessibleChessAPI(lang="uk")
+        self.assertTrue(api.make_move("e4")["ok"])
+        before_fen = api.board.fen()
+        before_node = api.review_history.cursor_node_id
+
+        hostile = HostileHistoryTarget("start")
+        result = api.go_to_move(hostile)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Такої позиції в історії немає.")
+        self.assertFalse(HostileHistoryTarget.touched)
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.review_history.cursor_node_id, before_node)
+
+        for payload in (None, False, 0, []):
+            with self.subTest(payload=payload):
+                result = api.go_to_move(payload)  # type: ignore[arg-type]
+                self.assertFalse(result["ok"])
+                self.assertEqual(
+                    result["announcement"],
+                    "Такої позиції в історії немає.",
+                )
+                self.assertEqual(api.review_history.cursor_node_id, before_node)
+
     def test_stage1_move_text_character_budget_fails_before_strip_and_board_parse(self):
         at_limit = "e4" + (" " * (4096 - 2))
         api = AccessibleChessAPI(lang="uk")
