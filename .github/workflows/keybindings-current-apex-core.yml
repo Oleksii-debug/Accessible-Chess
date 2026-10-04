@@ -2,8 +2,6 @@ name: Keybindings Current Apex Core
 
 on:
   pull_request:
-    branches:
-      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - 'acs/keybindings.py'
       - 'acs/ui_keymap_adapter.py'
@@ -26,6 +24,7 @@ on:
       - 'tests/test_full_product_education_keybindings.py'
       - 'tests/test_ui_keymap_service.py'
       - 'tests/js/stage1_terminal_keymap_dom_test.js'
+      - 'tests/js/stage1_board_rerender_keymap_integration_test.js'
       - 'tests/js/v2_remapped_keyboard_native_editing_test.js'
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/js/pgn_tree_boundary_key_ownership_test.js'
@@ -95,7 +94,9 @@ jobs:
         run: |
           set -euo pipefail
           node --check web/stage1_release_bootstrap.js
+          node --check tests/js/stage1_board_rerender_keymap_integration_test.js
           node tests/js/stage1_terminal_keymap_dom_test.js
+          node tests/js/stage1_board_rerender_keymap_integration_test.js
           node tests/js/v2_remapped_keyboard_native_editing_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_tree_boundary_key_ownership_test.js
