@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
+import acs.user_library_seed as seed_module
 from acs.user_library_seed import (
     BUNDLE_KIND,
     SCHEMA_VERSION,
@@ -110,6 +113,58 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
 
             with self.assertRaisesRegex(UserLibrarySeedError, "display name is invalid"):
                 load_user_library_seed(root)
+
+    def test_same_size_manifest_inode_swap_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "release-content"
+            parent.mkdir()
+            root = parent / "user-library-seed"
+            self._write_seed(root)
+            manifest_path = root / "manifest.json"
+            original = manifest_path.read_bytes()
+            replacement_path = root / "replacement.json"
+            replacement = json.loads(original.decode("utf-8"))
+            replacement["files"][0]["display_name"] = "Foreign seed"
+            replacement_bytes = json.dumps(
+                replacement,
+                ensure_ascii=False,
+                sort_keys=True,
+            ).encode("utf-8")
+            self.assertEqual(
+                len(original),
+                len(replacement_bytes),
+                "regression requires a same-size manifest replacement",
+            )
+            replacement_path.write_bytes(replacement_bytes)
+
+            real_read_bytes = seed_module.Path.read_bytes
+            injected = False
+
+            def swap_before_read(candidate: Path) -> bytes:
+                nonlocal injected
+                if candidate == manifest_path and not injected:
+                    os.replace(replacement_path, manifest_path)
+                    injected = True
+                return real_read_bytes(candidate)
+
+            with mock.patch.object(
+                seed_module.Path,
+                "read_bytes",
+                autospec=True,
+                side_effect=swap_before_read,
+            ):
+                with self.assertRaisesRegex(
+                    UserLibrarySeedError,
+                    "manifest changed while reading",
+                ):
+                    load_user_library_seed(root)
+
+            self.assertTrue(injected)
+            self.assertEqual(
+                "Foreign seed",
+                json.loads(manifest_path.read_text(encoding="utf-8"))["files"][0]["display_name"],
+                "foreign replacement was not preserved after rejection",
+            )
 
 
 if __name__ == "__main__":
