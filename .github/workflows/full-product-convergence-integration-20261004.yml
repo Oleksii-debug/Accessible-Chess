@@ -191,6 +191,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_settings
+          tests.test_settings_private_temp_identity_current
           tests.test_settings_postpublication_cleanup_current_main
           tests.test_v2_upgrade_generated_artifact_authentication
           tests.test_v2_upgrade_publish_race_audit
