@@ -118,6 +118,17 @@ function snapshot(selectedId) {
 
 async function flush() { await Promise.resolve(); await Promise.resolve(); }
 
+function pressKey(target, _toolbar, key) {
+  let prevented = false;
+  const listener = target.listeners.keydown;
+  if (typeof listener !== "function") return false;
+  listener({
+    key: key,
+    preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
+
 async function run() {
   const calls = [];
   const announcements = [];
