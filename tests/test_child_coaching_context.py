@@ -52,7 +52,7 @@ class ChildCoachingContextTests(unittest.TestCase):
                 completed=True,
                 engine_generation=7,
                 engine_stale=True,
-                engine_available=True,
+                engine_available=False,
             )
         )
         ledger.append(
