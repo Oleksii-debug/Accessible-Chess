@@ -11,6 +11,7 @@ from unittest import mock
 from acs.book_progress_store import (
     BOOK_PROGRESS_STORE_SCHEMA_VERSION,
     MAX_BOOK_KEY_CHARS,
+    MAX_BOOK_PROGRESS_ENTRIES,
     MAX_BOOK_PROGRESS_JSON_KEY_CHARS,
     MAX_BOOK_PROGRESS_STORE_BYTES,
     MAX_BOOK_SNAPSHOT_BYTES,
@@ -138,6 +139,26 @@ class BookProgressStoreTests(unittest.TestCase):
         self.store.save("book:one", BookReader(self.original_document()))
         with self.assertRaisesRegex(LookupError, "No saved reading progress"):
             self.store.restore("book:two", self.original_document())
+
+    def test_json_object_member_count_is_bounded_before_hashing(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        entries = ",".join(
+            f'"book:{index}":{{}}'
+            for index in range(MAX_BOOK_PROGRESS_ENTRIES + 1)
+        )
+        raw = (
+            '{"schema_version":2,"generation":0,"entries":{'
+            + entries
+            + '}}'
+        ).encode("utf-8")
+        self.assertLess(len(raw), MAX_BOOK_PROGRESS_STORE_BYTES)
+        self.path.write_bytes(raw)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:any")
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.RESOURCE_LIMIT)
+        self.assertEqual(self.path.read_bytes(), raw)
 
     def test_oversized_json_integer_uses_stable_corrupt_store_error(self) -> None:
         self.path.parent.mkdir(parents=True)
