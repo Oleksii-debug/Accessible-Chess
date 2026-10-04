@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  LAUNCHER_BLOB: ca84c98966df985a62e325da46eee14e7b8e28f7
+  LAUNCHER_BLOB: 256d40387bce80ff34bcc64c3578fdfda629d3f0
   CONTRACT_TEST_BLOB: c1dd7baf052798f19226d57cf14d8438e66d5414
 
 concurrency:
