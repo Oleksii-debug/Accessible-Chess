@@ -231,7 +231,7 @@ def _discard_owned_temp(path: Path, expected: os.stat_result | None) -> None:
         return
 
     try:
-        os.replace(path, quarantine)
+        os.rename(path, quarantine)
     except OSError:
         return
 
