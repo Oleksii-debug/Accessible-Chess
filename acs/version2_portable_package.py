@@ -128,7 +128,7 @@ def _portable_docx_name(path: Path) -> str:
     return name
 
 
-def _launcher_identity(path: Path) -> None:
+def _launcher_identity(path: Path) -> str:
     info = _safe_info(path, label="portable launcher", directory=False)
     if info.st_size < 1024 or info.st_size > 1024 * 1024:
         _fail("portable launcher byte size is outside the accepted native-launcher envelope")
@@ -139,6 +139,7 @@ def _launcher_identity(path: Path) -> None:
     )
     if payload[:2] != b"MZ":
         _fail("portable launcher is not a Windows PE executable")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _strict_json_bytes(payload: bytes) -> dict[str, object]:
@@ -497,8 +498,14 @@ def validate_portable_oneclick_tree(
     _safe_info(app, label="portable App directory", directory=True)
     _safe_info(notices, label="portable notices directory", directory=True)
     _require_notice_payload(notices)
-    _launcher_identity(root / PORTABLE_LAUNCHER_NAME)
-    _launcher_identity(app / "AccessibleChess.exe")
+    launcher_identities = {
+        PORTABLE_LAUNCHER_NAME.casefold(): _launcher_identity(
+            root / PORTABLE_LAUNCHER_NAME
+        ),
+        "App/AccessibleChess.exe".casefold(): _launcher_identity(
+            app / "AccessibleChess.exe"
+        ),
+    }
 
     value = _manifest(root)
     if (
@@ -552,7 +559,10 @@ def validate_portable_oneclick_tree(
         manifest=value,
         inventory=inventory,
     )
-    _checksum_inventory(root, inventory)
+    checksums = _checksum_inventory(root, inventory)
+    for relative, identity_digest in launcher_identities.items():
+        if checksums.get(relative) != identity_digest:
+            _fail("portable launcher identity is not bound to checksum inventory")
     total_bytes = 0
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
