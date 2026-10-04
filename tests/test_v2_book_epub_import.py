@@ -2347,47 +2347,38 @@ class BookEpubImportTests(unittest.TestCase):
         )
 
     def test_container_native_attributes_are_exact_after_foreign_attribute_removal(self) -> None:
-        rootfile = (
+        namespace = 'xmlns="urn:oasis:names:tc:opendocument:xmlns:container"'
+        rootfiles = (
             '<rootfiles><rootfile full-path="OEBPS/content.opf" '
             'media-type="application/oebps-package+xml"/></rootfiles>'
         )
         cases = (
-            f'<container version="1.0" bogus="x">{rootfile}</container>',
+            f'<container version="1.0" {namespace} bogus="x">{rootfiles}</container>',
             (
-                '<container version="1.0">'
+                f'<container version="1.0" {namespace}>'
                 '<rootfiles bogus="x"><rootfile full-path="OEBPS/content.opf" '
                 'media-type="application/oebps-package+xml"/></rootfiles>'
                 '</container>'
             ),
             (
-                '<container version="1.0"><rootfiles>'
+                f'<container version="1.0" {namespace}><rootfiles>'
                 '<rootfile full-path="OEBPS/content.opf" '
                 'media-type="application/oebps-package+xml" bogus="x"/>'
                 '</rootfiles></container>'
             ),
             (
-                f'<container version="1.0">{rootfile}'
+                f'<container version="1.0" {namespace}>{rootfiles}'
                 '<links bogus="x"><link href="OEBPS/chapter.xhtml" rel="alternate"/></links>'
                 '</container>'
             ),
             (
-                f'<container version="1.0">{rootfile}'
+                f'<container version="1.0" {namespace}>{rootfiles}'
                 '<links><link href="OEBPS/chapter.xhtml" rel="alternate" bogus="x"/></links>'
                 '</container>'
             ),
         )
         for markup in cases:
             with self.subTest(markup=markup):
-                container = (
-                    '<wrapper xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
-                    f'{markup}'
-                    '</wrapper>'
-                )
-                container = container.replace(
-                    '<wrapper xmlns="urn:oasis:names:tc:opendocument:xmlns:container">',
-                    '',
-                    1,
-                ).replace('</wrapper>', '', 1).encode("utf-8")
                 raw = _epub(
                     opf=_opf(
                         manifest=(
@@ -2401,7 +2392,7 @@ class BookEpubImportTests(unittest.TestCase):
                             b"<html><body><p>Readable.</p></body></html>"
                         ),
                     },
-                    container=container,
+                    container=markup.encode("utf-8"),
                 )
                 with self.assertRaises(BookEpubImportError) as raised:
                     import_epub_book(raw, source_name="invalid-container-attributes.epub")
