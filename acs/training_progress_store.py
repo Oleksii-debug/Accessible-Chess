@@ -892,7 +892,10 @@ class TrainingProgressStore:
                 transaction_identity = self._progress_path_identity(missing_ok=True)
                 current_data = self._read_progress_bytes(missing_ok=True)
                 observed_identity = self._progress_path_identity(missing_ok=True)
-                if (transaction_identity is None) != (current_data is None):
+                if (
+                    (transaction_identity is None) != (current_data is None)
+                    or (observed_identity is None) != (current_data is None)
+                ):
                     raise TrainingProgressConflictError(
                         "training progress changed since the caller last observed it"
                     )
@@ -972,6 +975,7 @@ class TrainingProgressStore:
                     publication_revision != current_revision
                     or publication_base != current_data
                     or (transaction_identity is None) != (publication_base is None)
+                    or (publication_identity is None) != (publication_base is None)
                 ):
                     raise TrainingProgressConflictError(
                         "training progress changed during publication"
