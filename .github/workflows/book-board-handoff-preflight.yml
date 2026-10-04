@@ -3,7 +3,7 @@ name: Book Board Handoff Preflight
 on:
   pull_request:
     branches:
-      - converge/current-fen-budget-after-history-20261004-sol56f1
+      - fix/current-stage1-error-localization-20261004-zftrkmo
     paths:
       - 'acs/book_webview_projection.py'
       - 'tests/test_dev1_books_training_webview_projection.py'
@@ -49,7 +49,7 @@ jobs:
             test -n "$EVENT_BASE_SHA"
             test "$EVENT_BASE_SHA" = "$live_base"
           else
-            base_ref="converge/current-fen-budget-after-history-20261004-sol56f1"
+            base_ref="fix/current-stage1-error-localization-20261004-zftrkmo"
             git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
             live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           fi
