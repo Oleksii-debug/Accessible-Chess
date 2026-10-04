@@ -78,12 +78,24 @@ class _InlineSemanticEvent:
     block: object
 
 
+@dataclass(frozen=True, slots=True)
+class _PgnCandidate:
+    text: str
+    marker_offset: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PgnSlot:
+    marker_offset: int
+
+
 @dataclass(slots=True)
 class _Capture:
     tag: str
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    visible_start_offset: int
     boundary_count: int = 0
     list_depth: int = 0
     inline_semantics: list[_InlineSemanticEvent] = field(default_factory=list)
@@ -540,6 +552,7 @@ class _SemanticHtmlParser(HTMLParser):
                     kind=kind,
                     attrs=attrs,
                     parts=[],
+                    visible_start_offset=self.visible_chars,
                     boundary_count=self._text_boundary_count,
                     list_depth=len(self._lists) if kind == "list_item" else 0,
                 )
@@ -710,6 +723,18 @@ class _SemanticHtmlParser(HTMLParser):
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
                 self._warned_table_flatten = True
         elif capture.kind == "pre" and _explicit_pgn_pre(raw):
+            # Keep a bounded placeholder at the exact semantic source location.
+            # Canonical PGN validation still happens only after parsing through
+            # the existing D06 round-trip authority; invalid candidates remove
+            # their placeholder rather than publishing guessed chess content.
+            for candidate in _pgn_candidates(raw):
+                self._append_block(
+                    _PgnSlot(
+                        marker_offset=(
+                            capture.visible_start_offset + candidate.marker_offset
+                        )
+                    )
+                )
             return
         self._append_block(
             Paragraph(
@@ -745,22 +770,39 @@ class _SemanticHtmlParser(HTMLParser):
             self._emit_list(captured)
 
 
-def _pgn_candidates(visible_text: str) -> list[str]:
-    """Return only explicitly marked PGN regions; canonical D06 decides validity."""
-    lines = visible_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    candidates: list[str] = []
-    for marker_index, line in enumerate(lines):
+def _pgn_candidates(visible_text: str) -> list[_PgnCandidate]:
+    """Return explicitly marked PGN regions with stable source offsets."""
+    lines: list[tuple[int, str]] = []
+    line_start = 0
+    cursor = 0
+    while cursor < len(visible_text):
+        character = visible_text[cursor]
+        if character == "\r":
+            lines.append((line_start, visible_text[line_start:cursor]))
+            cursor += 2 if cursor + 1 < len(visible_text) and visible_text[cursor + 1] == "\n" else 1
+            line_start = cursor
+            continue
+        if character == "\n":
+            lines.append((line_start, visible_text[line_start:cursor]))
+            cursor += 1
+            line_start = cursor
+            continue
+        cursor += 1
+    lines.append((line_start, visible_text[line_start:]))
+
+    candidates: list[_PgnCandidate] = []
+    for marker_index, (marker_offset, line) in enumerate(lines):
         if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
             continue
 
         start = marker_index + 1
-        while start < len(lines) and not lines[start].strip():
+        while start < len(lines) and not lines[start][1].strip():
             start += 1
-        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start].strip()) is None:
+        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start][1].strip()) is None:
             continue
 
         chunk_lines: list[str] = []
-        for candidate_line in lines[start:]:
+        for _, candidate_line in lines[start:]:
             stripped = candidate_line.strip()
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
@@ -769,14 +811,23 @@ def _pgn_candidates(visible_text: str) -> list[str]:
             chunk_lines.pop()
         candidate = "\n".join(chunk_lines).strip()
         if candidate:
-            candidates.append(candidate)
+            candidates.append(
+                _PgnCandidate(
+                    text=candidate,
+                    marker_offset=marker_offset,
+                )
+            )
     return candidates
 
 
-def _canonical_pgn_games(candidates: list[str], warnings: list[str]) -> list[Game]:
-    games: list[Game] = []
+def _canonical_pgn_games(
+    candidates: list[_PgnCandidate],
+    warnings: list[str],
+) -> list[tuple[_PgnCandidate, Game]]:
+    games: list[tuple[_PgnCandidate, Game]] = []
     identities: dict[str, int] = {}
-    for candidate_index, candidate in enumerate(candidates, start=1):
+    for candidate_index, candidate_record in enumerate(candidates, start=1):
+        candidate = candidate_record.text
         if len(candidate) > MAX_HTML_PGN_CHARS:
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} exceeded the per-game limit and was ignored")
@@ -804,15 +855,17 @@ def _canonical_pgn_games(candidates: list[str], warnings: list[str]) -> list[Gam
         occurrence = identities.get(digest, 0) + 1
         identities[digest] = occurrence
         games.append(
-            Game(
-                pgn=candidate,
-                title=title,
-                block_id=f"html-pgn-{digest}-{occurrence}",
-                source_anchor=f"pgn:{candidate_index}",
+            (
+                candidate_record,
+                Game(
+                    pgn=candidate,
+                    title=title,
+                    block_id=f"html-pgn-{digest}-{occurrence}",
+                    source_anchor=f"pgn:{candidate_index}",
+                ),
             )
         )
     return games
-
 
 def _asset_set(available_assets: object) -> frozenset[str] | None:
     if available_assets is None:
@@ -887,9 +940,26 @@ def import_html_book(
     warnings = list(parser.warnings)
     if legacy_windows_1251:
         warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
-    embedded_games = _canonical_pgn_games(_pgn_candidates(visible_text), warnings)
-    for block in embedded_games:
-        parser._append_block(block)
+    canonical_games = _canonical_pgn_games(_pgn_candidates(visible_text), warnings)
+    games_by_marker = {
+        candidate.marker_offset: game
+        for candidate, game in canonical_games
+    }
+    consumed_markers: set[int] = set()
+    ordered_blocks = []
+    for block in parser.blocks:
+        if isinstance(block, _PgnSlot):
+            game = games_by_marker.get(block.marker_offset)
+            if game is not None:
+                ordered_blocks.append(game)
+                consumed_markers.add(block.marker_offset)
+            continue
+        ordered_blocks.append(block)
+    parser.blocks = ordered_blocks
+    for candidate, game in canonical_games:
+        if candidate.marker_offset not in consumed_markers:
+            parser._append_block(game)
+    embedded_games = [game for _, game in canonical_games]
 
     resolved_title = override_title or parser.title
     if not resolved_title:
