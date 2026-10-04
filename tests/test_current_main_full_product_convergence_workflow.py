@@ -36,6 +36,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_v2_windows_nvda_file_workflows",
             "tests.test_v2_native_thread_runtime_workflow",
             "tests.test_v2_windows_book_board_adapter",
+            "tests.test_p0f_starter_training_canonical_legality",
             "python run_accessible_chess_v2.py --diagnostic",
             "python -m acs.selftest",
         )
@@ -52,6 +53,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             ".github/workflows/v2-native-thread-runtime.yml",
             ".github/workflows/v2-windows-book-board-adapter.yml",
             ".github/workflows/version2-windows-composition.yml",
+            ".github/workflows/w3-p0f-starter-books-training.yml",
         ):
             with self.subTest(path=path):
                 self.assertIn(f"      - '{path}'", self.text)
