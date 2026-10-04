@@ -37,7 +37,7 @@ def _freeze_context_value(value: Any, *, path: str = "context") -> Any:
 
     if value is None or type(value) in {str, int, float, bool, bytes}:
         return value
-    if isinstance(value, Mapping):
+    if type(value) in {dict, MappingProxyType}:
         frozen: dict[str, Any] = {}
         for key, item in value.items():
             if type(key) is not str:
@@ -93,7 +93,7 @@ class PositionSnapshot:
                 "snapshot side must be 'w', 'b', or None",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
             )
-        if not isinstance(self.context, Mapping):
+        if type(self.context) not in {dict, MappingProxyType}:
             raise HistoryError(
                 "snapshot context must be a mapping",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
