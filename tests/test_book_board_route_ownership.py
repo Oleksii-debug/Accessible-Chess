@@ -453,6 +453,77 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(board_focus, self.app.shell.restore_focus_target())
         self.assertEqual(origin, self.app.reader.location())
 
+    def test_open_book_route_rejection_preserves_previous_book_owner(self):
+        original = self.root / "original-owner.md"
+        original.write_text("# Original\n\nStable owner.\n", encoding="utf-8")
+        self.app.open_book(original)
+        previous_reader = self.app.reader
+        previous_books = self.app.books
+        previous_workflow = self.app.book_workflow
+        previous_key = self.app.book_key
+        previous_training = self.app.training_workspace
+        self.app.browser_command("shell", "screen.library")
+        origin_route = self.app.shell.current_route.route_id
+
+        candidate = self.root / "candidate-owner.md"
+        candidate.write_text("# Candidate\n\nStaged owner.\n", encoding="utf-8")
+        real_open_route = self.app.shell.open_route
+
+        def reject_books_route(route_id, *, current_focus_id=""):
+            if route_id == "books":
+                raise RuntimeError("synthetic Books route rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=reject_books_route,
+        ):
+            with self.assertRaises(RuntimeError):
+                self.app.open_book(candidate)
+
+        self.assertIs(previous_reader, self.app.reader)
+        self.assertIs(previous_books, self.app.books)
+        self.assertIs(previous_workflow, self.app.book_workflow)
+        self.assertEqual(previous_key, self.app.book_key)
+        self.assertIs(previous_training, self.app.training_workspace)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+
+    def test_open_book_partial_route_commit_restores_previous_owner_and_route(self):
+        original = self.root / "original-partial.md"
+        original.write_text("# Original\n\nStable owner.\n", encoding="utf-8")
+        self.app.open_book(original)
+        previous_reader = self.app.reader
+        previous_books = self.app.books
+        previous_workflow = self.app.book_workflow
+        previous_key = self.app.book_key
+        self.app.browser_command("shell", "screen.library")
+        origin_route = self.app.shell.current_route.route_id
+
+        candidate = self.root / "candidate-partial.md"
+        candidate.write_text("# Candidate\n\nStaged owner.\n", encoding="utf-8")
+        real_open_route = self.app.shell.open_route
+
+        def fail_after_books_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "books":
+                raise RuntimeError("synthetic failure after Books route commit")
+            return focus
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=fail_after_books_commit,
+        ):
+            with self.assertRaises(RuntimeError):
+                self.app.open_book(candidate)
+
+        self.assertIs(previous_reader, self.app.reader)
+        self.assertIs(previous_books, self.app.books)
+        self.assertIs(previous_workflow, self.app.book_workflow)
+        self.assertEqual(previous_key, self.app.book_key)
+        self.assertEqual(origin_route, self.app.shell.current_route.route_id)
+
     def test_set_document_route_rejection_preserves_previous_pgn_owner(self):
         self._load_pgn_workspace()
         self.app.browser_command("review", "pgn.open_on_board")
