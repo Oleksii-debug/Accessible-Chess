@@ -1689,13 +1689,93 @@ class BookEpubImportTests(unittest.TestCase):
                 manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
                 spine='    <itemref idref="c1"/>',
             ),
-            entries={"OEBPS/chapter.xhtml": b"<html><body><p>Primary rendition.</p></body></html>"},
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Primary rendition.</p></body></html>"
+                ),
+                "ALT/content.opf": b"<package/>",
+            },
             container=container,
         )
         result = import_epub_book(raw, source_name="multi-rendition.epub")
         self.assertEqual(result.spine_documents, 1)
         self.assertIn("Primary rendition.", [block.text for block in result.document.blocks if isinstance(block, Paragraph)])
         self.assertTrue(any("multiple EPUB package documents" in warning for warning in result.warnings))
+
+    def test_every_container_rootfile_path_is_validated_before_selection(self) -> None:
+        cases = (
+            (
+                " ALT/content.opf ",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                "../ALT/content.opf",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            ),
+            (
+                "ALT/missing.opf",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+        )
+        for secondary_path, expected_code in cases:
+            with self.subTest(secondary_path=secondary_path):
+                container = f'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="{secondary_path}" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''.encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Primary rendition.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="invalid-secondary-rootfile.epub")
+                self.assertEqual(raised.exception.code, expected_code)
+
+    def test_container_rootfiles_cannot_alias_the_same_package_document(self) -> None:
+        for secondary_path in ("OEBPS/content.opf", "OEBPS/%63ontent.opf"):
+            with self.subTest(secondary_path=secondary_path):
+                container = f'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="{secondary_path}" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''.encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Primary rendition.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="aliased-rootfiles.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
 
     def test_in_document_asset_fragment_remains_resolvable(self) -> None:
         chapter = (
