@@ -1,0 +1,41 @@
+name: Current Final Product Announcement Localization
+
+on:
+  push:
+    branches:
+      - fix/final-product-generic-failure-localization-20261004-sol56r7
+  pull_request:
+    paths:
+      - "acs/version2_education_mutation_release.py"
+      - "web/stage1_board_actions.js"
+      - "web/p0_accessibility_runtime.js"
+      - "tests/test_final_product_announcement_localization_current.py"
+      - "tests/test_p0_semantic_document_copy.py"
+      - ".github/workflows/current-final-product-announcement-localization.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  announcement-localization:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile changed Python surfaces
+        run: python -m py_compile acs/version2_education_mutation_release.py tests/test_final_product_announcement_localization_current.py
+      - name: Check changed JavaScript surfaces
+        run: node --check web/p0_accessibility_runtime.js && node --check web/stage1_board_actions.js
+      - name: Run final-product localization and copy-order regressions
+        run: python -m unittest tests.test_final_product_announcement_localization_current tests.test_p0_semantic_document_copy
+      - name: Run Stage1 localized validation regression
+        run: python -m unittest tests.test_stage1_localized_validation_current
+      - name: Run core selftest
+        run: python -m acs.selftest
