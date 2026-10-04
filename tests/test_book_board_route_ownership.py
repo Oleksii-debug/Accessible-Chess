@@ -9,6 +9,7 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.pgn_service import open_pgn
 from acs.version2_application import Version2Application
 
 
@@ -43,6 +44,13 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
             board_dispatch=lambda *_args: None,
             board_position_projector=project_position,
         )
+
+    def _load_pgn_workspace(self):
+        source = self.root / "route-owner.pgn"
+        source.write_text(_BOOK_PGN, encoding="utf-8")
+        self.app.set_document(open_pgn(source))
+        self.app.shell.open_route("pgn")
+        return source
 
     def _open_game_book(self):
         source = self.root / "route-ownership.md"
@@ -444,6 +452,139 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual("board", self.app.shell.current_route.route_id)
         self.assertEqual(board_focus, self.app.shell.restore_focus_target())
         self.assertEqual(origin, self.app.reader.location())
+
+    def test_book_board_owner_blocks_pgn_open_after_navigate_to_pgn(self):
+        self._load_pgn_workspace()
+        origin = self._open_board()
+        self.app.browser_command("shell", "screen.pgn")
+        projected_before = tuple(self.projected_positions)
+
+        result = self.app.browser_command("review", "pgn.open_on_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertEqual(projected_before, tuple(self.projected_positions))
+        self.assertEqual(origin, self.app.reader.location())
+
+    def test_pgn_board_owner_blocks_book_open_after_navigate_to_books(self):
+        self._load_pgn_workspace()
+        opened = self.app.browser_command("review", "pgn.open_on_board")
+        self.assertEqual("review", opened["kind"])
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        projected_before = tuple(self.projected_positions)
+
+        self.app.browser_command("shell", "screen.books")
+        origin = self._open_game_book()
+        result = self.app.browser_command("books", "book.open_game")
+
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(projected_before, tuple(self.projected_positions))
+        self.assertEqual(origin, self.app.reader.location())
+
+    def test_hidden_pgn_board_navigation_cannot_mutate_cursor(self):
+        self._load_pgn_workspace()
+        self.assertEqual(
+            "review",
+            self.app.browser_command("review", "pgn.open_on_board")["kind"],
+        )
+        before_cursor = self.app.session.workspace.cursor
+        projected_before = tuple(self.projected_positions)
+        self.app.browser_command("shell", "screen.library")
+
+        result = self.app.browser_command("review", "pgn.board_next_move")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual(before_cursor, self.app.session.workspace.cursor)
+        self.assertEqual(projected_before, tuple(self.projected_positions))
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+    def test_hidden_pgn_return_cannot_release_board_owner(self):
+        self._load_pgn_workspace()
+        self.app.browser_command("review", "pgn.open_on_board")
+        self.app.browser_command("shell", "screen.library")
+
+        result = self.app.browser_command("review", "pgn.return")
+
+        self.assertEqual("error", result["kind"])
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+    def test_visible_pgn_return_remains_usable(self):
+        self._load_pgn_workspace()
+        self.app.browser_command("review", "pgn.open_on_board")
+        self.app.browser_command("shell", "screen.pgn")
+
+        result = self.app.browser_command("review", "pgn.return")
+
+        self.assertEqual("review", result["kind"])
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+
+    def test_pgn_open_partial_route_commit_restores_pgn_before_projection(self):
+        self._load_pgn_workspace()
+        self.projected_positions.clear()
+        real_open_route = self.app.shell.open_route
+
+        def fail_after_board_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "board":
+                raise RuntimeError("synthetic PGN Board route tail failure")
+            return focus
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=fail_after_board_commit,
+        ):
+            result = self.app.browser_command("review", "pgn.open_on_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertEqual([], self.projected_positions)
+
+    def test_pgn_projection_rejection_restores_pgn_route_without_owner(self):
+        self._load_pgn_workspace()
+        self.projected_positions.clear()
+        self.app._board_position_projector = lambda fen: (
+            self.projected_positions.append(fen) or {"ok": False}
+        )
+
+        result = self.app.browser_command("review", "pgn.open_on_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertFalse(self.app.pgn_board_active)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        self.assertEqual(1, len(self.projected_positions))
+
+    def test_pgn_return_partial_route_commit_preserves_board_owner(self):
+        self._load_pgn_workspace()
+        self.app.browser_command("review", "pgn.open_on_board")
+        real_open_route = self.app.shell.open_route
+
+        def fail_after_pgn_commit(route_id, *, current_focus_id=""):
+            focus = real_open_route(route_id, current_focus_id=current_focus_id)
+            if route_id == "pgn":
+                raise RuntimeError("synthetic PGN return route tail failure")
+            return focus
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=fail_after_pgn_commit,
+        ):
+            result = self.app.browser_command("review", "pgn.return")
+
+        self.assertEqual("error", result["kind"])
+        self.assertTrue(self.app.pgn_board_active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
 
     def test_return_succeeds_even_if_adapter_observer_fails(self):
         origin = self._open_board()
