@@ -218,6 +218,14 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_OWNER_APEX_DOCX_PARENT_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb" ]; then
+            live_base_ref='integration/owner-apex-docx-whole-product-20261004-ooxple7'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_OWNER_APEX_GENERIC_WIN32_PARENT_ANCESTRY=PASS base=$live_base"
           elif [ "${GITHUB_REF_NAME:-}" = "converge/owner-equal-apex-run-provenance-20261004-c2mbezb" ]; then
             live_base_ref='integration/owner-equal-sha-release-convergence-20261004-ooxple7'
             git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
