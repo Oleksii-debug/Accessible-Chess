@@ -23,13 +23,14 @@ class NativeThreadRuntimeWorkflowTests(unittest.TestCase):
             self.workflow[pull_start:permissions],
         )
 
-    def test_push_keeps_product_authority_and_pr_targets_current_stacked_apex(self) -> None:
+    def test_product_push_and_runtime_fixed_stacked_pr_authorities(self) -> None:
         push, pull = self._trigger_blocks()
         self.assertIn(
             "work/full-product-teacher-education-reachability-20260911", push
         )
         self.assertIn(
-            "integration/nullmove-bookindex-markdown-apex-20261004-solr4k8", pull
+            "integration/import-terminal-application-race-apex-20261004-sol6p3",
+            pull,
         )
         self.assertNotIn("codex/v2-runtime-completion-20260907", self.workflow)
 
@@ -59,7 +60,7 @@ class NativeThreadRuntimeWorkflowTests(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertIn(path, block)
 
-    def test_pr_geometry_late_binds_live_base_and_exact_two_path_scope(self) -> None:
+    def test_pr_geometry_late_binds_live_base_and_exact_four_path_scope(self) -> None:
         required = (
             "PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
             "PR_BASE_REF: ${{ github.event.pull_request.base.ref }}",
@@ -71,18 +72,17 @@ class NativeThreadRuntimeWorkflowTests(unittest.TestCase):
             'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
             'git diff --check "$live_base" HEAD',
             "'.github/workflows/v2-native-thread-runtime.yml'",
+            "'.github/workflows/v2-windows-book-board-adapter.yml'",
             "'tests/test_v2_native_thread_runtime_workflow.py'",
+            "'tests/test_v2_windows_book_board_adapter_workflow.py'",
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.workflow)
         self.assertIn("fetch-depth: 0", self.workflow)
 
-    def test_qualification_only_gate_pins_runtime_as_inherited(self) -> None:
-        self.assertIn(
-            'git diff --quiet "$live_base" HEAD --',
-            self.workflow,
-        )
+    def test_qualification_only_gate_pins_fixed_runtime_as_inherited(self) -> None:
+        self.assertIn('git diff --quiet "$live_base" HEAD --', self.workflow)
         for path in (
             "acs/version2_release_ui.py",
             "acs/version2_release_app.py",
@@ -91,6 +91,7 @@ class NativeThreadRuntimeWorkflowTests(unittest.TestCase):
             "acs/version2_windows_import_event_mailbox.py",
             "acs/version2_windows_import_ui_pump.py",
             "acs/version2_windows_pgn_streaming_host.py",
+            "acs/version2_application.py",
             "scripts/v2_native_thread_oracle.py",
         ):
             with self.subTest(path=path):

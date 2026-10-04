@@ -68,20 +68,24 @@ class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
             source.write_bytes(original_bytes)
             replacement.write_bytes(replacement_bytes)
 
-            real_open = os.open
+            real_source_open = import_contract._open_readonly_no_reparse
             swapped = False
 
-            def swap_before_open(path, flags, *args, **kwargs):
+            def swap_before_open(path):
                 nonlocal swapped
-                candidate = Path(os.fsdecode(path))
+                candidate = Path(path)
                 if not swapped and candidate == source.absolute():
                     source.rename(parked)
                     replacement.rename(source)
                     swapped = True
-                return real_open(path, flags, *args, **kwargs)
+                return real_source_open(path)
 
             try:
-                with patch.object(import_contract.os, "open", side_effect=swap_before_open):
+                with patch.object(
+                    import_contract,
+                    "_open_readonly_no_reparse",
+                    side_effect=swap_before_open,
+                ):
                     with self.assertRaises(ChessBaseIntegrityIOError):
                         integrity.capture_integrity_snapshot(source)
             finally:
@@ -103,17 +107,21 @@ class Dev4ChessBaseIntegrityAtomicityTests(unittest.TestCase):
             source.write_bytes(b"A" * 64)
             foreign.write_bytes(b"B" * 64)
 
-            real_open = os.open
-            foreign_fd = real_open(os.fspath(foreign), os.O_RDONLY | getattr(os, "O_BINARY", 0))
+            real_source_open = import_contract._open_readonly_no_reparse
+            foreign_fd = os.open(os.fspath(foreign), os.O_RDONLY | getattr(os, "O_BINARY", 0))
 
-            def substitute_foreign_handle(path, flags, *args, **kwargs):
-                candidate = Path(os.fsdecode(path))
+            def substitute_foreign_handle(path):
+                candidate = Path(path)
                 if candidate == source.absolute():
                     return os.dup(foreign_fd)
-                return real_open(path, flags, *args, **kwargs)
+                return real_source_open(path)
 
             try:
-                with patch.object(import_contract.os, "open", side_effect=substitute_foreign_handle):
+                with patch.object(
+                    import_contract,
+                    "_open_readonly_no_reparse",
+                    side_effect=substitute_foreign_handle,
+                ):
                     with self.assertRaises(ChessBaseIntegrityIOError):
                         integrity.capture_integrity_snapshot(source)
             finally:

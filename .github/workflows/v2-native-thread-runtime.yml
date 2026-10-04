@@ -23,7 +23,7 @@ on:
       - 'scripts/v2_native_thread_oracle.py'
       - '.github/workflows/v2-native-thread-runtime.yml'
   pull_request:
-    branches: [integration/nullmove-bookindex-markdown-apex-20261004-solr4k8]
+    branches: [integration/import-terminal-application-race-apex-20261004-sol6p3]
     paths:
       - 'acs/version2_release_ui.py'
       - 'acs/version2_release_app.py'
@@ -74,7 +74,7 @@ jobs:
           git reset --hard HEAD
           git checkout-index --force --all
 
-      - name: Bind exact live stacked-parent geometry
+      - name: Bind exact live runtime-fixed stacked-parent geometry
         shell: bash
         run: |
           set -euo pipefail
@@ -94,11 +94,13 @@ jobs:
             changed="$(git diff --name-only "$live_base" HEAD | LC_ALL=C sort)"
             wanted="$(printf '%s\n' \
               '.github/workflows/v2-native-thread-runtime.yml' \
-              'tests/test_v2_native_thread_runtime_workflow.py' | LC_ALL=C sort)"
+              '.github/workflows/v2-windows-book-board-adapter.yml' \
+              'tests/test_v2_native_thread_runtime_workflow.py' \
+              'tests/test_v2_windows_book_board_adapter_workflow.py' | LC_ALL=C sort)"
             test "$changed" = "$wanted"
 
-            # Qualification-only successor: every shipping/native runtime and
-            # oracle implementation is inherited byte-for-byte from the apex.
+            # The convergence changes qualification only. All runtime authorities,
+            # including the newly fixed file/import/application seams, are inherited.
             git diff --quiet "$live_base" HEAD -- \
               acs/version2_release_ui.py \
               acs/version2_release_app.py \
@@ -107,6 +109,7 @@ jobs:
               acs/version2_windows_import_event_mailbox.py \
               acs/version2_windows_import_ui_pump.py \
               acs/version2_windows_pgn_streaming_host.py \
+              acs/version2_application.py \
               scripts/v2_native_thread_oracle.py
           else
             parent="$(git rev-parse HEAD^)"

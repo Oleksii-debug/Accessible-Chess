@@ -23,18 +23,19 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
             self.workflow[pull_start:dispatch],
         )
 
-    def test_product_push_authority_and_current_stacked_pr_authority(self) -> None:
+    def test_product_push_and_runtime_fixed_stacked_pr_authorities(self) -> None:
         push, pull = self._trigger_blocks()
         self.assertIn(
             "work/full-product-teacher-education-reachability-20260911", push
         )
         self.assertIn(
-            "qualification/native-thread-current-apex-20261004-solr4k8", pull
+            "integration/import-terminal-application-race-apex-20261004-sol6p3",
+            pull,
         )
         self.assertNotIn("work/v2-windows-book-board-adapter-20260831", self.workflow)
         self.assertNotIn("work/v2-book-board-workflow-20260831", self.workflow)
 
-    def test_live_stacked_geometry_and_exact_two_path_scope(self) -> None:
+    def test_live_stacked_geometry_and_exact_four_path_scope(self) -> None:
         for fragment in (
             "PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
             "PR_BASE_REF: ${{ github.event.pull_request.base.ref }}",
@@ -45,7 +46,9 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_base" HEAD',
             'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
             'git diff --check "$live_base" HEAD',
+            "'.github/workflows/v2-native-thread-runtime.yml'",
             "'.github/workflows/v2-windows-book-board-adapter.yml'",
+            "'tests/test_v2_native_thread_runtime_workflow.py'",
             "'tests/test_v2_windows_book_board_adapter_workflow.py'",
         ):
             with self.subTest(fragment=fragment):
@@ -72,7 +75,7 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertIn(path, block)
 
-    def test_qualification_only_gate_keeps_runtime_and_launchers_inherited(self) -> None:
+    def test_qualification_only_gate_keeps_runtime_fixed_authorities_inherited(self) -> None:
         self.assertIn('git diff --quiet "$live_base" HEAD --', self.workflow)
         for path in (
             "run_accessible_chess.py",
@@ -84,6 +87,7 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
             "acs/full_product_presenters.py",
             "acs/full_product_actions.py",
             "acs/version2_application.py",
+            "acs/version2_windows_file_workflows.py",
         ):
             with self.subTest(path=path):
                 self.assertIn(path, self.workflow)
