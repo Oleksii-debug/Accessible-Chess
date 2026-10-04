@@ -201,7 +201,10 @@ jobs:
           if([string]$run.status -ne 'completed' -or [string]$run.conclusion -ne 'success'){throw 'W4_RUN_NOT_SUCCESSFUL'}
           if(([string]$run.head_branch) -ne $env:WORKFLOW_REGISTRATION_BRANCH){throw 'W4_RUN_BRANCH_MISMATCH'}
           if(([string]$run.head_sha).ToLowerInvariant() -ne $env:FINALIZER_WORKFLOW_SHA){throw 'W4_RUN_WORKFLOW_SHA_MISMATCH'}
+          "W4_WORKFLOW_ID=$($workflow.id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "W4_RUN_ATTEMPT=$($run.run_attempt)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "W4_VERIFIED_WORKFLOW_ID=$($workflow.id)"
+          Write-Host "W4_VERIFIED_RUN_ATTEMPT=$($run.run_attempt)"
           Write-Host 'W4_RUN_AUTHORITY=PASS'
 
       - name: Download exact W4 artifact by run ID
@@ -412,7 +415,15 @@ jobs:
           if([int]$data.sound_wav_count -ne 330){throw 'OWNER_FINAL_SOUND_COUNT_INVALID'}
           if([int]$data.seed_source_count -ne 6 -or [int]$data.seed_game_count -ne 3738){throw 'OWNER_FINAL_LIBRARY_IDENTITY_INVALID'}
           if([bool]$data.human_tested -ne $false -or [bool]$data.nvda_verified -ne $false){throw 'OWNER_FINAL_MACHINE_RECEIPT_OVERCLAIMS_ACCEPTANCE'}
+          $data | Add-Member -NotePropertyName finalizer_workflow_sha -NotePropertyValue $env:FINALIZER_WORKFLOW_SHA
+          $data | Add-Member -NotePropertyName exact_product_sha -NotePropertyValue $env:EXACT_PRODUCT_SHA
+          $data | Add-Member -NotePropertyName w4_workflow_id -NotePropertyValue ([int64]$env:W4_WORKFLOW_ID)
+          $data | Add-Member -NotePropertyName w4_run_id -NotePropertyValue ([int64]$env:W4_RUN_ID)
+          $data | Add-Member -NotePropertyName w4_run_attempt -NotePropertyValue ([int64]$env:W4_RUN_ATTEMPT)
+          $data | Add-Member -NotePropertyName w4_candidate_sha256 -NotePropertyValue $env:W4_CANDIDATE_SHA_INPUT
+          $data | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $receipt -Encoding utf8
           Write-Host "OWNER_ONECLICK_ZIP_SHA256=$($data.archive_sha256)"
+          Write-Host 'OWNER_FINAL_RECEIPT_PROVENANCE=PASS'
           Write-Host 'OWNER_ONECLICK_ASSEMBLY=PASS'
 
       - name: Launch exact root one-click bytes and inspect machine-only report
