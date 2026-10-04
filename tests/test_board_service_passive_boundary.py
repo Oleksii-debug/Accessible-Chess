@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Mapping
 
 from acs.board_service import (
     BoardCommandService,
     BoardSnapshot,
     ClockSnapshot,
     EngineSnapshot,
+    MaterialView,
     MoveView,
     SquareView,
     piece_color,
@@ -98,6 +100,44 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "attack origins must be tuples"):
             BoardSnapshot(pieces, "w", attacks={0: HostileTuple((1,))})
         self.assertFalse(HostileTuple.touched)
+
+    def test_material_mapping_rejects_active_keys_before_hash_or_equality(self) -> None:
+        class HostileText(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("hostile material-key hash must not execute")
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("hostile material-key equality must not execute")
+
+        class MaterialMapping(Mapping):
+            def __init__(self, first_key):
+                self.first_key = first_key
+
+            def __iter__(self):
+                yield self.first_key
+                yield from ("N", "B", "R", "Q", "K")
+
+            def __len__(self):
+                return 6
+
+            def __getitem__(self, key):
+                return 0
+
+        hostile = HostileText("P")
+        exact = {piece: 0 for piece in "PNBRQK"}
+
+        with self.assertRaisesRegex(TypeError, "material keys must be canonical"):
+            MaterialView(MaterialMapping(hostile), exact, 0, 0)
+        self.assertFalse(HostileText.touched)
+
+        with self.assertRaisesRegex(ValueError, "contain every canonical piece"):
+            MaterialView({piece: 0 for piece in "PNBRQ"}, exact, 0, 0)
+
+        self.assertEqual(MaterialView(exact, exact, 0, 0).balance, 0)
 
     def test_exact_builtin_values_keep_public_board_command_semantics(self) -> None:
         pieces = list(_empty_pieces())
