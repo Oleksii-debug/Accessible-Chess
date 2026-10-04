@@ -1,0 +1,45 @@
+name: Book HTML Nested Semantic Owner Order
+
+on:
+  push:
+    branches:
+      - fix/books-nested-rich-owner-order-20261004-sol6u8
+    paths:
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_html_nested_semantic_owner_order.py'
+      - '.github/workflows/books-nested-semantic-owner-order.yml'
+  pull_request:
+    paths:
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_html_nested_semantic_owner_order.py'
+      - '.github/workflows/books-nested-semantic-owner-order.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  nested-semantic-owner-order:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+      - name: Compile focused regression
+        run: python -m py_compile acs/book_html_import.py tests/test_book_html_nested_semantic_owner_order.py
+      - name: Run focused nested semantic owner regression
+        run: python -m unittest -v tests.test_book_html_nested_semantic_owner_order
