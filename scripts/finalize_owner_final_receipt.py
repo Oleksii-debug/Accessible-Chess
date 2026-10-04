@@ -11,13 +11,11 @@ It does not claim human or NVDA acceptance.  Both flags must remain false.
 """
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import sys
-from typing import Mapping
 
 from acs.version2_portable_package import (
     Version2PortablePackageError,
@@ -166,6 +164,8 @@ def finalize_owner_final_receipt(
             "owner final receipt key set mismatch; "
             f"missing={missing} unexpected={unexpected}"
         )
+    if value.get("package_root") != "owner-oneclick":
+        _fail("owner final receipt package root mismatch")
     if value.get("integration_sha") != product_sha:
         _fail("owner final receipt product SHA mismatch")
     if value.get("archive_path") != str(final_zip):
