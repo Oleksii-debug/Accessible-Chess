@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -7,6 +8,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
     def setUpClass(cls):
         root = Path(__file__).resolve().parents[1]
         cls.source = (root / "packaging" / "portable_launcher.c").read_text(encoding="utf-8")
+        cls.runtime = (root / "run_accessible_chess.py").read_text(encoding="utf-8")
         cls.workflow = (
             root / ".github" / "workflows" / "p0-user-oneclick-portable-launcher.yml"
         ).read_text(encoding="utf-8")
@@ -28,7 +30,36 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("CP_UTF8", self.source)
         self.assertIn("STATUS: FAILED_EARLY_EXIT", self.source)
         self.assertIn("CHILD_EXIT_CODE", self.source)
+        self.assertIn("CHILD_EXIT_REASON", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
+
+    def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
+        contracts = (
+            (
+                "ACCESSIBILITY_HOST_INIT_EXIT_CODE",
+                71,
+                "ACCESSIBILITY_HOST_INIT_FAILED",
+            ),
+            (
+                "SAFE_LOCAL_SERVER_INIT_EXIT_CODE",
+                72,
+                "SAFE_LOCAL_SERVER_INIT_FAILED",
+            ),
+        )
+        for name, code, reason in contracts:
+            with self.subTest(name=name):
+                self.assertRegex(
+                    self.runtime,
+                    re.compile(rf"^{name}\s*=\s*{code}\s*$", re.MULTILINE),
+                )
+                self.assertRegex(
+                    self.source,
+                    re.compile(rf"^#define\s+{name}\s+{code}\s*$", re.MULTILINE),
+                )
+                self.assertIn(reason, self.source)
+                self.assertIn(name, self.runtime)
+        self.assertIn("raise SystemExit(exit_code)", self.runtime)
+        self.assertIn("UNKNOWN_EARLY_EXIT", self.source)
 
     def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
