@@ -106,5 +106,11 @@ jobs:
           tests.test_version2_training_current_runtime
           tests.test_accessible_webui
 
+      - name: Execute retained NVDA machine contract
+        run: >-
+          python -m unittest -v
+          tests.test_nvda_p0_contract
+          tests.test_version2_accessibility_convergence
+
       - name: Core selftest
         run: python -m acs.selftest
