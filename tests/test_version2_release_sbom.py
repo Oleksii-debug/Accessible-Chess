@@ -283,6 +283,30 @@ class Version2ReleaseSbomTests(unittest.TestCase):
             self.assertEqual(sound["licenseInfoInFiles"], ["NOASSERTION"])
             self.assertNotEqual(sound["licenseConcluded"], "USER_PROVIDED")
 
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = self._package(root)
+            provenance_path = package / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"]["move"]["license_id"] = "USER_PROVIDED"
+            provenance["events"]["alias"] = {
+                **provenance["events"]["move"],
+                "license_id": "NOASSERTION",
+            }
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseSbomError,
+                "conflicting license identities",
+            ):
+                build_version2_release_sbom(
+                    package,
+                    integration_sha=_SHA,
+                    inventory=self._inventory(package),
+                )
+
     def test_every_packaged_sound_requires_authoritative_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
