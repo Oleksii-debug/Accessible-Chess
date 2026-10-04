@@ -23,6 +23,10 @@ class OwnerDocxWin32PortabilityTests(unittest.TestCase):
             "owner" + chr(31) + ".docx",
             "owner" + chr(0xD800) + ".docx",
             chr(0x1F642) * 126 + ".docx",
+            "C:owner.docx",
+            r"C:\owner.docx",
+            "nested/owner.docx",
+            r"nested\owner.docx",
         )
         for name in accepted:
             with self.subTest(kind="accepted", name=repr(name)):
