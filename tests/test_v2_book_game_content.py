@@ -111,6 +111,33 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         source.line.moves[0].san = "corrupted-after-return"
         self.assertEqual(resolved.game.line.moves[0].san, original_san)
 
+    def test_reference_lookup_rejects_pgn_subclass_before_deepcopy_hook(self) -> None:
+        class HostilePgnGame(PgnGame):
+            touched = False
+
+            def __deepcopy__(self, memo):
+                type(self).touched = True
+                raise AssertionError("hostile deepcopy hook must not execute")
+
+        source = parse_games(EMBEDDED_PGN)[0]
+        hostile = HostilePgnGame(
+            tags=dict(source.tags),
+            line=source.line,
+            source_index=source.source_index,
+            warnings=list(source.warnings),
+        )
+        lookup = _Lookup(hostile)
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(Game(game_id=17), lookup=lookup)
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+        self.assertEqual(lookup.calls, [17])
+        self.assertFalse(HostilePgnGame.touched)
+
     def test_reference_backend_failures_do_not_leak_paths_or_provider_details(self) -> None:
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_game(Game(game_id=9), lookup=_ExplodingLookup())
