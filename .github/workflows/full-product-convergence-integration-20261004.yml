@@ -245,11 +245,13 @@ jobs:
           node --check tests/js/library_surface_dom_test.js
           node --check tests/js/library_event_boundary_test.js
           node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
           node tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
           node tests/js/library_surface_dom_test.js
           node tests/js/library_event_boundary_test.js
           node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
           node tests/js/p0_accessibility_runtime_test.js
           node tests/js/p0_dynamic_selection_runtime_test.js
           node tests/js/p0_accessibility_partial_replacement_test.js
@@ -406,6 +408,7 @@ jobs:
           tests.test_pgn_open_unlink_source_binding
           tests.test_pgn_open_windows_reparse
           tests.test_version2_pgn_commands
+          tests.test_pgn_browser_presentation_lease_required
           tests.test_version2_pgn_real_board_projection
           tests.test_w3_unsaved_pgn_open_guard
           tests.test_pgn_document_new_game_position_integrity
