@@ -8,12 +8,14 @@ on:
       - acs/student_progress.py
       - acs/student_progress_store.py
       - tests/test_dev3_student_progress_store.py
+      - tests/test_student_progress_store_safety.py
       - .github/workflows/student-progress-current-apex.yml
   pull_request:
     paths:
       - acs/student_progress.py
       - acs/student_progress_store.py
       - tests/test_dev3_student_progress_store.py
+      - tests/test_student_progress_store_safety.py
       - .github/workflows/student-progress-current-apex.yml
   workflow_dispatch:
 
@@ -35,7 +37,7 @@ jobs:
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       DOMAIN_BLOB: a470afdaff99413a1163e52192a0f12ee8b54671
-      STORE_BLOB: d6ffeadc6fb72c659155f5f463c54992831ffc69
+      STORE_BLOB: 41125b74aa8a1446e3830f268a59d85cd0784b50
       TEST_BLOB: 5931a8f0935ea62c0643d15b33be15d576dafa53
     steps:
       - name: Checkout exact candidate head
@@ -64,11 +66,13 @@ jobs:
           acs/student_progress.py
           acs/student_progress_store.py
           tests/test_dev3_student_progress_store.py
+          tests/test_student_progress_store_safety.py
 
       - name: Run progress and education authority regressions
         run: >-
           python -m unittest -v
           tests.test_dev3_student_progress_store
+          tests.test_student_progress_store_safety
           tests.test_education_records
           tests.test_education_records_store
           tests.test_education_classroom_integration

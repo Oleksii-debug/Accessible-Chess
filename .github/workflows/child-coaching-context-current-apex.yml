@@ -13,6 +13,7 @@ on:
       - tests/test_child_coaching_context.py
       - tests/test_version2_student_progress_context_binding.py
       - tests/test_student_progress_final_product_binding.py
+      - tests/test_student_progress_store_safety.py
       - .github/workflows/child-coaching-context-current-apex.yml
   pull_request:
     paths:
@@ -24,6 +25,7 @@ on:
       - tests/test_child_coaching_context.py
       - tests/test_version2_student_progress_context_binding.py
       - tests/test_student_progress_final_product_binding.py
+      - tests/test_student_progress_store_safety.py
       - .github/workflows/child-coaching-context-current-apex.yml
   workflow_dispatch:
 
@@ -47,7 +49,7 @@ jobs:
       CONTEXT_BLOB: 890fcc1d6cd57c1555e02a435d835d1d3fc75c4d
       CONTEXT_TEST_BLOB: b775380ca5f4d5311a87b2a9330b42a3ac08f7ff
       PROGRESS_DOMAIN_BLOB: a470afdaff99413a1163e52192a0f12ee8b54671
-      PROGRESS_STORE_BLOB: d6ffeadc6fb72c659155f5f463c54992831ffc69
+      PROGRESS_STORE_BLOB: 41125b74aa8a1446e3830f268a59d85cd0784b50
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -81,6 +83,7 @@ jobs:
           tests/test_child_coaching_context.py
           tests/test_version2_student_progress_context_binding.py
           tests/test_student_progress_final_product_binding.py
+          tests/test_student_progress_store_safety.py
 
       - name: Run coaching-context and adjacent authority contracts
         run: >-
@@ -89,6 +92,7 @@ jobs:
           tests.test_version2_student_progress_context_binding
           tests.test_student_progress_final_product_binding
           tests.test_dev3_student_progress_store
+          tests.test_student_progress_store_safety
           tests.test_version2_teacher_session_runtime_binding
           tests.test_child_coaching_projection
           tests.test_education_classroom_integration
