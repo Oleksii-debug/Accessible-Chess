@@ -384,6 +384,15 @@ def _local_name(tag: object) -> str:
     return tag.rsplit("}", 1)[-1].split(":", 1)[-1].casefold()
 
 
+def _is_exact_identifier(value: object) -> bool:
+    return (
+        type(value) is str
+        and bool(value)
+        and value == value.strip()
+        and not any(character.isspace() for character in value)
+    )
+
+
 def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
     wanted = f"{{{_OPF_NAMESPACE}}}{name}"
     for child in parent:
@@ -443,6 +452,11 @@ def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> N
         raw_id = element.attrib.get("id")
         if raw_id is None:
             return
+        if not _is_exact_identifier(raw_id):
+            raise _error(
+                "EPUB package contains a malformed document identifier",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
         if raw_id in seen:
             raise _error(
                 "EPUB package contains duplicate document identifiers",
@@ -477,13 +491,16 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    unique_identifier = package.attrib.get("unique-identifier")
-    if (
-        type(unique_identifier) is not str
-        or not unique_identifier
-        or unique_identifier != unique_identifier.strip()
-        or any(character.isspace() for character in unique_identifier)
+    if (package.text or "").strip() or any(
+        (child.tail or "").strip() for child in package
     ):
+        raise _error(
+            "EPUB package contains invalid mixed text",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    unique_identifier = package.attrib.get("unique-identifier")
+    if not _is_exact_identifier(unique_identifier):
         raise _error(
             "EPUB package metadata has a missing or malformed unique identifier",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -492,31 +509,24 @@ def _validate_package_document(package: ET.Element) -> None:
     structural_children = [
         child.tag for child in package if _is_opf_namespace_tag(child.tag)
     ]
-    required = (
-        (_METADATA_TAG, "metadata"),
-        (_MANIFEST_TAG, "manifest"),
-        (_SPINE_TAG, "spine"),
-    )
-    positions: list[int] = []
-    for tag, name in required:
-        matches = [
-            index
-            for index, child_tag in enumerate(structural_children)
-            if child_tag == tag
-        ]
-        if len(matches) != 1:
-            raise _error(
-                f"EPUB package must contain exactly one {name} section",
-                BookEpubImportErrorCode.MALFORMED_PACKAGE,
-            )
-        positions.append(matches[0])
-    if positions != sorted(positions):
+    required = (_METADATA_TAG, _MANIFEST_TAG, _SPINE_TAG)
+    if (
+        tuple(structural_children[:3]) != required
+        or any(structural_children.count(tag) != 1 for tag in required)
+    ):
         raise _error(
-            "EPUB package required sections are out of canonical order",
+            "EPUB package required sections must be the first three OPF children in canonical order",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
     metadata = _required_unique_direct_child(package, "metadata")
+    if (metadata.text or "").strip() or any(
+        (child.tail or "").strip() for child in metadata
+    ):
+        raise _error(
+            "EPUB metadata contains invalid mixed text",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
     _validate_package_ids_unique(package, metadata)
     identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
     matching_identifiers: list[str] = []
@@ -723,28 +733,25 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         raw_item_id = element.attrib.get("id")
-        media_type = (element.attrib.get("media-type") or "").strip().casefold()
+        raw_media_type = element.attrib.get("media-type")
         href = element.attrib.get("href")
         raw_fallback = element.attrib.get("fallback")
         if (
-            type(raw_item_id) is not str
-            or not raw_item_id
-            or raw_item_id != raw_item_id.strip()
-            or any(character.isspace() for character in raw_item_id)
-            or not media_type
+            not _is_exact_identifier(raw_item_id)
+            or type(raw_media_type) is not str
+            or not raw_media_type
+            or raw_media_type != raw_media_type.strip()
+            or any(character.isspace() for character in raw_media_type)
         ):
             raise _error(
                 "EPUB manifest item is missing or has malformed required identity",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         item_id = raw_item_id
+        media_type = raw_media_type.casefold()
         if raw_fallback is None:
             fallback = None
-        elif (
-            not raw_fallback
-            or raw_fallback != raw_fallback.strip()
-            or any(character.isspace() for character in raw_fallback)
-        ):
+        elif not _is_exact_identifier(raw_fallback):
             raise _error(
                 "EPUB manifest fallback identifier is malformed",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -884,12 +891,7 @@ def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         raw_item_id = element.attrib.get("idref")
-        if (
-            type(raw_item_id) is not str
-            or not raw_item_id
-            or raw_item_id != raw_item_id.strip()
-            or any(character.isspace() for character in raw_item_id)
-        ):
+        if not _is_exact_identifier(raw_item_id):
             raise _error(
                 "EPUB spine item has a missing or malformed manifest reference",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
