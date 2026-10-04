@@ -281,6 +281,13 @@ jobs:
           exact = os.environ['EXACT_PRODUCT_SHA'].strip().lower()
           if not re.fullmatch(r'[0-9a-f]{40}', exact):
               raise SystemExit('EXACT_PRODUCT_SHA_INVALID')
+          expected_candidate_name = f'Accessible-Chess-V2-{exact[:7]}-NVDA-test-candidate.zip'
+          if candidate.name != expected_candidate_name or candidate.parent != root:
+              raise SystemExit(
+                  f'W4_CANDIDATE_NAME_MISMATCH actual={candidate.relative_to(root)} expected={expected_candidate_name}'
+              )
+          if metadata_files[0] != root / 'p0-evidence' / 'w4-run-metadata.json':
+              raise SystemExit('W4_METADATA_LOCATION_INVALID')
           if metadata.get('product_sha') != exact:
               raise SystemExit(
                   f'W4_PRODUCT_SHA_STALE actual={metadata.get("product_sha")} expected={exact}'
@@ -360,9 +367,16 @@ jobs:
                   if folded in seen:
                       raise SystemExit('W4_ZIP_DUPLICATE_PATH')
                   seen.add(folded)
+                  if info.flag_bits & 0x1:
+                      raise SystemExit('W4_ZIP_ENCRYPTED_MEMBER_FORBIDDEN')
                   unix_type = (info.external_attr >> 16) & 0o170000
-                  if unix_type == 0o120000:
-                      raise SystemExit('W4_ZIP_SYMLINK_FORBIDDEN')
+                  if info.is_dir():
+                      if unix_type not in {0, 0o040000}:
+                          raise SystemExit('W4_ZIP_SPECIAL_MEMBER_FORBIDDEN')
+                  elif unix_type not in {0, 0o100000}:
+                      if unix_type == 0o120000:
+                          raise SystemExit('W4_ZIP_SYMLINK_FORBIDDEN')
+                      raise SystemExit('W4_ZIP_SPECIAL_MEMBER_FORBIDDEN')
                   total += int(info.file_size)
                   if total > 2 * 1024 * 1024 * 1024:
                       raise SystemExit('W4_ZIP_EXPANSION_LIMIT')
