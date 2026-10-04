@@ -56,6 +56,20 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_consolidated_completion_push_late_binds_live_parent(self) -> None:
+        required = (
+            "      - qualification/consolidated-completion-contract-20261004-ooxple7",
+            'elif [ "${GITHUB_REF_NAME:-}" = "qualification/consolidated-completion-contract-20261004-ooxple7" ]; then',
+            "live_base_ref='fix/portable-package-same-inode-stable-read-20261004-ooxple7'",
+            'git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"',
+            'git merge-base --is-ancestor "$live_base" HEAD',
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            "FULL_PRODUCT_LIVE_QUALIFICATION_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
