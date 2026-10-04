@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import stat
 import tempfile
 from typing import Mapping
@@ -176,6 +177,74 @@ def _fsync_directory(path: Path) -> None:
     finally:
         os.close(descriptor)
 
+
+
+def _storage_directory_snapshot(path: Path) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise StudentProgressBusyError(
+            "student progress storage directory is unavailable"
+        ) from exc
+    try:
+        _require_private_directory(metadata, "student progress directory")
+    except ValueError as exc:
+        raise StudentProgressBusyError(
+            "student progress storage directory is unavailable"
+        ) from exc
+    return metadata
+
+
+def _assert_storage_directory_current(
+    path: Path,
+    expected: os.stat_result,
+) -> None:
+    current = _storage_directory_snapshot(path)
+    if not _same_file_identity(expected, current):
+        raise StudentProgressBusyError(
+            "student progress storage directory changed during save"
+        )
+
+
+def _discard_owned_temp(path: Path, expected: os.stat_result | None) -> None:
+    """Vacate only an identity-bound temp pathname without destructive cleanup."""
+    if expected is None:
+        return
+    try:
+        current = path.lstat()
+        _require_private_regular(current, "student progress temporary file")
+    except (FileNotFoundError, OSError, ValueError):
+        return
+    if not _same_file_identity(expected, current):
+        return
+
+    quarantine: Path | None = None
+    for _ in range(8):
+        candidate = path.parent / (
+            f".{path.name}.cleanup-quarantine-{secrets.token_hex(8)}"
+        )
+        if candidate.exists() or candidate.is_symlink():
+            continue
+        quarantine = candidate
+        break
+    if quarantine is None:
+        return
+
+    try:
+        os.rename(path, quarantine)
+    except OSError:
+        return
+
+    # Never unlink the quarantine after a pathname operation. A non-cooperating
+    # actor could have won the final identity-check -> rename window. Rare
+    # residue is safer than deleting bytes whose ownership is no longer proven.
+    try:
+        moved = quarantine.lstat()
+        _require_private_regular(moved, "student progress temporary quarantine")
+    except (FileNotFoundError, OSError, ValueError):
+        return
+    if not _same_file_identity(expected, moved):
+        return
 
 def _open_writer_lock(path: Path) -> int:
     """Open one persistent private lock inode without following redirects.
@@ -405,6 +474,7 @@ class StudentProgressStore:
             raise TypeError("ledger must be a StudentProgressLedger")
         expected = _validate_revision(expected_revision)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        directory_identity = _storage_directory_snapshot(self.path.parent)
 
         descriptor = _open_writer_lock(self._lock_path)
         acquired = False
@@ -412,6 +482,7 @@ class StudentProgressStore:
         try:
             _lock_writer_descriptor(descriptor)
             acquired = True
+            _assert_storage_directory_current(self.path.parent, directory_identity)
             _assert_writer_lock_current(self._lock_path, descriptor)
             try:
                 current_data = _read_bounded_file(self.path)
@@ -440,21 +511,55 @@ class StudentProgressStore:
                 dir=str(self.path.parent),
             )
             temporary = Path(raw_path)
+            temporary_identity: os.stat_result | None = None
             try:
+                created = os.fstat(fd)
+                _require_private_regular(created, "student progress temporary file")
+                temporary_identity = created
                 with os.fdopen(fd, "wb") as handle:
                     handle.write(data)
                     handle.flush()
                     os.fsync(handle.fileno())
+                    prepared = os.fstat(handle.fileno())
+                    _require_private_regular(
+                        prepared,
+                        "student progress temporary file",
+                    )
+                    if not _same_file_identity(created, prepared):
+                        raise StudentProgressBusyError(
+                            "student progress temporary file changed while being prepared"
+                        )
+                    temporary_identity = prepared
             except Exception:
-                if temporary.exists():
-                    temporary.unlink()
+                _discard_owned_temp(temporary, temporary_identity)
                 temporary = None
                 raise
 
+            _assert_storage_directory_current(self.path.parent, directory_identity)
+            current_temp = temporary.lstat()
+            _require_private_regular(current_temp, "student progress temporary file")
+            if (
+                temporary_identity is None
+                or not _same_file_identity(temporary_identity, current_temp)
+            ):
+                raise StudentProgressBusyError(
+                    "student progress temporary file changed before publication"
+                )
             _assert_writer_lock_current(self._lock_path, descriptor)
             os.replace(temporary, self.path)
             temporary = None
+
+            published = self.path.lstat()
+            _require_private_regular(published, "student progress publication")
+            if not _same_file_identity(current_temp, published):
+                raise StudentProgressDurabilityError(
+                    "student progress publication identity changed"
+                )
             try:
+                _assert_storage_directory_current(
+                    self.path.parent,
+                    directory_identity,
+                )
                 _fsync_directory(self.path.parent)
                 confirmed = _read_bounded_file(self.path)
             except Exception as exc:
@@ -466,15 +571,31 @@ class StudentProgressStore:
                     "student progress was published but canonical bytes changed"
                 )
             try:
+                _assert_storage_directory_current(
+                    self.path.parent,
+                    directory_identity,
+                )
+                final_publication = self.path.lstat()
+                _require_private_regular(
+                    final_publication,
+                    "student progress publication",
+                )
+                if not _same_file_identity(published, final_publication):
+                    raise StudentProgressBusyError(
+                        "student progress publication identity changed"
+                    )
                 _assert_writer_lock_current(self._lock_path, descriptor)
-            except StudentProgressBusyError as exc:
+            except (StudentProgressBusyError, OSError, ValueError) as exc:
                 raise StudentProgressDurabilityError(
                     "student progress was published but writer authority changed"
                 ) from exc
             return new_revision
         finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
+            if temporary is not None:
+                _discard_owned_temp(
+                    temporary,
+                    locals().get("temporary_identity"),
+                )
             if acquired:
                 _unlock_writer_descriptor(descriptor)
             try:
