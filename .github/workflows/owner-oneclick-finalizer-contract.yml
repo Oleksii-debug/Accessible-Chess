@@ -7,6 +7,10 @@ on:
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'scripts/finalize_owner_final_receipt.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_finalize_owner_final_receipt.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
   push:
     branches:
@@ -16,6 +20,10 @@ on:
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'scripts/finalize_owner_final_receipt.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_finalize_owner_final_receipt.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
   workflow_dispatch:
 
@@ -52,12 +60,18 @@ jobs:
           python -m py_compile
           scripts/build_owner_portable_candidate.py
           scripts/materialize_owner_library_seed.py
+          scripts/verify_owner_w4_run_provenance.py
+          scripts/finalize_owner_final_receipt.py
+          tests/test_verify_owner_w4_run_provenance.py
+          tests/test_finalize_owner_final_receipt.py
           tests/test_owner_oneclick_from_w4_workflow.py
 
       - name: Run finalizer wiring and owner-input regressions
         run: >-
           python -m unittest -v
           tests.test_owner_oneclick_from_w4_workflow
+          tests.test_verify_owner_w4_run_provenance
+          tests.test_finalize_owner_final_receipt
           tests.test_materialize_owner_library_seed
           tests.test_owner_portable_candidate
 
@@ -70,6 +84,10 @@ jobs:
           from pathlib import Path
           workflow = Path('.github/workflows/owner-oneclick-from-w4.yml').read_text(encoding='utf-8')
           assert 'metadata.get(\'product_sha\') != exact' in workflow
+          assert 'scripts/verify_owner_w4_run_provenance.py' in workflow
+          assert 'scripts/finalize_owner_final_receipt.py' in workflow
+          assert 'OWNER_W4_RUN_API_PROVENANCE=PASS' in workflow
+          assert 'OWNER_W4_RUN_EXACT_RELEASE_APEX=PASS' in workflow
           assert 'HUMAN_TESTED=YES' not in workflow
           assert 'NVDA_VERIFIED=YES' not in workflow
           assert 'expected_source_count=6' in workflow
