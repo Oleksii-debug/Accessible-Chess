@@ -1,5 +1,4 @@
 import unittest
-from collections.abc import Mapping
 
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
 from acs.bookreader import BookReader
@@ -65,102 +64,78 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds 256"):
             BookReader.restore_snapshot(self.make_book(), malformed)
 
-    def test_restore_snapshot_bounds_mapping_iteration_before_field_materialization(self):
+    def test_restore_rejects_snapshot_mapping_subclass_before_hooks(self):
         book = self.make_book()
         payload = BookReader(book).snapshot()
-        keys = tuple(payload)
 
-        class OverProducingSnapshot(dict):
-            def __len__(self):
-                return len(keys)
-
-            def __iter__(self):
-                yield from keys
-                yield "unexpected"
-                raise AssertionError("restore must not consume beyond the bounded key probe")
-
-            def __getitem__(self, key):
-                return payload[key]
-
-        with self.assertRaisesRegex(ValueError, "changed while being read"):
-            BookReader.restore_snapshot(book, OverProducingSnapshot())
-
-    def test_restore_snapshot_bounds_nested_mapping_iteration(self):
-        class OverProducingMapping(Mapping):
-            def __init__(self, payload, extra_key):
-                self.payload = payload
-                self.extra_key = extra_key
+        class HostileSnapshot(dict):
+            touched = False
 
             def __len__(self):
-                return len(self.payload)
+                type(self).touched = True
+                raise AssertionError("snapshot len hook must not execute")
 
             def __iter__(self):
-                yield from self.payload
-                yield self.extra_key
-                raise AssertionError("nested restore must stop at advertised count + 1")
+                type(self).touched = True
+                raise AssertionError("snapshot iter hook must not execute")
 
             def __getitem__(self, key):
-                return self.payload[key]
+                type(self).touched = True
+                raise AssertionError("snapshot getitem hook must not execute")
 
+        hostile = HostileSnapshot()
+        dict.update(hostile, payload)
+        HostileSnapshot.touched = False
+
+        with self.assertRaisesRegex(TypeError, "snapshot must be a mapping"):
+            BookReader.restore_snapshot(book, hostile)
+        self.assertFalse(HostileSnapshot.touched)
+    def test_restore_rejects_nested_mapping_subclasses_before_hooks(self):
         book = self.make_book()
-
-        with_return_point = BookReader(book)
-        with_return_point.go_to(3)
-        with_return_point.save_return_point("analysis")
-        return_snapshot = with_return_point.snapshot()
-        return_snapshot["return_points"] = OverProducingMapping(
-            return_snapshot["return_points"],
-            "unexpected",
-        )
-        with self.assertRaisesRegex(ValueError, "return_points changed while being read"):
-            BookReader.restore_snapshot(book, return_snapshot)
-
-        with_fallback = BookReader(book)
-        with_fallback.go_to(1)
-        fallback_snapshot = with_fallback.snapshot()
-        fallback_snapshot["fallback_digests"] = OverProducingMapping(
-            fallback_snapshot["fallback_digests"],
-            "index:unexpected",
-        )
-        with self.assertRaisesRegex(ValueError, "fallback_digests changed while being read"):
-            BookReader.restore_snapshot(book, fallback_snapshot)
-
-    def test_restore_snapshot_bounds_scalar_keys_before_value_materialization(self):
-        book = self.make_book()
-
-        class ValueForbiddenMapping(Mapping):
-            def __init__(self, keys):
-                self.keys = tuple(keys)
-
-            def __len__(self):
-                return len(self.keys)
-
-            def __iter__(self):
-                yield from self.keys
-
-            def __getitem__(self, key):
-                raise AssertionError(
-                    "oversized snapshot keys must fail before value materialization"
-                )
-
         valid = BookReader(book).snapshot()
+
+        class HostileNested(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("nested len hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("nested iter hook must not execute")
+
+            def __getitem__(self, key):
+                type(self).touched = True
+                raise AssertionError("nested getitem hook must not execute")
+
+        for field in ("return_points", "fallback_digests"):
+            snapshot = dict(valid)
+            hostile = HostileNested()
+            dict.update(hostile, snapshot[field])
+            snapshot[field] = hostile
+            HostileNested.touched = False
+
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(TypeError, f"{field} must be a mapping"):
+                    BookReader.restore_snapshot(book, snapshot)
+                self.assertFalse(HostileNested.touched)
+    def test_restore_snapshot_bounds_scalar_keys_with_canonical_dicts(self):
+        book = self.make_book()
+        valid = BookReader(book).snapshot()
+
         oversized_field = "x" * 64
-        top_level = ValueForbiddenMapping(
-            (
-                "schema_version",
-                "current_target",
-                "return_points",
-                oversized_field,
-            )
-        )
+        top_level = dict(valid)
+        top_level.pop("fallback_digests")
+        top_level[oversized_field] = {}
         with self.assertRaisesRegex(ValueError, "field name exceeds supported bound"):
             BookReader.restore_snapshot(book, top_level)
 
-        return_snapshot = dict(valid)
         oversized_return_name = " " * 256 + "x"
-        return_snapshot["return_points"] = ValueForbiddenMapping(
-            (oversized_return_name,)
-        )
+        return_snapshot = dict(valid)
+        return_snapshot["return_points"] = {
+            oversized_return_name: valid["current_target"]
+        }
         with self.assertRaisesRegex(ValueError, "exceeds 256"):
             BookReader.restore_snapshot(book, return_snapshot)
 
@@ -169,12 +144,11 @@ class BookReaderTests(unittest.TestCase):
         fallback_snapshot = fallback_reader.snapshot()
         oversized_fallback_key = "index:" + ("9" * 4091)
         self.assertGreater(len(oversized_fallback_key), 4096)
-        fallback_snapshot["fallback_digests"] = ValueForbiddenMapping(
-            (oversized_fallback_key,)
-        )
+        fallback_snapshot["fallback_digests"] = {
+            oversized_fallback_key: "0" * 64
+        }
         with self.assertRaisesRegex(ValueError, "exceeds 4096"):
             BookReader.restore_snapshot(book, fallback_snapshot)
-
     def test_boundaries_and_invalid_return_points_fail_explicitly(self):
         reader = BookReader(self.make_book())
         with self.assertRaisesRegex(LookupError, "Beginning"):
