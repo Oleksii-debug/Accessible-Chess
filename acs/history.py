@@ -581,7 +581,7 @@ class ReviewHistory:
                     f"history node {record.node_id} has an invalid snapshot",
                     code=HistoryErrorCode.INVALID_SNAPSHOT,
                 )
-             if type(record.child_ids) is not tuple:
+            if type(record.child_ids) is not tuple:
                 raise HistoryError(
                     f"history node {record.node_id} children must be a tuple",
                     code=HistoryErrorCode.INVALID_TREE,
@@ -617,9 +617,7 @@ class ReviewHistory:
                 child_owners[child_id] = record.node_id
             if (
                 record.active_child is not None
-                and (
-                    type(record.active_child) is not int
-                )
+                and type(record.active_child) is not int
             ):
                 raise HistoryError(
                     f"history node {record.node_id} active child must be an integer",
