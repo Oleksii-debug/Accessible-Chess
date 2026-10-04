@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -15,6 +16,9 @@ from acs.version2_package_preflight import (
 )
 from acs.version2_portable_package import (
     PORTABLE_PACKAGE_PROFILE,
+    PORTABLE_SOURCE_CHECKSUMS,
+    PORTABLE_SOURCE_MANIFEST,
+    PORTABLE_SOURCE_METADATA_DIR,
     Version2PortablePackageError,
     assemble_portable_oneclick_tree,
     validate_portable_oneclick_tree,
@@ -42,11 +46,48 @@ def _portable_fixture(root: Path, *, with_seed: bool = False) -> None:
         seed = root / "App" / "release-content" / "user-library-seed"
         seed.mkdir(parents=True)
         (seed / "manifest.json").write_text("{}", encoding="utf-8")
+    source_metadata = root / PORTABLE_SOURCE_METADATA_DIR
+    source_metadata.mkdir()
+    source_manifest = {
+        "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
+        "product": "Accessible Chess",
+        "package_profile": V2_PACKAGE_PROFILE,
+        "integration_sha": _SHA,
+    }
+    source_manifest_path = source_metadata / MANIFEST_NAME
+    source_manifest_path.write_text(
+        json.dumps(source_manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    source_entries = {
+        MANIFEST_NAME: hashlib.sha256(source_manifest_path.read_bytes()).hexdigest(),
+    }
+    for path in (root / "App").rglob("*"):
+        if path.is_file():
+            relative = "AccessibleChess/" + path.relative_to(root / "App").as_posix()
+            source_entries[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in (root / "THIRD_PARTY_NOTICES").rglob("*"):
+        if path.is_file():
+            relative = "THIRD_PARTY_NOTICES/" + path.relative_to(root / "THIRD_PARTY_NOTICES").as_posix()
+            source_entries[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    source_checksums_path = source_metadata / CHECKSUMS_NAME
+    source_checksums_path.write_text(
+        "".join(
+            f"{digest}  {relative}\n"
+            for relative, digest in sorted(source_entries.items())
+        ),
+        encoding="utf-8",
+    )
+
     manifest = {
         "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
         "product": "Accessible Chess",
         "package_profile": PORTABLE_PACKAGE_PROFILE,
         "source_package_profile": V2_PACKAGE_PROFILE,
+        "source_manifest": PORTABLE_SOURCE_MANIFEST,
+        "source_manifest_sha256": hashlib.sha256(source_manifest_path.read_bytes()).hexdigest(),
+        "source_checksums": PORTABLE_SOURCE_CHECKSUMS,
+        "source_checksums_sha256": hashlib.sha256(source_checksums_path.read_bytes()).hexdigest(),
         "integration_sha": _SHA,
         "launcher": "AccessibleChess.exe",
         "application_directory": "App",
@@ -116,7 +157,26 @@ class PortableTreeTests(unittest.TestCase):
             root.mkdir()
             _portable_fixture(root)
             (root / "App" / "AccessibleChess.exe.config").write_text("changed", encoding="utf-8")
-            with self.assertRaisesRegex(Version2PortablePackageError, "checksum verification"):
+            with self.assertRaisesRegex(
+                Version2PortablePackageError,
+                "preflighted canonical source|checksum verification",
+            ):
+                validate_portable_oneclick_tree(root, expected_integration_sha=_SHA)
+
+    def test_rejects_inner_mutation_even_if_outer_checksums_are_rewritten(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            (root / "App" / "AccessibleChess.exe.config").write_text(
+                "changed",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PortablePackageError,
+                "preflighted canonical source",
+            ):
                 validate_portable_oneclick_tree(root, expected_integration_sha=_SHA)
 
     def test_private_seed_requirement_is_explicit_and_package_local(self):
@@ -139,6 +199,17 @@ class PortableTreeTests(unittest.TestCase):
             (canonical / "AccessibleChess" / "payload.dat").write_bytes(b"canonical-product-bytes")
             (canonical / "THIRD_PARTY_NOTICES").mkdir(parents=True)
             (canonical / "THIRD_PARTY_NOTICES" / "NOTICE.txt").write_text("notice", encoding="utf-8")
+            canonical_manifest = {
+                "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
+                "product": "Accessible Chess",
+                "package_profile": V2_PACKAGE_PROFILE,
+                "integration_sha": _SHA,
+            }
+            (canonical / MANIFEST_NAME).write_text(
+                json.dumps(canonical_manifest, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(canonical)
             launcher = work / "launcher.exe"
             _pe(launcher)
             first = work / "Посібник.docx"
@@ -162,6 +233,8 @@ class PortableTreeTests(unittest.TestCase):
             canonical_validation.assert_called_once_with(canonical, expected_integration_sha=_SHA)
             self.assertEqual((output / "App" / "payload.dat").read_bytes(), b"canonical-product-bytes")
             self.assertEqual((output / "AccessibleChess.exe").read_bytes(), launcher.read_bytes())
+            self.assertTrue((output / PORTABLE_SOURCE_METADATA_DIR / MANIFEST_NAME).is_file())
+            self.assertTrue((output / PORTABLE_SOURCE_METADATA_DIR / CHECKSUMS_NAME).is_file())
             self.assertFalse((output / "data").exists())
             self.assertEqual(report.integration_sha, _SHA)
 
