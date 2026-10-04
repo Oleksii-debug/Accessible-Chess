@@ -445,7 +445,7 @@ class ClassroomChatRpcTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 ClassroomChatRpcError,
-                "backend failed",
+                "service unavailable",
             ):
                 reconnected.send_message(draft)
             self.assertEqual(
