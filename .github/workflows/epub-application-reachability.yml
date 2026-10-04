@@ -9,6 +9,7 @@ on:
       - work/full-product-teacher-education-reachability-20260911
       - integration/full-product-apex-books-training-regressions-20261004
       - converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb
+      - converge/book-inline-order-current-owner-apex-20261004-c2mbezb
       - converge/book-html-epub-semantics-20261004-c2mbezb
     paths:
       - 'acs/book_epub_import.py'
