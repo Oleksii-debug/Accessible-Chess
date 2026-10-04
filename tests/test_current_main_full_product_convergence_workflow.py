@@ -81,6 +81,18 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_equal_sha_release_convergence_late_binds_live_owner_ingress_parent(self) -> None:
+        required = (
+            "      - integration/owner-equal-sha-release-convergence-20261004-ooxple7",
+            "      - fix/owner-w4-windows-path-ingress-20261004-zftrkmo",
+            'elif [ "${GITHUB_REF_NAME:-}" = "integration/owner-equal-sha-release-convergence-20261004-ooxple7" ]; then',
+            "live_base_ref='fix/owner-w4-windows-path-ingress-20261004-zftrkmo'",
+            "FULL_PRODUCT_LIVE_EQUAL_SHA_RELEASE_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
@@ -432,6 +444,21 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_w4_v2_p0_fresh_candidate_workflow",
         )
         for contract in contracts:
+            with self.subTest(contract=contract):
+                self.assertIn(contract, self.text)
+
+    def test_w4_current_readback_retriggers_and_executes_in_whole_product_gate(self) -> None:
+        for path in (
+            ".github/workflows/w4-v2-p0-candidate-artifact-readback.yml",
+            ".github/workflows/w4-candidate-artifact-readback-workflow-contract.yml",
+            "scripts/verify_w4_current_candidate_artifact.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(f"      - '{path}'", self.text)
+        for contract in (
+            "tests.test_w4_candidate_artifact_readback_workflow",
+            "tests.test_verify_w4_current_candidate_artifact",
+        ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, self.text)
 
