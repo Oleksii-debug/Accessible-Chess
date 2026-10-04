@@ -70,7 +70,7 @@ jobs:
       - name: Prove live-base ancestry and retained EPUB authority
         shell: bash
         env:
-          EPUB_INTEGRATION_SHA: b7eaab155cd86d41a6126a6a26c15c7f8bacfb53
+          EPUB_INTEGRATION_SHA: 0fe5eb7eb2da69f3bf7f8941d573c7b78b463be2
         run: |
           set -euo pipefail
           expected='${{ github.event.pull_request.head.sha || github.sha }}'
