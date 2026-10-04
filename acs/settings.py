@@ -13,6 +13,10 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = 2
 _MAX_SETTINGS_BYTES = 1024 * 1024
+_MAX_SETTINGS_JSON_DEPTH = 32
+_MAX_SETTINGS_JSON_SEPARATORS = 8192
+_MAX_SETTINGS_JSON_OBJECT_MEMBERS = 512
+_MAX_SETTINGS_JSON_NUMBER_CHARS = 128
 
 DEFAULTS: dict[str, Any] = {
     "language": "uk",
@@ -515,9 +519,58 @@ def _validated_import_text(text: object) -> str:
     return text
 
 
+def _validate_settings_json_lexical_bounds(text: str) -> None:
+    """Reject hostile JSON shape before the recursive stdlib decoder runs."""
+
+    depth = 0
+    separators = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > _MAX_SETTINGS_JSON_DEPTH:
+                raise SettingsError("settings JSON nesting is too deep")
+        elif character in "]}":
+            if depth:
+                depth -= 1
+        elif character in ",:":
+            separators += 1
+            if separators > _MAX_SETTINGS_JSON_SEPARATORS:
+                raise SettingsError("settings JSON has too many structural items")
+
+
+def _reject_nonfinite_settings_json(token: str) -> None:
+    raise SettingsError("settings JSON contains a non-finite number")
+
+
+def _parse_settings_json_int(token: str) -> int:
+    if len(token) > _MAX_SETTINGS_JSON_NUMBER_CHARS:
+        raise SettingsError("settings JSON number token is too long")
+    return int(token)
+
+
+def _parse_settings_json_float(token: str) -> float:
+    if len(token) > _MAX_SETTINGS_JSON_NUMBER_CHARS:
+        raise SettingsError("settings JSON number token is too long")
+    return float(token)
+
+
 def _reject_duplicate_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     """Build one passive JSON object while rejecting ambiguous duplicate keys."""
 
+    if len(pairs) > _MAX_SETTINGS_JSON_OBJECT_MEMBERS:
+        raise SettingsError("settings JSON object has too many members")
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
@@ -527,9 +580,16 @@ def _reject_duplicate_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any
 
 
 def _parse_settings_json(text: str) -> Any:
-    """Parse settings JSON without standard-library last-key-wins ambiguity."""
+    """Parse one bounded, unambiguous JSON settings document."""
 
-    return json.loads(text, object_pairs_hook=_reject_duplicate_json_object)
+    _validate_settings_json_lexical_bounds(text)
+    return json.loads(
+        text,
+        object_pairs_hook=_reject_duplicate_json_object,
+        parse_constant=_reject_nonfinite_settings_json,
+        parse_int=_parse_settings_json_int,
+        parse_float=_parse_settings_json_float,
+    )
 
 
 def _migrate(raw: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
