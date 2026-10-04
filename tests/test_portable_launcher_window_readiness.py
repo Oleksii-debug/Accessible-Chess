@@ -41,10 +41,23 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
 
     def test_transient_window_must_remain_stable_before_success(self):
         for token in (
-            "DWORD ready_elapsed = 0;",
-            "ready_elapsed += AC_STARTUP_POLL_MS;",
-            "ready_elapsed = 0;",
-            "AC_STARTUP_READY_STABILITY_MS - AC_STARTUP_POLL_MS",
+            "ULONGLONG ready_started = 0;",
+            "BOOL ready_tracking = FALSE;",
+            "ready_started = now;",
+            "ready_tracking = TRUE;",
+            "now - ready_started >= AC_STARTUP_READY_STABILITY_MS",
+            "ready_tracking = FALSE;",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
+
+    def test_visible_window_must_be_responsive_before_success(self):
+        for token in (
+            "#define AC_WINDOW_RESPONSE_PROBE_MS 100",
+            "SendMessageTimeoutW(",
+            "WM_NULL",
+            "SMTO_ABORTIFHUNG | SMTO_BLOCK",
+            "AC_WINDOW_RESPONSE_PROBE_MS",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.source)
@@ -55,6 +68,9 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "#define AC_STARTUP_READY_STABILITY_MS 500",
             "#define AC_STARTUP_WINDOW_TIMEOUT_MS 30000",
             "WaitForSingleObject(g_process.hProcess, AC_STARTUP_POLL_MS)",
+            "startup_started = GetTickCount64();",
+            "now = GetTickCount64();",
+            "now - startup_started >= AC_STARTUP_WINDOW_TIMEOUT_MS",
             "STATUS: FAILED_STARTUP_TIMEOUT",
             "USER_WINDOW_PROVEN: NO",
             "CHILD_LEFT_RUNNING: YES",
@@ -79,6 +95,8 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "USER_WINDOW_PROVEN: YES",
             "ACS_SMOKE_NO_WINDOW",
             "ACS_SMOKE_FLASH_WINDOW",
+            "ACS_SMOKE_HUNG_WINDOW",
+            "PeekMessageW(",
             "STATUS: FAILED_STARTUP_TIMEOUT",
             "CHILD_LEFT_RUNNING: YES",
         ):
