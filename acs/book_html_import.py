@@ -87,7 +87,7 @@ class _PgnCandidate:
 
 @dataclass(frozen=True, slots=True)
 class _PgnSlot:
-    marker_offset: int
+    candidate: _PgnCandidate
 
 
 @dataclass(slots=True)
@@ -760,8 +760,11 @@ class _SemanticHtmlParser(HTMLParser):
             for candidate in _pgn_candidates(raw):
                 self._append_block(
                     _PgnSlot(
-                        marker_offset=(
-                            capture.visible_start_offset + candidate.marker_offset
+                        candidate=_PgnCandidate(
+                            text=candidate.text,
+                            marker_offset=(
+                                capture.visible_start_offset + candidate.marker_offset
+                            ),
                         )
                     )
                 )
@@ -997,7 +1000,21 @@ def import_html_book(
     warnings = list(parser.warnings)
     if legacy_windows_1251:
         warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
-    canonical_games = _canonical_pgn_games(_pgn_candidates(visible_text), warnings)
+    # The global visible-text scan preserves historical marker acceptance,
+    # including markers outside a semantic capture. Exact marked <pre> captures
+    # override the same marker offset with their bounded local candidate so text
+    # after </pre> can never be swallowed into that game's canonicalization.
+    candidates_by_marker = {
+        candidate.marker_offset: candidate
+        for candidate in _pgn_candidates(visible_text)
+    }
+    for block in parser.blocks:
+        if isinstance(block, _PgnSlot):
+            candidates_by_marker[block.candidate.marker_offset] = block.candidate
+    canonical_games = _canonical_pgn_games(
+        sorted(candidates_by_marker.values(), key=lambda item: item.marker_offset),
+        warnings,
+    )
     games_by_marker = {
         candidate.marker_offset: game
         for candidate, game in canonical_games
@@ -1006,10 +1023,11 @@ def import_html_book(
     ordered_blocks = []
     for block in parser.blocks:
         if isinstance(block, _PgnSlot):
-            game = games_by_marker.get(block.marker_offset)
+            marker_offset = block.candidate.marker_offset
+            game = games_by_marker.get(marker_offset)
             if game is not None:
                 ordered_blocks.append(game)
-                consumed_markers.add(block.marker_offset)
+                consumed_markers.add(marker_offset)
             continue
         ordered_blocks.append(block)
     parser.blocks = ordered_blocks
