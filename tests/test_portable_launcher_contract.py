@@ -5,9 +5,11 @@ import unittest
 class PortableLauncherSourceContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source = (Path(__file__).resolve().parents[1] / "packaging" / "portable_launcher.c").read_text(
-            encoding="utf-8"
-        )
+        root = Path(__file__).resolve().parents[1]
+        cls.source = (root / "packaging" / "portable_launcher.c").read_text(encoding="utf-8")
+        cls.workflow = (
+            root / ".github" / "workflows" / "p0-user-oneclick-portable-launcher.yml"
+        ).read_text(encoding="utf-8")
 
     def test_uses_native_child_process_and_package_local_appdata(self):
         for token in (
@@ -38,6 +40,22 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         root_check = self.source.index("if (!ac_direct_directory(g_root))")
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
+
+    def test_windows_workflow_executes_real_second_launch_while_first_child_lives(self):
+        for token in (
+            "$second = Start-Process -FilePath $launcher",
+            "$second.WaitForExit(10000)",
+            "Second portable launcher smoke failed",
+            "Second launch report missing",
+            "Start-Sleep -Seconds 5",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.workflow)
+        first_launch = self.workflow.index("$process = Start-Process -FilePath $launcher")
+        exclusive_probe = self.workflow.index("$exclusive = [IO.File]::Open(")
+        second_launch = self.workflow.index("$second = Start-Process -FilePath $launcher")
+        self.assertLess(first_launch, exclusive_probe)
+        self.assertLess(exclusive_probe, second_launch)
 
     def test_no_shell_execution_path_is_introduced(self):
         for forbidden in (
