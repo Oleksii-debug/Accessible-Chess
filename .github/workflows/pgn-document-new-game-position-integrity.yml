@@ -8,6 +8,7 @@ on:
       - "tests/test_pgn_document_context_atomicity.py"
       - "tests/test_pgn_document_setup_fen_integrity.py"
       - "tests/test_pgn_document_new_game_position_integrity.py"
+      - "tests/test_pgn_document_new_game_position_workflow.py"
       - ".github/workflows/pgn-document-new-game-position-integrity.yml"
   workflow_dispatch:
 
@@ -96,6 +97,15 @@ jobs:
           tests.test_pgn_document
           tests.test_dev2_fen_atomicity
           tests.test_position_editor
+          tests.test_pgn_document_new_game_position_workflow
+
+      - name: Run adjacent PGN application and command regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_pgn_commands
+          tests.test_version2_application
+          tests.test_d06_pgn_roundtrip
+          tests.test_pgn_concurrent_save
 
       - name: Run adjacent PGN application and command regressions
         run: >-
