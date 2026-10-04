@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, Sequence, runtime_checkable
 
+from .input_limits import MAX_FEN_CHARS
+
 
 class EngineContractErrorCode(str, Enum):
     INVALID_REQUEST = "invalid_request"
@@ -93,7 +95,15 @@ class EngineMoveRequest:
     movetime_ms: int | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        # Match the canonical raw FEN representation budget before normalization.
+        # Reject active text subclasses before any overridable string hook runs.
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+            raise EngineContractError(
+                "engine move request FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
             raise EngineContractError(
                 "engine move request FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
@@ -111,7 +121,7 @@ class EngineMoveRequest:
                 "engine move request movetime_ms must be an integer or None",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
 
 @dataclass(frozen=True)
