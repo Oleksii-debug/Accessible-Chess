@@ -79,6 +79,15 @@ jobs:
           print('BOOK_HTML_CANONICAL_AUTHORITY=PASS')
           PY
 
-      - name: Exact whitespace check
+      - name: Exact PR whitespace check
         shell: bash
-        run: git diff --check HEAD^
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PR_BASE_SHA:-}" ]; then
+            git fetch --no-tags origin "$PR_BASE_SHA"
+            git diff --check "$PR_BASE_SHA" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
