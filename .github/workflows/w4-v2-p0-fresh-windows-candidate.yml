@@ -9,7 +9,7 @@ on:
         default: false
         type: boolean
       product_sha:
-        description: Exact integrated Full Product commit to package
+        description: Exact current owner release-apex commit to package
         required: true
         type: string
       sound_pack_url:
@@ -30,6 +30,7 @@ concurrency:
 
 env:
   FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+  RELEASE_APEX_BRANCH: qualification/owner-portable-candidate-20261004-sol6f2
   WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -58,7 +59,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Bind requested SHA to live integrated Full Product head
+      - name: Bind requested SHA to live exact owner release apex
         shell: bash
         run: |
           set -euo pipefail
@@ -88,8 +89,16 @@ jobs:
             exit 1
           }
           live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
+          full_product_live="$live"
+          git fetch --no-tags origin "$RELEASE_APEX_BRANCH"
+          release_live="$(git rev-parse "origin/$RELEASE_APEX_BRANCH")"
+          git merge-base --is-ancestor "$full_product_live" "$release_live" || {
+            printf 'Live owner release apex %s does not contain live Full Product head %s\n' "$release_live" "$full_product_live" >&2
+            exit 1
+          }
+          live="$release_live"
           test "$requested" = "$live" || {
-            printf 'Requested SHA %s is not live Full Product head %s\n' "$requested" "$live" >&2
+            printf 'Requested SHA %s is not live owner release apex head %s\n' "$requested" "$live" >&2
             exit 1
           }
           git cat-file -e "${requested}^{commit}"
@@ -100,6 +109,7 @@ jobs:
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip" >> "$GITHUB_ENV"
           echo "W4_WORKFLOW_REGISTRATION_IDENTITY=PASS"
           echo "W4_WORKFLOW_PRODUCT_IDENTITY=PASS"
+          echo "W4_WORKFLOW_RELEASE_APEX_IDENTITY=PASS"
           echo "INTEGRATED_FULL_PRODUCT_IDENTITY=PASS"
 
       - name: Materialize exact integrated Product worktree
@@ -690,7 +700,7 @@ jobs:
           }
           Write-Host 'FRESH_PACKAGED_POST_ACCEPTANCE_RELAUNCH=PASS'
 
-      - name: Recheck workflow and Full Product freshness before artifact publication
+      - name: Recheck workflow, Full Product ancestry and release apex freshness before artifact publication
         shell: bash
         run: |
           set -euo pipefail
@@ -702,12 +712,21 @@ jobs:
             exit 1
           }
           live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
+          full_product_live="$live"
+          git fetch --no-tags origin "$RELEASE_APEX_BRANCH"
+          release_live="$(git rev-parse "origin/$RELEASE_APEX_BRANCH")"
+          git merge-base --is-ancestor "$full_product_live" "$release_live" || {
+            printf 'STALE_W4_RELEASE_APEX_ANCESTRY apex=%s full_product=%s\n' "$release_live" "$full_product_live" >&2
+            exit 1
+          }
+          live="$release_live"
           test "$PRODUCT_SHA" = "$live" || {
             printf 'STALE_W4_CANDIDATE requested=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
             exit 1
           }
           echo 'W4_PRE_UPLOAD_WORKFLOW_FRESHNESS=PASS'
           echo 'W4_PRE_UPLOAD_PRODUCT_FRESHNESS=PASS'
+          echo 'W4_PRE_UPLOAD_RELEASE_APEX_FRESHNESS=PASS'
           echo 'W4_PRE_UPLOAD_FRESHNESS=PASS'
 
       - name: Write run-bound candidate metadata after freshness proof
