@@ -37,8 +37,8 @@ jobs:
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       DOMAIN_BLOB: a470afdaff99413a1163e52192a0f12ee8b54671
-      STORE_BLOB: a43c49fcf1238edf713158bf68a075abcec6779a
-      TEST_BLOB: f47bc855b3b7f4dd4af458c7be886ac085c3b5c3
+      STORE_BLOB: 101e7e370f555998092af9f844ffe52b4b442e97
+      TEST_BLOB: 2d16e756f17f5d994f6f54f7fa6db451af79858e
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
