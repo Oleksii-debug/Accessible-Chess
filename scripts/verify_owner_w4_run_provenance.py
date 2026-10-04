@@ -16,6 +16,7 @@ and unit-testable.
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import re
 import stat
@@ -86,6 +87,20 @@ def _workflow_path(
     if separator and authority != f"refs/heads/{expected_branch}":
         _fail("W4 run workflow path authority is not the expected branch")
     return path
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    return all(
+        getattr(left, field) == getattr(right, field)
+        for field in (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+    )
 
 
 def validate_w4_run_provenance(
@@ -173,17 +188,36 @@ def validate_w4_run_provenance(
 
 def _load_run_json(path: Path) -> Mapping[str, Any]:
     try:
-        info = path.lstat()
+        before = path.lstat()
     except OSError as exc:
         _fail(f"W4 run API payload cannot be inspected: {type(exc).__name__}")
-    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
         _fail("W4 run API payload must be one regular file")
-    if info.st_size <= 0 or info.st_size > MAX_RUN_JSON_BYTES:
+    if before.st_size <= 0 or before.st_size > MAX_RUN_JSON_BYTES:
         _fail("W4 run API payload size is outside accepted bounds")
     try:
-        payload = path.read_bytes()
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not _same_file_snapshot(before, opened):
+                _fail("W4 run API payload changed before stable read")
+            payload = stream.read(MAX_RUN_JSON_BYTES + 1)
+            after_read = os.fstat(stream.fileno())
+        after = path.lstat()
+    except W4RunProvenanceError:
+        raise
     except OSError as exc:
         _fail(f"W4 run API payload cannot be read: {type(exc).__name__}")
+    if (
+        len(payload) != opened.st_size
+        or len(payload) == 0
+        or len(payload) > MAX_RUN_JSON_BYTES
+    ):
+        _fail("W4 run API payload size changed during stable read")
+    if (
+        not _same_file_snapshot(opened, after_read)
+        or not _same_file_snapshot(before, after)
+    ):
+        _fail("W4 run API payload changed during stable read")
     try:
         value = json.loads(payload.decode("utf-8", errors="strict"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
