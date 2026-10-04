@@ -4,10 +4,37 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
+import acs.version2_portable_package as portable_package
 import scripts.build_owner_portable_candidate as owner_candidate
 
 
 class OwnerDocxWin32PortabilityTests(unittest.TestCase):
+    def test_owner_and_generic_portable_filename_contracts_stay_aligned(self) -> None:
+        accepted = (
+            "Доступні шахи — інструкція.docx",
+            "Guide.DOCX",
+            "a" * 250 + ".docx",
+        )
+        rejected = (
+            "CON.docx",
+            "nul.DOCX",
+            "owner?.docx",
+            "owner|guide.docx",
+            "owner" + chr(31) + ".docx",
+            "owner" + chr(0xD800) + ".docx",
+            chr(0x1F642) * 126 + ".docx",
+        )
+        for name in accepted:
+            with self.subTest(kind="accepted", name=repr(name)):
+                self.assertEqual(owner_candidate._owner_docx_name(Path(name)), name)
+                self.assertEqual(portable_package._portable_docx_name(Path(name)), name)
+        for name in rejected:
+            with self.subTest(kind="rejected", name=repr(name)):
+                with self.assertRaises(Exception):
+                    owner_candidate._owner_docx_name(Path(name))
+                with self.assertRaises(Exception):
+                    portable_package._portable_docx_name(Path(name))
+
     def test_ordinary_ukrainian_docx_name_is_accepted(self) -> None:
         name = "Доступні шахи — інструкція.docx"
         self.assertEqual(owner_candidate._owner_docx_name(Path(name)), name)
