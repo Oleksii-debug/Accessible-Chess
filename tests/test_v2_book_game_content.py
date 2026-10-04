@@ -323,6 +323,22 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         )
         self.assertFalse(HostileSource.touched)
 
+        plain = resolve_book_game(
+            Game(pgn=EMBEDDED_PGN),
+            source="embedded",
+        )
+        self.assertEqual(plain.source, BookGameSource.EMBEDDED)
+
+        with self.assertRaises(BookGameContentError) as non_text:
+            resolve_book_game(
+                Game(pgn=EMBEDDED_PGN),
+                source=0,  # type: ignore[arg-type]
+            )
+        self.assertEqual(
+            non_text.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
+        )
+
     def test_mutated_text_subclasses_fail_before_custom_hooks(self) -> None:
         class HostileText(str):
             touched = False
