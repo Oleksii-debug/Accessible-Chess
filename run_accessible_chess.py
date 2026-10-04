@@ -36,7 +36,13 @@ def _abort_packaged_startup(
 
 
 # This must run before importing pywebview or creating a WebView2 environment.
-enable_webview2_renderer_accessibility()
+try:
+    enable_webview2_renderer_accessibility()
+except Exception:
+    _abort_packaged_startup(
+        ACCESSIBILITY_HOST_INIT_EXIT_CODE,
+        'Accessible WebView2 renderer accessibility could not be initialized.',
+    )
 
 
 if '--diagnostic' in sys.argv:
