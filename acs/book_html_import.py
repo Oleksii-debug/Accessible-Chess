@@ -514,6 +514,25 @@ class _SemanticHtmlParser(HTMLParser):
         if tag == "head":
             self._head_depth += 1
             return
+        if self._head_depth and tag == "body":
+            # In the HTML tree builder, an explicit BODY start ends the HEAD
+            # insertion mode even when the source omitted </head>. Mirror that
+            # deterministic boundary so readable BODY content cannot remain
+            # trapped as metadata merely because HTMLParser does not build a DOM.
+            title_index = next(
+                (
+                    index
+                    for index, capture in enumerate(self._captures)
+                    if capture.kind == "title"
+                ),
+                None,
+            )
+            if title_index is not None:
+                while len(self._captures) > title_index:
+                    capture = self._captures.pop()
+                    self._finish_capture_and_record_parent(capture, recovered=True)
+            self._head_depth = 0
+            self._warning("malformed HTML head was implicitly closed by body start")
         if self._head_depth and tag not in {"title", "meta"}:
             # HEAD is metadata, not a source of readable or chess-semantic
             # blocks. In particular, an explicit marker in hidden metadata
