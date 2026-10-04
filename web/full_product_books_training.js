@@ -1070,8 +1070,11 @@
         "book.open_starter_material",
         bookCommandPayload(snapshot, { material_id: materialId }),
         function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     section.appendChild(open);
     main.appendChild(section);
@@ -1115,7 +1118,10 @@
         bookCommandPayload(snapshot, {}),
         function (result) {
           applyBookEvent(root, result, invoke, announce, fallbackMessage);
-        }, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
       });
       toolbar.appendChild(button);
     });
@@ -1147,8 +1153,11 @@
         "book.bookmark.save",
         bookCommandPayload(snapshot, { name: input.value }),
         function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     restore.addEventListener("click", function () {
       safeInvoke(
@@ -1157,8 +1166,11 @@
         "book.bookmark.restore",
         bookCommandPayload(snapshot, { name: input.value }),
         function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     main.appendChild(form);
 
