@@ -391,7 +391,12 @@ class ReviewHistory:
                     "move target must not be negative",
                     code=HistoryErrorCode.OUT_OF_RANGE,
                 )
-            text = str(target)
+            try:
+                text = str(target)
+            except ValueError as exc:
+                raise HistoryError(
+                    "move target integer is too large to represent safely"
+                ) from exc
         elif type(target) is str:
             text = target.strip().lower()
         else:
@@ -408,7 +413,12 @@ class ReviewHistory:
                 "invalid move target; use 17, 17w, 17b, 17..., 0/start, or end"
             )
 
-        move_no = int(match.group("num"))
+        try:
+            move_no = int(match.group("num"))
+        except ValueError as exc:
+            raise HistoryError(
+                "move target number is too large to represent safely"
+            ) from exc
         side = (match.group("side") or "").lower()
         if side == "w":
             return 2 * move_no - 1
