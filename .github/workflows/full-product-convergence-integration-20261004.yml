@@ -159,6 +159,7 @@ jobs:
           tests.test_dev1_books_training_webview_bridge
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_full_product_webview_adapter
+          tests.test_books_semantic_host_bounds
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
           tests.test_v2_book_training_route_rollback
@@ -177,6 +178,7 @@ jobs:
           tests.test_dev1_library_webview_projection
           tests.test_d07_library_export_webview
           tests.test_d07_library_import_service
+          tests.test_acsdb
           tests.test_user_library_seed
           tests.test_user_library_seed_parent_safety
           tests.test_v2_packaged_starter_application
