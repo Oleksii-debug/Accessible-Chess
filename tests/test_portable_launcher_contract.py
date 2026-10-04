@@ -79,12 +79,18 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         host_ok: bool,
         server_ok: bool,
         release_ui_raises: bool = False,
+        renderer_raises: bool = False,
         host_install_raises: bool = False,
         server_install_raises: bool = False,
         safe_port_raises: bool = False,
     ) -> tuple[object, str]:
         accessibility = types.ModuleType("acs.webview2_accessibility")
-        accessibility.enable_webview2_renderer_accessibility = lambda: None
+
+        def enable_renderer_accessibility() -> None:
+            if renderer_raises:
+                raise ImportError("synthetic renderer accessibility initialization failure")
+
+        accessibility.enable_webview2_renderer_accessibility = enable_renderer_accessibility
 
         def host_install():
             if host_install_raises:
@@ -131,6 +137,18 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         ):
             runpy.run_path(str(self.root / "run_accessible_chess.py"), run_name="__main__")
         return raised.exception.code, stderr.getvalue()
+
+    def test_real_entrypoint_reports_renderer_accessibility_bootstrap_code(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            renderer_raises=True,
+        )
+        self.assertEqual(code, 71)
+        self.assertIn(
+            "Accessible WebView2 renderer accessibility could not be initialized.",
+            stderr,
+        )
 
     def test_real_entrypoint_reports_accessibility_host_bootstrap_code(self):
         code, stderr = self._run_packaged_bootstrap(host_ok=False, server_ok=True)
