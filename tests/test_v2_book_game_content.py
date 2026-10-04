@@ -296,29 +296,50 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(resolved.block_id, "snapshot-block")
         self.assertEqual(resolved.source_anchor, "snapshot-anchor")
 
-    def test_snapshot_resolution_preserves_bookdocument_text_subclasses(self) -> None:
-        class Text(str):
-            pass
+    def test_mutated_text_subclasses_fail_before_custom_hooks(self) -> None:
+        class HostileText(str):
+            touched = False
 
-        block = Game(
-            pgn=Text(EMBEDDED_PGN),
-            title=Text("Subclass title"),
-            block_id=Text("subclass-block"),
-        )
-        resolved = resolve_book_game(block)
-        self.assertEqual(resolved.game.line.moves[0].san, "e4")
-        self.assertEqual(resolved.title, "Subclass title")
-        self.assertEqual(resolved.block_id, "subclass-block")
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile strip hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("hostile string hook must not execute")
 
         variation = VariationTree(
-            root_fen=Text(AFTER_E4_FEN),
-            pgn=Text("1... c5 *"),
-            title=Text("Subclass variation"),
+            root_fen=AFTER_E4_FEN,
+            pgn="1... c5 *",
         )
-        resolved_variation = resolve_book_variation(variation)
-        self.assertEqual(resolved_variation.root_fen, AFTER_E4_FEN)
-        self.assertEqual(resolved_variation.game.line.moves[0].san, "c5")
-        self.assertEqual(resolved_variation.title, "Subclass variation")
+        variation.root_fen = HostileText(AFTER_E4_FEN)
+        with self.assertRaises(BookGameContentError) as root_error:
+            resolve_book_variation(variation)
+        self.assertEqual(
+            root_error.exception.code,
+            BookGameContentErrorCode.INVALID_ROOT_FEN,
+        )
+        self.assertFalse(HostileText.touched)
+
+        game = Game(pgn=EMBEDDED_PGN)
+        game.pgn = HostileText(EMBEDDED_PGN)
+        with self.assertRaises(BookGameContentError) as game_error:
+            resolve_book_game(game)
+        self.assertEqual(
+            game_error.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
+        )
+        self.assertFalse(HostileText.touched)
+
+        variation = VariationTree(root_fen=AFTER_E4_FEN, pgn="1... c5 *")
+        variation.pgn = HostileText("1... c5 *")
+        with self.assertRaises(BookGameContentError) as variation_error:
+            resolve_book_variation(variation)
+        self.assertEqual(
+            variation_error.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
+        )
+        self.assertFalse(HostileText.touched)
 
     def test_variation_root_change_during_snapshot_fails_closed(self) -> None:
         class ChangesRootDuringSnapshot(VariationTree):
