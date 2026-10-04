@@ -5,12 +5,43 @@ import unittest
 
 
 WORKFLOW = Path(".github/workflows/owner-oneclick-from-w4.yml")
+W4_WORKFLOW = Path(".github/workflows/w4-v2-p0-fresh-windows-candidate.yml")
 
 
 class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.w4_text = W4_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_w4_producer_contract_matches_finalizer_artifact_topology(self) -> None:
+        artifact_name = "Accessible-Chess-V2-NVDA-test-candidate"
+        self.assertIn(f"name: {artifact_name}", self.w4_text)
+        self.assertIn(f"name: {artifact_name}", self.text)
+        self.assertIn(
+            'echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip"',
+            self.w4_text,
+        )
+        self.assertIn(
+            "product-source/candidate-output/Accessible-Chess-V2-*-NVDA-test-candidate.zip",
+            self.w4_text,
+        )
+        self.assertIn(
+            "product-source/candidate-output/p0-evidence/*.json",
+            self.w4_text,
+        )
+        self.assertIn(
+            'Path("candidate-output/p0-evidence/w4-run-metadata.json")',
+            self.w4_text,
+        )
+        self.assertIn(
+            "root / 'p0-evidence' / 'w4-run-metadata.json'",
+            self.text,
+        )
+        self.assertIn(
+            "Accessible-Chess-V2-{exact[:7]}-NVDA-test-candidate.zip",
+            self.text,
+        )
 
     def test_finalizer_is_manual_owner_approved_and_live_exact_apex_bound(self) -> None:
         self.assertIn("workflow_dispatch:", self.text)
