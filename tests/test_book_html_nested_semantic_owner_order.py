@@ -88,6 +88,63 @@ class BookHtmlNestedSemanticOwnerOrderTests(unittest.TestCase):
             )
         )
 
+    def test_plain_nested_capture_remains_an_ordering_boundary_when_later_image_splits_list_item(self) -> None:
+        result = import_html_book(
+            '<html><body><ul><li id="rich">Lead'
+            '<blockquote id="quote">Nested</blockquote>Middle'
+            '<img src="board.png" alt="Board">Tail</li></ul></body></html>',
+            source_name="nested-plain-before-rich-list-item.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _reading_signature(result.document.blocks),
+            [
+                ("Paragraph", "• Lead"),
+                ("Paragraph", "Nested"),
+                ("Paragraph", "Middle"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("Nested")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            1,
+        )
+
+    def test_explicit_pgn_nested_inside_list_item_stays_canonical_and_in_source_order(self) -> None:
+        pgn = (
+            '[Event "Nested"]\n'
+            '[Site "Test"]\n'
+            '[Date "2026.10.04"]\n'
+            '[Round "1"]\n'
+            '[White "White"]\n'
+            '[Black "Black"]\n'
+            '[Result "*"]\n\n'
+            '1. e4 e5 *'
+        )
+        result = import_html_book(
+            '<html><body><ul><li id="rich">Before<pre>{PGN 1}\n'
+            + pgn
+            + '</pre>After</li></ul></body></html>',
+            source_name="nested-pgn-list-item.html",
+        )
+
+        self.assertEqual(
+            _reading_signature(result.document.blocks),
+            [
+                ("Paragraph", "• Before"),
+                ("Game", ""),
+                ("Paragraph", "After"),
+            ],
+        )
+        self.assertEqual(result.pgn_games, 1)
+        self.assertFalse(any(block.kind == "List" for block in result.document.blocks))
+
 
 if __name__ == "__main__":
     unittest.main()
