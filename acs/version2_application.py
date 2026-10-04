@@ -1342,14 +1342,44 @@ class Version2Application:
                     )
                 ):
                     raise ValueError("unsupported shell command")
+                training_transition = None
                 if command == "screen.training":
                     # Route changes are modal-blocked by the shell. Apply the same
                     # fence before Training preflight can move or wrap the reader.
                     if self.shell.active_dialog_id is not None:
                         raise ValueError("close the active dialog before opening Training")
+                    training_transition = (
+                        self.training_workspace,
+                        self.training,
+                        self.shell.current_route.route_id,
+                    )
                     if not self._start_training_from_current_book():
                         raise ValueError("Training exercise is unavailable")
-                value = self.adapter.activate_action(command, current_focus_id=self._focus)
+                try:
+                    value = self.adapter.activate_action(
+                        command,
+                        current_focus_id=self._focus,
+                    )
+                except Exception:
+                    if training_transition is not None:
+                        previous_workspace, previous_training, origin_route = training_transition
+                        self.training_workspace = previous_workspace
+                        self.training = previous_training
+                        if self.shell.current_route.route_id != origin_route:
+                            self._focus = self.shell.open_route(origin_route)
+                            self._repair_book_block_focus_after_rebind()
+                    raise
+                if training_transition is not None and value.kind != "route":
+                    # FullProductWebViewAdapter sanitizes shell failures into an
+                    # error command. Treat that as a rejected transaction: a
+                    # staged Training owner must not survive on the old route,
+                    # and a partial open_route() commit must be restored.
+                    previous_workspace, previous_training, origin_route = training_transition
+                    self.training_workspace = previous_workspace
+                    self.training = previous_training
+                    if self.shell.current_route.route_id != origin_route:
+                        self._focus = self.shell.open_route(origin_route)
+                        self._repair_book_block_focus_after_rebind()
                 if value.kind == "route":
                     # Router dispatch has already changed shell ownership.
                     # Synchronize before another keyboard/native action can
