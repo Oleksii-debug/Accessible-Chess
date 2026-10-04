@@ -81,7 +81,6 @@ jobs:
           portable = Path('acs/version2_portable_package.py').read_text(encoding='utf-8')
           required = (
               '_owner_docx_filename',
-              '_owner_docx_filename',
               '_owner_docx_name',
               '_portable_docx_filename',
               'require_user_seed=True',
