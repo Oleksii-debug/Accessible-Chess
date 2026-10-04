@@ -556,13 +556,16 @@ jobs:
           $root=(Resolve-Path $extracted).Path
           $launcher=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
           $proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
-          if(-not $proc.WaitForExit(15000)){$proc.Kill();throw 'OWNER_ROOT_LAUNCHER_TIMEOUT'}
+          if(-not $proc.WaitForExit(45000)){$proc.Kill();throw 'OWNER_ROOT_LAUNCHER_TIMEOUT'}
           if($proc.ExitCode -ne 0){throw "OWNER_ROOT_LAUNCHER_EXIT=$($proc.ExitCode)"}
           $report=Join-Path $root 'launch-report.txt'
           if(-not (Test-Path -LiteralPath $report -PathType Leaf)){throw 'OWNER_ROOT_LAUNCH_REPORT_MISSING'}
           $text=Get-Content -LiteralPath $report -Raw -Encoding utf8
-          foreach($marker in @('PREFLIGHT: PASS','PROCESS_CREATED: YES','STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION','USER_NVDA_PROVEN: NO')){
+          foreach($marker in @('PREFLIGHT: PASS','PROCESS_CREATED: YES','STATUS: STARTUP_WINDOW_READY','USER_WINDOW_PROVEN: YES','USER_NVDA_PROVEN: NO')){
             if(-not $text.Contains($marker)){throw "OWNER_ROOT_LAUNCH_REPORT_MISSING $marker"}
+          }
+          if($text.Contains('STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION')){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_LEGACY_LIVENESS_SUCCESS'
           }
           Get-Process AccessibleChess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
