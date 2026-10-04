@@ -390,5 +390,34 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIn("from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text", workflow)
 
 
+    def test_explicit_position_before_inline_image_preserves_text_position_image_text_order(self) -> None:
+        result = import_html_book(
+            f'<html><body><p>Before'
+            f'<span data-acs-fen="{Board.START}"></span>'
+            f'<img src="illustration.png" alt="Illustration">After</p></body></html>',
+            source_name="position-before-image.html",
+            available_assets={"illustration.png"},
+        )
+
+        projected = []
+        for block in result.document.blocks:
+            if isinstance(block, Paragraph):
+                projected.append(("Paragraph", block.text))
+            elif isinstance(block, Position) and not isinstance(block, Diagram):
+                projected.append(("Position", Board(block.fen).fen()))
+            elif isinstance(block, Note) and block.note_type == "image":
+                projected.append(("ImageNote", block.text))
+
+        self.assertEqual(
+            projected,
+            [
+                ("Paragraph", "Before"),
+                ("Position", Board.START),
+                ("ImageNote", "Illustration"),
+                ("Paragraph", "After"),
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
