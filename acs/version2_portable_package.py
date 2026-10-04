@@ -671,12 +671,17 @@ def assemble_portable_oneclick_tree(
 
     # The inner payload must already satisfy the canonical package authority.
     validate_version2_package_tree(canonical, expected_integration_sha=sha)
-    _launcher_identity(launcher)
+    launcher_digest = _launcher_identity(launcher)
     names = tuple(_portable_docx_name(path) for path in documents)
     if len({name.casefold() for name in names}) != 2:
         _fail("portable Word documents must have distinct filenames")
-    for path in documents:
+    document_digests: dict[str, str] = {}
+    for path, name in zip(documents, names, strict=True):
         _safe_info(path, label="portable Word document source", directory=False)
+        document_digests[name.casefold()] = _stable_digest(
+            path,
+            label="portable Word document source",
+        )
 
     if _path_entry_exists(output, label="portable package output"):
         _fail("portable package output must not already exist")
@@ -710,6 +715,12 @@ def assemble_portable_oneclick_tree(
         )
 
         _copy_file(launcher, staged / PORTABLE_LAUNCHER_NAME, label="portable launcher")
+        if _stable_digest(
+            staged / PORTABLE_LAUNCHER_NAME,
+            label="copied portable launcher",
+            maximum=1024 * 1024,
+        ) != launcher_digest:
+            _fail("portable launcher source changed after qualification")
         _copy_tree(
             canonical_snapshot / "AccessibleChess",
             staged / PORTABLE_APP_DIR,
@@ -750,6 +761,11 @@ def assemble_portable_oneclick_tree(
             _fail("canonical source checksum inventory changed while building portable package")
         for source, name in zip(documents, names, strict=True):
             _copy_file(source, staged / name, label="portable Word document")
+            if _stable_digest(
+                staged / name,
+                label="copied portable Word document",
+            ) != document_digests[name.casefold()]:
+                _fail("portable Word document source changed after qualification")
 
         _assert_tree_copy_equal(
             canonical_snapshot / "AccessibleChess",
