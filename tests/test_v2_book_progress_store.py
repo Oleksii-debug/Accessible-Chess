@@ -246,6 +246,21 @@ class BookProgressStoreTests(unittest.TestCase):
                 with self.assertRaises(BookProgressStoreError):
                     self.store.has("book:one")
 
+    def test_invalid_configured_storage_paths_fail_before_filesystem_mutation(self) -> None:
+        root_path = Path(Path.cwd().anchor)
+        for invalid in ("", "\x00", root_path):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaises(BookProgressStoreError) as caught:
+                    BookProgressStore(invalid)
+                self.assertEqual(
+                    caught.exception.code,
+                    BookProgressStoreErrorCode.INVALID_ARGUMENT,
+                )
+
+    def test_bytes_storage_path_is_rejected_as_non_text(self) -> None:
+        with self.assertRaises(TypeError):
+            BookProgressStore(os.fsencode(self.path))
+
     def test_relative_storage_path_is_bound_before_working_directory_changes(self) -> None:
         origin = Path(self.tempdir.name) / "cwd-origin"
         destination = Path(self.tempdir.name) / "cwd-destination"
