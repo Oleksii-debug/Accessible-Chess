@@ -367,8 +367,11 @@ class Version2BookTrainingWorkspace:
             self._revision = error.published_revision
             try:
                 loaded = self._store.load(material.definition)
-            except Exception:
-                raise
+            except Exception as reconcile_error:
+                raise TrainingProgressDurabilityUnknownError(
+                    "training progress was published but canonical state could not be reloaded",
+                    published_revision=error.published_revision,
+                ) from reconcile_error
             if loaded is not None:
                 bridge.projection.restore_state(
                     loaded.session.snapshot(),
