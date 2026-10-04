@@ -65,7 +65,7 @@ jobs:
 
           test "$(git rev-parse HEAD:web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt)" = '19bc974275a7470f1756dd0a3262422e8ca5b7a7'
           test "$(git rev-parse HEAD:web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt)" = 'be8bfc1935c13a440748408157f9a14f076b93d4'
-          test "$(git rev-parse HEAD:tests/test_owner_delivery_uk_docs.py)" = '648b6a49cd2bd726edf6e62eff0d45d72e20e859'
+          test "$(git rev-parse HEAD:tests/test_owner_delivery_uk_docs.py)" = '1e84ce7dabd6f165bae7795969fa58a30be7760b'
 
           test "$(git rev-parse HEAD:web/keybindings.json)" = '012f6eb19cd46998aa5a72945c254a9935028305'
           test "$(git rev-parse HEAD:web/index.html)" = '9bbf9eb537de9d572e91d482494b0da7ec52928f'
