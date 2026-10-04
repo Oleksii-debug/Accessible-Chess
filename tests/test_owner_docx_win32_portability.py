@@ -27,13 +27,13 @@ class OwnerDocxWin32PortabilityTests(unittest.TestCase):
         for name in accepted:
             with self.subTest(kind="accepted", name=repr(name)):
                 self.assertEqual(owner_candidate._owner_docx_filename(name), name)
-                self.assertEqual(portable_package._portable_docx_name(Path(name)), name)
+                self.assertEqual(portable_package._portable_docx_filename(name), name)
         for name in rejected:
             with self.subTest(kind="rejected", name=repr(name)):
                 with self.assertRaises(owner_candidate.OwnerPortableCandidateError):
                     owner_candidate._owner_docx_filename(name)
                 with self.assertRaises(portable_package.Version2PortablePackageError):
-                    portable_package._portable_docx_name(Path(name))
+                    portable_package._portable_docx_filename(name)
 
     def test_ordinary_ukrainian_docx_name_is_accepted(self) -> None:
         name = "Доступні шахи — інструкція.docx"
