@@ -3,7 +3,7 @@ name: Current Keymap Profile Ingress
 on:
   pull_request:
     branches:
-      - fix/current-board-service-passive-scalars-20261004-run57
+      - fix/current-keybindings-passive-scalars-20261004-run57
     paths:
       - 'acs/ui_keymap_service.py'
       - 'web/stage1_board_actions.js'
@@ -52,7 +52,7 @@ jobs:
             test -n "$EVENT_BASE_SHA"
             test "$EVENT_BASE_SHA" = "$live_base"
           else
-            base_ref="fix/current-board-service-passive-scalars-20261004-run57"
+            base_ref="fix/current-keybindings-passive-scalars-20261004-run57"
             git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
             live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           fi
@@ -79,8 +79,10 @@ jobs:
         run: >-
           python -m compileall -q
           acs/ui_keymap_service.py
+          acs/keybindings.py
           tests/test_keymap_profile_ingress_current.py
           tests/test_ui_keymap_service.py
+          tests/test_keybindings_passive_boundary.py
           tests/test_stage1_unbound_shortcut_capture.py
           tests/test_accessible_webui.py
 
@@ -99,6 +101,7 @@ jobs:
           python -m unittest -v
           tests.test_keymap_profile_ingress_current
           tests.test_ui_keymap_service
+          tests.test_keybindings_passive_boundary
           tests.test_stage1_unbound_shortcut_capture
           tests.test_accessible_webui
           tests.test_stage1_release_composition_ui
