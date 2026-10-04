@@ -1,0 +1,112 @@
+name: Current Engine Training Presentation Convergence
+
+on:
+  pull_request:
+    branches:
+      - fix/current-engine-move-passive-dto-20261004-ooxple7
+    paths:
+      - 'acs/full_product_presenters.py'
+      - 'acs/training_webview_bridge.py'
+      - 'acs/training_webview_projection.py'
+      - 'acs/version2_training_workspace.py'
+      - 'tests/test_training_presentation_passive_authority.py'
+      - '.github/workflows/current-training-presentation-passive-authority.yml'
+      - '.github/workflows/current-engine-training-presentation-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-engine-training-presentation-convergence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact convergence candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and bounded intake
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-fix/current-engine-move-passive-dto-20261004-ooxple7}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-engine-training-presentation-convergence.yml' \
+            '.github/workflows/current-training-presentation-passive-authority.yml' \
+            'acs/full_product_presenters.py' \
+            'acs/training_webview_bridge.py' \
+            'acs/training_webview_projection.py' \
+            'acs/version2_training_workspace.py' \
+            'tests/test_training_presentation_passive_authority.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected Engine/Training-presentation convergence scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile convergence surfaces
+        run: >-
+          python -m compileall -q
+          acs/engine_ports.py
+          acs/full_product_presenters.py
+          acs/training_webview_bridge.py
+          acs/training_webview_projection.py
+          acs/version2_training_workspace.py
+          tests/test_current_engine_move_passive_dto.py
+          tests/test_training_presentation_passive_authority.py
+
+      - name: Execute Engine and Training presentation regressions
+        run: >-
+          python -m unittest -v
+          tests.test_current_engine_move_passive_dto
+          tests.test_engine_play_service
+          tests.test_training_presentation_passive_authority
+          tests.test_dev1_books_training_webview_projection
+          tests.test_books_training_ui_integration
+          tests.test_version2_training_current_runtime
+          tests.test_v2_book_training_route_rollback
+          tests.test_training_authority_convergence
+
+      - name: Execute retained persistence Board Books and Analysis regressions
+        run: >-
+          python -m unittest -v
+          tests.test_training_progress_passive_ingress
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_current_analysis_error_boundary
+          tests.test_current_analysis_passive_dto_boundary
+          tests.test_current_remaining_engine_fen_bounds
+          tests.test_board_service_passive_boundary
+          tests.test_v2_book_board_workflow
+          tests.test_v2_windows_book_board_adapter
+
+      - name: Core selftest
+        run: python -m acs.selftest
