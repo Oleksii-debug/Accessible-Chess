@@ -197,6 +197,14 @@ class Version2WindowsFileActionDelegate:
         }
     )
     _IMPORT_SUFFIXES = frozenset({".pgn", ".cbh", ".cbv"})
+    _IMPORT_TERMINAL_KINDS = frozenset(
+        {
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            FileWorkflowEventKind.IMPORT_CANCELLED,
+            FileWorkflowEventKind.IMPORT_EMPTY,
+            FileWorkflowEventKind.FAILED,
+        }
+    )
 
     def __init__(
         self,
@@ -232,13 +240,22 @@ class Version2WindowsFileActionDelegate:
         self._focus_provider = current_focus_provider or (lambda: "")
         self._lock = threading.RLock()
         self._worker: threading.Thread | None = None
+        self._worker_started = False
         self._cancel_event: threading.Event | None = None
+        # A terminal outcome can be chosen by the worker just before its event
+        # reaches the observer. Keep that exact event as the cancellation
+        # linearization state so a concurrent UI-thread Cancel cannot insert a
+        # contradictory FAILED/CANCELLING event ahead of the terminal result.
+        self._terminal_pending: tuple[int, FileWorkflowEvent] | None = None
         self._generation = 0
 
     @property
     def import_running(self) -> bool:
         with self._lock:
-            return self._worker is not None and self._worker.is_alive()
+            # Once STARTED publication begins the import is an accepted host
+            # operation even though worker.start() intentionally waits until
+            # that observer event has returned.
+            return self._worker is not None
 
     def _focus(self) -> str:
         try:
@@ -331,8 +348,10 @@ class Version2WindowsFileActionDelegate:
             return self._dialog_cancelled("pgn.open", previous_focus)
         try:
             session = PgnDocumentSession.open(path)
-            self._set_pgn_session(session)
+            # Materialize presentation state before publishing the replacement.
+            # A failed readback must leave the previous active document intact.
             view = session.view()
+            self._set_pgn_session(session)
         except Exception:
             return self._failed("pgn.open", "pgn_open_failed", focus_target=previous_focus)
         return self._emit(
@@ -362,6 +381,11 @@ class Version2WindowsFileActionDelegate:
             return current
         previous_focus = self._focus()
         try:
+            # Capture presentation metadata before the atomic publication. Once
+            # save() returns, canonical PGN bytes and session provenance have
+            # committed; no fallible presentation readback may turn that
+            # durable success into a caller-visible failure.
+            game_count = current.view().game_count
             current.save()
         except PgnDocumentError as exc:
             if exc.code in {
@@ -377,7 +401,7 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEventKind.PGN_SAVED,
                 "pgn.save",
                 focus_target=previous_focus,
-                game_count=current.view().game_count,
+                game_count=game_count,
             )
         )
 
@@ -392,7 +416,15 @@ class Version2WindowsFileActionDelegate:
         if isinstance(current, FileWorkflowEvent):
             return current
         previous_focus = self._focus() if prior_focus is None else prior_focus
-        view = current.view()
+        try:
+            view = current.view()
+        except Exception:
+            return self._failed(
+                "pgn.save_as",
+                "pgn_save_as_failed",
+                focus_target=previous_focus,
+            )
+        game_count = view.game_count
         suggested = "game.pgn"
         if view.source_path:
             suggested = Path(view.source_path).name or suggested
@@ -416,19 +448,20 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEventKind.PGN_SAVED_AS,
                 "pgn.save_as",
                 focus_target=previous_focus,
-                game_count=current.view().game_count,
+                game_count=game_count,
             )
         )
 
     def _start_import(self) -> FileWorkflowEvent:
         previous_focus = self._focus()
         with self._lock:
-            if self._worker is not None and self._worker.is_alive():
-                return self._failed(
-                    "library.import",
-                    "import_already_running",
-                    focus_target="library-import-cancel",
-                )
+            import_active = self._worker is not None
+        if import_active:
+            return self._failed(
+                "library.import",
+                "import_already_running",
+                focus_target="library-import-cancel",
+            )
         try:
             source_path = self._dialogs.select_library_import()
         except Exception:
@@ -444,52 +477,87 @@ class Version2WindowsFileActionDelegate:
             )
 
         with self._lock:
-            if self._worker is not None and self._worker.is_alive():
-                return self._failed(
-                    "library.import",
-                    "import_already_running",
-                    focus_target="library-import-cancel",
+            if self._worker is not None:
+                import_conflict = True
+            else:
+                import_conflict = False
+                self._generation += 1
+                generation = self._generation
+                cancel_event = threading.Event()
+                self._cancel_event = cancel_event
+                self._terminal_pending = None
+                worker = threading.Thread(
+                    target=self._run_import,
+                    args=(generation, Path(source_path), suffix, cancel_event),
+                    name=f"AccessibleChess-V2-Import-{generation}",
+                    daemon=False,
                 )
-            self._generation += 1
-            generation = self._generation
-            cancel_event = threading.Event()
-            self._cancel_event = cancel_event
-            worker = threading.Thread(
-                target=self._run_import,
-                args=(generation, Path(source_path), suffix, cancel_event),
-                name=f"AccessibleChess-V2-Import-{generation}",
-                daemon=False,
+                self._worker = worker
+                self._worker_started = False
+
+        if import_conflict:
+            return self._failed(
+                "library.import",
+                "import_already_running",
+                focus_target="library-import-cancel",
             )
-            self._worker = worker
-            # Publish start before allowing even an immediately completing worker
-            # to emit its terminal event. Otherwise an empty/fast import can be
-            # announced complete and then become spuriously RUNNING again.
-            started = self._emit(
-                FileWorkflowEvent(
-                    FileWorkflowEventKind.IMPORT_STARTED,
-                    "library.import",
-                    focus_target="library-import-cancel",
-                )
+
+        # Never invoke the observer while holding the host lock. An event sink
+        # may synchronously marshal to the UI thread, where Cancel/Shutdown can
+        # legitimately re-enter this delegate. The accepted worker is already
+        # visible as active, but cannot publish anything until STARTED has been
+        # delivered because worker.start() happens afterwards.
+        started = self._emit(
+            FileWorkflowEvent(
+                FileWorkflowEventKind.IMPORT_STARTED,
+                "library.import",
+                focus_target="library-import-cancel",
             )
-            try:
+        )
+        try:
+            with self._lock:
+                if generation != self._generation or self._worker is not worker:
+                    raise RuntimeError("import worker ownership changed before start")
                 worker.start()
-            except Exception:
-                self._worker = None
-                self._cancel_event = None
-                return self._failed("library.import", "import_worker_unavailable", focus_target=previous_focus)
-            return started
+                if self._worker is worker:
+                    self._worker_started = True
+        except Exception:
+            with self._lock:
+                if generation == self._generation and self._worker is worker:
+                    self._worker = None
+                    self._worker_started = False
+                    self._cancel_event = None
+                    self._terminal_pending = None
+            return self._failed(
+                "library.import",
+                "import_worker_unavailable",
+                focus_target=previous_focus,
+            )
+        return started
 
     def _cancel_import(self) -> FileWorkflowEvent:
         with self._lock:
+            pending = self._terminal_pending
+            if pending is not None and pending[0] == self._generation:
+                # The worker has already chosen a terminal outcome, but the
+                # observer callback has not returned yet. Cancellation has lost
+                # that race. Return the exact pending outcome without emitting a
+                # second event; the worker remains the single publisher.
+                return pending[1]
             worker = self._worker
             cancel_event = self._cancel_event
-            if worker is None or cancel_event is None or not worker.is_alive():
-                return self._failed(
-                    "library.cancel_import",
-                    "no_import_running",
-                    focus_target="library-import-file",
-                )
-            cancel_event.set()
+            no_import_running = worker is None or cancel_event is None
+            if not no_import_running:
+                # This also cancels an accepted import while its STARTED event is
+                # still being delivered, before worker.start(). The worker will
+                # observe the same canonical cancel event immediately on start.
+                cancel_event.set()
+        if no_import_running:
+            return self._failed(
+                "library.cancel_import",
+                "no_import_running",
+                focus_target="library-import-file",
+            )
         return self._emit(
             FileWorkflowEvent(
                 FileWorkflowEventKind.IMPORT_CANCELLING,
@@ -656,21 +724,48 @@ class Version2WindowsFileActionDelegate:
             with self._lock:
                 if generation == self._generation:
                     self._worker = None
+                    self._worker_started = False
                     self._cancel_event = None
+                    self._terminal_pending = None
 
     def _emit_if_current(self, generation: int, event: FileWorkflowEvent) -> None:
+        terminal = False
         with self._lock:
             current = generation == self._generation
-        if current:
+            terminal = current and event.kind in self._IMPORT_TERMINAL_KINDS
+            if terminal:
+                # Choosing the terminal event closes canonical cancellation.
+                # Publication itself happens outside the host lock so an event
+                # sink that marshals to the UI thread cannot deadlock with a
+                # concurrent Cancel action. The pending event bridges that small
+                # interval and is the exact outcome a losing Cancel observes.
+                self._terminal_pending = (generation, event)
+                self._cancel_event = None
+        if not current:
+            return
+        try:
             self._emit(event)
+        finally:
+            if terminal:
+                with self._lock:
+                    pending = self._terminal_pending
+                    if (
+                        pending is not None
+                        and pending[0] == generation
+                        and pending[1] is event
+                    ):
+                        self._terminal_pending = None
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
         """Wait for the current import worker; useful for orderly host shutdown/tests."""
 
         with self._lock:
             worker = self._worker
+            worker_started = self._worker_started
         if worker is None:
             return True
+        if not worker_started:
+            return False
         worker.join(timeout)
         return not worker.is_alive()
 
@@ -679,11 +774,17 @@ class Version2WindowsFileActionDelegate:
 
         with self._lock:
             worker = self._worker
+            worker_started = self._worker_started
             cancel_event = self._cancel_event
             if cancel_event is not None:
                 cancel_event.set()
         if worker is None:
             return True
+        if not worker_started:
+            # STARTED is currently being published outside the lock. Do not
+            # attempt Thread.join() before start; cancellation is already armed
+            # and the worker will terminate as soon as publication returns.
+            return False
         worker.join(timeout)
         return not worker.is_alive()
 
