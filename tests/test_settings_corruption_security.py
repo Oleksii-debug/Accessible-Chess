@@ -129,6 +129,32 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             self.assertEqual(settings.data, baseline)
             self.assertFalse(path.exists())
 
+    def test_read_rejects_active_key_subclass_without_invoking_hooks(self) -> None:
+        class HostileKey(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("hostile settings read hash hook must not execute")
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("hostile settings read equality hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("hostile settings read string hook must not execute")
+
+        with tempfile.TemporaryDirectory() as td:
+            settings = Settings(Path(td) / "settings.json")
+            sentinel = object()
+            hostile = HostileKey("volume")
+
+            self.assertIs(settings.get(hostile, sentinel), sentinel)
+            self.assertFalse(HostileKey.touched)
+            self.assertEqual(settings.get("volume"), DEFAULTS["volume"])
+            self.assertIs(settings.get("unknown", sentinel), sentinel)
+
     def test_every_current_default_has_an_explicit_validation_policy(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             settings = Settings(Path(td) / "settings.json")
