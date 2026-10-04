@@ -38,13 +38,19 @@ class PortableLauncherCoreGuardContractTests(unittest.TestCase):
         opened = self.main.index("core_guard = ac_open_direct_private_file(g_core);")
         checked = self.main.index("if (core_guard == INVALID_HANDLE_VALUE)", opened)
         created = self.main.index("if (!CreateProcessW(", checked)
-        close_after_create = self.main.index("CloseHandle(core_guard);", created)
-        transfer = self.main.index("if (!DuplicateHandle(", close_after_create)
+        success_close_marker = (
+            "    }\n"
+            "    CloseHandle(core_guard);\n"
+            "    core_guard = INVALID_HANDLE_VALUE;"
+        )
+        success_close = self.main.index(success_close_marker, created)
+        transfer = self.main.index("if (!DuplicateHandle(", success_close)
 
         self.assertLess(opened, checked)
         self.assertLess(checked, created)
-        self.assertLess(created, close_after_create)
-        self.assertLess(close_after_create, transfer)
+        self.assertLess(created, success_close)
+        self.assertLess(success_close, transfer)
+        self.assertEqual(self.main.count("CloseHandle(core_guard);"), 2)
 
     def test_create_process_failure_closes_authenticated_core_handle_before_exit(self):
         created = self.main.index("if (!CreateProcessW(")
