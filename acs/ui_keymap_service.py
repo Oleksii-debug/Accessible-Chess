@@ -29,6 +29,8 @@ _KEY_ALIASES = {
     "ArrowDown": "Down",
     "PageUp": "PageUp",
     "PageDown": "PageDown",
+    "+": "Plus",
+    "-": "Minus",
 }
 
 
