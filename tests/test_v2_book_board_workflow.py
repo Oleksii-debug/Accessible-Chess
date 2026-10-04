@@ -85,6 +85,35 @@ class BookBoardWorkflowTests(unittest.TestCase):
             analysis,
         )
 
+    def test_constructor_rejects_reader_subclass_before_reader_hooks(self) -> None:
+        document = BookDocument(
+            title="Passive workflow ingress",
+            blocks=[Paragraph(text="Intro")],
+        )
+
+        class HostileReader(BookReader):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {
+                    "location",
+                    "block_snapshot",
+                    "snapshot",
+                    "navigation_availability",
+                }:
+                    type(self).touched = True
+                    raise AssertionError("rejected BookReader subclass hook must not execute")
+                return super().__getattribute__(name)
+
+        reader = HostileReader(document)
+        HostileReader.armed = True
+
+        with self.assertRaisesRegex(TypeError, "^reader must be BookReader$"):
+            self._workflow(reader)
+
+        self.assertFalse(HostileReader.touched)
+
     def test_semantic_game_snapshot_is_detached_read_only_and_variation_complete(self) -> None:
         document = BookDocument(
             title="Book",
