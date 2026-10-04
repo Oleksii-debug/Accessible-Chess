@@ -653,6 +653,72 @@ class PortableTreeTests(unittest.TestCase):
             self.assertFalse((output / "data").exists())
             self.assertEqual(report.integration_sha, _SHA)
 
+    def test_assembler_cleans_private_snapshot_if_staging_setup_fails(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            canonical = work / "canonical"
+            _pe(canonical / "AccessibleChess" / "AccessibleChess.exe")
+            (canonical / "THIRD_PARTY_NOTICES").mkdir(parents=True)
+            (canonical / "THIRD_PARTY_NOTICES" / "NOTICE.txt").write_text(
+                "notice",
+                encoding="utf-8",
+            )
+            (canonical / MANIFEST_NAME).write_text(
+                json.dumps(
+                    {
+                        "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
+                        "product": "Accessible Chess",
+                        "package_profile": V2_PACKAGE_PROFILE,
+                        "integration_sha": _SHA,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(canonical)
+            launcher = work / "launcher.exe"
+            _pe(launcher)
+            first = work / "Посібник.docx"
+            second = work / "Опис.docx"
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            output = work / "portable"
+
+            real_mkdtemp = tempfile.mkdtemp
+            created_snapshot: list[Path] = []
+
+            def fail_staging(*args, **kwargs):
+                if not created_snapshot:
+                    path = Path(real_mkdtemp(*args, **kwargs))
+                    created_snapshot.append(path)
+                    return str(path)
+                raise OSError("simulated staging setup failure")
+
+            with mock.patch(
+                "acs.version2_portable_package.validate_version2_package_tree",
+                return_value=object(),
+            ), mock.patch.object(
+                portable_module.tempfile,
+                "mkdtemp",
+                side_effect=fail_staging,
+            ):
+                with self.assertRaisesRegex(
+                    OSError,
+                    "simulated staging setup failure",
+                ):
+                    assemble_portable_oneclick_tree(
+                        canonical,
+                        launcher,
+                        (first, second),
+                        output,
+                        integration_sha=_SHA,
+                    )
+
+            self.assertEqual(len(created_snapshot), 1)
+            self.assertFalse(created_snapshot[0].exists())
+            self.assertFalse(output.exists())
+
     def test_assembler_revalidates_private_snapshot_after_live_source_changes(self):
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
