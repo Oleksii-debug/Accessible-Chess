@@ -28,6 +28,10 @@ MAX_BOOK_PGN_CHARS = 64 * 1024 * 1024
 MAX_BOOK_LIST_ITEMS = 65_536
 MAX_BOOK_LIST_TOTAL_CHARS = 12 * 1024 * 1024
 MAX_BOOK_WARNING_TOTAL_CHARS = 12 * 1024 * 1024
+# BookIndex durable target keys are capped at 4096 characters. Preserve the
+# widest identifier that still fits after its canonical target prefix.
+MAX_BOOK_BLOCK_ID_CHARS = 4_090
+MAX_BOOK_SOURCE_ANCHOR_CHARS = 4_089
 
 
 class BookDocumentErrorCode(str, Enum):
@@ -73,9 +77,22 @@ def _optional_text(value: object, field_name: str) -> str | None:
     return _required_text(value, field_name)
 
 
-def _optional_identifier(value: object, field_name: str) -> str | None:
-    text = _optional_text(value, field_name)
-    return None if text is None else text.strip()
+def _optional_identifier(
+    value: object,
+    field_name: str,
+    *,
+    max_chars: int,
+) -> str | None:
+    if value is None:
+        return None
+    # Identifier roots feed durable BookIndex keys. Prove exact type and raw
+    # size before strip() so rejected subclasses/padded payloads stay passive.
+    if type(value) is not str or len(value) > max_chars:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical identifier limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    return _required_text(value, field_name).strip()
 
 
 def _required_pgn_text(value: object, field_name: str) -> str:
@@ -175,8 +192,16 @@ class BookBlock:
     source_anchor: str | None = None
 
     def __post_init__(self) -> None:
-        self.block_id = _optional_identifier(self.block_id, "block_id")
-        self.source_anchor = _optional_identifier(self.source_anchor, "source_anchor")
+        self.block_id = _optional_identifier(
+            self.block_id,
+            "block_id",
+            max_chars=MAX_BOOK_BLOCK_ID_CHARS,
+        )
+        self.source_anchor = _optional_identifier(
+            self.source_anchor,
+            "source_anchor",
+            max_chars=MAX_BOOK_SOURCE_ANCHOR_CHARS,
+        )
 
     @property
     def kind(self) -> str:
