@@ -1151,6 +1151,25 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsInstance(trailing, Paragraph)
         self.assertEqual(trailing.text, "After")
 
+    def test_head_close_contains_unclosed_title_before_body_text(self) -> None:
+        result = import_html_book(
+            '<html><head><title>Book title</head>'
+            '<body><p id="body">Body text</p></body></html>',
+            source_name="malformed-title-close.html",
+        )
+
+        self.assertEqual(result.document.title, "Book title")
+        paragraphs = [
+            block for block in result.document.blocks if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.source_anchor, block.text) for block in paragraphs],
+            [("body", "Body text")],
+        )
+        self.assertTrue(
+            any("unclosed title element" in warning for warning in result.warnings)
+        )
+
     def test_explicit_ancestor_close_recovers_unclosed_semantic_descendant_before_following_text(self) -> None:
         result = import_html_book(
             '<html><body><p id="outer">A<blockquote id="inner">B</p>'
