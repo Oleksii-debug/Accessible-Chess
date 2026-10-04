@@ -6,6 +6,7 @@ on:
       - 'scripts/build_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate_stable_reads.py'
+      - 'tests/test_owner_portable_candidate_docx_binding.py'
       - 'tests/test_owner_docx_win32_portability.py'
       - 'acs/user_library_seed.py'
       - 'acs/version2_portable_package.py'
@@ -70,7 +71,8 @@ jobs:
           python -m py_compile \
             scripts/build_owner_portable_candidate.py \
             tests/test_owner_portable_candidate.py \
-            tests/test_owner_portable_candidate_stable_reads.py
+            tests/test_owner_portable_candidate_stable_reads.py \
+            tests/test_owner_portable_candidate_docx_binding.py \
             tests/test_owner_docx_win32_portability.py
           echo 'OWNER_PORTABLE_COMPILE=PASS'
 
@@ -81,6 +83,7 @@ jobs:
           python -m unittest -v \
             tests.test_owner_portable_candidate \
             tests.test_owner_portable_candidate_stable_reads \
+            tests.test_owner_portable_candidate_docx_binding \
             tests.test_owner_docx_win32_portability \
             tests.test_user_library_seed \
             tests.test_version2_portable_package
