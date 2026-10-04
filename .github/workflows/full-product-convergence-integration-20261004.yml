@@ -10,10 +10,12 @@ on:
       - qualification/consolidated-completion-contract-20261004-ooxple7
       - fix/owner-portable-qualification-snapshot-pin-20261004-sol56
       - integration/owner-equal-sha-release-convergence-20261004-ooxple7
+      - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
       - integration/current-main-windows-apex-reconvergence-20261004-sol
+      - integration/owner-equal-sha-release-convergence-20261004-ooxple7
       - main
     paths:
       - 'acs/**'
@@ -183,6 +185,14 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_OWNER_SNAPSHOT_PARENT_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "converge/owner-equal-apex-run-provenance-20261004-c2mbezb" ]; then
+            live_base_ref='integration/owner-equal-sha-release-convergence-20261004-ooxple7'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_RUN_PROVENANCE_PARENT_ANCESTRY=PASS base=$live_base"
           elif [ "${GITHUB_REF_NAME:-}" = "integration/owner-equal-sha-release-convergence-20261004-ooxple7" ]; then
             live_base_ref='fix/owner-w4-windows-path-ingress-20261004-zftrkmo'
             git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
