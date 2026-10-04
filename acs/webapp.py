@@ -84,6 +84,7 @@ class AccessibleChessAPI:
             "editor_history_failed": "Не вдалося підготувати історію зміненої позиції.",
             "language_change_failed": "Не вдалося змінити мову інтерфейсу.",
             "move_history_failed": "Не вдалося синхронізувати дошку та історію ходів.",
+            "review_position_failed": "Не вдалося підготувати вибрану позицію історії.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -103,6 +104,7 @@ class AccessibleChessAPI:
             "editor_history_failed": "Could not prepare history for the edited position.",
             "language_change_failed": "Could not change interface language.",
             "move_history_failed": "Could not synchronize the board and move history.",
+            "review_position_failed": "Could not prepare the selected history position.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -293,8 +295,41 @@ class AccessibleChessAPI:
     def _at_history_end(self) -> bool:
         return self.review_history.cursor_node_id == self.live_history_node
 
-    def _live_line_nodes(self) -> list[int]:
-        records = self.review_history.tree_nodes()
+    def _clone_review_transaction(
+        self,
+    ) -> tuple[ReviewHistory, ReviewPresentationAdapter]:
+        candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
+        candidate_adapter = ReviewPresentationAdapter(
+            candidate_history,
+            language=self.lang,
+        )
+        return candidate_history, candidate_adapter
+
+    def _validate_review_view(self, view: Any) -> None:
+        # The live node must remain an exact projection of the canonical live
+        # Board. Historical nodes must at least be renderable by chesscore
+        # before the review cursor becomes externally visible.
+        if view.node_id == self.live_history_node:
+            if view.fen != self.board.fen():
+                raise RuntimeError("live review node does not match live board")
+            return
+        Board(view.fen)
+
+    def _publish_review_transaction(
+        self,
+        candidate_history: ReviewHistory,
+        candidate_adapter: ReviewPresentationAdapter,
+    ) -> None:
+        self.review_history = candidate_history
+        self.review_adapter = candidate_adapter
+        self.selected_source = None
+
+    def _live_line_nodes(
+        self,
+        history: ReviewHistory | None = None,
+    ) -> list[int]:
+        source = self.review_history if history is None else history
+        records = source.tree_nodes()
         by_id = {record.node_id: record for record in records}
         lineage: list[int] = []
         current: int | None = self.live_history_node
@@ -304,21 +339,49 @@ class AccessibleChessAPI:
         lineage.reverse()
         return lineage
 
-    def _review_result(self, result: ReviewCommandResult) -> dict[str, Any]:
-        self.selected_source = None
-        return self._ok(result.announcement) if result.ok else self._error(result.announcement)
-
     def review_previous(self) -> dict[str, Any]:
-        return self._review_result(self.review_adapter.previous())
+        try:
+            candidate_history, candidate_adapter = self._clone_review_transaction()
+            result = candidate_adapter.previous()
+            if not result.ok:
+                return self._error(result.announcement)
+            self._validate_review_view(result.view)
+        except Exception:
+            return self._error(self._t("review_position_failed"))
+        self._publish_review_transaction(candidate_history, candidate_adapter)
+        return self._ok(result.announcement)
 
     def review_next(self) -> dict[str, Any]:
         if self._at_history_end():
             return self._error(self._t("review_end"))
-        result = self.review_adapter.next()
-        if result.ok and result.view.node_id not in self._live_line_nodes():
-            self.review_history.select_node(self.live_history_node)
-            return self._error(self._t("review_invalid"))
-        return self._review_result(result)
+        try:
+            candidate_history, candidate_adapter = self._clone_review_transaction()
+            result = candidate_adapter.next()
+            if not result.ok:
+                return self._error(result.announcement)
+            if result.view.node_id not in self._live_line_nodes(candidate_history):
+                candidate_history.select_node(self.live_history_node)
+                live_view = candidate_adapter.current()
+                self._validate_review_view(live_view)
+                self._publish_review_transaction(candidate_history, candidate_adapter)
+                return self._error(self._t("review_invalid"))
+            self._validate_review_view(result.view)
+        except Exception:
+            return self._error(self._t("review_position_failed"))
+        self._publish_review_transaction(candidate_history, candidate_adapter)
+        return self._ok(result.announcement)
+
+    def _select_review_node(self, node_id: int) -> dict[str, Any]:
+        try:
+            candidate_history, candidate_adapter = self._clone_review_transaction()
+            result = candidate_adapter.select_node(node_id)
+            if not result.ok:
+                return self._error(result.announcement)
+            self._validate_review_view(result.view)
+        except Exception:
+            return self._error(self._t("review_position_failed"))
+        self._publish_review_transaction(candidate_history, candidate_adapter)
+        return self._ok(result.announcement)
 
     def go_to_move(self, target: str) -> dict[str, Any]:
         if type(target) is not str:
@@ -326,16 +389,16 @@ class AccessibleChessAPI:
         raw = target.strip().lower()
         lineage = self._live_line_nodes()
         if raw in ("0", "start"):
-            return self._review_result(self.review_adapter.select_node(lineage[0]))
+            return self._select_review_node(lineage[0])
         if raw == "end":
-            return self._review_result(self.review_adapter.select_node(self.live_history_node))
+            return self._select_review_node(self.live_history_node)
         try:
             ply = self.review_history.parse_target(raw)
         except HistoryError:
             return self._error(self._t("review_invalid"))
         if ply < 0 or ply >= len(lineage):
             return self._error(self._t("review_invalid"))
-        return self._review_result(self.review_adapter.select_node(lineage[ply]))
+        return self._select_review_node(lineage[ply])
 
     def get_state(self) -> dict[str, Any]:
         display_view = self._display_review()
