@@ -1,0 +1,90 @@
+name: Temporary Reconverge 1621
+
+on:
+  push:
+    branches:
+      - fix/owner-portable-qualification-snapshot-pin-20261004-sol56
+    paths:
+      - '.github/workflows/temporary-reconverge-1621.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconverge:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout successor
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/owner-portable-qualification-snapshot-pin-20261004-sol56
+          fetch-depth: 0
+
+      - name: Merge live canonical parent and apply publication-race hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'accessible-chess-reconvergence'
+          git config user.email 'actions@users.noreply.github.com'
+          parent='qualification/owner-portable-candidate-20261004-sol6f2'
+          git fetch --no-tags origin "+refs/heads/$parent:refs/remotes/origin/$parent"
+          live_parent="$(git rev-parse "origin/$parent")"
+          git merge --no-ff -X ours "$live_parent" -m "Merge live owner-final parent into snapshot-pin successor"
+
+          python - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('acs/version2_portable_package.py')
+          source = source_path.read_text(encoding='utf-8')
+          old = '''        try:\n            os.link(temporary, target)\n            temporary.unlink()\n        except OSError as exc:\n            _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")\n        archive_sha = _sha256(target)\n'''
+          new = '''        verified_archive_sha = _stable_digest(\n            temporary,\n            label="verified portable ZIP",\n        )\n        try:\n            os.link(temporary, target)\n        except OSError as exc:\n            _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")\n        temporary_info = _safe_info(\n            temporary,\n            label="portable ZIP staging output",\n            directory=False,\n        )\n        target_info = _safe_info(\n            target,\n            label="published portable ZIP",\n            directory=False,\n        )\n        if not _complete_file_identity(temporary_info, target_info):\n            _fail("portable ZIP publication identity changed")\n        archive_sha = _stable_digest(\n            target,\n            label="published portable ZIP",\n        )\n        if archive_sha != verified_archive_sha:\n            _fail("portable ZIP changed during archive publication")\n        temporary.unlink()\n'''
+          if old not in source:
+              raise SystemExit('ZIP_PUBLICATION_PATCH_ANCHOR_NOT_FOUND')
+          source_path.write_text(source.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          test_path = Path('tests/test_version2_portable_package.py')
+          tests = test_path.read_text(encoding='utf-8')
+          marker = '''    def test_zip_output_cannot_mutate_the_package_tree(self):\n'''
+          regression = '''    def test_zip_publication_rejects_temp_rewrite_after_archive_readback(self):\n        with tempfile.TemporaryDirectory() as raw:\n            work = Path(raw)\n            root = work / "portable"\n            root.mkdir()\n            _portable_fixture(root)\n            target = work / "candidate.zip"\n            real_link = portable_module.os.link\n\n            def rewrite_then_link(source, destination, *args, **kwargs):\n                Path(source).write_bytes(b"tampered-after-archive-readback")\n                return real_link(source, destination, *args, **kwargs)\n\n            with mock.patch.object(\n                portable_module.os,\n                "link",\n                side_effect=rewrite_then_link,\n            ):\n                with self.assertRaisesRegex(\n                    Version2PortablePackageError,\n                    "changed during archive publication",\n                ):\n                    write_portable_oneclick_zip(\n                        root,\n                        target,\n                        expected_integration_sha=_SHA,\n                    )\n\n'''
+          if 'test_zip_publication_rejects_temp_rewrite_after_archive_readback' not in tests:
+              if marker not in tests:
+                  raise SystemExit('ZIP_PUBLICATION_TEST_ANCHOR_NOT_FOUND')
+              tests = tests.replace(marker, regression + marker, 1)
+              test_path.write_text(tests, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Verify reconvergence and focused product integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            acs/version2_portable_package.py \
+            scripts/build_owner_portable_candidate.py \
+            tests/test_version2_portable_package.py \
+            tests/test_owner_portable_candidate.py \
+            tests/test_owner_portable_candidate_stable_reads.py
+          python -m unittest -v \
+            tests.test_version2_portable_package \
+            tests.test_owner_portable_candidate \
+            tests.test_owner_portable_candidate_stable_reads \
+            tests.test_current_main_full_product_convergence_workflow
+          git diff --check
+          parent='qualification/owner-portable-candidate-20261004-sol6f2'
+          git fetch --no-tags origin "+refs/heads/$parent:refs/remotes/origin/$parent"
+          live_parent="$(git rev-parse "origin/$parent")"
+          git merge-base --is-ancestor "$live_parent" HEAD
+          test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+
+      - name: Commit verified reconvergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            acs/version2_portable_package.py \
+            tests/test_version2_portable_package.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Bind verified ZIP bytes through final publication"
+          fi
+          git push origin HEAD:fix/owner-portable-qualification-snapshot-pin-20261004-sol56
