@@ -9,7 +9,7 @@ from unittest import mock
 
 from acs.chesscore import Board
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
-from acs.training_progress_store import TrainingProgressStore
+from acs.training_progress_store import TrainingProgressStore, _windows_open_no_reparse
 
 
 class TrainingProgressAncestorAuthorityTests(unittest.TestCase):
@@ -143,6 +143,83 @@ class TrainingProgressAncestorAuthorityTests(unittest.TestCase):
 
             self.assertGreaterEqual(ancestor_checks, 2)
             self.assertFalse(store.path.exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows sharing semantics only")
+    def test_windows_read_handle_blocks_mutating_second_handles(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        GENERIC_READ = 0x80000000
+        GENERIC_WRITE = 0x40000000
+        DELETE = 0x00010000
+        FILE_SHARE_READ = 0x00000001
+        FILE_SHARE_WRITE = 0x00000002
+        FILE_SHARE_DELETE = 0x00000004
+        OPEN_EXISTING = 3
+        FILE_ATTRIBUTE_NORMAL = 0x00000080
+        ERROR_SHARING_VIOLATION = 32
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_file = kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+        invalid = ctypes.c_void_p(-1).value
+        all_shares = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+
+        def second_handle(path: Path, access: int, share: int) -> tuple[int, int]:
+            ctypes.set_last_error(0)
+            handle = create_file(
+                str(path),
+                access,
+                share,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None,
+            )
+            return int(handle), ctypes.get_last_error()
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "training-progress.json"
+            path.write_bytes(b"stable progress bytes")
+            descriptor = _windows_open_no_reparse(path, create=False)
+            try:
+                reader, reader_error = second_handle(
+                    path,
+                    GENERIC_READ,
+                    FILE_SHARE_READ,
+                )
+                self.assertNotEqual(invalid, reader, reader_error)
+                self.assertTrue(close_handle(reader))
+
+                writer, writer_error = second_handle(
+                    path,
+                    GENERIC_WRITE,
+                    all_shares,
+                )
+                self.assertEqual(invalid, writer)
+                self.assertEqual(ERROR_SHARING_VIOLATION, writer_error)
+
+                deleter, delete_error = second_handle(
+                    path,
+                    DELETE,
+                    all_shares,
+                )
+                self.assertEqual(invalid, deleter)
+                self.assertEqual(ERROR_SHARING_VIOLATION, delete_error)
+            finally:
+                os.close(descriptor)
 
 
 if __name__ == "__main__":

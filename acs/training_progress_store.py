@@ -124,8 +124,10 @@ def _windows_open_no_reparse(
     """Open one Windows disk file without following a reparse point.
 
     ``FILE_FLAG_OPEN_REPARSE_POINT`` makes the opened handle, not a prior pathname
-    observation, authoritative.  The handle is rejected before conversion to a
-    CRT descriptor if it is itself a reparse point or not a disk file.
+    observation, authoritative.  Read-only handles share only concurrent reads so
+    another process cannot mutate or replace the authenticated object while its
+    bytes are being consumed.  Create/write handles retain the broader sharing
+    required by the existing publication and durability paths.
     """
 
     import ctypes
@@ -188,10 +190,13 @@ def _windows_open_no_reparse(
 
     if exclusive and not create:
         raise ValueError("exclusive open requires create=True")
+    share_mode = FILE_SHARE_READ
+    if create or writable:
+        share_mode |= FILE_SHARE_WRITE | FILE_SHARE_DELETE
     handle = create_file(
         str(path),
         GENERIC_READ | (GENERIC_WRITE if create or writable else 0),
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        share_mode,
         None,
         CREATE_NEW if exclusive else (OPEN_ALWAYS if create else OPEN_EXISTING),
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
