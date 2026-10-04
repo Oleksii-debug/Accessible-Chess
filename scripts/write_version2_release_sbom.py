@@ -32,16 +32,26 @@ def main() -> int:
         integration_sha=report.integration_sha,
         inventory=report.inventory,
     )
+
+    # The package can change after the first canonical preflight but before the
+    # SBOM hashes it.  Re-run the canonical package authority before accepting
+    # the sidecar, then validate the sidecar against that final validated tree.
+    # This prevents a same-path payload mutation from being self-consistently
+    # described by the SBOM without ever passing package checksum validation.
+    final_report = validate_version2_package_tree(
+        args.package_root,
+        expected_integration_sha=args.integration_sha,
+    )
     document = validate_version2_release_sbom(
         args.package_root,
         target,
-        integration_sha=report.integration_sha,
-        inventory=report.inventory,
+        integration_sha=final_report.integration_sha,
+        inventory=final_report.inventory,
     )
     summary = {
         "result": "PASS",
-        "integration_sha": report.integration_sha,
-        "package_files": len(report.inventory),
+        "integration_sha": final_report.integration_sha,
+        "package_files": len(final_report.inventory),
         "sbom_files": len(document["files"]),
         "sbom_path": str(target),
         "nvda_verified": False,
