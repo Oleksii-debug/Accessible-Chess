@@ -12,13 +12,20 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_finalizer_is_manual_owner_approved_and_exact_apex_bound(self) -> None:
+    def test_finalizer_is_manual_owner_approved_and_live_exact_apex_bound(self) -> None:
         self.assertIn("workflow_dispatch:", self.text)
         self.assertIn("owner_final_candidate_approved:", self.text)
         self.assertIn("OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED", self.text)
-        self.assertIn('EXACT_PRODUCT_SHA=$env:GITHUB_SHA', self.text)
+        self.assertIn('RELEASE_BRANCH: ${{ github.event.repository.default_branch }}', self.text)
+        self.assertIn('test "$GITHUB_REF_TYPE" = "branch"', self.text)
+        self.assertIn('test "$GITHUB_REF_NAME" = "$RELEASE_BRANCH"', self.text)
+        self.assertIn('test "$exact" = "$live"', self.text)
+        self.assertIn('echo "EXACT_PRODUCT_SHA=$exact"', self.text)
+        self.assertIn("OWNER_FINALIZER_LIVE_RELEASE_APEX=PASS", self.text)
         self.assertIn("metadata.get('product_sha') != exact", self.text)
+        self.assertIn("metadata.get('workflow_sha') != exact", self.text)
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
+        self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
     def test_w4_artifact_is_bound_by_run_identity_product_and_sha(self) -> None:
         self.assertIn("w4_run_id:", self.text)
@@ -71,10 +78,14 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertNotIn("HUMAN_TESTED=YES", self.text)
         self.assertNotIn("NVDA_VERIFIED=YES", self.text)
 
-    def test_artifact_upload_is_final_oneclick_only_after_machine_launch(self) -> None:
+    def test_artifact_upload_is_final_oneclick_only_after_machine_launch_and_freshness(self) -> None:
         launch_index = self.text.index("Launch exact root one-click bytes")
+        freshness_index = self.text.index("Recheck live release apex immediately before publication")
         upload_index = self.text.index("Upload exact owner one-click candidate")
-        self.assertLess(launch_index, upload_index)
+        self.assertLess(launch_index, freshness_index)
+        self.assertLess(freshness_index, upload_index)
+        self.assertIn("OWNER_FINALIZER_STALE_BEFORE_UPLOAD", self.text)
+        self.assertIn("OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS", self.text)
         self.assertIn("Accessible-Chess-ONECLICK-OWNER-FINAL.zip", self.text)
         self.assertIn("owner-final-receipt.json", self.text)
         self.assertIn("owner-oneclick/launch-report.txt", self.text)
