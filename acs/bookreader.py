@@ -430,7 +430,10 @@ class BookReader:
         and document-bound restore. It deliberately does not resolve semantic
         targets against a BookDocument; restore_snapshot owns that later step.
         """
-        if not isinstance(snapshot, Mapping):
+        # Persisted progress is JSON-derived and canonical in-memory snapshots are
+        # emitted as built-in dicts. Reject mapping subclasses before len/iter/getitem
+        # can execute provider-defined hooks during recovery validation.
+        if type(snapshot) is not dict:
             raise TypeError("Book reader snapshot must be a mapping")
         expected_count = len(_BOOK_READER_SNAPSHOT_FIELDS)
         try:
@@ -487,7 +490,7 @@ class BookReader:
             )
 
         raw_return_points = snapshot_data["return_points"]
-        if not isinstance(raw_return_points, Mapping):
+        if type(raw_return_points) is not dict:
             raise TypeError("Book reader snapshot return_points must be a mapping")
         try:
             return_point_count = len(raw_return_points)
@@ -540,7 +543,7 @@ class BookReader:
             return_points[validated_name] = validated_key
 
         raw_fallback_digests = snapshot_data["fallback_digests"]
-        if not isinstance(raw_fallback_digests, Mapping):
+        if type(raw_fallback_digests) is not dict:
             raise TypeError("Book reader snapshot fallback_digests must be a mapping")
         max_fallback_digests = _MAX_RETURN_POINTS + 1
         try:
