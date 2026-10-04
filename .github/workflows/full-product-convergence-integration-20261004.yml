@@ -12,6 +12,7 @@ on:
       - integration/owner-equal-sha-release-convergence-20261004-ooxple7
       - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
       - fix/w4-sound-byte-readback-20261004-sol56
+      - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
@@ -196,6 +197,14 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_W4_SOUND_READBACK_PARENT_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb" ]; then
+            live_base_ref='fix/w4-sound-byte-readback-20261004-sol56'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_OWNER_PGN_CONVERGENCE_PARENT_ANCESTRY=PASS base=$live_base"
           elif [ "${GITHUB_REF_NAME:-}" = "converge/owner-equal-apex-run-provenance-20261004-c2mbezb" ]; then
             live_base_ref='integration/owner-equal-sha-release-convergence-20261004-ooxple7'
             git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
