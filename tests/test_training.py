@@ -324,6 +324,60 @@ class ExerciseSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "position_fen is too long"):
             ExerciseSession.restore(definition, snapshot)
 
+    def test_session_rejects_definition_subclass_before_attribute_hooks(self):
+        class HostileDefinition(ExerciseDefinition):
+            touched = False
+
+            def __getattribute__(self, name):
+                if name not in {"touched", "__class__"}:
+                    type(self).touched = True
+                    raise AssertionError("rejected definition subclass must stay passive")
+                return super().__getattribute__(name)
+
+        hostile = HostileDefinition.__new__(HostileDefinition)
+        HostileDefinition.touched = False
+
+        with self.assertRaisesRegex(TypeError, "definition must be an ExerciseDefinition"):
+            ExerciseSession(hostile)
+        self.assertFalse(HostileDefinition.touched)
+
+    def test_session_rejects_noncanonical_definition_containers_before_hooks(self):
+        class BombTuple(tuple):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("definition tuple hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("definition tuple hook must not execute")
+
+        class BombDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("definition metadata hook must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("definition metadata hook must not execute")
+
+        definition = self.make_definition()
+        original_steps = definition.steps
+        object.__setattr__(definition, "steps", BombTuple(original_steps))
+        BombTuple.touched = False
+        with self.assertRaisesRegex(ValueError, "steps must be canonical"):
+            ExerciseSession(definition)
+        self.assertFalse(BombTuple.touched)
+
+        object.__setattr__(definition, "steps", original_steps)
+        object.__setattr__(definition, "metadata", BombDict(dict(definition.metadata)))
+        BombDict.touched = False
+        with self.assertRaisesRegex(ValueError, "metadata must be canonical"):
+            ExerciseSession(definition)
+        self.assertFalse(BombDict.touched)
     def test_session_detaches_from_caller_owned_definition_state(self):
         definition = self.make_definition()
         session = ExerciseSession(definition)
