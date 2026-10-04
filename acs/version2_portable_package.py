@@ -41,6 +41,8 @@ from .version2_package_preflight import (
     MANIFEST_NAME,
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
+    Version2PackagePreflightError,
+    _relative_token,
     validate_version2_package_tree,
 )
 
@@ -126,18 +128,18 @@ def _portable_docx_name(path: Path) -> str:
     return name
 
 
-def _launcher_identity(path: Path) -> None:
+def _launcher_identity(path: Path) -> str:
     info = _safe_info(path, label="portable launcher", directory=False)
     if info.st_size < 1024 or info.st_size > 1024 * 1024:
         _fail("portable launcher byte size is outside the accepted native-launcher envelope")
-    try:
-        with path.open("rb") as handle:
-            if handle.read(2) != b"MZ":
-                _fail("portable launcher is not a Windows PE executable")
-    except Version2PortablePackageError:
-        raise
-    except OSError as exc:
-        _fail(f"portable launcher cannot be read: {type(exc).__name__}")
+    payload = _stable_bytes(
+        path,
+        label="portable launcher",
+        maximum=1024 * 1024,
+    )
+    if payload[:2] != b"MZ":
+        _fail("portable launcher is not a Windows PE executable")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _strict_json_bytes(payload: bytes) -> dict[str, object]:
@@ -161,18 +163,24 @@ def _strict_json_bytes(payload: bytes) -> dict[str, object]:
     return value
 
 
-def _manifest(root: Path) -> dict[str, object]:
+def _manifest_snapshot(root: Path) -> tuple[dict[str, object], str]:
     path = root / MANIFEST_NAME
     info = _safe_info(path, label="portable release manifest", directory=False)
     if info.st_size <= 0 or info.st_size > 1024 * 1024:
         _fail("portable release manifest byte size is invalid")
-    try:
-        payload = path.read_bytes()
-    except OSError as exc:
-        _fail(f"portable release manifest cannot be read: {type(exc).__name__}")
+    payload = _stable_bytes(
+        path,
+        label="portable release manifest",
+        maximum=1024 * 1024,
+    )
     value = _strict_json_bytes(payload)
     if set(value) != _PORTABLE_MANIFEST_KEYS:
         _fail("portable release manifest contract is invalid")
+    return value, hashlib.sha256(payload).hexdigest()
+
+
+def _manifest(root: Path) -> dict[str, object]:
+    value, _digest = _manifest_snapshot(root)
     return value
 
 
@@ -239,18 +247,45 @@ def _complete_file_identity(first: os.stat_result, second: os.stat_result) -> bo
         return (first_dev, first_ino) == (second_dev, second_ino)
 
 
+def _stable_change_metadata(st: os.stat_result) -> tuple[int, int] | None:
+    """Return the change metadata required to prove one stable file snapshot.
+
+    File identity plus byte size does not detect a same-length in-place rewrite
+    of an already-open inode. Supported Windows/Linux runtimes expose
+    nanosecond mtime and ctime; if either is unavailable, fail closed instead
+    of weakening portable-package integrity.
+    """
+
+    mtime_ns = getattr(st, "st_mtime_ns", None)
+    ctime_ns = getattr(st, "st_ctime_ns", None)
+    if type(mtime_ns) is not int or type(ctime_ns) is not int:
+        return None
+    return mtime_ns, ctime_ns
+
+
+def _same_file_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
+    if not _complete_file_identity(first, second):
+        return False
+    if getattr(first, "st_size", None) != getattr(second, "st_size", None):
+        return False
+    first_change = _stable_change_metadata(first)
+    second_change = _stable_change_metadata(second)
+    return first_change is not None and first_change == second_change
+
+
 def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str:
     before = _safe_info(path, label=label, directory=False)
     if maximum is not None and before.st_size > maximum:
         _fail(f"{label} exceeds its byte budget")
+    if _stable_change_metadata(before) is None:
+        _fail(f"{label} changed while being read")
     digest = hashlib.sha256()
     try:
         with path.open("rb") as handle:
             opened = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(opened.st_mode)
-                or opened.st_size != before.st_size
-                or not _complete_file_identity(before, opened)
+                or not _same_file_snapshot(before, opened)
             ):
                 _fail(f"{label} changed while being opened")
             copied = 0
@@ -270,10 +305,8 @@ def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str
     after = _safe_info(path, label=label, directory=False)
     if (
         copied != before.st_size
-        or opened_after.st_size != before.st_size
-        or after.st_size != before.st_size
-        or not _complete_file_identity(opened, opened_after)
-        or not _complete_file_identity(before, after)
+        or not _same_file_snapshot(opened, opened_after)
+        or not _same_file_snapshot(before, after)
     ):
         _fail(f"{label} changed while being read")
     return digest.hexdigest()
@@ -283,13 +316,14 @@ def _stable_bytes(path: Path, *, label: str, maximum: int) -> bytes:
     before = _safe_info(path, label=label, directory=False)
     if before.st_size > maximum:
         _fail(f"{label} exceeds its byte budget")
+    if _stable_change_metadata(before) is None:
+        _fail(f"{label} changed while being read")
     try:
         with path.open("rb") as handle:
             opened = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(opened.st_mode)
-                or opened.st_size != before.st_size
-                or not _complete_file_identity(before, opened)
+                or not _same_file_snapshot(before, opened)
             ):
                 _fail(f"{label} changed while being opened")
             payload = handle.read(maximum + 1)
@@ -302,10 +336,8 @@ def _stable_bytes(path: Path, *, label: str, maximum: int) -> bytes:
     if (
         len(payload) != before.st_size
         or len(payload) > maximum
-        or opened_after.st_size != before.st_size
-        or after.st_size != before.st_size
-        or not _complete_file_identity(opened, opened_after)
-        or not _complete_file_identity(before, after)
+        or not _same_file_snapshot(opened, opened_after)
+        or not _same_file_snapshot(before, after)
     ):
         _fail(f"{label} changed while being read")
     return payload
@@ -321,16 +353,12 @@ def _checksum_entries(payload: bytes, *, label: str) -> dict[str, tuple[str, str
         if len(raw) < 67 or raw[64:66] != "  ":
             _fail(f"{label} line is malformed")
         digest = raw[:64].casefold()
-        relative = raw[66:]
+        raw_relative = raw[66:]
         if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
             _fail(f"{label} digest is invalid")
-        pure = PurePosixPath(relative)
-        if (
-            not relative
-            or pure.is_absolute()
-            or any(part in {"", ".", ".."} for part in pure.parts)
-            or "\x00" in relative
-        ):
+        try:
+            relative = _relative_token(raw_relative, label=f"{label} path")
+        except Version2PackagePreflightError:
             _fail(f"{label} path is invalid")
         folded = relative.casefold()
         if folded in seen:
@@ -354,16 +382,22 @@ def _validate_preflighted_source_binding(
 
     source_manifest = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_MANIFEST).parts)
     source_checksums = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_CHECKSUMS).parts)
-    manifest_digest = _stable_digest(
+    # Read each authoritative metadata file exactly once.  The digest and the
+    # parsed semantics below must describe the same stable byte snapshot; a
+    # digest read followed by a second parse read leaves a between-read TOCTOU
+    # window where different bytes could be parsed under the earlier digest.
+    source_manifest_payload = _stable_bytes(
         source_manifest,
         label="canonical source release manifest",
         maximum=1024 * 1024,
     )
-    checksums_digest = _stable_digest(
+    manifest_digest = hashlib.sha256(source_manifest_payload).hexdigest()
+    source_checksums_payload = _stable_bytes(
         source_checksums,
         label="canonical source checksum inventory",
         maximum=16 * 1024 * 1024,
     )
+    checksums_digest = hashlib.sha256(source_checksums_payload).hexdigest()
     for key, actual in (
         ("source_manifest_sha256", manifest_digest),
         ("source_checksums_sha256", checksums_digest),
@@ -377,13 +411,7 @@ def _validate_preflighted_source_binding(
         ):
             _fail("portable source-package metadata digest is invalid")
 
-    source_value = _strict_json_bytes(
-        _stable_bytes(
-            source_manifest,
-            label="canonical source release manifest",
-            maximum=1024 * 1024,
-        )
-    )
+    source_value = _strict_json_bytes(source_manifest_payload)
     if (
         source_value.get("manifest_schema") != V2_PACKAGE_MANIFEST_SCHEMA_VERSION
         or source_value.get("product") != "Accessible Chess"
@@ -393,11 +421,7 @@ def _validate_preflighted_source_binding(
         _fail("portable canonical source manifest identity is invalid")
 
     source_entries = _checksum_entries(
-        _stable_bytes(
-            source_checksums,
-            label="canonical source checksum inventory",
-            maximum=16 * 1024 * 1024,
-        ),
+        source_checksums_payload,
         label="canonical source checksum inventory",
     )
     manifest_entry = source_entries.get(MANIFEST_NAME.casefold())
@@ -479,10 +503,16 @@ def validate_portable_oneclick_tree(
     _safe_info(app, label="portable App directory", directory=True)
     _safe_info(notices, label="portable notices directory", directory=True)
     _require_notice_payload(notices)
-    _launcher_identity(root / PORTABLE_LAUNCHER_NAME)
-    _launcher_identity(app / "AccessibleChess.exe")
+    launcher_identities = {
+        PORTABLE_LAUNCHER_NAME.casefold(): _launcher_identity(
+            root / PORTABLE_LAUNCHER_NAME
+        ),
+        "App/AccessibleChess.exe".casefold(): _launcher_identity(
+            app / "AccessibleChess.exe"
+        ),
+    }
 
-    value = _manifest(root)
+    value, manifest_identity_digest = _manifest_snapshot(root)
     if (
         value["manifest_schema"] != V2_PACKAGE_MANIFEST_SCHEMA_VERSION
         or value["product"] != "Accessible Chess"
@@ -534,7 +564,12 @@ def validate_portable_oneclick_tree(
         manifest=value,
         inventory=inventory,
     )
-    _checksum_inventory(root, inventory)
+    checksums = _checksum_inventory(root, inventory)
+    if checksums.get(MANIFEST_NAME.casefold()) != manifest_identity_digest:
+        _fail("portable release manifest semantics are not bound to checksum inventory")
+    for relative, identity_digest in launcher_identities.items():
+        if checksums.get(relative) != identity_digest:
+            _fail("portable launcher identity is not bound to checksum inventory")
     total_bytes = 0
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
@@ -636,12 +671,17 @@ def assemble_portable_oneclick_tree(
 
     # The inner payload must already satisfy the canonical package authority.
     validate_version2_package_tree(canonical, expected_integration_sha=sha)
-    _launcher_identity(launcher)
+    launcher_digest = _launcher_identity(launcher)
     names = tuple(_portable_docx_name(path) for path in documents)
     if len({name.casefold() for name in names}) != 2:
         _fail("portable Word documents must have distinct filenames")
-    for path in documents:
+    document_digests: dict[str, str] = {}
+    for path, name in zip(documents, names, strict=True):
         _safe_info(path, label="portable Word document source", directory=False)
+        document_digests[name.casefold()] = _stable_digest(
+            path,
+            label="portable Word document source",
+        )
 
     if _path_entry_exists(output, label="portable package output"):
         _fail("portable package output must not already exist")
@@ -650,24 +690,93 @@ def assemble_portable_oneclick_tree(
     except OSError as exc:
         _fail(f"portable package output parent cannot be prepared: {type(exc).__name__}")
 
-    staged = Path(tempfile.mkdtemp(prefix=f".{output.name}.portable-", dir=output.parent))
+    # Freeze the live canonical source into a private snapshot and run the full
+    # canonical validator against that exact snapshot.  A successful preflight
+    # of the live source is not enough: the source directory can otherwise be
+    # coherently rewritten after preflight but before portable copying, letting
+    # bytes that never passed the canonical policy become the outer payload.
+    snapshot_container: Path | None = None
+    staged: Path | None = None
     try:
+        snapshot_container = Path(
+            tempfile.mkdtemp(prefix="accessible-chess-portable-source-")
+        )
+        canonical_snapshot = snapshot_container / "canonical"
+        staged = Path(
+            tempfile.mkdtemp(
+                prefix=f".{output.name}.portable-",
+                dir=output.parent,
+            )
+        )
+        _copy_tree(canonical, canonical_snapshot, label="canonical source package")
+        validate_version2_package_tree(
+            canonical_snapshot,
+            expected_integration_sha=sha,
+        )
+
         _copy_file(launcher, staged / PORTABLE_LAUNCHER_NAME, label="portable launcher")
-        _copy_tree(canonical / "AccessibleChess", staged / PORTABLE_APP_DIR, label="canonical product payload")
-        _copy_tree(canonical / "THIRD_PARTY_NOTICES", staged / "THIRD_PARTY_NOTICES", label="canonical notices payload")
+        if _stable_digest(
+            staged / PORTABLE_LAUNCHER_NAME,
+            label="copied portable launcher",
+            maximum=1024 * 1024,
+        ) != launcher_digest:
+            _fail("portable launcher source changed after qualification")
+        _copy_tree(
+            canonical_snapshot / "AccessibleChess",
+            staged / PORTABLE_APP_DIR,
+            label="canonical product payload",
+        )
+        _copy_tree(
+            canonical_snapshot / "THIRD_PARTY_NOTICES",
+            staged / "THIRD_PARTY_NOTICES",
+            label="canonical notices payload",
+        )
         source_metadata = staged / PORTABLE_SOURCE_METADATA_DIR
         source_metadata.mkdir(exist_ok=False)
-        _copy_file(canonical / MANIFEST_NAME, source_metadata / MANIFEST_NAME, label="canonical source release manifest")
-        _copy_file(canonical / CHECKSUMS_NAME, source_metadata / CHECKSUMS_NAME, label="canonical source checksum inventory")
-        if _stable_digest(canonical / MANIFEST_NAME, label="canonical source release manifest") != _stable_digest(source_metadata / MANIFEST_NAME, label="copied canonical source release manifest"):
+        _copy_file(
+            canonical_snapshot / MANIFEST_NAME,
+            source_metadata / MANIFEST_NAME,
+            label="canonical source release manifest",
+        )
+        _copy_file(
+            canonical_snapshot / CHECKSUMS_NAME,
+            source_metadata / CHECKSUMS_NAME,
+            label="canonical source checksum inventory",
+        )
+        if _stable_digest(
+            canonical_snapshot / MANIFEST_NAME,
+            label="canonical source release manifest",
+        ) != _stable_digest(
+            source_metadata / MANIFEST_NAME,
+            label="copied canonical source release manifest",
+        ):
             _fail("canonical source release manifest changed while building portable package")
-        if _stable_digest(canonical / CHECKSUMS_NAME, label="canonical source checksum inventory") != _stable_digest(source_metadata / CHECKSUMS_NAME, label="copied canonical source checksum inventory"):
+        if _stable_digest(
+            canonical_snapshot / CHECKSUMS_NAME,
+            label="canonical source checksum inventory",
+        ) != _stable_digest(
+            source_metadata / CHECKSUMS_NAME,
+            label="copied canonical source checksum inventory",
+        ):
             _fail("canonical source checksum inventory changed while building portable package")
         for source, name in zip(documents, names, strict=True):
             _copy_file(source, staged / name, label="portable Word document")
+            if _stable_digest(
+                staged / name,
+                label="copied portable Word document",
+            ) != document_digests[name.casefold()]:
+                _fail("portable Word document source changed after qualification")
 
-        _assert_tree_copy_equal(canonical / "AccessibleChess", staged / PORTABLE_APP_DIR, label="canonical product payload")
-        _assert_tree_copy_equal(canonical / "THIRD_PARTY_NOTICES", staged / "THIRD_PARTY_NOTICES", label="canonical notices payload")
+        _assert_tree_copy_equal(
+            canonical_snapshot / "AccessibleChess",
+            staged / PORTABLE_APP_DIR,
+            label="canonical product payload",
+        )
+        _assert_tree_copy_equal(
+            canonical_snapshot / "THIRD_PARTY_NOTICES",
+            staged / "THIRD_PARTY_NOTICES",
+            label="canonical notices payload",
+        )
         _write_portable_manifest(staged, sha, (names[0], names[1]))
         _write_checksums(staged)
         report = validate_portable_oneclick_tree(
@@ -683,7 +792,10 @@ def assemble_portable_oneclick_tree(
             total_bytes=report.total_bytes,
         )
     finally:
-        shutil.rmtree(staged, ignore_errors=True)
+        if staged is not None:
+            shutil.rmtree(staged, ignore_errors=True)
+        if snapshot_container is not None:
+            shutil.rmtree(snapshot_container, ignore_errors=True)
 
 
 def write_portable_oneclick_zip(
