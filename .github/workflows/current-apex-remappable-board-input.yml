@@ -9,6 +9,7 @@ on:
       - 'tests/js/remappable_board_grid_controls_current_test.js'
       - 'tests/js/remappable_input_submit_keys_current_test.js'
       - '.github/workflows/current-apex-remappable-board-input.yml'
+      - '.github/workflows/keybindings-current-apex-dom-native.yml'
   pull_request:
     branches:
       - 'converge/completion-launcher-books-20261004-sol56'
@@ -17,6 +18,7 @@ on:
       - 'tests/js/remappable_board_grid_controls_current_test.js'
       - 'tests/js/remappable_input_submit_keys_current_test.js'
       - '.github/workflows/current-apex-remappable-board-input.yml'
+      - '.github/workflows/keybindings-current-apex-dom-native.yml'
   workflow_dispatch:
 
 permissions:
@@ -56,6 +58,7 @@ jobs:
             changed="$(git diff --name-only "$merge_base" HEAD | sort)"
             expected="$(printf '%s\n' \
               '.github/workflows/current-apex-remappable-board-input.yml' \
+              '.github/workflows/keybindings-current-apex-dom-native.yml' \
               'tests/js/remappable_board_grid_controls_current_test.js' \
               'tests/js/remappable_input_submit_keys_current_test.js' \
               'web/index.html' | sort)"
