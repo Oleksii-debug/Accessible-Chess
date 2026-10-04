@@ -2205,26 +2205,36 @@ class BookProgressStore:
                     # snapshot and skip the existing STALE_WRITE canonical reload.
                     # Treat this as a stale recovery decision instead. Calls without
                     # an expected revision retain the historical idempotent no-op.
-                    if expected_backup_revision is not None:
+                    if (
+                        expected_backup_revision is not None
+                        or expected_primary_revision is not _EXPECTED_TARGET_UNSET
+                    ):
                         raise BookProgressStoreError(
                             "book progress changed before recovery could be committed",
                             code=BookProgressStoreErrorCode.STALE_WRITE,
                         )
                     return False
 
+            revision_bound_backup = expected_backup_revision is not None
+            backup_missing_ok = primary_missing or revision_bound_backup
             backup_identity = self._data_path_identity_unlocked(
                 self.backup_path,
-                missing_ok=primary_missing,
+                missing_ok=backup_missing_ok,
             )
             backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
                 self.backup_path,
-                missing_ok=primary_missing,
+                missing_ok=backup_missing_ok,
             )
             self._require_recovery_backup_unchanged_unlocked(
                 backup_identity,
                 backup_raw,
             )
             if backup_payload is None:
+                if revision_bound_backup:
+                    raise BookProgressStoreError(
+                        "book progress backup changed before recovery could be committed",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
                 return False
             assert backup_raw is not None and backup_revision is not None
             if (
