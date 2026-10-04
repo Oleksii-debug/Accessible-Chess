@@ -21,6 +21,7 @@
 #define AC_PATH_CAP 32768
 #define AC_UTF8_CAP (AC_PATH_CAP * 4 + 4096)
 #define AC_STARTUP_POLL_MS 100
+#define AC_WINDOW_RESPONSE_PROBE_MS 100
 #define AC_STARTUP_READY_STABILITY_MS 500
 #define AC_STARTUP_WINDOW_TIMEOUT_MS 30000
 #define AC_REPORT_RETRY_MS 100
@@ -243,6 +244,7 @@ static BOOL ac_direct_file(const WCHAR *path) {
 static BOOL CALLBACK ac_find_ready_window(HWND window, LPARAM value) {
     AC_WINDOW_SEARCH *search = (AC_WINDOW_SEARCH *)value;
     DWORD process_id = 0;
+    DWORD_PTR response = 0;
     WCHAR title[64];
     int size;
 
@@ -254,6 +256,17 @@ static BOOL CALLBACK ac_find_ready_window(HWND window, LPARAM value) {
     size = GetWindowTextW(window, title, (int)(sizeof(title) / sizeof(title[0])));
     if (size <= 0) return TRUE;
     if (!ac_equal(title, L"Accessible Chess")) return TRUE;
+
+    if (SendMessageTimeoutW(
+            window,
+            WM_NULL,
+            0,
+            0,
+            SMTO_ABORTIFHUNG | SMTO_BLOCK,
+            AC_WINDOW_RESPONSE_PROBE_MS,
+            &response) == 0) {
+        return TRUE;
+    }
 
     search->found = TRUE;
     return FALSE;
@@ -379,8 +392,11 @@ void WINAPI wWinMainCRTStartup(void) {
     DWORD error;
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
-    DWORD elapsed = 0;
-    DWORD ready_elapsed = 0;
+    ULONGLONG startup_started;
+    ULONGLONG ready_started = 0;
+    ULONGLONG now;
+    BOOL ready_tracking = FALSE;
+    BOOL window_ready;
 
     ac_prepare_paths();
     if (!ac_direct_directory(g_root)) {
@@ -442,8 +458,9 @@ void WINAPI wWinMainCRTStartup(void) {
     }
     CloseHandle(g_process.hThread);
     ac_write_line(report, L"PROCESS_CREATED: YES");
-    ac_write_line(report, L"STARTUP_READINESS: waiting for stable visible Accessible Chess window");
+    ac_write_line(report, L"STARTUP_READINESS: waiting for stable responsive visible Accessible Chess window");
     FlushFileBuffers(report);
+    startup_started = GetTickCount64();
 
     for (;;) {
         wait_result = WaitForSingleObject(g_process.hProcess, AC_STARTUP_POLL_MS);
@@ -486,17 +503,23 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_fail(report, L"startup window observation", ERROR_INVALID_DATA);
         }
 
-        if (ac_has_ready_window(g_process.dwProcessId)) {
-            if (ready_elapsed >= AC_STARTUP_READY_STABILITY_MS - AC_STARTUP_POLL_MS) break;
-            ready_elapsed += AC_STARTUP_POLL_MS;
-        } else {
-            ready_elapsed = 0;
-        }
-
-        if (elapsed >= AC_STARTUP_WINDOW_TIMEOUT_MS - AC_STARTUP_POLL_MS) {
+        window_ready = ac_has_ready_window(g_process.dwProcessId);
+        now = GetTickCount64();
+        if (now - startup_started >= AC_STARTUP_WINDOW_TIMEOUT_MS) {
             ac_fail_startup_timeout(report);
         }
-        elapsed += AC_STARTUP_POLL_MS;
+
+        if (window_ready) {
+            if (!ready_tracking) {
+                ready_started = now;
+                ready_tracking = TRUE;
+            } else if (now - ready_started >= AC_STARTUP_READY_STABILITY_MS) {
+                break;
+            }
+        } else {
+            ready_tracking = FALSE;
+            ready_started = 0;
+        }
     }
 
     ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY");
