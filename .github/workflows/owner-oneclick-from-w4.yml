@@ -599,3 +599,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Confirm published artifact still matches live release apex
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$(git rev-parse HEAD)"
+          test "$exact" = "$EXACT_PRODUCT_SHA" || {
+            printf 'OWNER_FINALIZER_CHECKOUT_DRIFT_AFTER_UPLOAD exact=%s bound=%s\n' "$exact" "$EXACT_PRODUCT_SHA" >&2
+            exit 1
+          }
+          git fetch --no-tags origin "$RELEASE_BRANCH"
+          live="$(git rev-parse "origin/$RELEASE_BRANCH")"
+          test "$EXACT_PRODUCT_SHA" = "$live" || {
+            printf 'OWNER_FINALIZER_STALE_AFTER_UPLOAD exact=%s live=%s\n' "$EXACT_PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          echo 'OWNER_FINALIZER_POST_UPLOAD_FRESHNESS=PASS'
