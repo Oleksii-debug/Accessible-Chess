@@ -224,6 +224,7 @@ static BOOL ac_direct_file(const WCHAR *path) {
 static HANDLE ac_open_report(void) {
     HANDLE handle;
     FILE_ATTRIBUTE_TAG_INFO tag_info;
+    BY_HANDLE_FILE_INFORMATION file_info;
     LARGE_INTEGER zero;
     DWORD written = 0;
     DWORD attempt;
@@ -253,6 +254,17 @@ static HANDLE ac_open_report(void) {
                 return INVALID_HANDLE_VALUE;
             }
             if ((tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                CloseHandle(handle);
+                SetLastError(ERROR_CANT_ACCESS_FILE);
+                return INVALID_HANDLE_VALUE;
+            }
+            if (!GetFileInformationByHandle(handle, &file_info)) {
+                error = GetLastError();
+                CloseHandle(handle);
+                SetLastError(error);
+                return INVALID_HANDLE_VALUE;
+            }
+            if (file_info.nNumberOfLinks != 1) {
                 CloseHandle(handle);
                 SetLastError(ERROR_CANT_ACCESS_FILE);
                 return INVALID_HANDLE_VALUE;
