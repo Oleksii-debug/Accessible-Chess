@@ -2077,6 +2077,20 @@ class BookProgressStore:
                     if primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
                         raise
                 else:
+                    # A revision-bound recovery request represents a backup that
+                    # was already semantically validated before user confirmation.
+                    # If the primary is valid by the time that request reaches the
+                    # commit boundary, another writer/recovery has changed the
+                    # canonical authority. Returning the historical no-op False
+                    # would make the application re-raise its earlier CORRUPT_STORE
+                    # snapshot and skip the existing STALE_WRITE canonical reload.
+                    # Treat this as a stale recovery decision instead. Calls without
+                    # an expected revision retain the historical idempotent no-op.
+                    if expected_backup_revision is not None:
+                        raise BookProgressStoreError(
+                            "book progress changed before recovery could be committed",
+                            code=BookProgressStoreErrorCode.STALE_WRITE,
+                        )
                     return False
 
             backup_identity = self._data_path_identity_unlocked(
