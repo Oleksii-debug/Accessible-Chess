@@ -22,6 +22,7 @@ on:
       - '.github/workflows/v2-native-thread-runtime.yml'
       - '.github/workflows/v2-windows-book-board-adapter.yml'
       - '.github/workflows/version2-windows-composition.yml'
+      - '.github/workflows/w3-p0f-starter-books-training.yml'
   workflow_dispatch:
 
 permissions:
@@ -111,6 +112,7 @@ jobs:
           tests.test_version2_release_accessibility_contract
           tests.test_version2_training_current_runtime
           tests.test_w3_p0f_starter_books_training_content
+          tests.test_p0f_starter_training_canonical_legality
 
       - name: Library browser identity, import and privacy regressions
         run: >-
