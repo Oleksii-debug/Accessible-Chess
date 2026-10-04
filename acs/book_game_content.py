@@ -15,14 +15,13 @@ ambiguous by design; AUTO mode fails closed instead of silently preferring one
 source that may have diverged from the other.
 """
 
-from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
 from .bookdocument import BookDocumentError, Game, VariationTree
 from .chesscore import Board
-from .gametree import GameTreeSerializationError, PgnGame, serialize_game
+from .gametree import GameTreeSerializationError, PgnGame, parse_games, serialize_game
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -140,17 +139,27 @@ def _one_embedded_game(pgn: str) -> PgnGame:
 
 
 def _canonical_copy(game: object) -> PgnGame:
-    # The lookup port promises the canonical concrete GameTree DTO.  Reject a
-    # PgnGame subclass before deepcopy: an injected subclass may override
-    # __deepcopy__ and execute provider-controlled code before canonical
-    # serialization has had a chance to validate the returned graph.
+    # The lookup port promises the canonical concrete GameTree DTO. Reject a
+    # PgnGame subclass before any provider-controlled copy hook can run.
     if type(game) is not PgnGame:
         raise BookGameContentError(
             "book game lookup did not return a canonical GameTree game",
             code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
     try:
-        detached = deepcopy(game)
+        # Do not deepcopy provider-owned graph objects. A canonical PgnGame can
+        # still contain subclassed nested nodes with hostile __deepcopy__ hooks.
+        # Let the existing GameTree serializer validate the graph, then parse
+        # that trusted canonical text back through the same structural authority
+        # to obtain detached exact DTOs without inventing a second chess/PGN
+        # validator in Books. Preserve validated non-PGN metadata explicitly.
+        canonical_text = serialize_game(game)
+        detached_games = parse_games(canonical_text)
+        if len(detached_games) != 1:
+            raise ValueError("canonical GameTree serialization did not round-trip once")
+        detached = detached_games[0]
+        detached.source_index = game.source_index
+        detached.warnings = list(game.warnings)
         serialize_game(detached)
     except (GameTreeSerializationError, TypeError, ValueError, RecursionError) as exc:
         raise BookGameContentError(
