@@ -151,5 +151,39 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             self.assertEqual(restored.get("engine_path"), "stockfish.exe")
 
 
+    def test_direct_import_rejects_active_or_oversized_text_before_json_parse(self) -> None:
+        class HostileProfile(str):
+            touched = False
+
+            def encode(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile profile encode hook must not execute")
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("volume", 37)
+            baseline = dict(settings.data)
+            persisted = path.read_bytes()
+
+            with self.assertRaisesRegex(SettingsError, "profile must be text"):
+                settings.import_json(HostileProfile('{"schema_version": 2, "values": {}}'))
+            self.assertFalse(HostileProfile.touched)
+
+            with self.assertRaisesRegex(SettingsError, "profile is too large"):
+                settings.import_json("x" * (1024 * 1024 + 1), persist=False)
+
+            # Character count alone is insufficient: this remains below one
+            # million Python characters but exceeds the one-MiB UTF-8 envelope.
+            with self.assertRaisesRegex(SettingsError, "profile is too large"):
+                settings.import_json("😀" * 300_000, persist=False)
+
+            with self.assertRaisesRegex(SettingsError, "not valid UTF-8"):
+                settings.import_json('{"values":{"engine_path":"\ud800"}}', persist=False)
+
+            self.assertEqual(settings.data, baseline)
+            self.assertEqual(path.read_bytes(), persisted)
+
+
 if __name__ == "__main__":
     unittest.main()
