@@ -1087,19 +1087,31 @@ class Version2Application:
                         concise_user_error("", language=self.shell.language)
                     )
                 if result.kind in {BookBoardUiEventKind.BOARD_OPENED, BookBoardUiEventKind.BOARD_UPDATED}:
-                    # Acquire the shell route before calling the release Board
-                    # projector. The projector is an external host seam; allowing
-                    # it to accept a new position before route ownership commits
-                    # makes a later open_route() failure observably non-atomic.
-                    # If route acquisition fails, no Board bytes were published,
-                    # so roll back only the canonical workflow mutation.
+                    # Commit every fallible shell ownership operation before
+                    # calling the release Board projector. The projector is an
+                    # external host seam; once it accepts a FEN, a later route or
+                    # focus failure must not turn that accepted state into an
+                    # application error with divergent ownership.
+                    route_acquired = False
                     try:
                         route_focus = self.shell.open_route("board")
+                        route_acquired = True
+                        if result.kind is BookBoardUiEventKind.BOARD_OPENED:
+                            # Bind the canonical launch focus before publication
+                            # as part of the same shell precommit.
+                            self.shell.record_focus("board-launcher")
+                            route_focus = "board-launcher"
                     except Exception:
                         if before_view is not None and before_view.cursor is not None:
                             self.book_workflow.go_to_cursor(before_view.cursor)
                         elif self.book_workflow is not None and self.book_workflow.active:
                             self.book_workflow.return_to_book()
+                        if (
+                            route_acquired
+                            and result.kind is BookBoardUiEventKind.BOARD_OPENED
+                        ):
+                            self._focus = self.shell.open_route("books")
+                            self._repair_book_block_focus_after_rebind()
                         raise
                     self._focus = route_focus
                     try:
@@ -1109,12 +1121,6 @@ class Version2Application:
                         raise
                     self.pgn_board_active = False
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED:
-                        # The repaint event and native application focus token
-                        # must agree immediately. A second keyboard/menu action
-                        # before WebView focusin must not write stale Book focus
-                        # into the Board route's focus history.
-                        self.shell.record_focus("board-launcher")
-                        self._focus = "board-launcher"
                         self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
                 if result.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
                     if not return_route_precommitted:
