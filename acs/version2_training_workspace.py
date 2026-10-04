@@ -43,7 +43,9 @@ class Version2BookTrainingWorkspace:
         progress_root: str | Path,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(reader, BookReader):
+        # Training provenance is bound to the canonical semantic BookReader.
+        # Reject subclasses before any location/document navigation hook can run.
+        if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
         if not isinstance(progress_root, (str, Path)):
             raise TypeError("progress_root must be a filesystem path")
