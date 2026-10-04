@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -63,6 +64,10 @@ class SettingsError(ValueError):
     pass
 
 
+class SettingsFutureSchemaError(SettingsError):
+    """Raised when settings belong to a newer application schema."""
+
+
 def _reparse(info: os.stat_result) -> bool:
     flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     return bool(getattr(info, "st_file_attributes", 0) & flag)
@@ -103,6 +108,12 @@ def _same_file_version(first: os.stat_result, second: os.stat_result) -> bool:
         and int(getattr(first, "st_ctime_ns", 0))
         == int(getattr(second, "st_ctime_ns", 0))
     )
+
+
+def _settings_text_revision(text: str | None) -> str | None:
+    if text is None:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _read_private_settings_text(path: Path) -> str | None:
@@ -483,7 +494,7 @@ def _migrate(raw: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
         version = version_value
 
     if version > SCHEMA_VERSION:
-        raise SettingsError(
+        raise SettingsFutureSchemaError(
             f"settings schema {version} is newer than supported schema {SCHEMA_VERSION}"
         )
 
@@ -524,15 +535,29 @@ class Settings:
         self.path = Path(path)
         self.data: dict[str, Any] = dict(DEFAULTS)
         self.warning: str | None = None
+        self._baseline_known = False
+        self._baseline_revision: str | None = None
+        self._write_blocked_reason: str | None = None
         self.load()
 
     def load(self) -> None:
         self.data = dict(DEFAULTS)
         self.warning = None
+        self._baseline_known = False
+        self._baseline_revision = None
+        self._write_blocked_reason = None
         try:
             text = _read_private_settings_text(self.path)
-            if text is None:
-                return
+        except Exception as exc:
+            self.warning = f"settings recovery: {exc}"
+            return
+
+        self._baseline_known = True
+        self._baseline_revision = _settings_text_revision(text)
+        if text is None:
+            return
+
+        try:
             raw = json.loads(text)
             if not isinstance(raw, Mapping):
                 raise SettingsError("settings file must contain a JSON object")
@@ -543,6 +568,10 @@ class Settings:
                 self.data[key] = _validated_value(key, value)
             if migration_warnings:
                 self.warning = "; ".join(migration_warnings)
+        except SettingsFutureSchemaError as exc:
+            self.data = dict(DEFAULTS)
+            self._write_blocked_reason = str(exc)
+            self.warning = f"settings recovery: {exc}"
         except Exception as exc:
             self.data = dict(DEFAULTS)
             self.warning = f"settings recovery: {exc}"
@@ -599,8 +628,24 @@ class Settings:
         return warnings
 
     def save(self) -> None:
+        if not self._baseline_known:
+            raise SettingsError(
+                "settings write blocked until canonical storage is loaded safely"
+            )
+        if self._write_blocked_reason is not None:
+            raise SettingsError(
+                "settings write blocked while a newer schema is present: "
+                + self._write_blocked_reason
+            )
+
         payload = (self.export_json() + "\n").encode("utf-8")
         with _SettingsSaveLock(self.path) as upgrade_lock:
+            current_text = _read_private_settings_text(self.path)
+            if _settings_text_revision(current_text) != self._baseline_revision:
+                raise SettingsError(
+                    "settings changed since this Settings instance was loaded"
+                )
+
             self.path.parent.mkdir(parents=True, exist_ok=True)
             fd, raw = tempfile.mkstemp(
                 prefix=f".{self.path.name}.",
@@ -640,6 +685,11 @@ class Settings:
                     )
 
                 upgrade_lock.assert_current()
+                publication_text = _read_private_settings_text(self.path)
+                if _settings_text_revision(publication_text) != self._baseline_revision:
+                    raise SettingsError(
+                        "settings changed during publication preparation"
+                    )
                 os.replace(temp, self.path)
                 temp = None
 
@@ -663,6 +713,9 @@ class Settings:
                         "settings publication changed before durability confirmation"
                     )
                 upgrade_lock.assert_current()
+                self._baseline_known = True
+                self._baseline_revision = hashlib.sha256(payload).hexdigest()
+                self._write_blocked_reason = None
             finally:
                 if fd >= 0:
                     os.close(fd)
