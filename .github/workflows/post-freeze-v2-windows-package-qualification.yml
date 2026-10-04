@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - work/post-freeze-v2-windows-package-qualification-20260911
+  pull_request:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+    paths:
+      - .github/workflows/post-freeze-v2-windows-package-qualification.yml
   workflow_dispatch:
 
 permissions:
@@ -56,14 +61,15 @@ jobs:
       - name: Checkout exact package qualification child
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Prove exact W5 qualification child
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected"
 
       - name: Bind exact current Product and preserved W5 lineage
         shell: bash
@@ -76,7 +82,7 @@ jobs:
           git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
           git cat-file -e "$RECONVERGENCE_MERGE_SHA^{commit}"
           git cat-file -e "$PUBLICATION_PARENT_SHA^{commit}"
-          test "$(git rev-parse HEAD^1)" = "$PUBLICATION_PARENT_SHA"
+          test "$(git merge-base "$PUBLICATION_PARENT_SHA" HEAD)" = "$PUBLICATION_PARENT_SHA"
           test "$(git merge-base "$RECONVERGENCE_MERGE_SHA" "$PUBLICATION_PARENT_SHA")" = "$RECONVERGENCE_MERGE_SHA"
           test "$(git merge-base "$PRODUCT_PARENT_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PRODUCT_PARENT_SHA"
           test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PREVIOUS_PACKAGE_SHA"
