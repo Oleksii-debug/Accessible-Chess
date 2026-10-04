@@ -14,7 +14,7 @@ from acs.book_html_import import (
     import_html_book,
 )
 from acs.book_progress_store import BookProgressStore
-from acs.bookdocument import BookDocument, Diagram, Game, Note, Paragraph, Position
+from acs.bookdocument import BookDocument, Diagram, Game, Heading, Note, Paragraph, Position
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 
@@ -696,6 +696,35 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(location.source_anchor, "outer")
         self.assertIsInstance(block, Paragraph)
         self.assertEqual(block.text, "A")
+
+
+    def test_malformed_nested_heading_keeps_outer_prefix_before_heading_when_later_image_splits_parent(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">A<h2 id="inner">H</h2>B'
+            '<img src="image.png" alt="Image">C</p></body></html>',
+            source_name="malformed-nested-heading-inline.html",
+            available_assets={"image.png"},
+        )
+
+        projected = []
+        for block in result.document.blocks:
+            if isinstance(block, Heading):
+                projected.append(("Heading", block.text))
+            elif isinstance(block, Paragraph):
+                projected.append(("Paragraph", block.text))
+            elif isinstance(block, Note) and block.note_type == "image":
+                projected.append(("ImageNote", block.text))
+
+        self.assertEqual(
+            projected,
+            [
+                ("Paragraph", "A"),
+                ("Heading", "H"),
+                ("Paragraph", "B"),
+                ("ImageNote", "Image"),
+                ("Paragraph", "C"),
+            ],
+        )
 
 
 if __name__ == "__main__":
