@@ -198,6 +198,7 @@ function selectIndex(view, index) {
   view.tree.forEach(function (item, itemIndex) {
     item.selected = itemIndex === index;
   });
+  view.focus_target = view.tree[index].dom_id;
   return view;
 }
 
