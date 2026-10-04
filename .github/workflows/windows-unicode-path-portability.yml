@@ -2,8 +2,6 @@ name: Windows Unicode Path Portability
 
 on:
   pull_request:
-    branches:
-      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'tests/test_windows_unicode_path_portability.py'
       - '.github/workflows/windows-unicode-path-portability.yml'
@@ -42,7 +40,7 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
 
-      - name: Prove exact Product ancestry and test-only scope
+      - name: Prove live-base ancestry and bounded evidence scope
         shell: bash
         run: |
           set -euo pipefail
@@ -71,13 +69,19 @@ jobs:
           git diff --check "$upstream" HEAD
 
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          expected_paths="$(printf '%s\n' \
-            '.github/workflows/windows-unicode-path-portability.yml' \
-            'tests/test_windows_unicode_path_portability.py' | sort)"
-          test "$changed" = "$expected_paths"
+          test -n "$changed"
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/windows-unicode-path-portability.yml|tests/test_windows_unicode_path_portability.py) ;;
+              *) echo "Unexpected path in portability evidence successor: $path" >&2; exit 1 ;;
+            esac
+          done <<< "$changed"
 
           git diff --quiet "$upstream" HEAD -- acs web packaging run_accessible_chess.py
+          test "$(git hash-object tests/test_windows_unicode_path_portability.py)" = \
+            '23e6397082d4133726c35f9dedff76a32e0c83f9'
           echo 'WINDOWS_PATH_PORTABILITY_SCOPE=TEST_WORKFLOW_ONLY'
+          echo 'WINDOWS_PATH_PORTABILITY_ORACLE=23e6397082d4133726c35f9dedff76a32e0c83f9'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
