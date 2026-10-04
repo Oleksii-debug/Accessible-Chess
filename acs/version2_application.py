@@ -934,7 +934,13 @@ class Version2Application:
                 if result.kind is FileWorkflowEventKind.IMPORT_STARTED:
                     self._events.append(asdict(ui.prepare()))
                 elif result.kind is FileWorkflowEventKind.IMPORT_CANCELLING:
-                    self._events.append(asdict(ui.host_cancelling()))
+                    # A result observer may already have advanced the canonical
+                    # import projection to a terminal phase before the host's
+                    # late cancelling event reaches this direct/native path.
+                    # Terminal projection state wins; never regress it or raise
+                    # from host_cancelling() after completion.
+                    if ui.phase in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+                        self._events.append(asdict(ui.host_cancelling()))
                 else:
                     self._file_event(result)
             return result
