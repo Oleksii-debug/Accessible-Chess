@@ -389,7 +389,7 @@ class LibraryWebViewProjection:
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(presenter, LibraryPresenter):
+        if type(presenter) is not LibraryPresenter:
             raise TypeError("presenter must be LibraryPresenter")
         if not callable(dispatch):
             raise TypeError("library dispatcher must be callable")
