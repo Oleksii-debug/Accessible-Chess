@@ -424,6 +424,22 @@ class ActionRegistry:
             "aliases": dict(self._aliases),
         }
 
+    def replace_profile(self, profile: Mapping[str, object]) -> None:
+        """Replace live values from one fully validated profile.
+
+        The candidate is built and validated against this registry's complete
+        definition set before either live mapping is replaced. This is required
+        for valid shortcut swaps: replaying bindings one at a time can create a
+        transient duplicate against the old default and reject a profile that is
+        globally conflict-free.
+        """
+
+        candidate = type(self).from_profile(profile, self.definitions())
+        self._bindings, self._aliases = (
+            dict(candidate._bindings),
+            dict(candidate._aliases),
+        )
+
     def export_json(self, *, indent: int = 2) -> str:
         return json.dumps(self.to_profile(), ensure_ascii=False, indent=indent, sort_keys=True)
 
