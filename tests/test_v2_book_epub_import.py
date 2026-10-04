@@ -2375,11 +2375,35 @@ class BookEpubImportTests(unittest.TestCase):
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             ),
             (
+                '<links><link href="OEBPS/missing-map.xhtml" rel="mapping"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
                 '<links><link href="OEBPS/chapter.xhtml" rel=" alternate "/></links>',
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             ),
             (
                 '<links><link href="OEBPS/chapter.xhtml" rel="alternate  mapping"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate" media-type=" image/png"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate" media-type="image/"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate" media-type="image//png"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate" media-type="text/html;charset=utf-8"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate" media-type="image/пнг"/></links>',
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             ),
         )
@@ -2459,7 +2483,8 @@ class BookEpubImportTests(unittest.TestCase):
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
   <links>
-    <link href="OEBPS/chapter.xhtml?view=print#start" rel="alternate mapping"/>
+    <link href="OEBPS/chapter.xhtml?view=print#start" rel="alternate mapping"
+      media-type="APPLICATION/VND.EXAMPLE+XML"/>
   </links>
 </container>'''
         result = import_epub_book(
