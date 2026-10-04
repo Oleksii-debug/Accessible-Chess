@@ -218,7 +218,10 @@ class BookWebViewProjection:
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(presenter, BookReaderPresenter):
+        # The projection owns the browser/NVDA publication boundary. Accept only
+        # the canonical presenter so provider-defined subclasses cannot override
+        # current(), navigation, language, or board-handoff behavior.
+        if type(presenter) is not BookReaderPresenter:
             raise TypeError("presenter must be BookReaderPresenter")
         if not callable(dispatch):
             raise TypeError("book dispatcher must be callable")
