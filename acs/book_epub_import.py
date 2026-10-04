@@ -173,7 +173,7 @@ def _source_bytes(source: object) -> bytes:
     return source
 
 
-def _validate_single_disk_zip_end_records(raw: bytes) -> None:
+def _validate_single_disk_zip_end_records(raw: bytes) -> int:
     signature = b"PK\x05\x06"
     search_start = max(0, len(raw) - (22 + 0xFFFF))
     cursor = len(raw)
@@ -304,6 +304,51 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> None:
             "EPUB central directory has an invalid or prohibited boundary record",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
+
+    central_end = central_offset + central_size
+    central_cursor = central_offset
+    observed_entries = 0
+    while central_cursor < central_end:
+        if (
+            central_cursor + 46 > central_end
+            or raw[central_cursor : central_cursor + 4] != b"PK\x01\x02"
+        ):
+            raise _error(
+                "EPUB central directory contains an invalid record",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        name_length = int.from_bytes(
+            raw[central_cursor + 28 : central_cursor + 30],
+            "little",
+        )
+        extra_length = int.from_bytes(
+            raw[central_cursor + 30 : central_cursor + 32],
+            "little",
+        )
+        comment_length = int.from_bytes(
+            raw[central_cursor + 32 : central_cursor + 34],
+            "little",
+        )
+        record_size = 46 + name_length + extra_length + comment_length
+        if central_cursor + record_size > central_end:
+            raise _error(
+                "EPUB central directory record extends beyond its declared boundary",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        observed_entries += 1
+        if observed_entries > MAX_EPUB_ENTRIES:
+            raise _error(
+                "EPUB contains an unsupported number of package entries",
+                BookEpubImportErrorCode.RESOURCE_LIMIT,
+            )
+        central_cursor += record_size
+
+    if observed_entries != total_entries:
+        raise _error(
+            "EPUB ZIP entry-count metadata is inconsistent",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    return observed_entries
 
 
 def _is_forbidden_ocf_name_character(character: str) -> bool:
@@ -1641,7 +1686,7 @@ def import_epub_book(
     """
 
     raw = _source_bytes(source)
-    _validate_single_disk_zip_end_records(raw)
+    expected_archive_entries = _validate_single_disk_zip_end_records(raw)
     display_source = _required_text(source_name, "source_name")
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
@@ -1659,6 +1704,11 @@ def import_epub_book(
     with archive:
         index = _archive_index(archive)
         infos = archive.infolist()
+        if len(infos) != expected_archive_entries:
+            raise _error(
+                "EPUB ZIP entry-count metadata is inconsistent",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
         if infos[0].filename != "mimetype" or infos[0].compress_type != zipfile.ZIP_STORED:
             raise _error(
                 "EPUB mimetype entry must be the first uncompressed package entry",
