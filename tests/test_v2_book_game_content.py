@@ -111,6 +111,33 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         source.line.moves[0].san = "corrupted-after-return"
         self.assertEqual(resolved.game.line.moves[0].san, original_san)
 
+    def test_reference_lookup_rejects_pgn_subclass_before_deepcopy_hook(self) -> None:
+        class HostilePgnGame(PgnGame):
+            touched = False
+
+            def __deepcopy__(self, memo):
+                type(self).touched = True
+                raise AssertionError("hostile deepcopy hook must not execute")
+
+        source = parse_games(EMBEDDED_PGN)[0]
+        hostile = HostilePgnGame(
+            tags=dict(source.tags),
+            line=source.line,
+            source_index=source.source_index,
+            warnings=list(source.warnings),
+        )
+        lookup = _Lookup(hostile)
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(Game(game_id=17), lookup=lookup)
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+        self.assertEqual(lookup.calls, [17])
+        self.assertFalse(HostilePgnGame.touched)
+
     def test_reference_backend_failures_do_not_leak_paths_or_provider_details(self) -> None:
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_game(Game(game_id=9), lookup=_ExplodingLookup())
@@ -128,6 +155,30 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertIsNone(caught.exception.__cause__)
         rendered = "".join(traceback.format_exception(caught.exception))
         self.assertNotIn("404", rendered)
+
+    def test_lookup_port_attribute_failure_is_sanitized(self) -> None:
+        class ExplodingPort:
+            @property
+            def load_book_game(self):
+                raise RuntimeError(
+                    r"C:\Users\Oleksii\private\library.db provider=sqlite"
+                )
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(
+                Game(game_id=3),
+                lookup=ExplodingPort(),  # type: ignore[arg-type]
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_LOOKUP,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("Users", rendered)
+        self.assertNotIn("library.db", rendered)
+        self.assertNotIn("sqlite", rendered)
 
     def test_invalid_lookup_shape_or_return_type_fails_closed(self) -> None:
         class NoPort:

@@ -140,7 +140,11 @@ def _one_embedded_game(pgn: str) -> PgnGame:
 
 
 def _canonical_copy(game: object) -> PgnGame:
-    if not isinstance(game, PgnGame):
+    # The lookup port promises the canonical concrete GameTree DTO.  Reject a
+    # PgnGame subclass before deepcopy: an injected subclass may override
+    # __deepcopy__ and execute provider-controlled code before canonical
+    # serialization has had a chance to validate the returned graph.
+    if type(game) is not PgnGame:
         raise BookGameContentError(
             "book game lookup did not return a canonical GameTree game",
             code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
@@ -162,7 +166,15 @@ def _reference_game(game_id: int, lookup: BookGameLookup | None) -> PgnGame:
             "a referenced book game requires a Library game lookup",
             code=BookGameContentErrorCode.LOOKUP_REQUIRED,
         )
-    loader = getattr(lookup, "load_book_game", None)
+    try:
+        loader = getattr(lookup, "load_book_game", None)
+    except Exception:
+        # Provider attribute access is part of the injected port boundary too.
+        # A descriptor/__getattribute__ failure must not leak backend details.
+        raise BookGameContentError(
+            "book game lookup does not expose the required application port",
+            code=BookGameContentErrorCode.INVALID_LOOKUP,
+        ) from None
     if not callable(loader):
         raise BookGameContentError(
             "book game lookup does not expose the required application port",
