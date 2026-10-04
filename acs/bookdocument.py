@@ -14,12 +14,18 @@ from enum import Enum
 from typing import Any, Iterable, Iterator
 
 from .chesscore import Board
+from .input_limits import MAX_FEN_CHARS
 
 
 BOOK_DOCUMENT_SCHEMA_VERSION = 1
 MAX_BOOK_DOCUMENT_BLOCKS = 50_000
 MAX_BOOK_DOCUMENT_WARNINGS = 4_096
 MAX_BOOK_DOCUMENT_FIELDS = 9
+# Keep the canonical semantic model inside the same presentation/import budgets
+# already enforced by supported TXT/HTML and WebView paths.
+MAX_BOOK_DOCUMENT_TEXT_CHARS = 12 * 1024 * 1024
+MAX_BOOK_DOCUMENT_IDENTIFIER_CHARS = 4_089
+MAX_BOOK_DOCUMENT_LIST_ITEMS = 65_536
 
 
 class BookDocumentErrorCode(str, Enum):
@@ -37,27 +43,58 @@ class BookDocumentError(ValueError):
         self.code = BookDocumentErrorCode(code)
 
 
-def _required_text(value: object, field_name: str) -> str:
+def _required_text(
+    value: object,
+    field_name: str,
+    *,
+    max_chars: int | None = None,
+) -> str:
     # Canonical Book payloads originate from JSON/text importers and therefore
-    # use built-in strings. Reject subclasses before calling strip() so hostile
-    # Python-side ingress cannot execute custom text hooks inside validation.
-    if type(value) is not str or not value.strip():
+    # use built-in strings. Reject subclasses and oversize exact text before
+    # strip() can scan provider-controlled content.
+    if type(value) is not str:
         raise BookDocumentError(
             f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    limit = MAX_BOOK_DOCUMENT_TEXT_CHARS if max_chars is None else max_chars
+    if len(value) > limit or not value.strip():
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text within the supported bound",
             code=BookDocumentErrorCode.INVALID_FIELD,
         )
     return value
 
 
-def _optional_text(value: object, field_name: str) -> str | None:
+def _optional_text(
+    value: object,
+    field_name: str,
+    *,
+    max_chars: int | None = None,
+) -> str | None:
     if value is None:
         return None
-    return _required_text(value, field_name)
+    return _required_text(value, field_name, max_chars=max_chars)
 
 
 def _optional_identifier(value: object, field_name: str) -> str | None:
-    text = _optional_text(value, field_name)
+    text = _optional_text(
+        value,
+        field_name,
+        max_chars=MAX_BOOK_DOCUMENT_IDENTIFIER_CHARS,
+    )
     return None if text is None else text.strip()
+
+
+def _warnings_are_bounded(values: list[object]) -> bool:
+    total_chars = 0
+    for warning in values:
+        if type(warning) is not str:
+            return False
+        total_chars += len(warning)
+        if total_chars > MAX_BOOK_DOCUMENT_TEXT_CHARS:
+            return False
+    return all(warning.strip() for warning in values)
 
 
 def _fen_text(value: object, field_name: str) -> str:
@@ -68,7 +105,11 @@ def _fen_text(value: object, field_name: str) -> str:
     legality rules. A rejected value never becomes a published semantic block.
     """
 
-    text = _required_text(value, field_name).strip()
+    text = _required_text(
+        value,
+        field_name,
+        max_chars=MAX_FEN_CHARS,
+    ).strip()
     fields = text.split()
     if len(fields) not in {4, 6}:
         raise BookDocumentError(
@@ -154,14 +195,26 @@ class ListBlock(BookBlock):
 
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
-        if type(self.items) is not list or not self.items:
+        if (
+            type(self.items) is not list
+            or not self.items
+            or len(self.items) > MAX_BOOK_DOCUMENT_LIST_ITEMS
+        ):
             raise BookDocumentError(
-                "List items must be a non-empty list of text items",
+                "List items must be a bounded non-empty list of text items",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         validated_items: list[str] = []
+        total_item_chars = 0
         for item in self.items:
-            validated_items.append(_required_text(item, "List item"))
+            validated = _required_text(item, "List item")
+            total_item_chars += len(validated)
+            if total_item_chars > MAX_BOOK_DOCUMENT_TEXT_CHARS:
+                raise BookDocumentError(
+                    "List items exceed the supported text bound",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+            validated_items.append(validated)
         if type(self.ordered) is not bool:
             raise BookDocumentError(
                 "List ordered must be a boolean",
@@ -214,9 +267,9 @@ class Game(BookBlock):
 
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
-        if type(self.pgn) is not str:
+        if type(self.pgn) is not str or len(self.pgn) > MAX_BOOK_DOCUMENT_TEXT_CHARS:
             raise BookDocumentError(
-                "Game PGN must be text",
+                "Game PGN must be text within the supported bound",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         self.title = _optional_text(self.title, "Game title")
@@ -401,7 +454,7 @@ class BookDocument:
                 f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if not all(type(warning) is str and warning.strip() for warning in self.warnings):
+        if not _warnings_are_bounded(self.warnings):
             raise BookDocumentError(
                 "Book warnings must be a list of non-empty strings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
@@ -522,7 +575,7 @@ class BookDocument:
                 f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if not all(type(warning) is str and warning.strip() for warning in self.warnings):
+        if not _warnings_are_bounded(self.warnings):
             raise BookDocumentError(
                 "Book warnings must remain a list of non-empty strings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
@@ -617,7 +670,7 @@ class BookDocument:
                 f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if not all(type(item) is str and item.strip() for item in warnings):
+        if not _warnings_are_bounded(warnings):
             raise BookDocumentError(
                 "BookDocument warnings must be a list of non-empty strings",
                 code=BookDocumentErrorCode.INVALID_FIELD,
