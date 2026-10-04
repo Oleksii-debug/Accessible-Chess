@@ -132,6 +132,43 @@ class EpubDublinCoreMetadataIdentityTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+
+    def test_epub_defined_ids_are_unique_across_package_document_scope(self) -> None:
+        invalid_packages = (
+            _package(
+                '<dc:identifier id="bookid">urn:uuid:real</dc:identifier>'
+                '<dc:title id="bookid">Conflicting title</dc:title>'
+            ),
+            _package(
+                '<dc:identifier id="bookid">urn:uuid:real</dc:identifier>'
+                '<dc:title id="chapter">Conflicts with manifest item</dc:title>'
+            ),
+        )
+        for package in invalid_packages:
+            with self.subTest(package=package):
+                with self.assertRaises(BookEpubImportError) as caught:
+                    import_epub_book(
+                        _epub(package),
+                        source_name="duplicate-document-id.epub",
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_foreign_extension_id_does_not_claim_epub_id_space(self) -> None:
+        metadata = '''
+    <dc:identifier id="bookid">urn:uuid:real</dc:identifier>
+    <x:title id="bookid">Foreign extension title</x:title>
+    <dc:title>Canonical title</dc:title>'''
+
+        result = import_epub_book(
+            _epub(_package(metadata)),
+            source_name="foreign-extension-id.epub",
+        )
+
+        self.assertEqual(result.document.title, "Canonical title")
+
     def test_matching_unicode_dc_identifier_remains_supported(self) -> None:
         metadata = '''
     <dc:identifier id="книга">urn:example:книга</dc:identifier>
