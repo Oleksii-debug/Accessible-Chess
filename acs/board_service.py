@@ -76,8 +76,8 @@ class BoardSnapshot:
             or any(type(move) is not MoveView for move in self.legal_moves)
         ):
             raise TypeError("legal_moves must be a tuple of MoveView")
-        if not isinstance(self.attacks, Mapping):
-            raise TypeError("attacks must be a mapping")
+        if type(self.attacks) is not dict:
+            raise TypeError("attacks must be a canonical dict")
         detached_attacks: dict[int, tuple[int, ...]] = {}
         for target, origins in self.attacks.items():
             if type(target) is not int or not 0 <= target < 64:
@@ -137,8 +137,8 @@ class MaterialView:
     def __post_init__(self) -> None:
         detached: list[dict[str, int]] = []
         for field_name, values in (("white", self.white), ("black", self.black)):
-            if not isinstance(values, Mapping):
-                raise ValueError(f"{field_name} material must contain every canonical piece")
+            if type(values) is not dict:
+                raise TypeError(f"{field_name} material must be a canonical dict")
             copied: dict[str, int] = {}
             for piece in values:
                 if type(piece) is not str or piece not in PIECE_VALUES:
