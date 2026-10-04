@@ -20,6 +20,12 @@ from .child_coaching_context import (
     build_child_coaching_context,
     child_coaching_context_to_teacher_payload,
 )
+from .child_coaching_application import ChildCoachingApplication
+from .child_coaching_prepared_positions import (
+    ChildCoachingPreparedPositionError,
+    PreparedPositionNavigator,
+    PreparedPositionSnapshot,
+)
 from .classroom_prepared_position_deployment import (
     DeploymentTarget,
     PreparedPositionDeploymentBatch,
@@ -110,6 +116,9 @@ class Version2FinalProductApplication(Version2Application):
         self._prepared_position_deployment: PreparedPositionDeploymentBatch | None = None
         self._student_progress_store: StudentProgressStore | None = None
         self._student_progress_load_error = False
+        self._child_coaching_application: ChildCoachingApplication | None = None
+        self._prepared_position_navigator: PreparedPositionNavigator | None = None
+        self._child_coaching_load_error = False
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -470,6 +479,99 @@ class Version2FinalProductApplication(Version2Application):
             workspace,
         )
 
+    def bind_child_coaching_application(
+        self,
+        application: ChildCoachingApplication,
+    ) -> None:
+        """Bind the canonical template service and D10-backed prepared cursor."""
+
+        self._assert_thread()
+        if type(application) is not ChildCoachingApplication:
+            raise TypeError("child coaching application must be ChildCoachingApplication")
+        if (
+            self._child_coaching_application is not None
+            and self._child_coaching_application is not application
+        ):
+            raise RuntimeError("Child coaching application is already bound")
+        self._child_coaching_application = application
+        if self._prepared_position_navigator is None:
+            self._prepared_position_navigator = PreparedPositionNavigator(
+                application,
+                self._education_provider,
+            )
+
+    def open_child_coaching_catalog(self):
+        """Open or seed the canonical template catalog without browser authority."""
+
+        self._assert_thread()
+        application = self._child_coaching_application
+        if application is None:
+            raise RuntimeError("Child coaching application is unavailable")
+        try:
+            catalog = application.open_catalog()
+        except Exception:
+            self._child_coaching_load_error = True
+            raise RuntimeError("Child coaching templates require recovery") from None
+        self._child_coaching_load_error = False
+        return catalog
+
+    def _prepared_position_owner(self) -> PreparedPositionNavigator:
+        navigator = self._prepared_position_navigator
+        if navigator is None:
+            raise RuntimeError("Prepared-position coaching is unavailable")
+        return navigator
+
+    def prepared_position_snapshot(self) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().snapshot()
+
+    def select_prepared_position(self, position_id: str) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().select(position_id)
+
+    def next_prepared_position(self) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().next()
+
+    def previous_prepared_position(self) -> PreparedPositionSnapshot:
+        self._assert_thread()
+        return self._prepared_position_owner().previous()
+
+    def start_prepared_child_lesson(
+        self,
+        template_id: str,
+        *,
+        session_id: str,
+        lesson_id: str,
+        student_ids: tuple[str, ...],
+        cohort_id: str | None,
+        require_no_notation: bool,
+        expected_template_revision: str,
+        expected_position_revision: int,
+    ) -> TeachingSessionState:
+        """Start a reviewed template from the exact selected D10 prepared source."""
+
+        self._assert_thread()
+        navigator = self._prepared_position_owner()
+        try:
+            plan = navigator.launch_current(
+                template_id,
+                session_id=session_id,
+                lesson_id=lesson_id,
+                student_ids=student_ids,
+                cohort_id=cohort_id,
+                require_no_notation=require_no_notation,
+                expected_template_revision=expected_template_revision,
+                expected_position_revision=expected_position_revision,
+            )
+        except ChildCoachingPreparedPositionError:
+            raise
+        except Exception:
+            self._child_coaching_load_error = True
+            raise
+        self._child_coaching_load_error = False
+        return self.start_teaching_session(plan)
+
     def bind_student_progress_store(self, store: StudentProgressStore) -> None:
         """Bind one local canonical progress store without making startup depend on it."""
 
@@ -589,6 +691,14 @@ class Version2FinalProductApplication(Version2Application):
                     ),
                     "student_progress_recovery_required": (
                         self._student_progress_load_error
+                    ),
+                    "child_coaching_available": (
+                        self._child_coaching_application is not None
+                        and not self._child_coaching_load_error
+                    ),
+                    "child_coaching_recovery_required": self._child_coaching_load_error,
+                    "prepared_position_navigation_available": (
+                        self._prepared_position_navigator is not None
                     ),
                     "remote_transport": "not_approved",
                 },
