@@ -67,6 +67,7 @@ _PORTABLE_MANIFEST_KEYS = frozenset(
         "nvda_verified",
     }
 )
+_PORTABLE_ROOT_DIRECTORIES = frozenset({PORTABLE_APP_DIR, "THIRD_PARTY_NOTICES"})
 _COPY_CHUNK_BYTES = 1024 * 1024
 
 
@@ -166,6 +167,36 @@ def _manifest(root: Path) -> dict[str, object]:
     if set(value) != _PORTABLE_MANIFEST_KEYS:
         _fail("portable release manifest contract is invalid")
     return value
+
+
+def _validate_root_topology(root: Path, documents: tuple[str, ...]) -> None:
+    allowed_files = {
+        PORTABLE_LAUNCHER_NAME.casefold(),
+        MANIFEST_NAME.casefold(),
+        CHECKSUMS_NAME.casefold(),
+        *(name.casefold() for name in documents),
+    }
+    allowed_directories = {name.casefold() for name in _PORTABLE_ROOT_DIRECTORIES}
+    seen: set[str] = set()
+    try:
+        entries = tuple(root.iterdir())
+    except OSError as exc:
+        _fail(f"portable package root cannot be enumerated: {type(exc).__name__}")
+    for entry in entries:
+        folded = entry.name.casefold()
+        if folded in seen:
+            _fail("portable package root contains case-colliding entries")
+        seen.add(folded)
+        info = _safe_info(entry, label="portable package root entry")
+        if stat.S_ISDIR(info.st_mode):
+            if folded not in allowed_directories:
+                _fail("portable package root contains an unexpected directory")
+            continue
+        if stat.S_ISREG(info.st_mode):
+            if folded not in allowed_files:
+                _fail("portable package root contains an unexpected file")
+            continue
+        _fail("portable package root entry must be a regular file or directory")
 
 
 def _relative_files(root: Path) -> tuple[str, ...]:
@@ -283,6 +314,7 @@ def validate_portable_oneclick_tree(
     )
     if {name.casefold() for name in root_docx} != {name.casefold() for name in doc_names}:
         _fail("portable package root must contain exactly the declared two Word documents")
+    _validate_root_topology(root, doc_names)
 
     if require_user_seed:
         seed = app / "release-content" / "user-library-seed"
@@ -329,18 +361,26 @@ def _write_portable_manifest(root: Path, integration_sha: str, documents: tuple[
         _fail(f"portable release manifest could not be written: {type(exc).__name__}")
 
 
+def _regular_relative_files(root: Path, *, label: str) -> tuple[str, ...]:
+    result: list[str] = []
+    for path in root.rglob("*"):
+        info = _safe_info(path, label=label)
+        if stat.S_ISDIR(info.st_mode):
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            _fail(f"{label} contains a non-regular file")
+        result.append(PurePosixPath(*path.relative_to(root).parts).as_posix())
+    if len({item.casefold() for item in result}) != len(result):
+        _fail(f"{label} contains case-colliding paths")
+    return tuple(sorted(result, key=str.casefold))
+
+
 def _assert_tree_copy_equal(source: Path, destination: Path, *, label: str) -> None:
-    source_files = tuple(
-        PurePosixPath(*path.relative_to(source).parts).as_posix()
-        for path in source.rglob("*")
-        if _safe_info(path, label=label).st_mode and path.is_file()
-    )
-    destination_files = tuple(
-        PurePosixPath(*path.relative_to(destination).parts).as_posix()
-        for path in destination.rglob("*")
-        if _safe_info(path, label=label).st_mode and path.is_file()
-    )
-    if {name.casefold() for name in source_files} != {name.casefold() for name in destination_files}:
+    source_files = _regular_relative_files(source, label=label)
+    destination_files = _regular_relative_files(destination, label=label)
+    if tuple(name.casefold() for name in source_files) != tuple(
+        name.casefold() for name in destination_files
+    ):
         _fail(f"{label} inventory changed while building portable package")
     destination_by_name = {name.casefold(): name for name in destination_files}
     for source_name in source_files:
@@ -428,7 +468,19 @@ def write_portable_oneclick_zip(
     )
     if _path_entry_exists(target, label="portable ZIP output"):
         _fail("portable ZIP output must not already exist")
-    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        root_resolved = root.resolve(strict=True)
+        target_parent = target.parent.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _fail(f"portable ZIP output cannot be prepared: {type(exc).__name__}")
+    try:
+        target_parent.relative_to(root_resolved)
+    except ValueError:
+        pass
+    else:
+        _fail("portable ZIP output must be outside the package tree")
+
     fd, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
     os.close(fd)
     temporary = Path(temporary_name)
