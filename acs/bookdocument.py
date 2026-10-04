@@ -357,7 +357,7 @@ class BookDocument:
         self.source_uri = _optional_text(self.source_uri, "Book source_uri")
         self.source_rights = _optional_text(self.source_rights, "Book source_rights")
         if type(self.blocks) is not list or not all(
-            isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
+            type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks
         ):
             raise BookDocumentError(
                 "Book blocks must be a list of supported semantic blocks",
@@ -384,7 +384,7 @@ class BookDocument:
         # Mutation is allowed only from a valid live document. Do not let a new
         # block publication hide pre-existing metadata/container corruption.
         self._validate_export_state()
-        if not isinstance(block, _SEMANTIC_BLOCK_TYPES):
+        if type(block) not in _SEMANTIC_BLOCK_TYPES:
             raise BookDocumentError(
                 "Book block type is unsupported",
                 code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
@@ -396,7 +396,7 @@ class BookDocument:
     def extend(self, blocks: Iterable[SemanticBlock]) -> None:
         self._validate_export_state()
         additions = list(blocks)
-        if not all(isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in additions):
+        if not all(type(block) in _SEMANTIC_BLOCK_TYPES for block in additions):
             raise BookDocumentError(
                 "Book block type is unsupported",
                 code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
@@ -453,7 +453,7 @@ class BookDocument:
         _optional_text(self.source_uri, "Book source_uri")
         _optional_text(self.source_rights, "Book source_rights")
         if type(self.blocks) is not list or not all(
-            isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
+            type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks
         ):
             raise BookDocumentError(
                 "Book blocks must remain a list of supported semantic blocks",
