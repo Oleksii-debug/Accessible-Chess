@@ -1,4 +1,4 @@
-# exact-package-reconvergence: ca347f0 / p0g ca347f0 / p0-document ca347f0
+# exact-package-reconvergence: ca347f0 / p0g ca347f0 / p0-document ca347f0 / publication-parent 83ce624
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -18,6 +18,7 @@ env:
   PRODUCT_PARENT_SHA: ca347f0646934f3b47be8b9cde47acd36251ac42
   PREVIOUS_PACKAGE_SHA: aa8ae1b561c893252976852bb5b17df8e87bd37a
   RECONVERGENCE_MERGE_SHA: 1391d57529cb3b1f0a8fa401684f82724fe14c95
+  PUBLICATION_PARENT_SHA: 83ce624194d3771188bc4a64c22b54f7d917ba66
   PREVIOUS_WORKFLOW_BLOB_SHA: 29a11659b6629977f365885ad33a6741a57a1811
   EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
   EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
@@ -74,7 +75,9 @@ jobs:
           git cat-file -e "$P0G_QA_SHA^{commit}"
           git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
           git cat-file -e "$RECONVERGENCE_MERGE_SHA^{commit}"
-          test "$(git rev-parse HEAD^1)" = "$RECONVERGENCE_MERGE_SHA"
+          git cat-file -e "$PUBLICATION_PARENT_SHA^{commit}"
+          test "$(git rev-parse HEAD^1)" = "$PUBLICATION_PARENT_SHA"
+          test "$(git merge-base "$RECONVERGENCE_MERGE_SHA" "$PUBLICATION_PARENT_SHA")" = "$RECONVERGENCE_MERGE_SHA"
           test "$(git merge-base "$PRODUCT_PARENT_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PRODUCT_PARENT_SHA"
           test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PREVIOUS_PACKAGE_SHA"
           test "$(git merge-base "$RECONVERGENCE_MERGE_SHA" HEAD)" = "$RECONVERGENCE_MERGE_SHA"
@@ -158,6 +161,7 @@ jobs:
           echo "CANDIDATE_PRODUCT_SHA=$PRODUCT_PARENT_SHA"
           echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$PREVIOUS_PACKAGE_SHA"
           echo "RECONVERGENCE_MERGE_SHA=$RECONVERGENCE_MERGE_SHA"
+          echo "PUBLICATION_PARENT_SHA=$PUBLICATION_PARENT_SHA"
           echo "PREVIOUS_PACKAGE_WORKFLOW_BLOB=$previous_blob"
           echo "EXECUTOR_TEMPLATE_SHA=$EXECUTOR_TEMPLATE_SHA"
           echo "EXECUTOR_TEMPLATE_WORKFLOW_BLOB=$executor_template_blob"
