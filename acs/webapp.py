@@ -244,7 +244,9 @@ class AccessibleChessAPI:
         return self._review_result(result)
 
     def go_to_move(self, target: str) -> dict[str, Any]:
-        raw = (target or "").strip().lower()
+        if type(target) is not str:
+            return self._error(self._t("review_invalid"))
+        raw = target.strip().lower()
         lineage = self._live_line_nodes()
         if raw in ("0", "start"):
             return self._review_result(self.review_adapter.select_node(lineage[0]))
