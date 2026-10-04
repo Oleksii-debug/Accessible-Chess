@@ -1,5 +1,5 @@
 # exact-package-reconvergence: f85ae1a / p0g f85ae1a / p0-document f85ae1a / publication-parent b487d7f
-# qualification-request: ACCESSIBLE-CHESS-20261004-1640-HY6EZ0H-G2B-F85-EXACT
+# qualification-request: ACCESSIBLE-CHESS-20261004-1726-HY6EZ0H-G253-F85-EXACT
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -606,6 +606,84 @@ jobs:
           & pwsh -NoLogo -NoProfile -File .pinned-materialize-and-pre.ps1
           if($LASTEXITCODE -ne 0){throw 'Pinned topology-aware pre-artifact qualification failed'}
 
+      - name: Prove Book and Training persistence stays inside the portable package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=(Resolve-Path -LiteralPath 'fresh-extraction\AccessibleChess').Path
+          $manifestPath=Join-Path $root 'RELEASE_MANIFEST.json'
+          if(-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)){throw 'Portable release manifest missing before persistence-root proof'}
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if([string]$manifest.integration_sha -ne $env:PRODUCT_PARENT){throw 'Portable persistence manifest Product SHA mismatch'}
+          if([string]$manifest.package_local_appdata -ne 'data/AccessibleChess'){throw 'Portable manifest package-local appdata contract drifted'}
+          if([bool]$manifest.human_tested -or [bool]$manifest.nvda_verified){throw 'Portable manifest fabricated human/NVDA acceptance'}
+
+          $dataRoot=Join-Path $root 'data'
+          $appData=Join-Path $dataRoot 'AccessibleChess'
+          $book=Join-Path $appData 'book-progress.json'
+          $training=Join-Path $appData 'training-progress'
+          foreach($dir in @($dataRoot,$appData,$training)){
+            if(-not (Test-Path -LiteralPath $dir -PathType Container)){throw "Package-local persistence directory missing: $dir"}
+            if(((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw "Package-local persistence directory is a reparse point: $dir"}
+          }
+          if(-not (Test-Path -LiteralPath $book -PathType Leaf)){throw 'Book progress did not land in package-local appdata'}
+          if((Get-Item -LiteralPath $book).Length -le 0){throw 'Package-local Book progress file is empty'}
+          if(((Get-Item -LiteralPath $book -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Package-local Book progress file is a reparse point'}
+
+          $trainingFiles=@(Get-ChildItem -LiteralPath $training -Filter '*.json' -File -Force)
+          if($trainingFiles.Count -lt 1){throw 'Training progress did not land in package-local appdata'}
+          $rootPrefix=$root.TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
+          $appPrefix=$appData.TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
+          $bookResolved=(Resolve-Path -LiteralPath $book).Path
+          if(-not $bookResolved.StartsWith($appPrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Book progress escaped package-local appdata'}
+          $trainingEvidence=@()
+          foreach($file in $trainingFiles){
+            if($file.Length -le 0){throw "Package-local Training progress file is empty: $($file.FullName)"}
+            if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw "Package-local Training progress file is a reparse point: $($file.FullName)"}
+            $resolved=(Resolve-Path -LiteralPath $file.FullName).Path
+            if(-not $resolved.StartsWith($appPrefix,[StringComparison]::OrdinalIgnoreCase)){throw "Training progress escaped package-local appdata: $resolved"}
+            $trainingEvidence += [ordered]@{
+              path=[IO.Path]::GetRelativePath($root,$resolved).Replace('\','/')
+              sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $resolved).Hash.ToLowerInvariant()
+              bytes=[int64]$file.Length
+            }
+          }
+          $bookRelative=[IO.Path]::GetRelativePath($root,$bookResolved).Replace('\','/')
+          if($bookRelative -ne 'data/AccessibleChess/book-progress.json'){throw "Unexpected Book progress relative path: $bookRelative"}
+          foreach($item in $trainingEvidence){
+            if(-not ([string]$item.path).StartsWith('data/AccessibleChess/training-progress/',[StringComparison]::Ordinal)){throw "Unexpected Training progress relative path: $($item.path)"}
+          }
+
+          $launcherSource=Get-Content -LiteralPath 'packaging\portable_launcher.c' -Raw
+          if(-not $launcherSource.Contains('ac_path_join(g_data, AC_PATH_CAP, g_root, L"data")')){throw 'Launcher package-local data root binding missing'}
+          if(-not $launcherSource.Contains('SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)')){throw 'Launcher LOCALAPPDATA child binding missing'}
+          $portableSource=Get-Content -LiteralPath 'acs\version2_portable_package.py' -Raw
+          if(-not $portableSource.Contains('"package_local_appdata": "data/AccessibleChess"')){throw 'Portable manifest source appdata binding missing'}
+          $releaseSource=Get-Content -LiteralPath 'acs\version2_release_app.py' -Raw
+          if(-not $releaseSource.Contains('progress_store=BookProgressStore(layout.root / "book-progress.json")')){throw 'Release Book progress root binding missing'}
+          $applicationSource=Get-Content -LiteralPath 'acs\version2_application.py' -Raw
+          if(-not $applicationSource.Contains('self.training_progress_root = progress_store.path.parent / "training-progress"')){throw 'Training progress owner binding missing'}
+
+          $summary=[ordered]@{
+            schema='accessible-chess-packaged-local-persistence-v1'
+            product_sha=$env:PRODUCT_PARENT
+            package_root=$root
+            manifest_package_local_appdata=[string]$manifest.package_local_appdata
+            launcher_localappdata_redirect_verified=$true
+            book_progress_package_local=$true
+            book_progress_path=$bookRelative
+            book_progress_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $bookResolved).Hash.ToLowerInvariant()
+            book_progress_bytes=[int64](Get-Item -LiteralPath $bookResolved).Length
+            training_progress_package_local=$true
+            training_progress_files=$trainingEvidence
+            package_data_reparse_free=$true
+            human_tested=$false
+            nvda_verified=$false
+          }
+          $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath 'packaged-local-persistence-summary.json' -Encoding utf8
+          if(-not (Test-Path -LiteralPath 'packaged-local-persistence-summary.json' -PathType Leaf)){throw 'Package-local persistence evidence was not written'}
+          Write-Host "PACKAGED_LOCAL_BOOK_TRAINING_PERSISTENCE=PASS book=$bookRelative training_files=$($trainingFiles.Count)"
+
       - name: Prove packaged P0-G Alt+1 Alt+2 accessible results
         shell: pwsh
         run: |
@@ -650,6 +728,7 @@ jobs:
             packaged-v2-document-copy-summary.json
             packaged-p0g-hotkey-result-summary.json
             packaged-final-acceptance-summary.json
+            packaged-local-persistence-summary.json
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -710,6 +789,44 @@ jobs:
           if($restartAttempts -ne $trainingAttempts -or $restartMistakes -ne $trainingMistakes){throw 'Training attempts/mistakes did not survive artifact-bound restart evidence'}
           if([bool]$evidence.human_tested -or [bool]$evidence.nvda_verified){throw 'Machine Book/Training persistence evidence must not claim physical NVDA acceptance'}
           Write-Host "PACKAGED_BOOK_TRAINING_PROGRESS_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant()) saved=$saved away=$away training_attempts=$trainingAttempts training_mistakes=$trainingMistakes"
+
+      - name: Verify package-local persistence evidence survived artifact readback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path -LiteralPath 'packaged-local-persistence-summary.json').Path
+          $readback=(Resolve-Path -LiteralPath 'artifact-readback\packaged-local-persistence-summary.json').Path
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $readbackHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $readback).Hash
+          if($sourceHash -ne $readbackHash){throw 'Package-local persistence evidence changed across upload/download readback'}
+          $evidence=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
+          if([string]$evidence.schema -ne 'accessible-chess-packaged-local-persistence-v1'){throw 'Package-local persistence evidence schema mismatch'}
+          if([string]$evidence.product_sha -ne $env:PRODUCT_PARENT){throw 'Package-local persistence evidence Product SHA mismatch'}
+          if([string]$evidence.manifest_package_local_appdata -ne 'data/AccessibleChess'){throw 'Package-local persistence manifest binding mismatch'}
+          if(-not [bool]$evidence.launcher_localappdata_redirect_verified){throw 'Launcher LOCALAPPDATA redirect proof missing from readback evidence'}
+          if(-not [bool]$evidence.book_progress_package_local){throw 'Book package-local persistence proof missing'}
+          if([string]$evidence.book_progress_path -ne 'data/AccessibleChess/book-progress.json'){throw 'Book package-local path mismatch'}
+          if([int64]$evidence.book_progress_bytes -le 0 -or [string]$evidence.book_progress_sha256 -notmatch '^[0-9a-f]{64}        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath .package-qualification-executor.py -PathType Leaf)){throw 'Inherited qualification executor missing before post-readback'}
+          python .package-qualification-executor.py post
+          if($LASTEXITCODE -ne 0){throw 'Inherited post-artifact qualification failed'}){throw 'Book package-local file identity is invalid'}
+          if(-not [bool]$evidence.training_progress_package_local){throw 'Training package-local persistence proof missing'}
+          $training=@($evidence.training_progress_files)
+          if($training.Count -lt 1){throw 'Training package-local persistence evidence contains no files'}
+          foreach($item in $training){
+            if(-not ([string]$item.path).StartsWith('data/AccessibleChess/training-progress/',[StringComparison]::Ordinal)){throw "Training package-local path escaped expected root: $($item.path)"}
+            if([int64]$item.bytes -le 0 -or [string]$item.sha256 -notmatch '^[0-9a-f]{64}        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath .package-qualification-executor.py -PathType Leaf)){throw 'Inherited qualification executor missing before post-readback'}
+          python .package-qualification-executor.py post
+          if($LASTEXITCODE -ne 0){throw 'Inherited post-artifact qualification failed'}){throw "Training package-local file identity is invalid: $($item.path)"}
+          }
+          if(-not [bool]$evidence.package_data_reparse_free){throw 'Package-local persistence reparse safety proof missing'}
+          if([bool]$evidence.human_tested -or [bool]$evidence.nvda_verified){throw 'Machine package-local persistence evidence fabricated human/NVDA acceptance'}
+          Write-Host "PACKAGED_LOCAL_PERSISTENCE_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant()) training_files=$($training.Count)"
 
       - name: Execute inherited post-upload readback and final checkpoint
         shell: pwsh
