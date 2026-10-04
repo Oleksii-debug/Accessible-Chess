@@ -522,11 +522,17 @@ class _SemanticHtmlParser(HTMLParser):
         attrs: dict[str, str] = {}
         for name, value in attrs_list:
             normalized_name = name.lower()
-            if normalized_name == "data-acs-fen" and normalized_name in attrs:
-                raise BookHtmlImportError(
-                    "HTML book contains a repeated explicitly marked chess position",
-                    code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
-                )
+            if normalized_name in attrs:
+                if normalized_name == "data-acs-fen":
+                    raise BookHtmlImportError(
+                        "HTML book contains a repeated explicitly marked chess position",
+                        code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
+                    )
+                # HTML parsing keeps the first attribute when a start tag repeats
+                # the same ASCII-case-insensitive name. Preserve that browser
+                # authority instead of letting dict assignment make later
+                # malformed duplicates change semantic/image/progress metadata.
+                continue
             attrs[normalized_name] = value or ""
         aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
         if "hidden" in attrs or aria_hidden == "true":
