@@ -39,6 +39,7 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -51,15 +52,20 @@ jobs:
           fi
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
           git diff --check "$live_base"...HEAD
-          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
-          expected_paths="$(printf '%s\n' \
-            '.github/workflows/current-library-presenter-passive-root.yml' \
-            'acs/library_webview_projection.py' \
-            'tests/test_dev1_library_webview_projection.py' | sort)"
-          test "$changed" = "$expected_paths" || {
-            printf 'Unexpected Library presenter-passivity scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+          if [ -n "${EVENT_BASE_REF:-}" ] && [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then
+            echo 'NARROW_SCOPE_MODE=DEFAULT_BRANCH_INTEGRATION'
+          else
+            changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+            expected_paths="$(printf '%s\n' \
+              '.github/workflows/current-library-presenter-passive-root.yml' \
+              'acs/library_webview_projection.py' \
+              'tests/test_dev1_library_webview_projection.py' | sort)"
+            test "$changed" = "$expected_paths" || {
+              printf 'Unexpected Library presenter-passivity scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            echo 'NARROW_SCOPE_MODE=STACKED_EXACT'
+          fi
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
