@@ -41,6 +41,7 @@ MAX_BOOK_PROGRESS_JSON_KEY_CHARS = 4096
 MAX_BOOK_SNAPSHOT_BYTES = 1 * 1024 * 1024
 MAX_BOOK_PROGRESS_STORE_BYTES = 8 * 1024 * 1024
 MAX_BOOK_PROGRESS_GENERATION = (1 << 63) - 1
+_MAX_BOOK_PROGRESS_JSON_OBJECT_MEMBERS = MAX_BOOK_PROGRESS_ENTRIES
 
 _STORE_V1_FIELDS = frozenset({"schema_version", "entries"})
 _STORE_V2_FIELDS = frozenset({"schema_version", "generation", "entries"})
@@ -265,6 +266,15 @@ def _book_key(value: object) -> str:
 
 
 def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # object_pairs_hook receives the parser's unhashed pair list. Bound its
+    # cardinality before the first membership test/insertion so an 8 MiB JSON
+    # object containing tens of thousands of tiny unique keys cannot amplify
+    # into unbounded hash work. The widest legitimate object is the entries map.
+    if len(pairs) > _MAX_BOOK_PROGRESS_JSON_OBJECT_MEMBERS:
+        raise BookProgressStoreError(
+            "book progress JSON object contains too many members",
+            code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+        )
     result: dict[str, Any] = {}
     for key, value in pairs:
         # json's object_pairs_hook receives an unhashed sequence of pairs.
