@@ -101,7 +101,7 @@ class _Capture:
     boundary_count: int = 0
     list_depth: int = 0
     inline_semantics: list[_InlineSemanticEvent] = field(default_factory=list)
-    parent_paragraph: _Capture | None = field(default=None, repr=False, compare=False)
+    parent_inline_owner: _Capture | None = field(default=None, repr=False, compare=False)
     parent_part_index: int | None = None
     block_start_index: int = 0
 
@@ -412,9 +412,10 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             )
 
-    def _nearest_paragraph_capture(self) -> _Capture | None:
+    def _nearest_structural_owner_capture(self) -> _Capture | None:
+        """Return the nearest capture whose text may need semantic splitting."""
         for capture in reversed(self._captures):
-            if capture.kind == "paragraph":
+            if capture.kind in {"paragraph", "heading"}:
                 return capture
         return None
 
@@ -577,9 +578,9 @@ class _SemanticHtmlParser(HTMLParser):
                 for capture in self._captures:
                     if capture.kind == "list_item" and capture.list_depth < len(self._lists):
                         capture.parts.append(" ")
-            parent_paragraph = self._nearest_paragraph_capture()
+            parent_inline_owner = self._nearest_structural_owner_capture()
             parent_part_index = (
-                len(parent_paragraph.parts) if parent_paragraph is not None else None
+                len(parent_inline_owner.parts) if parent_inline_owner is not None else None
             )
             self._captures.append(
                 _Capture(
@@ -590,7 +591,7 @@ class _SemanticHtmlParser(HTMLParser):
                     visible_start_offset=self.visible_chars,
                     boundary_count=self._text_boundary_count,
                     list_depth=len(self._lists) if kind == "list_item" else 0,
-                    parent_paragraph=parent_paragraph,
+                    parent_inline_owner=parent_inline_owner,
                     parent_part_index=parent_part_index,
                     block_start_index=len(self.blocks),
                 )
@@ -799,7 +800,9 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor = capture.attrs.get("id") or None
         if capture.kind == "heading":
             level = int(capture.tag[1])
-            if capture.inline_semantics:
+            if capture.inline_semantics and any(
+                not event.structural for event in capture.inline_semantics
+            ):
                 self._finish_inline_heading(
                     capture,
                     legacy_text=text,
@@ -870,7 +873,7 @@ class _SemanticHtmlParser(HTMLParser):
         recovered: bool = False,
     ) -> None:
         self._finish_capture(capture, recovered=recovered)
-        parent = capture.parent_paragraph
+        parent = capture.parent_inline_owner
         part_index = capture.parent_part_index
         if (
             parent is None
