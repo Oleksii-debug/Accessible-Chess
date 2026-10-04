@@ -129,6 +129,12 @@ function pressKey(target, _toolbar, key) {
   return prevented;
 }
 
+function findRole(root, role) {
+  return root.descendants().find(function (item) {
+    return item.getAttribute("role") === role;
+  }) || null;
+}
+
 async function run() {
   const calls = [];
   const announcements = [];
