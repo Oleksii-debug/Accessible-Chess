@@ -385,10 +385,15 @@ class _SemanticHtmlParser(HTMLParser):
                 # and list membership only; the warning above makes structure loss
                 # explicit without publishing invented ordering as book truth.
                 text = f"• {item}"
+                identity_kind = (
+                    "ListFallbackItem"
+                    if captured.inline_semantic_fallback
+                    else "Paragraph"
+                )
                 self._append_block(
                     Paragraph(
                         text=text,
-                        block_id=self._block_id("Paragraph", text),
+                        block_id=self._block_id(identity_kind, text),
                         source_anchor=captured.attrs.get("id") or None,
                     )
                 )
@@ -854,7 +859,7 @@ class _SemanticHtmlParser(HTMLParser):
                 fallback_text = f"• {item}"
                 fallback = Paragraph(
                     text=fallback_text,
-                    block_id=self._block_id("Paragraph", fallback_text),
+                    block_id=self._block_id("ListFallbackItem", fallback_text),
                     source_anchor=captured_list.attrs.get("id") or None,
                 )
                 self._insert_block(
@@ -887,7 +892,9 @@ class _SemanticHtmlParser(HTMLParser):
             if segment:
                 projected = f"• {segment}" if not item_text_started else segment
                 identity_kind = (
-                    "Paragraph" if not item_text_started else "ListInlineFragment"
+                    "ListFallbackItem"
+                    if not item_text_started
+                    else "ListInlineFragment"
                 )
                 fragment = Paragraph(
                     text=projected,
@@ -928,7 +935,9 @@ class _SemanticHtmlParser(HTMLParser):
         trailing = _compact("".join(capture.parts[cursor:]))
         if trailing:
             projected = f"• {trailing}" if not item_text_started else trailing
-            identity_kind = "Paragraph" if not item_text_started else "ListInlineFragment"
+            identity_kind = (
+                "ListFallbackItem" if not item_text_started else "ListInlineFragment"
+            )
             fragment = Paragraph(
                 text=projected,
                 block_id=self._block_id(identity_kind, projected),
