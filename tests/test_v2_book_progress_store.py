@@ -395,6 +395,118 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
 
+    def test_missing_primary_empty_fallback_rechecks_primary_after_backup_read(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        primary_bytes = b'{"entries":{},"generation":7,"schema_version":2}'
+        real_read = self.store._read_raw_file_unlocked
+        injected = False
+
+        def primary_appears_after_missing_backup_read(
+            path: Path,
+            *,
+            missing_ok: bool,
+        ) -> bytes | None:
+            nonlocal injected
+            raw = real_read(path, missing_ok=missing_ok)
+            if (
+                not injected
+                and Path(path) == self.store.backup_path
+                and raw is None
+            ):
+                self.path.write_bytes(primary_bytes)
+                injected = True
+            return raw
+
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=primary_appears_after_missing_backup_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:empty-pair-race")
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertEqual(self.path.read_bytes(), primary_bytes)
+        self.assertFalse(self.store.backup_path.exists())
+
+    def test_missing_primary_empty_fallback_rechecks_backup_after_backup_read(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        backup_bytes = b'{"entries":{},"generation":5,"schema_version":2}'
+        real_read = self.store._read_raw_file_unlocked
+        injected = False
+
+        def backup_appears_after_missing_backup_read(
+            path: Path,
+            *,
+            missing_ok: bool,
+        ) -> bytes | None:
+            nonlocal injected
+            raw = real_read(path, missing_ok=missing_ok)
+            if (
+                not injected
+                and Path(path) == self.store.backup_path
+                and raw is None
+            ):
+                self.store.backup_path.write_bytes(backup_bytes)
+                injected = True
+            return raw
+
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=backup_appears_after_missing_backup_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.has("book:empty-backup-race")
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_backup_fallback_rejects_same_bytes_backup_inode_replacement(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:backup-inode-race", reader)
+        reader.go_to(3)
+        self.store.save("book:backup-inode-race", reader)
+
+        backup_bytes = self.store.backup_path.read_bytes()
+        self.path.unlink()
+        real_primary_check = self.store._require_recovery_primary_unchanged_unlocked
+        injected = False
+
+        def replace_backup_before_primary_recheck(
+            expected_identity: os.stat_result | None,
+            expected_raw: bytes | None,
+        ) -> None:
+            nonlocal injected
+            if not injected:
+                replacement = self.store.backup_path.with_name(
+                    "same-byte-backup-fallback-replacement.json"
+                )
+                replacement.write_bytes(backup_bytes)
+                os.replace(replacement, self.store.backup_path)
+                injected = True
+            real_primary_check(expected_identity, expected_raw)
+
+        with mock.patch.object(
+            self.store,
+            "_require_recovery_primary_unchanged_unlocked",
+            side_effect=replace_backup_before_primary_recheck,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.restore(
+                    "book:backup-inode-race",
+                    self.original_document(),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
     def test_missing_primary_backup_fallback_rechecks_primary_after_backup_read(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
@@ -438,6 +550,70 @@ class BookProgressStoreTests(unittest.TestCase):
             BookProgressStoreErrorCode.IO_FAILURE,
         )
         self.assertEqual(self.path.read_bytes(), newer_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_corrupt_primary_missing_backup_preserves_primary_corruption_error(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        self.path.write_bytes(corrupt_primary)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.has("book:corrupt-no-backup")
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertEqual(self.path.read_bytes(), corrupt_primary)
+        self.assertFalse(self.store.backup_path.exists())
+
+    def test_corrupt_primary_fallback_rejects_same_bytes_primary_inode_replacement(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:primary-inode-race", reader)
+        reader.go_to(3)
+        self.store.save("book:primary-inode-race", reader)
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        self.path.write_bytes(corrupt_primary)
+        backup_bytes = self.store.backup_path.read_bytes()
+        real_read = self.store._read_raw_file_unlocked
+        injected = False
+
+        def replace_primary_with_same_bytes_after_backup_read(
+            path: Path,
+            *,
+            missing_ok: bool,
+        ) -> bytes | None:
+            nonlocal injected
+            raw = real_read(path, missing_ok=missing_ok)
+            if (
+                not injected
+                and Path(path) == self.store.backup_path
+                and raw is not None
+            ):
+                replacement = self.path.with_name(
+                    "same-byte-primary-fallback-replacement.json"
+                )
+                replacement.write_bytes(corrupt_primary)
+                os.replace(replacement, self.path)
+                injected = True
+            return raw
+
+        with mock.patch.object(
+            self.store,
+            "_read_raw_file_unlocked",
+            side_effect=replace_primary_with_same_bytes_after_backup_read,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.restore(
+                    "book:primary-inode-race",
+                    self.original_document(),
+                )
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.IO_FAILURE)
+        self.assertEqual(self.path.read_bytes(), corrupt_primary)
         self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
 
     def test_corrupt_primary_backup_fallback_rechecks_primary_after_backup_read(self) -> None:
