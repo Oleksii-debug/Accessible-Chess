@@ -27,6 +27,25 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
         self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
+    def test_w4_metadata_is_strict_fresh_and_stably_read(self) -> None:
+        for token in (
+            "_stable_bytes",
+            "maximum=64 * 1024",
+            "object_pairs_hook=unique_pairs",
+            "W4_METADATA_DUPLICATE_KEY",
+            "W4_METADATA_CONTRACT_INVALID",
+            "W4_METADATA_SCHEMA_INVALID",
+            "W4_METADATA_FRESHNESS_PROOF_INVALID",
+            "EXPECTED_SOURCE_INVENTORY_SHA256",
+            "W4_SOUND_INVENTORY_SHA_MISMATCH",
+            "_stable_digest(",
+            "maximum=2 * 1024 * 1024 * 1024",
+            "W4_CANDIDATE_UNSTABLE",
+        ):
+            self.assertIn(token, self.text)
+        self.assertNotIn("candidate.read_bytes()", self.text)
+        self.assertNotIn("metadata_files[0].read_text", self.text)
+
     def test_w4_artifact_is_bound_by_run_identity_product_and_sha(self) -> None:
         self.assertIn("w4_run_id:", self.text)
         self.assertIn("w4_candidate_sha256:", self.text)
