@@ -372,12 +372,28 @@ class Version2Application:
         # staging and prevents a malformed/unrenderable import from creating new
         # durable progress for a Book the user never actually saw open.
         bridge.projection.snapshot()
-        # Do not publish the staged reader/workflow/route until its initial
-        # presentation and progress state are both accepted.
+        # Do not publish the staged reader/workflow until its initial
+        # presentation, progress state and shell route are all accepted.
         self._persist_book_progress(imported.book_key, reader)
-        self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = reader, imported.book_key, workflow, delegate, bridge
+        origin_route = self.shell.current_route.route_id
+        try:
+            route_focus = self.shell.open_route("books")
+        except Exception:
+            # Version2ShellState.open_route() writes its route before restoring
+            # focus. Recover a partial commit before leaving the previously
+            # published Book/Training owner untouched.
+            if self.shell.current_route.route_id != origin_route:
+                self._focus = self.shell.open_route(origin_route)
+            raise
+        self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = (
+            reader,
+            imported.book_key,
+            workflow,
+            delegate,
+            bridge,
+        )
         self.training_workspace = self.training = None
-        self._focus = self.shell.open_route("books")
+        self._focus = route_focus
         self._repair_book_block_focus_after_rebind()
         warning_count = len(imported.warnings)
         if warning_count:
