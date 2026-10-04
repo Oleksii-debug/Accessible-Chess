@@ -70,7 +70,8 @@ class PositionState:
         if piece is not None and (
             type(piece) is not str or piece not in VALID_PIECES
         ):
-            raise PositionValidationError(f"invalid piece symbol: {piece!r}")
+            # Do not format an untrusted value here: its __repr__ may execute.
+            raise PositionValidationError("invalid piece symbol")
         values = list(self.pieces)
         values[_square_index(square)] = piece
         return replace(self, pieces=tuple(values))
@@ -292,7 +293,9 @@ def _square_index(square: str) -> int:
     try:
         return parse_square(square)
     except ValueError as exc:
-        raise PositionValidationError(f"invalid square: {square!r}") from exc
+        # The rejected value may be an active object or an enormous integer.
+        # Keep the domain error stable without invoking __repr__/integer text conversion.
+        raise PositionValidationError("invalid square") from exc
 
 
 def _normalize_castling(value: str) -> str:
