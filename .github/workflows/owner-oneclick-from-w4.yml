@@ -220,7 +220,11 @@ jobs:
           from pathlib import Path, PurePosixPath
           import shutil
           import zipfile
-          from acs.version2_package_preflight import validate_version2_package_tree
+          from acs.version2_package_preflight import (
+              Version2PackagePreflightError,
+              _relative_token,
+              validate_version2_package_tree,
+          )
 
           archive = Path(os.environ['W4_CANDIDATE'])
           destination = Path('w4-inner')
@@ -236,9 +240,11 @@ jobs:
                   if '\\' in name or '\x00' in name:
                       raise SystemExit('W4_ZIP_MEMBER_PATH_INVALID')
                   token = name[:-1] if name.endswith('/') else name
-                  pure = PurePosixPath(token)
-                  if not token or pure.is_absolute() or pure.as_posix() != token or '..' in pure.parts:
+                  try:
+                      token = _relative_token(token, label='W4 ZIP member')
+                  except Version2PackagePreflightError:
                       raise SystemExit('W4_ZIP_MEMBER_PATH_INVALID')
+                  pure = PurePosixPath(token)
                   folded = token.casefold()
                   if folded in seen:
                       raise SystemExit('W4_ZIP_DUPLICATE_PATH')
