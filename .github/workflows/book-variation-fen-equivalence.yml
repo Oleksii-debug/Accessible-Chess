@@ -9,6 +9,7 @@ on:
       - fix/settings-keymap-refresh-recovery-20261004-c2mbezb
       - fix/current-product-fen-history-atomicity-20261004-c2mbezb
       - fix/current-product-user-facing-engine-status-20261004-sol56f9k2
+      - converge/current-product-position-root-atomicity-20261004-hy6ez0h
     paths:
       - 'acs/book_game_content.py'
       - 'tests/test_v2_book_game_content.py'
