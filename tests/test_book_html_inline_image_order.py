@@ -1151,6 +1151,33 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertIsInstance(trailing, Paragraph)
         self.assertEqual(trailing.text, "After")
 
+    def test_list_close_recovers_unclosed_item_before_following_text(self) -> None:
+        result = import_html_book(
+            '<html><body><ul id="items"><li id="broken">A</ul>'
+            '<p id="outside">Outside</p></body></html>',
+            source_name="malformed-list-close.html",
+        )
+
+        self.assertEqual(len(result.document.blocks), 2)
+        list_block, outside = result.document.blocks
+        self.assertEqual(list_block.kind, "List")
+        self.assertEqual(list_block.items, ["A"])
+        self.assertEqual(list_block.source_anchor, "items")
+        self.assertIsInstance(outside, Paragraph)
+        self.assertEqual(outside.text, "Outside")
+        self.assertEqual(outside.source_anchor, "outside")
+        self.assertTrue(
+            any("unclosed li element" in warning for warning in result.warnings)
+        )
+        self.assertFalse(
+            any(
+                isinstance(block, Paragraph)
+                and "Outside" in block.text
+                and block.source_anchor == "broken"
+                for block in result.document.blocks
+            )
+        )
+
     def test_malformed_nested_list_inline_event_does_not_escape_to_outer_owner(self) -> None:
         result = import_html_book(
             '<html><body><p id="outer">A<ul><li>B'
