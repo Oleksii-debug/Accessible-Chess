@@ -106,6 +106,21 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.text)
 
+    def test_final_receipt_persists_exact_w4_and_product_provenance(self) -> None:
+        for token in (
+            "W4_WORKFLOW_ID=",
+            "W4_RUN_ATTEMPT=",
+            "finalizer_workflow_sha",
+            "exact_product_sha",
+            "w4_workflow_id",
+            "w4_run_id",
+            "w4_run_attempt",
+            "w4_candidate_sha256",
+            "OWNER_FINAL_RECEIPT_PROVENANCE=PASS",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.text)
+
     def test_private_seed_is_materialized_canonically_before_inner_reassembly(self) -> None:
         self.assertIn("materialize_owner_library_seed", self.text)
         self.assertIn("expected_source_count=6", self.text)
