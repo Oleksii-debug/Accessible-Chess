@@ -142,6 +142,21 @@ class Stage1ReviewNavigationAtomicityTests(unittest.TestCase):
         )
         self._assert_unchanged(api, before)
 
+    def test_missing_live_node_pointer_is_contained_before_lineage_navigation(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(api.make_move("e4")["ok"])
+        api.live_history_node = 999_999
+        before = self._snapshot(api)
+
+        result = api.go_to_move("0")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["announcement"],
+            "Could not prepare the selected history position.",
+        )
+        self._assert_unchanged(api, before)
+
     def test_successful_review_navigation_never_replaces_live_board(self):
         api = AccessibleChessAPI(lang="en")
         self.assertTrue(api.make_move("e4")["ok"])
