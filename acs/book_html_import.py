@@ -73,6 +73,12 @@ class BookHtmlImportResult:
 
 
 @dataclass(slots=True)
+class _InlineSemanticEvent:
+    part_index: int
+    block: object
+
+
+@dataclass(slots=True)
 class _Capture:
     tag: str
     kind: str
@@ -80,6 +86,7 @@ class _Capture:
     parts: list[str]
     boundary_count: int = 0
     list_depth: int = 0
+    inline_semantics: list[_InlineSemanticEvent] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -273,6 +280,23 @@ class _SemanticHtmlParser(HTMLParser):
             )
         self.blocks.append(block)
 
+    def _insert_block(self, index: int, block) -> None:
+        if len(self.blocks) >= MAX_HTML_BLOCKS:
+            raise BookHtmlImportError(
+                "HTML book contains too many semantic blocks",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        self.blocks.insert(index, block)
+
+    def _block_identity_index(self, target: object) -> int:
+        for index, block in enumerate(self.blocks):
+            if block is target:
+                return index
+        raise BookHtmlImportError(
+            "HTML inline semantic ordering anchor was lost",
+            code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+        )
+
     @staticmethod
     def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
         if "start" not in attrs:
@@ -371,6 +395,18 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             )
 
+    def _record_inline_semantic(self, block: object) -> None:
+        # Only the nearest paragraph-like semantic owner is split around an inline
+        # image. Ancestor captures intentionally remain legacy whole-block
+        # projections, matching the importer's existing nested-capture behavior
+        # instead of interleaving duplicate ancestor fragments around one image.
+        for capture in reversed(self._captures):
+            if capture.kind == "paragraph":
+                capture.inline_semantics.append(
+                    _InlineSemanticEvent(part_index=len(capture.parts), block=block)
+                )
+                break
+
     def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
         self._node_count += 1
@@ -446,6 +482,7 @@ class _SemanticHtmlParser(HTMLParser):
                 local_name = _asset_name(src)
                 if self.available_assets is not None and local_name and local_name not in self.available_assets:
                     self.missing_assets.add(local_name)
+            block_count = len(self.blocks)
             if "data-acs-fen" in attrs:
                 self._emit_explicit_position(tag, attrs)
             elif alt:
@@ -459,6 +496,8 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             else:
                 self._warning("an image reference has no accessible text and no explicit chess position")
+            if len(self.blocks) == block_count + 1:
+                self._record_inline_semantic(self.blocks[-1])
         elif "data-acs-fen" in attrs and not self._head_depth:
             self._emit_explicit_position(tag, attrs)
 
@@ -578,6 +617,53 @@ class _SemanticHtmlParser(HTMLParser):
                 capture.boundary_count = self._text_boundary_count
             capture.parts.append(data)
 
+    def _finish_inline_paragraph(
+        self,
+        capture: _Capture,
+        *,
+        legacy_text: str,
+        source_anchor: str | None,
+    ) -> None:
+        """Project inline image semantics in source order without losing progress IDs."""
+        cursor = 0
+        legacy_identity_available = True
+        previous_event: _InlineSemanticEvent | None = None
+
+        for event in capture.inline_semantics:
+            if event.part_index < cursor or event.part_index > len(capture.parts):
+                raise BookHtmlImportError(
+                    "HTML inline semantic boundary is invalid",
+                    code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+                )
+            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            if segment:
+                identity_text = legacy_text if legacy_identity_available else segment
+                identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
+                paragraph = Paragraph(
+                    text=segment,
+                    block_id=self._block_id(identity_kind, identity_text),
+                    source_anchor=source_anchor if legacy_identity_available else None,
+                )
+                self._insert_block(self._block_identity_index(event.block), paragraph)
+                legacy_identity_available = False
+            cursor = event.part_index
+            previous_event = event
+
+        trailing = _compact("".join(capture.parts[cursor:]))
+        if trailing:
+            identity_text = legacy_text if legacy_identity_available else trailing
+            identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
+            paragraph = Paragraph(
+                text=trailing,
+                block_id=self._block_id(identity_kind, identity_text),
+                source_anchor=source_anchor if legacy_identity_available else None,
+            )
+            # A trailing fragment belongs at capture-close time. Semantic blocks
+            # emitted after the last inline image but before this capture closes
+            # (for example a nested blockquote or explicit position) already own
+            # their source-order slots in self.blocks and must not be jumped over.
+            self._append_block(paragraph)
+
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
         text = _compact(raw)
@@ -599,6 +685,13 @@ class _SemanticHtmlParser(HTMLParser):
                     block_id=self._block_id("Heading", f"{level}\0{text}"),
                     source_anchor=source_anchor,
                 )
+            )
+            return
+        if capture.kind == "paragraph" and capture.inline_semantics:
+            self._finish_inline_paragraph(
+                capture,
+                legacy_text=text,
+                source_anchor=source_anchor,
             )
             return
         if capture.kind == "list_item":
