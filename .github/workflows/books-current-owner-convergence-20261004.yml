@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - converge/books-training-owner-current-20261004-zftrkmo
+  pull_request:
+    paths:
+      - .github/workflows/books-current-owner-convergence-20261004.yml
+      - acs/**
+      - tests/**
+      - web/**
+      - run_accessible_chess.py
+      - run_accessible_chess_v2.py
   workflow_dispatch:
 
 permissions:
