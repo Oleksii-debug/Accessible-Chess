@@ -437,6 +437,72 @@ class PortableTreeTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertEqual(launcher.read_bytes(), replacement)
 
+    def test_release_manifest_semantics_are_bound_to_checksum_bytes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            manifest_path = root / MANIFEST_NAME
+            original_payload = manifest_path.read_bytes()
+            replacement_value = json.loads(original_payload.decode("utf-8"))
+            replacement_value["integration_sha"] = "b" * 40
+            replacement_payload = (
+                json.dumps(
+                    replacement_value,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            ).encode("utf-8")
+            self.assertEqual(len(original_payload), len(replacement_payload))
+
+            replacement_digest = hashlib.sha256(replacement_payload).hexdigest()
+            checksum_path = root / CHECKSUMS_NAME
+            lines = checksum_path.read_text(encoding="utf-8").splitlines()
+            rewritten = []
+            replaced = False
+            for line in lines:
+                if line.endswith(f"  {MANIFEST_NAME}"):
+                    rewritten.append(f"{replacement_digest}  {MANIFEST_NAME}")
+                    replaced = True
+                else:
+                    rewritten.append(line)
+            self.assertTrue(replaced)
+            checksum_path.write_text(
+                "\n".join(rewritten) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+
+            real_manifest_snapshot = portable_module._manifest_snapshot
+            injected = False
+
+            def parse_then_mutate(candidate_root: Path):
+                nonlocal injected
+                value, digest = real_manifest_snapshot(candidate_root)
+                if candidate_root == root and not injected:
+                    manifest_path.write_bytes(replacement_payload)
+                    injected = True
+                return value, digest
+
+            with mock.patch.object(
+                portable_module,
+                "_manifest_snapshot",
+                side_effect=parse_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable release manifest semantics are not bound to checksum inventory",
+                ):
+                    validate_portable_oneclick_tree(
+                        root,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertEqual(manifest_path.read_bytes(), replacement_payload)
+
     def test_accepts_exact_oneclick_topology_without_prebundled_user_state(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
