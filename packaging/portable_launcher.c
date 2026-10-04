@@ -458,6 +458,13 @@ void WINAPI wWinMainCRTStartup(void) {
     }
     CloseHandle(g_process.hThread);
     ac_write_line(report, L"PROCESS_CREATED: YES");
+    ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
+    g_message[0] = L'\0';
+    if (!ac_append_u32(g_message, AC_PATH_CAP + 2048, g_process.dwProcessId)) {
+        CloseHandle(g_process.hProcess);
+        ac_fail(report, L"child process identity report", ERROR_BUFFER_OVERFLOW);
+    }
+    ac_write_line(report, g_message);
     ac_write_line(report, L"STARTUP_READINESS: waiting for stable responsive visible Accessible Chess window");
     FlushFileBuffers(report);
     startup_started = GetTickCount64();

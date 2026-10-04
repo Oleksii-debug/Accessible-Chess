@@ -20,8 +20,8 @@ permissions:
   contents: read
 
 env:
-  LAUNCHER_BLOB: 256d40387bce80ff34bcc64c3578fdfda629d3f0
-  CONTRACT_TEST_BLOB: c1dd7baf052798f19226d57cf14d8438e66d5414
+  LAUNCHER_BLOB: 153d79cea06b0e0eb57ce883284b46d5be42a1b8
+  CONTRACT_TEST_BLOB: 43371045ca6d83bc56b4098ca4809a24411b7c1a
 
 concurrency:
   group: portable-launch-report-reparse-${{ github.ref }}

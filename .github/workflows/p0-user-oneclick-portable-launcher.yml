@@ -363,6 +363,20 @@ jobs:
           )) {
             if (-not $text.Contains($required)) { throw "Launch report missing: $required" }
           }
+          $pidLines = @(
+            $text -split "\r?\n" | Where-Object { $_ -match '^CHILD_PROCESS_ID: [0-9]+$' }
+          )
+          if ($pidLines.Count -ne 1) { throw 'Launch report child PID cardinality invalid' }
+          [uint32]$reportedChildPid = 0
+          $rawChildPid = $pidLines[0].Substring('CHILD_PROCESS_ID: '.Length)
+          if (-not [uint32]::TryParse($rawChildPid, [ref]$reportedChildPid) -or $reportedChildPid -eq 0) {
+            throw 'Launch report child PID invalid'
+          }
+          $reportedChild = Get-Process -Id $reportedChildPid -ErrorAction Stop
+          $expectedChildPath = (Resolve-Path (Join-Path $app 'AccessibleChess.exe')).Path
+          if ($reportedChild.Path -ne $expectedChildPath) {
+            throw "Launch report child PID path mismatch: $($reportedChild.Path)"
+          }
 
           $exclusive = [IO.File]::Open(
             $report,
@@ -546,6 +560,8 @@ jobs:
           assert 'now - startup_started >= AC_STARTUP_WINDOW_TIMEOUT_MS' in source
           assert 'STATUS: STARTUP_WINDOW_READY' in source
           assert 'USER_WINDOW_PROVEN: YES' in source
+          assert 'CHILD_PROCESS_ID: ' in source
+          assert 'g_process.dwProcessId' in source
           assert 'CHILD_RUNNING_AFTER_STARTUP_OBSERVATION' not in source
           assert 'SetEnvironmentVariableW(L"LOCALAPPDATA"' in source
           assert 'STARTF_USESTDHANDLES' not in source

@@ -312,20 +312,26 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         )
         self.assertIn("$baselineChildPids=@(", self.text)
         self.assertIn("try { $_.Path -eq $childPath } catch { $false }", self.text)
-        self.assertIn("$candidateId=[int]$_.Id", self.text)
-        self.assertIn(
-            "$candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId",
-            self.text,
-        )
+        self.assertIn("^CHILD_PROCESS_ID: [0-9]+$", self.text)
+        self.assertIn("[uint32]::TryParse($rawChildPid,[ref]$reportedChildPid)", self.text)
+        self.assertIn("$baselineChildPids -contains [int]$reportedChildPid", self.text)
+        self.assertIn("Get-Process -Id $reportedChildPid -ErrorAction Stop", self.text)
+        self.assertIn("$launchedChildPath=$launchedChild.Path", self.text)
+        self.assertIn("$launchedChildPath -ne $childPath", self.text)
+        self.assertIn("Stop-Process -Id $reportedChildPid -Force -ErrorAction Stop", self.text)
         baseline_index = self.text.index("$baselineChildPids=@(")
         launch_index = self.text.index(
             "$proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru"
         )
         cleanup_index = self.text.index(
-            "$candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId"
+            "Stop-Process -Id $reportedChildPid -Force -ErrorAction Stop"
         )
         self.assertLess(baseline_index, launch_index)
         self.assertLess(launch_index, cleanup_index)
+        self.assertNotIn(
+            "$candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId",
+            self.text,
+        )
         self.assertNotIn(
             "Get-Process AccessibleChess -ErrorAction SilentlyContinue | Stop-Process -Force",
             self.text,

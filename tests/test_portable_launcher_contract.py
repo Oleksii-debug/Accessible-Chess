@@ -30,6 +30,8 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "L\"App\"",
             "L\"data\"",
             "L\"launch-report.txt\"",
+            "CHILD_PROCESS_ID: ",
+            "g_process.dwProcessId",
             "CREATE_UNICODE_ENVIRONMENT",
         ):
             with self.subTest(token=token):

@@ -573,13 +573,24 @@ jobs:
           if($text.Contains('STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION')){
             throw 'OWNER_ROOT_LAUNCH_REPORT_LEGACY_LIVENESS_SUCCESS'
           }
-          Get-Process -ErrorAction SilentlyContinue | Where-Object {
-            try {
-              $candidatePath=$_.Path
-              $candidateId=[int]$_.Id
-              $candidatePath -eq $childPath -and $baselineChildPids -notcontains $candidateId
-            } catch { $false }
-          } | Stop-Process -Force -ErrorAction SilentlyContinue
+          $pidLines=@(
+            $text -split "\r?\n" | Where-Object { $_ -match '^CHILD_PROCESS_ID: [0-9]+$' }
+          )
+          if($pidLines.Count -ne 1){throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PID_CARDINALITY_INVALID'}
+          [uint32]$reportedChildPid=0
+          $rawChildPid=$pidLines[0].Substring('CHILD_PROCESS_ID: '.Length)
+          if(-not [uint32]::TryParse($rawChildPid,[ref]$reportedChildPid) -or $reportedChildPid -eq 0){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PID_INVALID'
+          }
+          if($baselineChildPids -contains [int]$reportedChildPid){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PID_PREEXISTING'
+          }
+          $launchedChild=Get-Process -Id $reportedChildPid -ErrorAction Stop
+          $launchedChildPath=$launchedChild.Path
+          if($launchedChildPath -ne $childPath){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PATH_MISMATCH'
+          }
+          Stop-Process -Id $reportedChildPid -Force -ErrorAction Stop
 
           $afterLaunch=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
           if($afterLaunch -ne $before){throw 'OWNER_FINAL_ZIP_CHANGED_DURING_MACHINE_LAUNCH'}

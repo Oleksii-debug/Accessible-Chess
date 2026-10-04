@@ -38,6 +38,8 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
         self.assertIn("STATUS: STARTUP_WINDOW_READY", self.source)
         self.assertIn("USER_WINDOW_PROVEN: YES", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
+        self.assertIn("CHILD_PROCESS_ID: ", self.source)
+        self.assertIn("g_process.dwProcessId", self.source)
 
     def test_transient_window_must_remain_stable_before_success(self):
         for token in (
@@ -93,6 +95,9 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "user32.lib",
             "STATUS: STARTUP_WINDOW_READY",
             "USER_WINDOW_PROVEN: YES",
+            "CHILD_PROCESS_ID:",
+            "Get-Process -Id $reportedChildPid",
+            "$reportedChild.Path -eq $expectedChildPath",
             "ACS_SMOKE_NO_WINDOW",
             "ACS_SMOKE_FLASH_WINDOW",
             "ACS_SMOKE_HUNG_WINDOW",
