@@ -758,20 +758,23 @@ async function run() {
       }
     };
   };
-  const contextualBookSnapshot = bookSnapshot(2, "Exercise");
+  // Keep this fixture at the first readable block: the roving-toolbar
+  // assertions below deliberately exercise a disabled Previous action while the
+  // heading-path breadcrumb remains present before the focused block.
+  const contextualBookSnapshot = bookSnapshot(0, "Exercise");
   contextualBookSnapshot.block.heading_path = ["Chapter 1", "Tactical motifs"];
   window.AccessibleChessBookSurface.render(
     bookRoot,
     contextualBookSnapshot,
     bookInvoke,
     announce,
-    "book-block-2",
+    "book-block-0",
     "Action failed"
   );
   const bookMain = find(bookRoot, "MAIN");
   check(bookMain !== null, "book main landmark missing");
   check(bookMain.attributes.lang === "en", "book document language missing");
-  const focusedBookBlock = bookRoot.querySelector("#book-block-2");
+  const focusedBookBlock = bookRoot.querySelector("#book-block-0");
   check(document.activeElement === focusedBookBlock, "book focus missing");
   const headingPathNav = find(bookRoot, "NAV");
   check(headingPathNav !== null, "Book heading-path navigation missing");
