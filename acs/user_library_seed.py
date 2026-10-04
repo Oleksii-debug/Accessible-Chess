@@ -31,6 +31,13 @@ MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
 MAX_SOURCE_COUNT = 64
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>"|?*')
+_WINDOWS_DEVICE_SUFFIXES = tuple(str(index) for index in range(1, 10)) + ("¹", "²", "³")
+_WINDOWS_RESERVED_BASENAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{suffix}" for suffix in _WINDOWS_DEVICE_SUFFIXES}
+    | {f"lpt{suffix}" for suffix in _WINDOWS_DEVICE_SUFFIXES}
+)
 
 
 class UserLibrarySeedError(RuntimeError):
@@ -213,14 +220,24 @@ def _portable_name(value: object) -> str:
     if type(value) is not str:
         raise UserLibrarySeedError("user Library seed filename is invalid")
     name = value
+    windows_basename = name.split(".", 1)[0].rstrip(" .").casefold()
+    try:
+        windows_utf16_units = len(name.encode("utf-16-le", errors="strict")) // 2
+    except UnicodeEncodeError:
+        windows_utf16_units = None
     if (
         not name
         or name != name.strip()
+        or name.endswith(".")
         or len(name) > 255
+        or windows_utf16_units is None
+        or windows_utf16_units > 255
         or name in {".", ".."}
         or "/" in name
         or "\\" in name
         or ":" in name
+        or any(character in _WINDOWS_FORBIDDEN_FILENAME_CHARS for character in name)
+        or windows_basename in _WINDOWS_RESERVED_BASENAMES
         or any(ord(character) < 32 or ord(character) == 0x7F for character in name)
         or Path(name).name != name
         or not name.casefold().endswith(".pgn")
