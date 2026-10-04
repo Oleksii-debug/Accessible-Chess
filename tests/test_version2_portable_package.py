@@ -647,6 +647,37 @@ class PortableTreeTests(unittest.TestCase):
             self.assertEqual((work / "first.zip").read_bytes(), (work / "second.zip").read_bytes())
             self.assertNotIn(CHECKSUMS_NAME + "/", first.inventory)
 
+    def test_zip_publication_rejects_checksum_rewrite_after_external_qualification(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            qualification = validate_portable_oneclick_tree(
+                root,
+                expected_integration_sha=_SHA,
+            )
+            self.assertIsNotNone(qualification.checksum_sha256)
+            self.assertEqual(
+                qualification.checksum_sha256,
+                hashlib.sha256((root / CHECKSUMS_NAME).read_bytes()).hexdigest(),
+            )
+
+            (root / "Посібник.docx").write_bytes(b"changed-after-owner-qualification")
+            _write_checksums(root)
+            target = work / "candidate.zip"
+            with self.assertRaisesRegex(
+                Version2PortablePackageError,
+                "changed after external qualification",
+            ):
+                write_portable_oneclick_zip(
+                    root,
+                    target,
+                    expected_integration_sha=_SHA,
+                    expected_checksum_sha256=qualification.checksum_sha256,
+                )
+            self.assertFalse(target.exists())
+
     def test_zip_output_cannot_mutate_the_package_tree(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
