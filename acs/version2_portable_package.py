@@ -41,6 +41,8 @@ from .version2_package_preflight import (
     MANIFEST_NAME,
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
+    Version2PackagePreflightError,
+    _relative_token,
     validate_version2_package_tree,
 )
 
@@ -345,16 +347,12 @@ def _checksum_entries(payload: bytes, *, label: str) -> dict[str, tuple[str, str
         if len(raw) < 67 or raw[64:66] != "  ":
             _fail(f"{label} line is malformed")
         digest = raw[:64].casefold()
-        relative = raw[66:]
+        raw_relative = raw[66:]
         if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
             _fail(f"{label} digest is invalid")
-        pure = PurePosixPath(relative)
-        if (
-            not relative
-            or pure.is_absolute()
-            or any(part in {"", ".", ".."} for part in pure.parts)
-            or "\x00" in relative
-        ):
+        try:
+            relative = _relative_token(raw_relative, label=f"{label} path")
+        except Version2PackagePreflightError:
             _fail(f"{label} path is invalid")
         folded = relative.casefold()
         if folded in seen:
