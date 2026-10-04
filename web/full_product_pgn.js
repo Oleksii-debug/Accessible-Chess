@@ -128,22 +128,60 @@
     }
 
     requireText(snapshot.error_message, "PGN error message", false, 240);
-    if (snapshot.status !== "empty" && snapshot.status !== "ready") {
+    if (
+      snapshot.status !== "empty"
+      && snapshot.status !== "ready"
+      && snapshot.status !== "unavailable"
+    ) {
       throw new TypeError("PGN status is invalid");
     }
-    requireText(snapshot.empty_message, "PGN empty message", true, 720);
+    if (
+      snapshot.presentation_token !== undefined
+      && (
+        typeof snapshot.presentation_token !== "string"
+        || !/^[0-9a-f]{64}$/.test(snapshot.presentation_token)
+      )
+    ) {
+      throw new TypeError("PGN presentation token is invalid");
+    }
     requireCommentEditor(snapshot.comment_editor);
 
+    if (!Array.isArray(snapshot.tree) ||
+        snapshot.tree.length > MAX_PGN_TREE_ITEMS) {
+      throw new TypeError("PGN tree exceeds its item-count contract");
+    }
+
+    if (snapshot.status === "unavailable") {
+      requireText(
+        snapshot.unavailable_message,
+        "PGN unavailable message",
+        false,
+        720
+      );
+      requireText(snapshot.refresh_label, "PGN refresh label", false, 120);
+      const unavailableGame = requireRecord(
+        snapshot.game,
+        "PGN unavailable game"
+      );
+      if (
+        Object.keys(unavailableGame).length !== 0
+        || snapshot.tree.length !== 0
+        || snapshot.focus_target !== "pgn-refresh-view"
+        || !Array.isArray(snapshot.actions)
+        || snapshot.actions.length !== 0
+        || snapshot.comment_editor.enabled !== false
+      ) {
+        throw new TypeError("PGN unavailable snapshot is inconsistent");
+      }
+      return snapshot;
+    }
+
+    requireText(snapshot.empty_message, "PGN empty message", true, 720);
     if (typeof snapshot.focus_target !== "string" ||
         snapshot.focus_target.length > 160 ||
         snapshot.focus_target.indexOf("\x00") >= 0 ||
         (snapshot.focus_target && !PGN_DOM_ID_PATTERN.test(snapshot.focus_target))) {
       throw new TypeError("PGN focus target is invalid");
-    }
-
-    if (!Array.isArray(snapshot.tree) ||
-        snapshot.tree.length > MAX_PGN_TREE_ITEMS) {
-      throw new TypeError("PGN tree exceeds its item-count contract");
     }
 
     if (snapshot.status === "empty") {
@@ -313,6 +351,56 @@
     }
   }
 
+  function wireToolbarKeyboard(toolbar) {
+    if (!toolbar || typeof toolbar.addEventListener !== "function") {
+      throw new TypeError("toolbar must support keyboard events");
+    }
+    const controls = [];
+    for (let index = 0; index < toolbar.children.length; index += 1) {
+      const control = toolbar.children[index];
+      if (!control || control.tagName !== "BUTTON") continue;
+      control.tabIndex = -1;
+      if (!control.disabled) controls.push(control);
+    }
+    if (!controls.length) return;
+
+    function setActive(control) {
+      controls.forEach(function (candidate) {
+        candidate.tabIndex = candidate === control ? 0 : -1;
+      });
+    }
+
+    setActive(controls[0]);
+    controls.forEach(function (control) {
+      control.addEventListener("focus", function () {
+        setActive(control);
+      });
+    });
+
+    toolbar.addEventListener("keydown", function (event) {
+      const current = controls.indexOf(event.target);
+      if (current < 0) return;
+      let next = current;
+      if (event.key === "ArrowRight") {
+        next = (current + 1) % controls.length;
+      } else if (event.key === "ArrowLeft") {
+        next = (current - 1 + controls.length) % controls.length;
+      } else if (event.key === "Home") {
+        next = 0;
+      } else if (event.key === "End") {
+        next = controls.length - 1;
+      } else {
+        return;
+      }
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      const target = controls[next];
+      setActive(target);
+      if (typeof target.focus === "function") {
+        target.focus({ preventScroll: true });
+      }
+    });
+  }
+
   function renderTags(host, game) {
     if (!game.tags.length) return;
     const section = node("section");
@@ -365,20 +453,43 @@
     }
   }
 
-  function invokeCommand(root, invoke, announce, command, payload) {
+  function commandFlightIsCurrent(root, token, epoch) {
+    return root._pgnCommandFlight === token && root._pgnRenderEpoch === epoch;
+  }
+
+  function invokeCommand(root, invoke, announce, command, payload, onResult) {
+    if (root._pgnCommandFlight) return false;
     const focusBefore = document.activeElement;
+    const epoch = root._pgnRenderEpoch;
+    const token = {};
+    root._pgnCommandFlight = token;
     Promise.resolve()
-      .then(function () { return invoke(command, payload || {}); })
+      .then(function () {
+        if (!commandFlightIsCurrent(root, token, epoch)) return null;
+        const commandPayload = Object.assign({}, payload || {});
+        if (root._pgnPresentationToken) {
+          commandPayload.presentation_token = root._pgnPresentationToken;
+        }
+        return invoke(command, commandPayload);
+      })
       .then(
         function (result) {
+          if (!commandFlightIsCurrent(root, token, epoch)) return;
+          root._pgnCommandFlight = null;
           try {
+            if (typeof onResult === "function") onResult(result);
             applyEvent(root, result, invoke, announce);
           } catch (_) {
             announceRejected(root, announce, focusBefore);
           }
         },
-        function () { announceRejected(root, announce, focusBefore); }
+        function () {
+          if (!commandFlightIsCurrent(root, token, epoch)) return;
+          root._pgnCommandFlight = null;
+          announceRejected(root, announce, focusBefore);
+        }
       );
+    return true;
   }
 
   function renderTree(root, host, snapshot, invoke, announce) {
@@ -389,12 +500,21 @@
     tree.setAttribute("role", "tree");
     tree.setAttribute("aria-label", game.tree_heading);
 
-    snapshot.tree.forEach(function (item) {
+    snapshot.tree.forEach(function (item, itemIndex) {
+      const level = item.aria_level;
+      const nextItem =
+        itemIndex + 1 < snapshot.tree.length
+          ? snapshot.tree[itemIndex + 1]
+          : null;
+      const hasVisibleChild = Boolean(
+        nextItem && nextItem.aria_level === level + 1
+      );
       const treeItem = node("li");
       treeItem.id = item.dom_id;
       treeItem.setAttribute("role", "treeitem");
       treeItem.setAttribute("aria-level", item.aria_level);
       treeItem.setAttribute("aria-selected", item.selected ? "true" : "false");
+      if (hasVisibleChild) treeItem.setAttribute("aria-expanded", "true");
       treeItem.dataset.kind = item.kind;
       treeItem.tabIndex = item.selected ? 0 : -1;
       treeItem.style.paddingInlineStart =
@@ -420,20 +540,50 @@
         );
       });
       treeItem.addEventListener("keydown", function (event) {
+        // Modified arrows belong to the central application keymap.
         if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+        const navigationKey =
+          event.key === "ArrowUp"
+          || event.key === "ArrowDown"
+          || event.key === "ArrowLeft"
+          || event.key === "ArrowRight"
+          || event.key === "Home"
+          || event.key === "End";
+        if (!navigationKey) return;
+        if (typeof event.preventDefault === "function") event.preventDefault();
+
         let command = "";
         let payload = {};
         if (event.key === "ArrowUp") {
-          command = "pgn.move";
-          payload = { delta: -1 };
+          if (itemIndex > 0) {
+            command = "pgn.move";
+            payload = { delta: -1 };
+          }
         } else if (event.key === "ArrowDown") {
-          command = "pgn.move";
-          payload = { delta: 1 };
-        } else if (event.key === "ArrowLeft" && item.has_parent) {
-          command = "pgn.parent";
+          if (itemIndex + 1 < snapshot.tree.length) {
+            command = "pgn.move";
+            payload = { delta: 1 };
+          }
+        } else if (event.key === "ArrowLeft") {
+          if (item.has_parent) command = "pgn.parent";
+        } else if (event.key === "ArrowRight") {
+          if (hasVisibleChild) {
+            command = "pgn.select";
+            payload = { node_id: nextItem.node_id };
+          }
+        } else if (event.key === "Home") {
+          if (itemIndex > 0) {
+            command = "pgn.select";
+            payload = { node_id: snapshot.tree[0].node_id };
+          }
+        } else if (event.key === "End") {
+          const lastIndex = snapshot.tree.length - 1;
+          if (itemIndex < lastIndex) {
+            command = "pgn.select";
+            payload = { node_id: snapshot.tree[lastIndex].node_id };
+          }
         }
         if (!command) return;
-        event.preventDefault();
         invokeCommand(root, invoke, announce, command, payload);
       });
       tree.appendChild(treeItem);
@@ -477,22 +627,16 @@
     }
 
     save.addEventListener("click", function () {
-      Promise.resolve()
-        .then(function () {
-          return invoke("pgn.comment_edit", { text: textarea.value });
-        })
-        .then(
-          function (result) {
-            try {
-              applyEvent(root, result, invoke, announce);
-            } catch (_) {
-              announceRejected(root, announce, textarea);
-              return;
-            }
-            if (result.kind !== "error") closeAndRestore();
-          },
-          function () { announceRejected(root, announce, textarea); }
-        );
+      invokeCommand(
+        root,
+        invoke,
+        announce,
+        "pgn.comment_edit",
+        { text: textarea.value },
+        function (result) {
+          if (result && result.kind !== "error") closeAndRestore();
+        }
+      );
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
@@ -517,6 +661,7 @@
   function renderActions(root, host, snapshot, invoke, announce, commentDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-orientation", "horizontal");
     snapshot.actions.forEach(function (action) {
       const button = node("button", action.label);
       button.type = "button";
@@ -531,6 +676,7 @@
       });
       toolbar.appendChild(button);
     });
+    wireToolbarKeyboard(toolbar);
     host.appendChild(toolbar);
   }
 
@@ -544,13 +690,39 @@
     requestedFocus = requireRequestedFocus(requestedFocus);
     requireSnapshot(snapshot);
 
+    const committedPresentationToken = snapshot.presentation_token || "";
+    root._pgnRenderEpoch = Number(root._pgnRenderEpoch || 0) + 1;
+    root._pgnCommandFlight = null;
+    root._pgnErrorMessage = snapshot.error_message;
+
     const fragment = document.createDocumentFragment();
     const main = node("section");
     if (snapshot.status === "empty") {
       main.appendChild(node("p", snapshot.empty_message));
       fragment.appendChild(main);
       root.replaceChildren(fragment);
-      root._pgnErrorMessage = snapshot.error_message;
+      root._pgnPresentationToken = committedPresentationToken;
+      return;
+    }
+
+    if (snapshot.status === "unavailable") {
+      main.appendChild(node("p", snapshot.unavailable_message));
+      const refresh = node("button", snapshot.refresh_label);
+      refresh.type = "button";
+      refresh.id = "pgn-refresh-view";
+      refresh.addEventListener("click", function () {
+        invokeCommand(root, invoke, announce, "pgn.refresh", {});
+      });
+      main.appendChild(refresh);
+      fragment.appendChild(main);
+      root.replaceChildren(fragment);
+      root._pgnPresentationToken = committedPresentationToken;
+      if (
+        requestedFocus === refresh.id
+        && typeof refresh.focus === "function"
+      ) {
+        refresh.focus({ preventScroll: true });
+      }
       return;
     }
 
@@ -571,7 +743,7 @@
     main.appendChild(commentDialog.dialog);
     fragment.appendChild(main);
     root.replaceChildren(fragment);
-    root._pgnErrorMessage = snapshot.error_message;
+    root._pgnPresentationToken = committedPresentationToken;
     focusTarget(root, requestedFocus);
   }
 
