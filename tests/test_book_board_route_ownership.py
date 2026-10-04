@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
-from acs.book_progress_store import BookProgressStore
+from acs.book_progress_store import (
+    BookProgressStore,
+    BookProgressStoreError,
+    BookProgressStoreErrorCode,
+)
 from acs.bookdocument import BookDocument, Exercise
 from acs.bookreader import BookReader
 from acs.chesscore import Board
@@ -622,6 +626,46 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(previous_key, self.app.book_key)
         self.assertEqual(origin_route, self.app.shell.current_route.route_id)
         self.assertEqual(origin_focus, self.app.shell.restore_focus_target())
+
+    def test_open_book_durability_unknown_accepts_exact_canonical_candidate(self):
+        original = self.root / "original-durability-owner.md"
+        original.write_text("# Original\n\nStable owner.\n", encoding="utf-8")
+        self.app.open_book(original)
+        previous_key = self.app.book_key
+        self.app.browser_command("shell", "screen.library")
+
+        candidate = self.root / "candidate-durability-owner.md"
+        candidate.write_text("# Candidate\n\nCanonical staged owner.\n", encoding="utf-8")
+        real_save = self.app.progress_store.save
+        ambiguity_seen = []
+
+        def publish_then_report_unknown(book_key, reader):
+            result = real_save(book_key, reader)
+            if book_key != previous_key:
+                ambiguity_seen.append(book_key)
+                raise BookProgressStoreError(
+                    "synthetic post-publication durability ambiguity",
+                    code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
+                )
+            return result
+
+        with patch.object(
+            self.app.progress_store,
+            "save",
+            side_effect=publish_then_report_unknown,
+        ):
+            warning_count = self.app.open_book(candidate)
+
+        self.assertEqual(0, warning_count)
+        self.assertEqual(1, len(ambiguity_seen))
+        self.assertEqual(ambiguity_seen[0], self.app.book_key)
+        self.assertNotEqual(previous_key, self.app.book_key)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        canonical = self.app.progress_store.restore_primary(
+            self.app.book_key,
+            self.app.reader.document,
+        )
+        self.assertEqual(self.app.reader.snapshot(), canonical.snapshot())
 
     def test_training_route_rejection_discards_staged_training_owner(self):
         reader = self._install_training_exercise()
