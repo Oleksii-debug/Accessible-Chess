@@ -60,6 +60,22 @@ jobs:
           test "$(git merge-base "$product" HEAD)" = "$product"
           git diff --check "$product" HEAD
 
+          # A pull-request candidate must also be an ahead-only descendant of
+          # the exact base SHA GitHub is asking this workflow to qualify. This
+          # preserves descendant flexibility without letting a merge from a
+          # divergent stacked base inherit the EPUB blob allowlist silently.
+          event_name='${{ github.event_name }}'
+          if test "$event_name" = 'pull_request'; then
+            pr_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$pr_base"
+            git merge-base --is-ancestor "$product" "$pr_base"
+            test "$(git merge-base "$product" "$pr_base")" = "$product"
+            git merge-base --is-ancestor "$pr_base" HEAD
+            test "$(git merge-base "$pr_base" HEAD)" = "$pr_base"
+            git diff --check "$pr_base" HEAD
+            echo "EPUB_REACHABILITY_PR_BASE=$pr_base"
+          fi
+
           # Parser changes require an atomic, exact reviewed hardening set.
           # Once a set is integrated into Product, ordinary descendants take
           # the first branch and remain byte-locked to then-current Product.

@@ -25,6 +25,31 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
         )
         self.assertIn('git diff --check "$product" HEAD', self.workflow)
 
+    def test_pull_request_geometry_binds_exact_event_base(self) -> None:
+        self.assertIn("event_name='${{ github.event_name }}'", self.workflow)
+        self.assertIn(
+            "pr_base='${{ github.event.pull_request.base.sha }}'",
+            self.workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$product" "$pr_base"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$product" "$pr_base")" = "$product"',
+            self.workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$pr_base" HEAD',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$pr_base" HEAD)" = "$pr_base"',
+            self.workflow,
+        )
+        self.assertIn('git diff --check "$pr_base" HEAD', self.workflow)
+        self.assertIn('EPUB_REACHABILITY_PR_BASE=$pr_base', self.workflow)
+
     def test_historical_exact_five_file_delta_is_not_required_of_descendants(self) -> None:
         self.assertNotIn("expected_paths=(", self.workflow)
         self.assertNotIn('test "${actual[*]}" = "${wanted[*]}"', self.workflow)
