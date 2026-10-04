@@ -129,12 +129,16 @@ async function main() {
 
   const analysis = eventFor('INPUT', 'r', {altKey: true});
   const beforeAnalysisCalls = resolutions.length;
+  const beforeAnalysisActions = actions.length;
   await handler(analysis.event);
-  assert.strictEqual(analysis.prevented(), 0, 'analysis shortcut must not steal editable input');
+  assert.strictEqual(analysis.prevented(), 1, 'Alt+analysis shortcut remains available in editable input');
+  assert.strictEqual(analysis.stopped(), 1, 'owned Alt+analysis shortcut must not bubble');
+  assert.strictEqual(actions.length, beforeAnalysisActions + 1);
+  assert.strictEqual(actions.at(-1), 'analysis.restart');
   assert.strictEqual(
     resolutions.slice(beforeAnalysisCalls).some(row => row[1] === 'analysis'),
-    false,
-    'editable input must not fall through to analysis context'
+    true,
+    'editable Alt shortcut must preserve the analysis context probe'
   );
 
   selectedText = 'selected text';
