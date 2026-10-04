@@ -28,6 +28,7 @@ from acs.user_library_seed import (
 )
 from acs.version2_portable_package import (
     Version2PortablePackageError,
+    _portable_docx_filename,
     _stable_bytes,
     _stable_digest,
     assemble_portable_oneclick_tree,
@@ -45,15 +46,6 @@ from scripts.build_user_sound_pack import (
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _OWNER_JSON_MAX_BYTES = 1024 * 1024
-_WIN32_FORBIDDEN_FILENAME_CHARS = frozenset('<>:"/\\|?*')
-_WIN32_RESERVED_DEVICE_NAMES = frozenset(
-    {"con", "prn", "aux", "nul", "conin$", "conout$"}
-    | {f"com{index}" for index in range(1, 10)}
-    | {f"lpt{index}" for index in range(1, 10)}
-    | {"com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³"}
-)
-
-
 class OwnerPortableCandidateError(RuntimeError):
     pass
 
@@ -96,37 +88,24 @@ def _fail(message: str) -> None:
 
 
 def _owner_docx_filename(name: str) -> str:
-    """Return a raw root DOCX filename only when it is Win32-materializable.
-
-    This validator intentionally accepts the un-normalized filename string.
-    Callers that receive an external filename must validate it here *before*
-    constructing a filesystem path; otherwise Windows path parsing could turn a
-    drive-relative or nested value into a different basename before validation.
-    """
+    """Validate an external DOCX filename before constructing a Path."""
 
     if type(name) is not str:
         _fail("owner Word document filename is not Win32-portable")
     try:
-        utf16 = name.encode("utf-16-le", errors="strict")
-    except UnicodeEncodeError as exc:
+        return _portable_docx_filename(name)
+    except Version2PortablePackageError as exc:
+        # Preserve the more diagnostic owner-facing Unicode error while keeping
+        # every actual Win32 filename rule in the generic portable authority.
+        try:
+            name.encode("utf-16-le", errors="strict")
+        except UnicodeEncodeError as unicode_exc:
+            raise OwnerPortableCandidateError(
+                "owner Word document filename is not valid Unicode for Win32"
+            ) from unicode_exc
         raise OwnerPortableCandidateError(
-            "owner Word document filename is not valid Unicode for Win32"
+            "owner Word document filename is not Win32-portable"
         ) from exc
-
-    device_stem = name.split(".", 1)[0].rstrip(" .").casefold()
-    if (
-        not name
-        or name != name.strip()
-        or name in {".", ".."}
-        or name.endswith(".")
-        or len(utf16) // 2 > 255
-        or any(character in _WIN32_FORBIDDEN_FILENAME_CHARS for character in name)
-        or any(ord(character) < 32 or ord(character) == 0x7F for character in name)
-        or not name.casefold().endswith(".docx")
-        or device_stem in _WIN32_RESERVED_DEVICE_NAMES
-    ):
-        _fail("owner Word document filename is not Win32-portable")
-    return name
 
 
 def _owner_docx_name(path: Path) -> str:
