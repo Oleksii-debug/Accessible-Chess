@@ -78,6 +78,7 @@ class _Capture:
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    boundary_count: int = 0
     list_depth: int = 0
 
 
@@ -99,6 +100,12 @@ _BLOCK_BOUNDARY_TAGS = frozenset(
     }
 )
 _SUPPRESSED_TAGS = frozenset({"script", "style", "noscript", "template"})
+_VOID_TAGS = frozenset(
+    {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    }
+)
 _CAPTURE_KINDS = {
     "title": "title",
     "h1": "heading",
@@ -208,7 +215,10 @@ class _SemanticHtmlParser(HTMLParser):
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._suppressed_tags: list[str] = []
+        self._hidden_tags: list[str] = []
+        self._head_depth = 0
         self._node_count = 0
+        self._text_boundary_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
         self._warned_list_fallback = False
@@ -234,6 +244,16 @@ class _SemanticHtmlParser(HTMLParser):
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         self.visible_parts.append(text)
+
+    def _append_text_boundary(self) -> None:
+        """Record one semantic separator without an O(capture-depth) boundary walk."""
+        self._append_visible("\n")
+        # Data already fans out through every active semantic capture. Record the
+        # boundary once here, then let the next data event synchronize each capture
+        # it already visits. This preserves boundaries in ancestor captures too
+        # (for example nested list/blockquote text) without making markup-only
+        # boundary handling O(capture depth).
+        self._text_boundary_count += 1
 
     def _block_id(self, kind: str, payload: str) -> str:
         digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
@@ -281,11 +301,6 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
                 )
             for item in items:
-                # Once numbering semantics are outside the canonical ListBlock model
-                # (reversed lists, per-item value overrides, invalid starts, nesting),
-                # never synthesize a numeric sequence. Preserve the source item text
-                # and list membership only; the warning above makes structure loss
-                # explicit without publishing invented ordering as book truth.
                 text = f"• {item}"
                 self._append_block(
                     Paragraph(
@@ -362,6 +377,15 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if self._hidden_tags:
+            if tag not in _VOID_TAGS:
+                self._hidden_tags.append(tag)
+            return
+        if tag == "head":
+            self._head_depth += 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            return
         attrs: dict[str, str] = {}
         for name, value in attrs_list:
             normalized_name = name.lower()
@@ -371,8 +395,13 @@ class _SemanticHtmlParser(HTMLParser):
                     code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
                 )
             attrs[normalized_name] = value or ""
+        aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
+        if "hidden" in attrs or aria_hidden == "true":
+            if tag not in _VOID_TAGS:
+                self._hidden_tags.append(tag)
+            return
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            self._append_text_boundary()
         if tag == "html" and not self.language:
             lang = _compact(attrs.get("lang", ""))
             if lang:
@@ -410,7 +439,7 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             else:
                 self._warning("an image reference has no accessible text and no explicit chess position")
-        elif "data-acs-fen" in attrs:
+        elif "data-acs-fen" in attrs and not self._head_depth:
             self._emit_explicit_position(tag, attrs)
 
         if tag in {"ol", "ul"} and self._lists:
@@ -426,14 +455,7 @@ class _SemanticHtmlParser(HTMLParser):
             if tag == "ol":
                 _, start_valid = self._ordered_start(attrs)
                 unsupported = unsupported or not start_valid
-            self._lists.append(
-                _ListCapture(
-                    tag=tag,
-                    attrs=attrs,
-                    unsupported=unsupported,
-                    nested=nested,
-                )
-            )
+            self._lists.append(_ListCapture(tag=tag, attrs=attrs, unsupported=unsupported, nested=nested))
 
         kind = _CAPTURE_KINDS.get(tag)
         if kind is not None:
@@ -449,6 +471,7 @@ class _SemanticHtmlParser(HTMLParser):
                     kind=kind,
                     attrs=attrs,
                     parts=[],
+                    boundary_count=self._text_boundary_count,
                     list_depth=len(self._lists) if kind == "list_item" else 0,
                 )
             )
@@ -472,6 +495,20 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if self._hidden_tags:
+            if self._hidden_tags[-1] != tag:
+                self._warning(
+                    "malformed HTML mismatched hidden elements; readable text may have been omitted"
+                )
+                return
+            self._hidden_tags.pop()
+            return
+        if tag == "head":
+            if self._head_depth:
+                self._head_depth -= 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            return
         if self._captures and self._captures[-1].tag == tag:
             capture = self._captures.pop()
             self._finish_capture(capture)
@@ -481,22 +518,28 @@ class _SemanticHtmlParser(HTMLParser):
                 for capture in self._captures:
                     if capture.kind == "list_item" and capture.list_depth == len(self._lists):
                         capture.parts.append(" ")
-                # Text from a nested list is already retained by the enclosing
-                # list-item capture. Suppress a second flattened copy and make the
-                # outer list fall back with an explicit structure-loss warning.
                 self._list_warning(
                     "Nested HTML list structure cannot be represented by the flat canonical List block and was preserved as readable parent-item text"
                 )
             else:
                 self._emit_list(captured)
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
-        if self._suppressed_depth:
+        if self._suppressed_depth or self._hidden_tags:
+            return
+        if self._head_depth or any(capture.kind == "title" for capture in self._captures):
+            for capture in self._captures:
+                if capture.kind == "title":
+                    capture.parts.append(data)
             return
         self._append_visible(data)
         for capture in self._captures:
+            pending_boundaries = self._text_boundary_count - capture.boundary_count
+            if pending_boundaries > 0:
+                capture.parts.append("\n" * pending_boundaries)
+                capture.boundary_count = self._text_boundary_count
             capture.parts.append(data)
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
@@ -513,22 +556,13 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor = capture.attrs.get("id") or None
         if capture.kind == "heading":
             level = int(capture.tag[1])
-            self._append_block(
-                Heading(
-                    text=text,
-                    level=level,
-                    block_id=self._block_id("Heading", f"{level}\0{text}"),
-                    source_anchor=source_anchor,
-                )
-            )
+            self._append_block(Heading(text=text, level=level, block_id=self._block_id("Heading", f"{level}\0{text}"), source_anchor=source_anchor))
             return
         if capture.kind == "list_item":
             if self._lists and capture.list_depth == len(self._lists):
                 self._lists[-1].items.append(text)
                 return
-            self._list_warning(
-                "HTML list item occurred outside a representable list container and was preserved as readable text"
-            )
+            self._list_warning("HTML list item occurred outside a representable list container and was preserved as readable text")
             text = "• " + text
         elif capture.kind == "table_row":
             if not self._warned_table_flatten:
@@ -536,22 +570,20 @@ class _SemanticHtmlParser(HTMLParser):
                 self._warned_table_flatten = True
         elif capture.kind == "pre" and _explicit_pgn_pre(raw):
             return
-        self._append_block(
-            Paragraph(
-                text=text,
-                block_id=self._block_id("Paragraph", text),
-                source_anchor=source_anchor,
-            )
-        )
+        self._append_block(Paragraph(text=text, block_id=self._block_id("Paragraph", text), source_anchor=source_anchor))
 
     def close(self) -> None:
         super().close()
+        if self._head_depth:
+            self._warning("malformed HTML left head metadata unclosed; subsequent readable text may have been omitted")
+            self._head_depth = 0
         if self._suppressed_depth:
-            self._warning(
-                "malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted"
-            )
+            self._warning("malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted")
             self._suppressed_depth = 0
             self._suppressed_tags.clear()
+        if self._hidden_tags:
+            self._warning("malformed HTML left hidden content unclosed; subsequent readable text may have been omitted")
+            self._hidden_tags.clear()
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
         while self._lists:
@@ -561,19 +593,16 @@ class _SemanticHtmlParser(HTMLParser):
 
 
 def _pgn_candidates(visible_text: str) -> list[str]:
-    """Return only explicitly marked PGN regions; canonical D06 decides validity."""
     lines = visible_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     candidates: list[str] = []
     for marker_index, line in enumerate(lines):
         if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
             continue
-
         start = marker_index + 1
         while start < len(lines) and not lines[start].strip():
             start += 1
         if start >= len(lines) or _PGN_EVENT_RE.match(lines[start].strip()) is None:
             continue
-
         chunk_lines: list[str] = []
         for candidate_line in lines[start:]:
             stripped = candidate_line.strip()
@@ -612,20 +641,11 @@ def _canonical_pgn_games(candidates: list[str], warnings: list[str]) -> list[Gam
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         game = parsed[0]
-        title = " — ".join(
-            part for part in (game.tags.get("White"), game.tags.get("Black")) if part and part != "?"
-        ) or game.tags.get("Event") or f"Embedded game {candidate_index}"
+        title = " — ".join(part for part in (game.tags.get("White"), game.tags.get("Black")) if part and part != "?") or game.tags.get("Event") or f"Embedded game {candidate_index}"
         digest = sha256(candidate.encode("utf-8")).hexdigest()[:20]
         occurrence = identities.get(digest, 0) + 1
         identities[digest] = occurrence
-        games.append(
-            Game(
-                pgn=candidate,
-                title=title,
-                block_id=f"html-pgn-{digest}-{occurrence}",
-                source_anchor=f"pgn:{candidate_index}",
-            )
-        )
+        games.append(Game(pgn=candidate, title=title, block_id=f"html-pgn-{digest}-{occurrence}", source_anchor=f"pgn:{candidate_index}"))
     return games
 
 
@@ -670,13 +690,12 @@ def import_html_book(
 ) -> BookHtmlImportResult:
     """Import UTF-8 or qualified Windows-1251 HTML/XHTML into ``BookDocument``.
 
-    Network/file access is deliberately outside this adapter.  A trusted host may
-    provide a source byte string and, optionally, the names of assets it has
-    already resolved.  Missing images are reported but never converted into fake
-    chess positions.  ``data-acs-fen`` is the only HTML-level position marker;
-    an exact standalone ``{PGN N}`` line immediately followed by a PGN Event tag
-    is the only HTML-level game marker.  Both paths still delegate canonical chess
-    validation before semantic publication.
+    Network/file access is deliberately outside this adapter. A trusted host may
+    provide source bytes and, optionally, names of assets it has already resolved.
+    Missing images are reported but never converted into fake chess positions.
+    ``data-acs-fen`` is the only HTML-level position marker; an exact standalone
+    ``{PGN N}`` line immediately followed by a PGN Event tag is the only HTML-level
+    game marker. Both paths still delegate canonical chess validation.
     """
 
     display_source = _text(source_name, "source_name")
@@ -714,7 +733,6 @@ def import_html_book(
                 break
     if not resolved_title:
         resolved_title = display_source
-
     if not parser.blocks:
         raise BookHtmlImportError(
             "HTML book contains no readable semantic content",
