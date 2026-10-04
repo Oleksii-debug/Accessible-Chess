@@ -66,6 +66,12 @@ _SUPPORTED_PACKAGE_VERSIONS = frozenset({"2.0", "3.0"})
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
+_MEDIA_TYPE_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9!#_ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
+^_.+-]{0,126}/"
+    r"[A-Za-z0-9][A-Za-z0-9!#_ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
+^_.+-]{0,126}$"
+)
 
 
 class BookEpubImportErrorCode(str, Enum):
@@ -802,9 +808,7 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
         if (
             not _is_exact_identifier(raw_item_id)
             or type(raw_media_type) is not str
-            or not raw_media_type
-            or raw_media_type != raw_media_type.strip()
-            or any(character.isspace() for character in raw_media_type)
+            or _MEDIA_TYPE_RE.fullmatch(raw_media_type) is None
         ):
             raise _error(
                 "EPUB manifest item is missing or has malformed required identity",
