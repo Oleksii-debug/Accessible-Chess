@@ -12,6 +12,19 @@ const baseOnBoardKey = window.onBoardKey;
 if (typeof baseExecuteAction !== 'function' || typeof apiAction !== 'function') return;
 if (typeof document === 'undefined' || !document.body) return;
 
+// The frozen page already opens Help with `showModal(); el('help').focus()`.
+// Keep that readable text out of the normal Tab sequence while making the
+// intended programmatic focus target real for keyboard and screen-reader users.
+const helpContent = document.getElementById('help');
+if (
+    helpContent
+    && typeof helpContent.hasAttribute === 'function'
+    && typeof helpContent.setAttribute === 'function'
+    && !helpContent.hasAttribute('tabindex')
+) {
+    helpContent.setAttribute('tabindex', '-1');
+}
+
 // Reuse the one canonical live-region publisher while correcting the one
 // historical Ukrainian-only generic action failure for English UI.  This is a
 // presentation adapter, not a second speech/announcement subsystem: every
