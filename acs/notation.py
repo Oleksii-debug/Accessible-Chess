@@ -63,6 +63,7 @@ _SAN_RE = re.compile(
     r"(?:=(?P<promo>[QRBN]))?"
     r"(?P<suffix>[+#])?$"
 )
+_CASTLING_TOKENS = {"O-O", "O-O+", "O-O#", "O-O-O", "O-O-O+", "O-O-O#"}
 
 
 @dataclass(frozen=True)
@@ -84,12 +85,14 @@ def _normalise_castling(san: str) -> str:
 
 
 def parse_san(san: str) -> ParsedSan:
-    token = str(san).strip()
+    if type(san) is not str:
+        raise NotationError("SAN token must be text")
+    token = san.strip()
     if not token:
         raise NotationError("SAN token must not be empty")
 
     token = _normalise_castling(token)
-    if token in {"O-O", "O-O+", "O-O#", "O-O-O", "O-O-O+", "O-O-O#"}:
+    if token in _CASTLING_TOKENS:
         raise NotationError("castling is handled directly by format_san")
 
     match = _SAN_RE.fullmatch(token)
@@ -103,8 +106,27 @@ def parse_san(san: str) -> ParsedSan:
     promotion = match.group("promo")
     suffix = match.group("suffix")
 
-    if piece == "P" and capture and len(disamb) != 1:
-        raise NotationError(f"invalid pawn capture SAN: {san!r}")
+    if piece == "P":
+        if capture:
+            if len(disamb) != 1 or disamb not in "abcdefgh":
+                raise NotationError(f"invalid pawn capture SAN: {san!r}")
+        elif disamb:
+            # Coordinate/long-algebraic forms such as e2e4 and malformed ee4
+            # are not SAN and must not silently enter the canonical SAN path.
+            raise NotationError(f"invalid pawn move SAN: {san!r}")
+
+        promotion_rank = destination[1] in {"1", "8"}
+        if promotion is not None and not promotion_rank:
+            raise NotationError(f"invalid pawn promotion SAN: {san!r}")
+        if promotion is None and promotion_rank:
+            raise NotationError(f"pawn promotion piece is required: {san!r}")
+    else:
+        if promotion is not None:
+            raise NotationError(f"only pawns can promote in SAN: {san!r}")
+        if len(disamb) == 2 and not (
+            disamb[0] in "abcdefgh" and disamb[1] in "12345678"
+        ):
+            raise NotationError(f"invalid SAN disambiguation: {san!r}")
 
     return ParsedSan(piece, disamb, capture, destination, promotion, suffix)
 
@@ -121,13 +143,18 @@ def format_san(san: str, profile: str = "san") -> str:
     stored chess-data syntax; it formats an already-produced SAN move only.
     """
 
-    if profile not in PROFILES:
-        raise NotationError(f"unknown notation profile: {profile}")
+    if type(profile) is not str or profile not in PROFILES:
+        raise NotationError("unknown notation profile")
+    if type(san) is not str:
+        raise NotationError("SAN token must be text")
 
-    token = _normalise_castling(str(san).strip())
+    token = _normalise_castling(san.strip())
     if not token:
         raise NotationError("SAN token must not be empty")
+    is_castling = token in _CASTLING_TOKENS
     if profile == "san":
+        if not is_castling:
+            parse_san(token)
         return token
 
     lang = "uk" if profile == "uk_literal" else "en"
