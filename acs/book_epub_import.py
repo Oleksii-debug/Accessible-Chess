@@ -1030,13 +1030,13 @@ def _validate_manifest_fallback_graph(
 def _validate_manifest_resources(
     manifest: dict[str, _ManifestItem],
     *,
-    package_entry_name: str,
+    package_entry_names: frozenset[str],
     archive_index: dict[str, zipfile.ZipInfo],
 ) -> None:
     for item in manifest.values():
         entry_name = item.entry_name
         if (
-            entry_name == package_entry_name
+            entry_name in package_entry_names
             or entry_name == "mimetype"
             or entry_name == "META-INF"
             or entry_name.startswith("META-INF/")
@@ -1290,6 +1290,7 @@ def import_epub_book(
             "container metadata",
         )
         opf_names = _package_rootfiles(container, warnings, index)
+        package_entry_names = frozenset(opf_names)
         renditions: list[
             tuple[str, ET.Element, dict[str, _ManifestItem], list[str]]
         ] = []
@@ -1321,7 +1322,7 @@ def import_epub_book(
             )
             _validate_manifest_resources(
                 rendition_manifest,
-                package_entry_name=rendition_name,
+                package_entry_names=package_entry_names,
                 archive_index=index,
             )
             rendition_warnings = (
