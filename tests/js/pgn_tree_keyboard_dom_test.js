@@ -215,7 +215,7 @@ async function runFlightRaceRegression() {
       firstPending = false;
       return firstPromise;
     }
-    return { kind: "delegated", payload: {} };
+    return { kind: "delegated", payload: { action: "pgn.copy_selection" } };
   };
 
   window.AccessibleChessPgnSurface.render(
@@ -266,20 +266,7 @@ async function runFlightRaceRegression() {
 }
 
 function editableSnapshot(index) {
-  const view = selectIndex(snapshot(), index);
-  view.actions = [
-    { action: "pgn.comment_edit", label: "Add or edit comment", enabled: true }
-  ];
-  view.comment_editor = {
-    enabled: true,
-    value: "",
-    title: "PGN comment",
-    label: "Comment text",
-    save_label: "Save",
-    cancel_label: "Cancel",
-    message: ""
-  };
-  return view;
+  return selectIndex(snapshot(), index);
 }
 
 async function runCommentFlightRaceRegression() {
@@ -295,7 +282,7 @@ async function runCommentFlightRaceRegression() {
       firstPending = false;
       return firstPromise;
     }
-    return { kind: "delegated", payload: {} };
+    return { kind: "delegated", payload: { action: "pgn.copy_selection" } };
   };
 
   window.AccessibleChessPgnSurface.render(
@@ -540,7 +527,7 @@ async function run() {
     snapshot(),
     (command, payload) => {
       calls.push([command, payload || {}]);
-      return { kind: "delegated", payload: {} };
+      return { kind: "delegated", payload: { action: "pgn.copy_selection" } };
     },
     (message) => announcements.push(String(message)),
     "pgn-node-aaaaaaaaaaaaaaaaaaaa"
