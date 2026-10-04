@@ -11,6 +11,7 @@ on:
       - 'acs/ui_keymap_service.py'
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
+      - 'acs/version2_release_app.py'
       - 'web/index.html'
       - 'web/keybindings.json'
       - 'web/stage1_board_actions.js'
@@ -72,6 +73,7 @@ jobs:
           acs/ui_keymap_service.py
           acs/full_product_actions.py
           acs/full_product_native_menu.py
+          acs/version2_release_app.py
           tests/test_keybindings_current_apex_reconvergence.py
           tests/test_full_product_pgn_keybindings.py
           tests/test_full_product_library_keybindings.py
@@ -82,6 +84,7 @@ jobs:
           tests.test_keybindings_current_apex_reconvergence
           tests.test_keybindings
           tests.test_ui_keymap_adapter
+          tests.test_ui_keymap_service
           tests.test_full_product_native_menu
           tests.test_full_product_pgn_keybindings
           tests.test_full_product_library_keybindings
