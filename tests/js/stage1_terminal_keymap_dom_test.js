@@ -135,6 +135,85 @@ function chordFor(event) {
         'history.previous'
     );
 
+    // Settings search must use the label that is actually visible in the
+    // current UI language. The old `labelUk || labelEn` expression made an
+    // English-visible action undiscoverable whenever its Ukrainian label was
+    // also present.
+    class SettingsNode {
+        constructor() {
+            this._textContent = '';
+            this.children = [];
+            this.value = '';
+            this.readOnly = false;
+            this.classList = {add() {}};
+            this.attributes = new Map();
+        }
+        get textContent() { return this._textContent; }
+        set textContent(value) {
+            this._textContent = String(value);
+            if (value === '') this.children = [];
+        }
+        appendChild(child) { this.children.push(child); return child; }
+        setAttribute(name, value) { this.attributes.set(name, String(value)); }
+        addEventListener() {}
+    }
+    const settingsSearch = new SettingsNode();
+    const settingsContextFilter = new SettingsNode();
+    const settingsList = new SettingsNode();
+    const settingsElements = new Map([
+        ['key-search', settingsSearch],
+        ['key-context', settingsContextFilter],
+        ['key-list', settingsList],
+    ]);
+    const settingsSearchContext = {
+        keymap: [{
+            id: 'board.material',
+            labelUk: 'Матеріал',
+            labelEn: 'Material',
+            registryContext: 'board',
+            context: 'board',
+            binding: null,
+            alias: null,
+            defaultBinding: null,
+            defaultAlias: null,
+        }],
+        populateContextFilter() {},
+        keymapContextLabel() { return this.document.documentElement.lang === 'en' ? 'Board' : 'Дошка'; },
+        el(id) { return settingsElements.get(id) || null; },
+        document: {
+            documentElement: {lang: 'en'},
+            createElement() { return new SettingsNode(); },
+        },
+        previewKeymap: async () => ({status: 'ok'}),
+        api: () => null,
+        centralKeymap: false,
+        announce() {},
+    };
+    settingsSearchContext.window = settingsSearchContext;
+    vm.createContext(settingsSearchContext);
+    vm.runInContext(indexFunction('renderKeymap'), settingsSearchContext, {
+        filename: 'index-keymap-settings-search.js',
+    });
+
+    settingsSearch.value = 'material';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsList.children.length, 1, 'English visible label must be searchable');
+    assert.strictEqual(settingsList.children[0].children[0].textContent, 'Material');
+
+    settingsSearchContext.document.documentElement.lang = 'uk';
+    settingsSearch.value = 'material';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(
+        settingsList.children.length,
+        0,
+        'hidden English label must not pollute Ukrainian localized search'
+    );
+
+    settingsSearch.value = 'матеріал';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsList.children.length, 1, 'Ukrainian visible label must be searchable');
+    assert.strictEqual(settingsList.children[0].children[0].textContent, 'Матеріал');
+
     // Execute the real document-level keydown handler. Editable controls retain
     // remapped Help and the pre-existing exact Alt+analysis path while refusing
     // unrelated global/document/history commands that would steal typed input.
