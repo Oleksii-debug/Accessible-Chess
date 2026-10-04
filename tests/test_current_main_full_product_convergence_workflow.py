@@ -105,6 +105,18 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_w4_sound_readback_successor_late_binds_live_provenance_parent(self) -> None:
+        required = (
+            "      - fix/w4-sound-byte-readback-20261004-sol56",
+            "      - converge/owner-equal-apex-run-provenance-20261004-c2mbezb",
+            'elif [ "${GITHUB_REF_NAME:-}" = "fix/w4-sound-byte-readback-20261004-sol56" ]; then',
+            "live_base_ref='converge/owner-equal-apex-run-provenance-20261004-c2mbezb'",
+            "FULL_PRODUCT_LIVE_W4_SOUND_READBACK_PARENT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
@@ -466,12 +478,15 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             ".github/workflows/w4-v2-p0-candidate-artifact-readback.yml",
             ".github/workflows/w4-candidate-artifact-readback-workflow-contract.yml",
             "scripts/verify_w4_current_candidate_artifact.py",
+            "scripts/verify_w4_sound_inventory.py",
         ):
             with self.subTest(path=path):
                 self.assertIn(f"      - '{path}'", self.text)
         for contract in (
             "tests.test_w4_candidate_artifact_readback_workflow",
+            "tests.test_w4_sound_inventory_workflow_binding",
             "tests.test_verify_w4_current_candidate_artifact",
+            "tests.test_verify_w4_sound_inventory",
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, self.text)
