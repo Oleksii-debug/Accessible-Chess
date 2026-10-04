@@ -112,9 +112,13 @@ def normalize_search_source_id(value: object | None) -> int | None:
     return value
 
 
-def normalize_search_result(value: object | None) -> object | None:
-    """Validate the canonical PGN result tokens accepted by game search."""
-    if value is not None and value not in SEARCH_RESULTS:
+def normalize_search_result(value: object | None) -> str | None:
+    """Validate canonical PGN result tokens before any hashing or coercion."""
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise TypeError("result must be text")
+    if value not in SEARCH_RESULTS:
         raise ValueError(f"Unsupported chess result: {value}")
     return value
 
