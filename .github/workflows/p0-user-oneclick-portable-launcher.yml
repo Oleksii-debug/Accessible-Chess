@@ -13,6 +13,7 @@ on:
       - 'tests/test_webview_safe_server.py'
       - 'tests/test_portable_launcher_contract.py'
       - 'tests/test_portable_launcher_window_readiness.py'
+      - 'tests/test_portable_localappdata_persistence_binding.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
   pull_request:
@@ -25,6 +26,7 @@ on:
       - 'tests/test_webview_safe_server.py'
       - 'tests/test_portable_launcher_contract.py'
       - 'tests/test_portable_launcher_window_readiness.py'
+      - 'tests/test_portable_localappdata_persistence_binding.py'
       - 'tests/test_version2_portable_package.py'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
   workflow_dispatch:
@@ -66,9 +68,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m unittest tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness tests.test_webview_safe_server tests.test_version2_portable_package -v
+          python -m unittest tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness tests.test_portable_localappdata_persistence_binding tests.test_webview_safe_server tests.test_version2_portable_package -v
           if ($LASTEXITCODE -ne 0) { throw 'Portable package regressions failed' }
-          python -m py_compile acs/version2_portable_package.py
+          python -m py_compile acs/version2_portable_package.py tests/test_portable_localappdata_persistence_binding.py
           if ($LASTEXITCODE -ne 0) { throw 'Portable package module compile failed' }
 
       - name: Build native x64 launcher without CRT
@@ -556,7 +558,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --check HEAD^ HEAD
+          pr_base='${{ github.event.pull_request.base.sha }}'
+          if [ -n "$pr_base" ]; then
+            git diff --check "$pr_base" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
           python - <<'PY'
           from pathlib import Path
           source = Path('packaging/portable_launcher.c').read_text(encoding='utf-8')

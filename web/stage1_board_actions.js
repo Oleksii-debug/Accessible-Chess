@@ -140,18 +140,35 @@ async function remappableOnBoardKey(event) {
         if (typeof baseOnBoardKey === 'function') return baseOnBoardKey(event);
         return;
     }
-    // Once ready, use the existing canonical resolver so BOARD keeps the
-    // accepted exact-context -> GLOBAL fallback order. The synchronous projected
-    // action is only a same-snapshot fallback if the async resolver is absent.
+    // Once ready, a chord that the current projected keymap owns must be
+    // cancelled during the synchronous keydown dispatch. Browser event dispatch
+    // does not await async listeners, so preventDefault() after resolveBinding()
+    // is too late to stop Arrow/Space/Enter/Escape native behavior.
+    //
+    // BOARD owns the first lookup. The release API then admits ANALYSIS while
+    // board focus is active and finally applies the canonical GLOBAL fallback.
+    // Mirror that exact precedence from the same live keymap snapshot. The async
+    // resolver is validation only: a stale/disagreeing result fails closed after
+    // the native event has already been safely claimed.
     let actionId = projectedAction;
-    if (typeof resolveBinding === 'function' && typeof eventChord === 'function') {
-        const resolved = await resolveBinding(eventChord(event), 'board', 'board');
-        actionId = resolved && resolved.actionId ? resolved.actionId : '';
+    if (!actionId) {
+        const projectedAnalysisAction = liveKeymapAction(event, 'analysis');
+        if (projectedAnalysisAction === null) return;
+        actionId = projectedAnalysisAction;
     }
-    // Empty means the keymap is ready but this chord is not bound for BOARD or
-    // GLOBAL. Do not fall back to historical literal Arrow/Enter/Escape defaults.
+    if (!actionId) {
+        const projectedGlobalAction = liveKeymapAction(event, 'global');
+        if (projectedGlobalAction === null) return;
+        actionId = projectedGlobalAction;
+    }
     if (!actionId) return;
     stopOwnedEvent(event);
+
+    if (typeof resolveBinding === 'function' && typeof eventChord === 'function') {
+        const resolved = await resolveBinding(eventChord(event), 'board', 'board');
+        const resolvedAction = resolved && resolved.actionId ? resolved.actionId : '';
+        if (resolvedAction !== actionId) return;
+    }
     return executeRemappedBoardAction(actionId, event);
 }
 
