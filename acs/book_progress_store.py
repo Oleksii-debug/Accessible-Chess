@@ -1690,6 +1690,17 @@ class BookProgressStore:
                         code=BookProgressStoreErrorCode.DURABILITY_UNKNOWN,
                     )
                 self._require_active_lock_unlocked()
+                if expected_guard_path is not None:
+                    # The guard authorized publication before replace. Recheck
+                    # the same bytes+inode snapshot after our target is already
+                    # visible so a guard mutation in the final check->replace
+                    # window cannot be acknowledged as a clean commit.
+                    self._require_recovery_path_unchanged_unlocked(
+                        expected_guard_path,
+                        expected_identity=guard_base_identity,
+                        expected_raw=expected_guard_raw,
+                        message="book progress recovery data changed after publication",
+                    )
             except (OSError, BookProgressStoreError):
                 # Replacement already succeeded. The published bytes may be
                 # visible even though crash durability or canonical pathname
@@ -1864,6 +1875,9 @@ class BookProgressStore:
                 require_no_orphan_backup_before_replace=True,
                 expected_target_raw=None,
                 expected_target_identity=previous_identity,
+                expected_guard_path=self.backup_path,
+                expected_guard_raw=None,
+                expected_guard_identity=None,
             )
         else:
             assert published_backup_identity is not None
