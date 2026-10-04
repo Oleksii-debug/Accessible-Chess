@@ -25,6 +25,7 @@ STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
 STOCKFISH_LICENSE = "THIRD_PARTY_NOTICES/Stockfish-COPYING.txt"
 SOUND_PROVENANCE = "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+SOUND_INVENTORY = "THIRD_PARTY_NOTICES/SOUND_INVENTORY.json"
 SOUND_ROOT = "AccessibleChess/assets/sounds"
 USER_PROVIDED_LICENSE_ID = "USER_PROVIDED"
 SPDX_NOASSERTION = "NOASSERTION"
@@ -131,6 +132,67 @@ def _file_spdx_id(relative: str) -> str:
     return "SPDXRef-File-" + hashlib.sha256(relative.encode("utf-8")).hexdigest()[:24]
 
 
+def _sound_relative_path(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
+        _fail(f"{label} is invalid")
+    token = PurePosixPath(value)
+    if (
+        token.is_absolute()
+        or token.as_posix() != value
+        or any(part in {"", ".", ".."} or ":" in part for part in token.parts)
+        or token.suffix.casefold() != ".wav"
+    ):
+        _fail(f"{label} is invalid")
+    return value
+
+
+def _spdx_sound_license(value: object) -> tuple[str, str]:
+    if value == USER_PROVIDED_LICENSE_ID:
+        # USER_PROVIDED is canonical package provenance, not an SPDX license
+        # expression and it deliberately does not infer redistribution rights.
+        # Preserve that exact provenance in the packaged notice, which is itself
+        # hashed by this SBOM, while emitting the SPDX-defined unknown sentinel.
+        return USER_PROVIDED_LICENSE_ID, SPDX_NOASSERTION
+    if isinstance(value, str) and _SAFE_LICENSE_RE.fullmatch(value):
+        return value, value
+    _fail("sound provenance SPDX license identity is invalid")
+
+
+def _register_sound_license(
+    result: dict[str, str],
+    raw_licenses: dict[str, str],
+    *,
+    relative: str,
+    raw_license: str,
+    spdx_license: str,
+) -> None:
+    previous_raw = raw_licenses.setdefault(relative, raw_license)
+    if previous_raw != raw_license:
+        _fail("sound asset has conflicting license identities")
+    previous = result.setdefault(relative, spdx_license)
+    if previous != spdx_license:
+        _fail("sound asset has conflicting SPDX license identities")
+
+
+def _verify_sound_digest(
+    root: Path,
+    *,
+    relative: str,
+    expected_sha256: object,
+    label: str,
+) -> None:
+    if (
+        not isinstance(expected_sha256, str)
+        or not _SHA256_RE.fullmatch(expected_sha256.casefold())
+    ):
+        _fail(f"{label} SHA-256 identity is invalid")
+    sound_path = root.joinpath(*PurePosixPath(relative).parts)
+    if not sound_path.is_file() or sound_path.is_symlink():
+        _fail(f"{label} asset is not a regular packaged file")
+    if _sha256(sound_path) != expected_sha256.casefold():
+        _fail(f"{label} SHA-256 does not match packaged sound asset")
+
+
 def _sound_licenses(root: Path) -> dict[str, str]:
     provenance = _json_object(root / SOUND_PROVENANCE, label="sound provenance")
     if provenance.get("schema_version") != 1:
@@ -138,43 +200,70 @@ def _sound_licenses(root: Path) -> dict[str, str]:
     events = provenance.get("events")
     if not isinstance(events, dict) or not events:
         _fail("sound provenance events are missing")
+
     result: dict[str, str] = {}
     raw_licenses: dict[str, str] = {}
     for raw in events.values():
         if not isinstance(raw, dict):
             _fail("sound provenance event contract is invalid")
-        file_name = raw.get("file")
-        license_id = raw.get("license_id")
-        expected_sha256 = raw.get("sha256")
-        if not isinstance(file_name, str) or not file_name or "/" in file_name or "\\" in file_name:
-            _fail("sound provenance file name is invalid")
-        if license_id == USER_PROVIDED_LICENSE_ID:
-            # USER_PROVIDED is canonical package provenance, not an SPDX license
-            # expression and it deliberately does not infer redistribution rights.
-            # Preserve that exact provenance in the packaged notice, which is itself
-            # hashed by this SBOM, while emitting the SPDX-defined unknown sentinel.
-            spdx_license_id = SPDX_NOASSERTION
-        elif isinstance(license_id, str) and _SAFE_LICENSE_RE.fullmatch(license_id):
-            spdx_license_id = license_id
-        else:
-            _fail("sound provenance SPDX license identity is invalid")
-        if (
-            not isinstance(expected_sha256, str)
-            or not _SHA256_RE.fullmatch(expected_sha256.casefold())
-        ):
-            _fail("sound provenance SHA-256 identity is invalid")
+        file_name = _sound_relative_path(
+            raw.get("file"),
+            label="sound provenance file name",
+        )
+        raw_license, spdx_license = _spdx_sound_license(raw.get("license_id"))
         relative = f"{SOUND_ROOT}/{file_name}"
-        sound_path = root.joinpath(*PurePosixPath(relative).parts)
-        if not sound_path.is_file() or sound_path.is_symlink():
-            _fail("sound provenance asset is not a regular packaged file")
-        if _sha256(sound_path) != expected_sha256.casefold():
-            _fail("sound provenance SHA-256 does not match packaged sound asset")
-        previous_raw = raw_licenses.setdefault(relative, license_id)
-        if previous_raw != license_id:
-            _fail("sound asset has conflicting license identities")
-        previous = result.setdefault(relative, spdx_license_id)
-        if previous != spdx_license_id:
-            _fail("sound asset has conflicting SPDX license identities")
+        _verify_sound_digest(
+            root,
+            relative=relative,
+            expected_sha256=raw.get("sha256"),
+            label="sound provenance",
+        )
+        _register_sound_license(
+            result,
+            raw_licenses,
+            relative=relative,
+            raw_license=raw_license,
+            spdx_license=spdx_license,
+        )
+
+    inventory_path = root / SOUND_INVENTORY
+    if inventory_path.is_file() and not inventory_path.is_symlink():
+        inventory = _json_object(inventory_path, label="sound inventory provenance")
+        if inventory.get("schema_version") != 1:
+            _fail("sound inventory provenance schema version is unsupported")
+        entries = inventory.get("files")
+        if not isinstance(entries, list) or not entries:
+            _fail("sound inventory provenance files are missing")
+        raw_license, spdx_license = _spdx_sound_license(inventory.get("license_id"))
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                _fail("sound inventory provenance entry contract is invalid")
+            file_name = _sound_relative_path(
+                entry.get("file"),
+                label="sound inventory provenance file name",
+            )
+            folded = file_name.casefold()
+            if folded in seen:
+                _fail("sound inventory provenance contains duplicate file paths")
+            seen.add(folded)
+            relative = f"{SOUND_ROOT}/{file_name}"
+            _verify_sound_digest(
+                root,
+                relative=relative,
+                expected_sha256=entry.get("sha256"),
+                label="sound inventory provenance",
+            )
+            _register_sound_license(
+                result,
+                raw_licenses,
+                relative=relative,
+                raw_license=raw_license,
+                spdx_license=spdx_license,
+            )
+    elif inventory_path.exists() or inventory_path.is_symlink():
+        _fail("sound inventory provenance notice is not a regular file")
+
     return result
 
 
