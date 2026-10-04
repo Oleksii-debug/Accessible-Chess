@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
       - main
     paths:
       - 'acs/**'
@@ -161,6 +162,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_settings
+          tests.test_settings_postpublication_cleanup_current_main
           tests.test_v2_upgrade_generated_artifact_authentication
           tests.test_v2_upgrade_publish_race_audit
           tests.test_v2_upgrade_tracked_writer_conflict
