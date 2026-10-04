@@ -22,6 +22,7 @@ on:
       - integration/owner-equal-sha-release-convergence-20261004-ooxple7
       - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
       - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
+      - integration/owner-apex-bootstrap-library-safety-20261004-zftrkmo
       - main
     paths:
       - 'acs/**'
