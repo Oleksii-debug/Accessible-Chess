@@ -1751,6 +1751,32 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIsNone(self.app.books)
         self.assertEqual(self.app.shell.current_route.route_id, "library")
 
+    def test_book_recovery_confirmation_rejects_disappeared_backup_as_stale(self):
+        self._open_book_game()
+        store = self.app.progress_store
+        key = self.app.book_key
+        store.save(key, self.app.reader)
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        store.path.write_bytes(corrupt_primary)
+        confirmations = []
+
+        def confirm_and_delete_backup():
+            confirmations.append(True)
+            store.backup_path.unlink()
+            return True
+
+        self.app.confirm_book_progress_recovery = confirm_and_delete_backup
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.app.save_book_progress()
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(confirmations, [True])
+        self.assertEqual(store.path.read_bytes(), corrupt_primary)
+        self.assertFalse(store.backup_path.exists())
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.books)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+
     def test_book_recovery_publishes_only_the_semantically_validated_backup_revision(self):
         self._open_book_game()
         store = self.app.progress_store
