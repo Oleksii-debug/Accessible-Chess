@@ -237,12 +237,51 @@ static BOOL ac_direct_directory(const WCHAR *path) {
     return TRUE;
 }
 
-static BOOL ac_direct_file(const WCHAR *path) {
-    DWORD attrs = GetFileAttributesW(path);
-    if (attrs == INVALID_FILE_ATTRIBUTES) return FALSE;
-    if ((attrs & FILE_ATTRIBUTE_DIRECTORY) != 0) return FALSE;
-    if ((attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) return FALSE;
-    return TRUE;
+static HANDLE ac_open_direct_private_file(const WCHAR *path) {
+    HANDLE handle;
+    FILE_ATTRIBUTE_TAG_INFO tag_info;
+    BY_HANDLE_FILE_INFORMATION file_info;
+    DWORD error;
+
+    handle = CreateFileW(
+        path,
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        NULL
+    );
+    if (handle == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+
+    if (!GetFileInformationByHandleEx(
+            handle,
+            FileAttributeTagInfo,
+            &tag_info,
+            sizeof(tag_info))) {
+        error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if ((tag_info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
+        (tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        CloseHandle(handle);
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return INVALID_HANDLE_VALUE;
+    }
+    if (!GetFileInformationByHandle(handle, &file_info)) {
+        error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if (file_info.nNumberOfLinks != 1) {
+        CloseHandle(handle);
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return INVALID_HANDLE_VALUE;
+    }
+    return handle;
 }
 
 static HANDLE ac_open_instance_lock(void) {
@@ -440,6 +479,7 @@ static void ac_fail_startup_timeout(HANDLE report) {
 
 void WINAPI wWinMainCRTStartup(void) {
     HANDLE report;
+    HANDLE core_guard = INVALID_HANDLE_VALUE;
     HANDLE child_instance_lock = NULL;
     DWORD error;
     DWORD wait_result;
@@ -485,7 +525,11 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, g_data);
 
     if (!ac_direct_directory(g_app_dir)) ac_fail(report, L"App directory validation", ERROR_PATH_NOT_FOUND);
-    if (!ac_direct_file(g_core)) ac_fail(report, L"core executable validation", ERROR_FILE_NOT_FOUND);
+    core_guard = ac_open_direct_private_file(g_core);
+    if (core_guard == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        ac_fail(report, L"core executable validation", error == ERROR_SUCCESS ? ERROR_FILE_NOT_FOUND : error);
+    }
 
     if (!CreateDirectoryW(g_data, NULL)) {
         error = GetLastError();
@@ -518,8 +562,12 @@ void WINAPI wWinMainCRTStartup(void) {
             g_app_dir,
             &g_startup,
             &g_process)) {
-        ac_fail(report, L"core process creation", GetLastError());
+        error = GetLastError();
+        CloseHandle(core_guard);
+        ac_fail(report, L"core process creation", error);
     }
+    CloseHandle(core_guard);
+    core_guard = INVALID_HANDLE_VALUE;
 
     if (!DuplicateHandle(
             GetCurrentProcess(),
