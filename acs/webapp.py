@@ -293,12 +293,6 @@ class AccessibleChessAPI:
     def _at_history_end(self) -> bool:
         return self.review_history.cursor_node_id == self.live_history_node
 
-    def _record_position_after_move(self, san: str, side: str) -> None:
-        selection = self.review_history.append(
-            self.board.fen(), san=san, side=side, last_move=san
-        )
-        self.live_history_node = selection.node_id
-
     def _live_line_nodes(self) -> list[int]:
         records = self.review_history.tree_nodes()
         by_id = {record.node_id: record for record in records}
