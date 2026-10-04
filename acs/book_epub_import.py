@@ -172,6 +172,99 @@ def _source_bytes(source: object) -> bytes:
     return source
 
 
+def _validate_single_disk_zip_end_records(raw: bytes) -> None:
+    signature = b"PK\x05\x06"
+    search_start = max(0, len(raw) - (22 + 0xFFFF))
+    cursor = len(raw)
+    eocd_offset: int | None = None
+    while True:
+        candidate = raw.rfind(signature, search_start, cursor)
+        if candidate < 0:
+            break
+        if candidate + 22 <= len(raw):
+            comment_length = int.from_bytes(
+                raw[candidate + 20 : candidate + 22],
+                "little",
+            )
+            if candidate + 22 + comment_length == len(raw):
+                eocd_offset = candidate
+                break
+        cursor = candidate
+    if eocd_offset is None:
+        raise _error(
+            "EPUB ZIP end-of-central-directory record is invalid",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    disk_number = int.from_bytes(raw[eocd_offset + 4 : eocd_offset + 6], "little")
+    central_disk = int.from_bytes(raw[eocd_offset + 6 : eocd_offset + 8], "little")
+    entries_on_disk = int.from_bytes(raw[eocd_offset + 8 : eocd_offset + 10], "little")
+    total_entries = int.from_bytes(raw[eocd_offset + 10 : eocd_offset + 12], "little")
+    if disk_number != 0 or central_disk != 0:
+        raise _error(
+            "EPUB uses a multi-disk ZIP container, which OCF does not permit",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+    if entries_on_disk != total_entries:
+        raise _error(
+            "EPUB ZIP central-directory entry counts indicate multiple disks",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    locator_offset = eocd_offset - 20
+    if locator_offset >= 0 and raw[locator_offset : locator_offset + 4] == b"PK\x06\x07":
+        zip64_disk = int.from_bytes(
+            raw[locator_offset + 4 : locator_offset + 8],
+            "little",
+        )
+        zip64_eocd_offset = int.from_bytes(
+            raw[locator_offset + 8 : locator_offset + 16],
+            "little",
+        )
+        total_disks = int.from_bytes(
+            raw[locator_offset + 16 : locator_offset + 20],
+            "little",
+        )
+        if zip64_disk != 0 or total_disks != 1:
+            raise _error(
+                "EPUB ZIP64 metadata indicates multiple disks",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        if (
+            zip64_eocd_offset + 56 > len(raw)
+            or raw[zip64_eocd_offset : zip64_eocd_offset + 4] != b"PK\x06\x06"
+        ):
+            raise _error(
+                "EPUB ZIP64 end-of-central-directory record is invalid",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        zip64_record_disk = int.from_bytes(
+            raw[zip64_eocd_offset + 16 : zip64_eocd_offset + 20],
+            "little",
+        )
+        zip64_central_disk = int.from_bytes(
+            raw[zip64_eocd_offset + 20 : zip64_eocd_offset + 24],
+            "little",
+        )
+        zip64_entries_on_disk = int.from_bytes(
+            raw[zip64_eocd_offset + 24 : zip64_eocd_offset + 32],
+            "little",
+        )
+        zip64_total_entries = int.from_bytes(
+            raw[zip64_eocd_offset + 32 : zip64_eocd_offset + 40],
+            "little",
+        )
+        if (
+            zip64_record_disk != 0
+            or zip64_central_disk != 0
+            or zip64_entries_on_disk != zip64_total_entries
+        ):
+            raise _error(
+                "EPUB ZIP64 central-directory metadata indicates multiple disks",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+
+
 def _safe_entry_name(raw_name: object) -> str:
     if type(raw_name) is not str or not raw_name or "\x00" in raw_name or "\\" in raw_name:
         raise _error(
@@ -204,6 +297,91 @@ def _canonical_casefold_name(value: str) -> str:
     return unicodedata.normalize("NFC", normalized.casefold())
 
 
+def _validate_local_zip_header(
+    archive: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+) -> int:
+    stream = archive.fp
+    if stream is None:
+        raise _error(
+            "EPUB ZIP container is unavailable",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+    original_position: int | None = None
+    try:
+        original_position = stream.tell()
+        stream.seek(info.header_offset)
+        fixed = stream.read(30)
+        if len(fixed) != 30 or fixed[:4] != b"PK\x03\x04":
+            raise _error(
+                "EPUB contains an invalid local ZIP header",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+        extract_version = int.from_bytes(fixed[4:6], "little")
+        local_flags = int.from_bytes(fixed[6:8], "little")
+        local_compression = int.from_bytes(fixed[8:10], "little")
+        name_length = int.from_bytes(fixed[26:28], "little")
+        extra_length = int.from_bytes(fixed[28:30], "little")
+        raw_name = stream.read(name_length)
+        if len(raw_name) != name_length:
+            raise _error(
+                "EPUB local ZIP header has a truncated entry name",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
+    except BookEpubImportError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise _error(
+            "EPUB local ZIP header could not be validated",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        ) from exc
+    finally:
+        if original_position is not None:
+            try:
+                stream.seek(original_position)
+            except (OSError, ValueError):
+                pass
+
+    if extract_version not in {10, 20, 45}:
+        raise _error(
+            "EPUB local ZIP header uses an unsupported extraction version",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+    if info.extract_version != extract_version:
+        raise _error(
+            "EPUB ZIP extraction version metadata is inconsistent",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    if local_compression not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
+        raise _error(
+            "EPUB local ZIP header uses an unsupported compression method",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+    if info.compress_type != local_compression:
+        raise _error(
+            "EPUB ZIP compression metadata is inconsistent",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    if local_flags & 0x1:
+        raise _error(
+            "EPUB uses ZIP encryption, which OCF does not permit",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+    try:
+        local_name = raw_name.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _error(
+            "EPUB ZIP entry name is not UTF-8 encoded",
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        ) from exc
+    if local_name != info.filename:
+        raise _error(
+            "EPUB local and central ZIP entry names are inconsistent",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    return extra_length
+
+
 def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     infos = archive.infolist()
     if not infos or len(infos) > MAX_EPUB_ENTRIES:
@@ -219,7 +397,24 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     next_canonical_node = 1
     total_uncompressed = 0
     for info in infos:
+        local_extra_length = _validate_local_zip_header(archive, info)
+        if info.volume != 0:
+            raise _error(
+                "EPUB uses a multi-disk ZIP entry, which OCF does not permit",
+                BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+            )
         name = _safe_entry_name(info.filename)
+        if name == "mimetype":
+            if info.header_offset != 0:
+                raise _error(
+                    "EPUB mimetype entry must begin at the start of the ZIP container",
+                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+                )
+            if local_extra_length:
+                raise _error(
+                    "EPUB mimetype local ZIP header must not contain an extra field",
+                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+                )
         if name in seen:
             raise _error(
                 "EPUB contains duplicate package entry names",
@@ -1339,6 +1534,7 @@ def import_epub_book(
     """
 
     raw = _source_bytes(source)
+    _validate_single_disk_zip_end_records(raw)
     display_source = _required_text(source_name, "source_name")
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
