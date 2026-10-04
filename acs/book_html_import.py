@@ -454,7 +454,7 @@ class _SemanticHtmlParser(HTMLParser):
     def _nearest_structural_owner_capture(self) -> _Capture | None:
         """Return the nearest capture whose text may need semantic splitting."""
         for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading"}:
+            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
                 return capture
         return None
 
@@ -836,8 +836,8 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor: str | None,
     ) -> None:
         """Flatten one rich list item without reordering its semantic blocks."""
-        events = [event for event in capture.inline_semantics if not event.structural]
-        if not events:
+        events = list(capture.inline_semantics)
+        if not any(not event.structural for event in events):
             return
 
         self._list_warning(
@@ -1083,9 +1083,13 @@ class _SemanticHtmlParser(HTMLParser):
             owner=parent,
             part_index=part_index,
             structural=True,
-            resume_part_index=(
-                len(parent.parts) if capture.kind == "heading" else None
-            ),
+            # A nested semantic capture already published its readable content as
+            # one or more canonical blocks. When the parent later needs splitting
+            # around a direct image/position event, resume after all source text
+            # consumed by this child so the nested text is not duplicated into a
+            # parent fragment. Legacy unsplit projection remains unchanged because
+            # structural events are consulted only by the split paths.
+            resume_part_index=len(parent.parts),
         )
 
     def close(self) -> None:
