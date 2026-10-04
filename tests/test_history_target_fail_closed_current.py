@@ -1,7 +1,7 @@
 import sys
 import unittest
 
-from acs.history import HistoryError, ReviewHistory
+from acs.history import HistoryError, HistoryErrorCode, ReviewHistory
 from acs.ui_review_adapter import ReviewPresentationAdapter
 
 
@@ -75,6 +75,40 @@ class ReviewHistoryTargetFailClosedCurrentTests(unittest.TestCase):
         self.assertNotIn("Exceeds the limit", result.announcement)
         self.assertNotIn("integer string conversion", result.announcement)
         self.assertNotIn("sys.set_int_max_str_digits", result.announcement)
+
+    def test_snapshot_text_subclasses_are_rejected_before_text_hooks(self):
+        class HostileText(str):
+            hook_calls = 0
+
+            def strip(self, *args, **kwargs):
+                type(self).hook_calls += 1
+                raise AssertionError("snapshot strip hook must not run")
+
+            def __eq__(self, other):
+                type(self).hook_calls += 1
+                raise AssertionError("snapshot equality hook must not run")
+
+        with self.assertRaises(HistoryError) as caught:
+            ReviewHistory(HostileText("root"))
+        self.assertEqual(caught.exception.code, HistoryErrorCode.INVALID_SNAPSHOT)
+        self.assertEqual(HostileText.hook_calls, 0)
+
+        history = self._history()
+        before = history.export_tree()
+        for field, value in (
+            ("san", HostileText("e4")),
+            ("last_move", HostileText("e4")),
+            ("side", HostileText("w")),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaises(HistoryError) as caught:
+                    history.append("candidate", **{field: value})
+                self.assertEqual(
+                    caught.exception.code,
+                    HistoryErrorCode.INVALID_SNAPSHOT,
+                )
+                self.assertEqual(history.export_tree(), before)
+                self.assertEqual(HostileText.hook_calls, 0)
 
     def test_supported_targets_keep_existing_semantics(self):
         history = self._history()
