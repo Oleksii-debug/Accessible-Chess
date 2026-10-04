@@ -622,21 +622,21 @@ class BookReaderPresenter:
         current = self.current()
         if current.position_fen is None:
             raise LookupError("Current book block has no board position")
-        self._reader.save_return_point(self._BOARD_RETURN_POINT)
-        return dispatch(
-            "book.open_position",
-            {
-                "fen": current.position_fen,
-                "book_index": current.index,
-            },
-        )
+        with self._reader.provisional_return_point(self._BOARD_RETURN_POINT):
+            return dispatch(
+                "book.open_position",
+                {
+                    "fen": current.position_fen,
+                    "book_index": current.index,
+                },
+            )
 
     def open_current_game(self, dispatch: CommandDispatch) -> Any:
         current = self.current()
         if current.kind != "Game":
             raise LookupError("Current book block is not a game")
-        self._reader.save_return_point(self._BOARD_RETURN_POINT)
-        return dispatch("book.open_game", {})
+        with self._reader.provisional_return_point(self._BOARD_RETURN_POINT):
+            return dispatch("book.open_game", {})
 
     def return_from_board(self) -> BookBlockView:
         return self.restore_bookmark(self._BOARD_RETURN_POINT)
