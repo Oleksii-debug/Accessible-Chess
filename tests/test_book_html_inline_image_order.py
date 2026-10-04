@@ -942,5 +942,54 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(result.document.blocks[-1].text, "E")
 
 
+    def test_inline_heading_diagram_preserves_board_authority_and_source_order(self) -> None:
+        result = import_html_book(
+            f'<html><body><h2>Before'
+            f'<img src="board.png" alt="Start board" data-acs-fen="{Board.START}">'
+            f'After</h2></body></html>',
+            source_name="heading-diagram.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Heading", "Diagram", "Paragraph"],
+        )
+        heading, diagram, trailing = result.document.blocks
+        self.assertIsInstance(heading, Heading)
+        self.assertEqual(heading.text, "Before")
+        self.assertIsInstance(diagram, Diagram)
+        self.assertEqual(Board(diagram.fen).fen(), Board.START)
+        self.assertEqual(diagram.alt_text, "Start board")
+        self.assertIsInstance(trailing, Paragraph)
+        self.assertEqual(trailing.text, "After")
+
+    def test_decorative_heading_image_does_not_split_heading_text(self) -> None:
+        baseline = import_html_book(
+            '<html><body><h2 id="topic">BeforeAfter</h2></body></html>',
+            source_name="heading-decorative-baseline.html",
+        )
+        result = import_html_book(
+            '<html><body><h2 id="topic">Before<img src="decoration.png">After</h2></body></html>',
+            source_name="heading-decorative.html",
+            available_assets={"decoration.png"},
+        )
+
+        headings = [block for block in result.document.blocks if isinstance(block, Heading)]
+        self.assertEqual(len(headings), 1)
+        self.assertEqual(headings[0].text, "BeforeAfter")
+        self.assertEqual(headings[0].block_id, baseline.document.blocks[0].block_id)
+        self.assertEqual(headings[0].source_anchor, "topic")
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+        self.assertTrue(
+            any("no accessible text" in warning for warning in result.warnings)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
