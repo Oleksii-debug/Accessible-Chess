@@ -175,6 +175,67 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual("library", self.app.shell.current_route.route_id)
         self.assertEqual(origin, self.app.reader.location())
 
+    def test_return_route_rejection_happens_before_exact_return_mutation(self):
+        origin = self._open_board()
+        real_open_route = self.app.shell.open_route
+        return_calls = 0
+        real_return = self.app.book_workflow.return_to_book
+
+        def observe_return():
+            nonlocal return_calls
+            return_calls += 1
+            return real_return()
+
+        def fail_books_route(route_id, *, current_focus_id=""):
+            if route_id == "books":
+                raise RuntimeError("synthetic Books route ownership rejection")
+            return real_open_route(route_id, current_focus_id=current_focus_id)
+
+        with (
+            patch.object(
+                self.app.book_workflow,
+                "return_to_book",
+                side_effect=observe_return,
+            ),
+            patch.object(
+                self.app.shell,
+                "open_route",
+                side_effect=fail_books_route,
+            ),
+        ):
+            result = self.app.browser_command("books", "book.return_from_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual(0, return_calls)
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
+    def test_exact_return_failure_rolls_precommitted_route_back_to_board(self):
+        origin = self._open_board()
+        board_focus = self.app.shell.restore_focus_target()
+
+        with patch.object(
+            self.app.book_workflow,
+            "return_to_book",
+            side_effect=RuntimeError("synthetic exact-return failure"),
+        ):
+            result = self.app.browser_command("books", "book.return_from_board")
+
+        self.assertEqual("error", result["kind"])
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+        self.assertEqual(board_focus, self.app.shell.restore_focus_target())
+        self.assertEqual(origin, self.app.reader.location())
+        self.assertFalse(
+            any(
+                event.get("kind") == "route"
+                and event.get("payload", {}).get("route_id") == "books"
+                for event in self.app.drain_events()
+            ),
+            "failed exact Return must not publish a Books route refresh",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
