@@ -28,6 +28,17 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("CHILD_EXIT_CODE", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
 
+    def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
+        self.assertNotIn("STARTF_USESTDHANDLES", self.source)
+        self.assertNotIn("bInheritHandle = TRUE", self.source)
+        self.assertIn(
+            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT,",
+            self.source,
+        )
+        root_check = self.source.index("if (!ac_direct_directory(g_root))")
+        report_open = self.source.index("report = ac_open_report();")
+        self.assertLess(root_check, report_open)
+
     def test_no_shell_execution_path_is_introduced(self):
         for forbidden in (
             "ShellExecuteW(",
