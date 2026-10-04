@@ -1066,14 +1066,18 @@ class Version2Application:
                     # event_sink as a non-authoritative observer and intentionally
                     # contains observer exceptions, so route mutation cannot live
                     # in _book_event() without risking inactive-workflow/Board-route
-                    # divergence. Focus repair is part of the same precommit: if
-                    # it rejects, restore Board before domain Return is attempted.
+                    # divergence. Focus repair is part of the same precommit.
+                    #
+                    # open_route() writes the route before restoring focus, so an
+                    # exception does not itself prove that ownership stayed on
+                    # Board. Roll back from the actual shell state, not from a
+                    # local "call returned" flag.
                     try:
                         self._focus = self.shell.open_route("books")
-                        return_route_precommitted = True
                         self._repair_book_block_focus_after_rebind()
+                        return_route_precommitted = True
                     except Exception:
-                        if return_route_precommitted:
+                        if self.shell.current_route.route_id == "books":
                             self._focus = self.shell.open_route("board")
                         raise
                 result = self.book_delegate(action, payload)
@@ -1092,10 +1096,8 @@ class Version2Application:
                     # external host seam; once it accepts a FEN, a later route or
                     # focus failure must not turn that accepted state into an
                     # application error with divergent ownership.
-                    route_acquired = False
                     try:
                         route_focus = self.shell.open_route("board")
-                        route_acquired = True
                         if result.kind is BookBoardUiEventKind.BOARD_OPENED:
                             # Bind the canonical launch focus before publication
                             # as part of the same shell precommit.
@@ -1106,9 +1108,13 @@ class Version2Application:
                             self.book_workflow.go_to_cursor(before_view.cursor)
                         elif self.book_workflow is not None and self.book_workflow.active:
                             self.book_workflow.return_to_book()
+                        # Version2ShellState.open_route() writes _route_id before
+                        # restore_focus_target(). If that tail raises, the shell
+                        # may already own Board even though open_route() did not
+                        # return. A just-opened Book session must restore Books.
                         if (
-                            route_acquired
-                            and result.kind is BookBoardUiEventKind.BOARD_OPENED
+                            result.kind is BookBoardUiEventKind.BOARD_OPENED
+                            and self.shell.current_route.route_id == "board"
                         ):
                             self._focus = self.shell.open_route("books")
                             self._repair_book_block_focus_after_rebind()
