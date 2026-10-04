@@ -101,7 +101,7 @@ def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, An
     return result
 
 
-def _windows_open_no_reparse(path: Path, *, create: bool) -> int:
+def _windows_open_no_reparse(path: Path, *, create: bool, writable: bool = False) -> int:
     """Open one Windows disk file without following a reparse point.
 
     ``FILE_FLAG_OPEN_REPARSE_POINT`` makes the opened handle, not a prior pathname
@@ -166,7 +166,7 @@ def _windows_open_no_reparse(path: Path, *, create: bool) -> int:
 
     handle = create_file(
         str(path),
-        GENERIC_READ | (GENERIC_WRITE if create else 0),
+        GENERIC_READ | (GENERIC_WRITE if create or writable else 0),
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         None,
         OPEN_ALWAYS if create else OPEN_EXISTING,
@@ -200,7 +200,7 @@ def _windows_open_no_reparse(path: Path, *, create: bool) -> int:
         if info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT:
             raise OSError("training progress storage is a reparse point")
 
-        flags = os.O_RDWR if create else os.O_RDONLY
+        flags = os.O_RDWR if create or writable else os.O_RDONLY
         flags |= getattr(os, "O_BINARY", 0)
         flags |= getattr(os, "O_NOINHERIT", 0)
         descriptor = msvcrt.open_osfhandle(int(handle), flags)
@@ -211,11 +211,13 @@ def _windows_open_no_reparse(path: Path, *, create: bool) -> int:
             close_handle(handle)
 
 
-def _open_no_reparse(path: Path, *, create: bool) -> int:
+def _open_no_reparse(path: Path, *, create: bool, writable: bool = False) -> int:
     if os.name == "nt":
-        return _windows_open_no_reparse(path, create=create)
+        return _windows_open_no_reparse(path, create=create, writable=writable)
 
-    flags = os.O_RDWR | os.O_CREAT if create else os.O_RDONLY
+    flags = os.O_RDWR if create or writable else os.O_RDONLY
+    if create:
+        flags |= os.O_CREAT
     flags |= getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     return os.open(path, flags, 0o600) if create else os.open(path, flags)
@@ -266,7 +268,7 @@ def _sync_published_path(path: Path) -> None:
         # Re-open the published file through the same no-reparse authority used
         # by reads/locks. A path swap after atomic publication must not redirect
         # the durability barrier through a junction/symlink-like reparse point.
-        descriptor = _open_no_reparse(path, create=False)
+        descriptor = _open_no_reparse(path, create=False, writable=True)
         try:
             os.fsync(descriptor)
         finally:
