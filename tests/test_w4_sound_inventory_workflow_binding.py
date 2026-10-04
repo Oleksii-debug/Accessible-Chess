@@ -18,7 +18,7 @@ class W4SoundInventoryWorkflowBindingTests(unittest.TestCase):
 
     def test_workflow_pins_exact_sound_verifier_blob(self) -> None:
         actual = subprocess.run(
-            ["git", "hash-object", str(SOUND_VERIFIER.relative_to(ROOT))],
+            ["git", "rev-parse", "HEAD:scripts/verify_w4_sound_inventory.py"],
             cwd=ROOT,
             check=True,
             capture_output=True,
