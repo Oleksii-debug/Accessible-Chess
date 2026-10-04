@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts.verify_owner_w4_run_provenance import (
     DEFAULT_W4_WORKFLOW_PATH,
@@ -181,6 +182,51 @@ class OwnerW4RunProvenanceTests(unittest.TestCase):
                     "run_attempt=2\n"
                 ),
             )
+
+    def test_cli_rejects_run_json_path_swap_between_inspection_and_open(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            run_json = root / "run.json"
+            replacement = root / "replacement.json"
+            output = root / "github-output.txt"
+            run_json.write_text(json.dumps(_run()), encoding="utf-8")
+            replacement.write_text(
+                json.dumps(_run(head_sha="c" * 40)),
+                encoding="utf-8",
+            )
+            real_open = Path.open
+            swapped = False
+
+            def swap_before_binary_open(path: Path, *args: object, **kwargs: object):
+                nonlocal swapped
+                if path == run_json and args and args[0] == "rb" and not swapped:
+                    swapped = True
+                    replacement.replace(run_json)
+                return real_open(path, *args, **kwargs)
+
+            with mock.patch.object(
+                Path,
+                "open",
+                autospec=True,
+                side_effect=swap_before_binary_open,
+            ):
+                result = main(
+                    [
+                        "--run-json",
+                        str(run_json),
+                        "--run-id",
+                        str(RUN_ID),
+                        "--repository",
+                        REPOSITORY,
+                        "--default-branch",
+                        DEFAULT_BRANCH,
+                        "--github-output",
+                        str(output),
+                    ]
+                )
+            self.assertTrue(swapped)
+            self.assertEqual(result, 1)
+            self.assertFalse(output.exists())
 
     def test_cli_does_not_write_outputs_for_rejected_run(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
