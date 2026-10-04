@@ -79,6 +79,7 @@ class AccessibleChessAPI:
             "move_text_type": "Текст ходу має бути текстовим значенням.",
             "move_text_too_long": "Текст ходу занадто довгий.",
             "position_history_failed": "Не вдалося підготувати історію нової позиції.",
+            "fen_history_failed": "Не вдалося підготувати історію FEN-позиції.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -94,6 +95,7 @@ class AccessibleChessAPI:
             "move_text_type": "Move text must be a text value.",
             "move_text_too_long": "Move text is too long.",
             "position_history_failed": "Could not prepare history for the new position.",
+            "fen_history_failed": "Could not prepare history for the FEN position.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -494,11 +496,31 @@ class AccessibleChessAPI:
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         try:
-            self.board = Board(fen)
-            self._reset_history()
-            return self._ok("FEN завантажено." if self.lang == "uk" else "FEN loaded.")
+            candidate_board = Board(fen)
+            candidate_start_fen = candidate_board.fen()
         except Exception as exc:
             return self._error(str(exc))
+
+        try:
+            candidate_history = ReviewHistory(candidate_start_fen)
+            candidate_adapter = ReviewPresentationAdapter(
+                candidate_history,
+                language=self.lang,
+            )
+            candidate_live_node = candidate_history.cursor_node_id
+        except Exception:
+            return self._error(self._t("fen_history_failed"))
+
+        self.board = candidate_board
+        self.start_fen = candidate_start_fen
+        self.sans.clear()
+        self.move_sides.clear()
+        self.redo_meta.clear()
+        self.selected_source = None
+        self.review_history = candidate_history
+        self.review_adapter = candidate_adapter
+        self.live_history_node = candidate_live_node
+        return self._ok("FEN завантажено." if self.lang == "uk" else "FEN loaded.")
 
     def set_language(self, lang: str) -> dict[str, Any]:
         if lang not in ("uk", "en"):
