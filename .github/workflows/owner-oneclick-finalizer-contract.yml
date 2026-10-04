@@ -8,7 +8,16 @@ on:
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/build_user_sound_pack.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_portable_package.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_materialize_owner_library_seed.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_user_library_seed.py'
+      - 'tests/test_version2_portable_package.py'
       - 'tests/test_user_sound_pack_builder.py'
       - 'tests/test_owner_docx_win32_portability.py'
   push:
@@ -20,7 +29,16 @@ on:
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
       - 'scripts/build_user_sound_pack.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_portable_package.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_materialize_owner_library_seed.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_user_library_seed.py'
+      - 'tests/test_version2_portable_package.py'
       - 'tests/test_owner_docx_win32_portability.py'
       - 'tests/test_user_sound_pack_builder.py'
   workflow_dispatch:
@@ -59,9 +77,16 @@ jobs:
           scripts/build_owner_portable_candidate.py
           scripts/materialize_owner_library_seed.py
           scripts/build_user_sound_pack.py
+          scripts/verify_owner_w4_run_provenance.py
+          acs/user_library_seed.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
           tests/test_owner_oneclick_from_w4_workflow.py
           tests/test_owner_docx_win32_portability.py
           tests/test_user_sound_pack_builder.py
+          tests/test_verify_owner_w4_run_provenance.py
+          tests/test_user_library_seed.py
+          tests/test_version2_portable_package.py
 
       - name: Run finalizer wiring and owner-input regressions
         run: >-
@@ -70,7 +95,10 @@ jobs:
           tests.test_owner_docx_win32_portability
           tests.test_materialize_owner_library_seed
           tests.test_owner_portable_candidate
+          tests.test_verify_owner_w4_run_provenance
+          tests.test_user_library_seed
           tests.test_user_sound_pack_builder
+          tests.test_version2_portable_package
 
       - name: Whitespace and acceptance-claim hygiene
         shell: bash
