@@ -92,6 +92,27 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(path, self.workflow)
 
+    def test_non_bookboard_current_apex_successors_use_application_compatibility_mode(self) -> None:
+        self.assertIn("BOOK_BOARD_TOPOLOGY=EXACT_NARROW_SUCCESSOR", self.workflow)
+        self.assertIn("BOOK_BOARD_TOPOLOGY=APPLICATION_COMPATIBILITY", self.workflow)
+        compatibility = self.workflow.split(
+            "Other current-apex successors may legitimately change the", 1
+        )[1].split("BOOK_BOARD_TOPOLOGY=APPLICATION_COMPATIBILITY", 1)[0]
+        for path in (
+            "run_accessible_chess.py",
+            "run_accessible_chess_v2.py",
+            "acs/version2_windows_book_board_adapter.py",
+            "acs/book_board_workflow.py",
+            "acs/book_webview_projection.py",
+            "acs/book_webview_bridge.py",
+            "acs/full_product_presenters.py",
+            "acs/full_product_actions.py",
+            "acs/version2_windows_file_workflows.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, compatibility)
+        self.assertNotIn("acs/version2_application.py", compatibility)
+
     def test_dual_os_and_complete_qualification_remain(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.workflow)
         self.assertIn("pytest==8.4.2", self.workflow)

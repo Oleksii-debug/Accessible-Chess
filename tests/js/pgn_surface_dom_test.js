@@ -118,6 +118,23 @@ function snapshot(selectedId) {
 
 async function flush() { await Promise.resolve(); await Promise.resolve(); }
 
+function pressKey(target, _toolbar, key) {
+  let prevented = false;
+  const listener = target.listeners.keydown;
+  if (typeof listener !== "function") return false;
+  listener({
+    key: key,
+    preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
+
+function findRole(root, role) {
+  return root.descendants().find(function (item) {
+    return item.getAttribute("role") === role;
+  }) || null;
+}
+
 async function run() {
   const calls = [];
   const announcements = [];
