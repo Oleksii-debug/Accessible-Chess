@@ -167,6 +167,37 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
         )
         self.assertIn("tests.test_epub_dc_metadata_identity", self.workflow)
 
+
+    def test_document_scope_id_uniqueness_successor_is_exactly_pinned(self) -> None:
+        self.assertIn(
+            "document_id_successor_parser='82f575c5152893602297b1acdab745c6796fcbd8'",
+            self.workflow,
+        )
+        self.assertIn(
+            "document_id_successor_parser_test='2af1740b289d0c231f1618acf9a3c25b409f5fb7'",
+            self.workflow,
+        )
+        self.assertIn(
+            "document_id_successor_contract_test='134cf79cf81037f4412b1eacb8e2358ddfe38163'",
+            self.workflow,
+        )
+        self.assertIn(
+            "document_id_successor_test='fcea29131622c0627f7179962af0111135659942'",
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_parser" = "$document_id_successor_parser"',
+            self.workflow,
+        )
+        self.assertIn(
+            'test "$candidate_dc_metadata_test" = "$document_id_successor_test"',
+            self.workflow,
+        )
+        self.assertIn(
+            "EPUB_DOCUMENT_ID_UNIQUENESS_SUCCESSOR=EXACT",
+            self.workflow,
+        )
+
     def test_shared_application_and_dialog_files_are_regressed_not_blob_frozen(self) -> None:
         marker = "protected_paths=("
         start = self.workflow.index(marker)
