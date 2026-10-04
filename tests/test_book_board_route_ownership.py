@@ -197,6 +197,46 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.assertEqual("books", self.app.shell.current_route.route_id)
         self.assertEqual(origin, self.app.reader.location())
 
+    def test_visible_books_browser_return_remains_usable(self):
+        origin = self._open_board()
+        routed = self.app.browser_command("shell", "screen.books")
+        self.assertEqual("route", routed["kind"])
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertTrue(self.app.book_workflow.active)
+
+        returned = self.app.browser_command("books", "book.return_from_board")
+
+        self.assertEqual("render", returned["kind"])
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
+    def test_visible_books_native_return_remains_usable(self):
+        origin = self._open_board()
+        self.app.browser_command("shell", "screen.books")
+        focus = f"book-block-{self.app.reader.index}"
+
+        returned = self.app.adapter.activate_action(
+            "book.return",
+            current_focus_id=focus,
+        )
+
+        self.assertEqual("delegated", returned.kind)
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
+    def test_stale_review_return_rejected_even_when_books_visible(self):
+        origin = self._open_board()
+        self.app.browser_command("shell", "screen.books")
+
+        result = self.app.browser_command("review", "book.return")
+
+        self.assertEqual("error", result["kind"])
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+
     def test_hidden_review_return_cannot_unwind_active_book_board(self):
         origin = self._open_board()
         self.app.browser_command("shell", "screen.library")
