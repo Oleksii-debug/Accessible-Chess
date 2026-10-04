@@ -672,6 +672,88 @@ class BookEpubImportTests(unittest.TestCase):
             ],
         )
 
+    def test_required_title_and_language_metadata_fail_closed_when_missing_or_empty(self) -> None:
+        cases = (
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>   </dc:title>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:language>   </dc:language>''',
+        )
+        for metadata in cases:
+            with self.subTest(metadata=metadata):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                        metadata=metadata,
+                    ),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="missing-core-metadata.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_dublin_core_metadata_values_must_be_nonempty_text(self) -> None:
+        cases = (
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title><dc:creator>Nested</dc:creator></dc:title>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:creator>   </dc:creator>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:language>uk</dc:language>
+    <dc:rights></dc:rights>''',
+        )
+        for metadata in cases:
+            with self.subTest(metadata=metadata):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                        metadata=metadata,
+                    ),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="bad-dc-value.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
     def test_unicode_package_identifier_without_whitespace_remains_supported(self) -> None:
         raw = _epub(
             opf=_opf(
