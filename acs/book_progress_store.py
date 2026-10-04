@@ -51,6 +51,7 @@ _READER_SNAPSHOT_FIELDS = frozenset(
 _PROCESS_LOCKS_GUARD = threading.Lock()
 _PROCESS_LOCKS: dict[str, threading.RLock] = {}
 _EXPECTED_TARGET_UNSET = object()
+_EXPECTED_IDENTITY_UNSET = object()
 
 
 class BookProgressStoreErrorCode(str, Enum):
@@ -1358,8 +1359,10 @@ class BookProgressStore:
         *,
         require_no_orphan_backup_before_replace: bool = False,
         expected_target_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
+        expected_target_identity: os.stat_result | None | object = _EXPECTED_IDENTITY_UNSET,
         expected_guard_path: Path | None = None,
         expected_guard_raw: bytes | None | object = _EXPECTED_TARGET_UNSET,
+        expected_guard_identity: os.stat_result | None | object = _EXPECTED_IDENTITY_UNSET,
     ) -> None:
         self._require_active_lock_unlocked()
         if type(require_no_orphan_backup_before_replace) is not bool:
@@ -1370,9 +1373,21 @@ class BookProgressStore:
             and type(expected_target_raw) is not bytes
         ):
             raise TypeError("expected_target_raw must be bytes, None, or omitted")
+        if expected_target_identity is not _EXPECTED_IDENTITY_UNSET:
+            if expected_target_raw is _EXPECTED_TARGET_UNSET:
+                raise TypeError("expected_target_identity requires expected_target_raw")
+            if expected_target_identity is not None and not isinstance(
+                expected_target_identity,
+                os.stat_result,
+            ):
+                raise TypeError("expected_target_identity must be os.stat_result, None, or omitted")
+            if (expected_target_identity is None) != (expected_target_raw is None):
+                raise TypeError("expected_target_identity must match expected_target_raw presence")
         if expected_guard_path is None:
             if expected_guard_raw is not _EXPECTED_TARGET_UNSET:
                 raise TypeError("expected_guard_raw requires expected_guard_path")
+            if expected_guard_identity is not _EXPECTED_IDENTITY_UNSET:
+                raise TypeError("expected_guard_identity requires expected_guard_path")
         else:
             if not isinstance(expected_guard_path, Path):
                 raise TypeError("expected_guard_path must be a Path or None")
@@ -1380,20 +1395,50 @@ class BookProgressStore:
                 raise TypeError("expected_guard_raw is required with expected_guard_path")
             if expected_guard_raw is not None and type(expected_guard_raw) is not bytes:
                 raise TypeError("expected_guard_raw must be bytes or None")
+            if expected_guard_identity is not _EXPECTED_IDENTITY_UNSET:
+                if expected_guard_identity is not None and not isinstance(
+                    expected_guard_identity,
+                    os.stat_result,
+                ):
+                    raise TypeError("expected_guard_identity must be os.stat_result, None, or omitted")
+                if (expected_guard_identity is None) != (expected_guard_raw is None):
+                    raise TypeError("expected_guard_identity must match expected_guard_raw presence")
 
         guard_base_identity: os.stat_result | None = None
         if expected_guard_path is not None:
             try:
-                guard_base_identity = os.lstat(expected_guard_path)
+                observed_guard_identity = os.lstat(expected_guard_path)
             except FileNotFoundError:
-                guard_base_identity = None
+                observed_guard_identity = None
             except OSError:
                 raise BookProgressStoreError(
                     "book progress recovery data changed during publication preparation",
                     code=BookProgressStoreErrorCode.STALE_WRITE,
                 ) from None
-            if guard_base_identity is not None:
-                self._require_private_data_metadata(guard_base_identity)
+            if observed_guard_identity is not None:
+                self._require_private_data_metadata(observed_guard_identity)
+            guard_base_identity = (
+                observed_guard_identity
+                if expected_guard_identity is _EXPECTED_IDENTITY_UNSET
+                else expected_guard_identity
+            )
+            if (observed_guard_identity is None) != (guard_base_identity is None):
+                raise BookProgressStoreError(
+                    "book progress recovery data changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
+            if (
+                observed_guard_identity is not None
+                and guard_base_identity is not None
+                and not self._same_file_identity(
+                    guard_base_identity,
+                    observed_guard_identity,
+                )
+            ):
+                raise BookProgressStoreError(
+                    "book progress recovery data changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
             if (guard_base_identity is None) != (expected_guard_raw is None):
                 raise BookProgressStoreError(
                     "book progress recovery data changed during publication preparation",
@@ -1416,7 +1461,25 @@ class BookProgressStore:
             ) from None
         if existing is not None:
             self._require_private_data_metadata(existing)
-        publication_base_identity = existing
+        publication_base_identity = (
+            existing
+            if expected_target_identity is _EXPECTED_IDENTITY_UNSET
+            else expected_target_identity
+        )
+        if (existing is None) != (publication_base_identity is None):
+            raise BookProgressStoreError(
+                "book progress changed during publication preparation",
+                code=BookProgressStoreErrorCode.STALE_WRITE,
+            )
+        if (
+            existing is not None
+            and publication_base_identity is not None
+            and not self._same_file_identity(publication_base_identity, existing)
+        ):
+            raise BookProgressStoreError(
+                "book progress changed during publication preparation",
+                code=BookProgressStoreErrorCode.STALE_WRITE,
+            )
 
         if expected_target_raw is _EXPECTED_TARGET_UNSET:
             # Even callers that intentionally replace the current target (the
@@ -1901,7 +1964,15 @@ class BookProgressStore:
                 )
 
         with self._exclusive_access():
+            primary_identity = self._data_path_identity_unlocked(
+                self._path,
+                missing_ok=True,
+            )
             primary_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
+            self._require_recovery_primary_unchanged_unlocked(
+                primary_identity,
+                primary_raw,
+            )
             primary_missing = primary_raw is None
             if not primary_missing:
                 try:
@@ -1912,9 +1983,17 @@ class BookProgressStore:
                 else:
                     return False
 
+            backup_identity = self._data_path_identity_unlocked(
+                self.backup_path,
+                missing_ok=primary_missing,
+            )
             backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
                 self.backup_path,
                 missing_ok=primary_missing,
+            )
+            self._require_recovery_backup_unchanged_unlocked(
+                backup_identity,
+                backup_raw,
             )
             if backup_payload is None:
                 return False
@@ -1951,7 +2030,9 @@ class BookProgressStore:
                 self._path,
                 backup_raw,
                 expected_target_raw=primary_raw,
+                expected_target_identity=primary_identity,
                 expected_guard_path=self.backup_path,
                 expected_guard_raw=backup_raw,
+                expected_guard_identity=backup_identity,
             )
             return True
