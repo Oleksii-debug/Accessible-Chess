@@ -75,6 +75,7 @@ class AccessibleChessAPI:
             "selected": "вибрано", "illegal": "Нелегальний хід",
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
             "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
+            "move_text_type": "Текст ходу має бути текстовим значенням.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -87,6 +88,7 @@ class AccessibleChessAPI:
             "selected": "selected", "illegal": "Illegal move",
             "undo_none": "No move to undo", "redo_none": "No move to redo",
             "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
+            "move_text_type": "Move text must be a text value.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -352,7 +354,9 @@ class AccessibleChessAPI:
         return self._ok("Аналіз Stockfish вимкнено." if self.lang == "uk" else "Stockfish analysis disabled.")
 
     def make_move(self, text: str) -> dict[str, Any]:
-        text = (text or "").strip()
+        if type(text) is not str:
+            return self._error(self._t("move_text_type"))
+        text = text.strip()
         if not text:
             return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
         commands = {
