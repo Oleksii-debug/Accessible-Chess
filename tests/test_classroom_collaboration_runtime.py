@@ -177,7 +177,6 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
         self.assertEqual(self.chat_token_calls, 0)
         self.assertEqual(self.file_token_calls, 0)
 
-
     def test_invalid_host_adapters_and_retention_fail_before_local_store_creation(self) -> None:
         cases = (
             ("file_picker", object(), TypeError),
@@ -200,7 +199,6 @@ class ClassroomCollaborationRuntimeTests(unittest.TestCase):
                 self.assertFalse(path.exists())
                 self.assertEqual(self.chat_token_calls, 0)
                 self.assertEqual(self.file_token_calls, 0)
-
 
 
 class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
@@ -984,17 +982,21 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
             def close(self):
                 self.closed = True
 
+        class HttpsConnectionRouter:
+            def __new__(cls, host, port, timeout):
+                if host == "chat.example.test":
+                    return ChatConnection(host, port, timeout)
+                if host == "files.example.test":
+                    return FileConnection(host, port, timeout)
+                raise AssertionError(f"unexpected HTTPS host: {host}")
+
         first = self.bare_app()
         second = self.bare_app()
         with (
             mock.patch.object(Version2FinalProductApplication, "_assert_thread"),
             mock.patch(
                 "acs.classroom_chat_http_endpoint.http.client.HTTPSConnection",
-                ChatConnection,
-            ),
-            mock.patch(
-                "acs.classroom_file_http_transport.http.client.HTTPSConnection",
-                FileConnection,
+                HttpsConnectionRouter,
             ),
         ):
             first_runtime = self.configure(
@@ -1020,35 +1022,12 @@ class ClassroomCollaborationFinalCompositionTests(unittest.TestCase):
                 allow_insecure_loopback=False,
             )
 
-            chat_errors: list[tuple[str, str]] = []
-            original_send_chat = first_runtime.controller.send_chat
-
-            def traced_send_chat(**kwargs):
-                try:
-                    return original_send_chat(**kwargs)
-                except Exception as error:
-                    chat_errors.append((type(error).__name__, str(error)))
-                    raise
-
-            with mock.patch.object(
-                first_runtime.controller,
-                "send_chat",
-                side_effect=traced_send_chat,
-            ):
-                sent = first.browser_command(
-                    "classes",
-                    "collaboration.chat.send",
-                    {"body": "Shared over production HTTP"},
-                )
-            self.assertEqual(
-                "collaboration.chat.sent",
-                sent["kind"],
-                (
-                    f"chat errors: {chat_errors!r}; "
-                    f"HTTP trace: {ChatConnection.trace!r}; "
-                    f"responses: {ChatConnection.responses!r}"
-                ),
+            sent = first.browser_command(
+                "classes",
+                "collaboration.chat.send",
+                {"body": "Shared over production HTTP"},
             )
+            self.assertEqual("collaboration.chat.sent", sent["kind"])
             initial_refresh = second.refresh_classroom_chat()
             initial_remote_message = second_runtime.store.room_messages(room)[0]
             self.assertEqual("Shared over production HTTP", initial_remote_message.body)
