@@ -170,6 +170,20 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
                 settings.import_json(HostileProfile('{"schema_version": 2, "values": {}}'))
             self.assertFalse(HostileProfile.touched)
 
+            class TruthBomb:
+                touched = False
+
+                def __bool__(self):
+                    type(self).touched = True
+                    raise AssertionError("persist truthiness hook must not execute")
+
+            with self.assertRaisesRegex(SettingsError, "persist flag must be boolean"):
+                settings.import_json(
+                    '{"schema_version": 2, "values": {}}',
+                    persist=TruthBomb(),
+                )
+            self.assertFalse(TruthBomb.touched)
+
             with self.assertRaisesRegex(SettingsError, "profile is too large"):
                 settings.import_json("x" * (1024 * 1024 + 1), persist=False)
 
