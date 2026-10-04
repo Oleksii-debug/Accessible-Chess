@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - fix/book-board-route-ownership-ooxple7-20261004
+  pull_request:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - acs/version2_application.py
+      - tests/test_book_board_route_ownership.py
+      - .github/workflows/book-board-route-ownership.yml
   workflow_dispatch:
 
 permissions:
