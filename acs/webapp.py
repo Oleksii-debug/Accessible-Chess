@@ -263,8 +263,7 @@ class AccessibleChessAPI:
         )
         status = self._game_status(display_board)
         engine_status = (
-            "Stockfish увімкнено. Перенесення MultiPV 5 ще триває." if self.lang == "uk" else
-            "Stockfish enabled. MultiPV 5 migration is still in progress."
+            "Stockfish увімкнено." if self.lang == "uk" else "Stockfish enabled."
         ) if self.engine_enabled else (
             "Stockfish вимкнено." if self.lang == "uk" else "Stockfish disabled."
         )
@@ -328,8 +327,8 @@ class AccessibleChessAPI:
     def toggle_engine(self) -> dict[str, Any]:
         self.engine_enabled = not self.engine_enabled
         if self.engine_enabled:
-            return self._ok("Аналіз Stockfish увімкнено. MultiPV ще переноситься." if self.lang == "uk"
-                            else "Stockfish analysis enabled. MultiPV migration is still in progress.")
+            return self._ok("Аналіз Stockfish увімкнено." if self.lang == "uk"
+                            else "Stockfish analysis enabled.")
         return self._ok("Аналіз Stockfish вимкнено." if self.lang == "uk" else "Stockfish analysis disabled.")
 
     def make_move(self, text: str) -> dict[str, Any]:
