@@ -245,7 +245,7 @@ class ReviewHistory:
                 "branch insertion exceeds the ply safety limit",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
             )
-        if any(not isinstance(snapshot, PositionSnapshot) for snapshot in snapshots):
+        if any(type(snapshot) is not PositionSnapshot for snapshot in snapshots):
             raise HistoryError(
                 "branch insertion contains an invalid snapshot",
                 code=HistoryErrorCode.INVALID_SNAPSHOT,
@@ -496,41 +496,38 @@ class ReviewHistory:
 
     @classmethod
     def _validate_tree_snapshot(cls, tree: HistoryTreeSnapshot) -> None:
-        if not isinstance(tree, HistoryTreeSnapshot):
+        if type(tree) is not HistoryTreeSnapshot:
             raise HistoryError(
                 "history tree snapshot type is invalid",
                 code=HistoryErrorCode.INVALID_TREE,
             )
-        if (
-            not isinstance(tree.schema_version, int)
-            or isinstance(tree.schema_version, bool)
-            or tree.schema_version != HISTORY_TREE_SCHEMA_VERSION
-        ):
+        if type(tree.schema_version) is not int:
             raise HistoryError(
-                f"unsupported history tree schema {tree.schema_version}; "
-                f"expected {HISTORY_TREE_SCHEMA_VERSION}",
+                "history tree schema version must be an exact integer",
                 code=HistoryErrorCode.UNSUPPORTED_SCHEMA,
             )
-        if not isinstance(tree.nodes, tuple) or not tree.nodes:
+        if tree.schema_version != HISTORY_TREE_SCHEMA_VERSION:
+            raise HistoryError(
+                "unsupported history tree schema version",
+                code=HistoryErrorCode.UNSUPPORTED_SCHEMA,
+            )
+        if type(tree.nodes) is not tuple or not tree.nodes:
             raise HistoryError(
                 "history tree nodes must be a non-empty tuple",
                 code=HistoryErrorCode.INVALID_TREE,
             )
-        if any(not isinstance(record, HistoryNodeRecord) for record in tree.nodes):
+        if any(type(record) is not HistoryNodeRecord for record in tree.nodes):
             raise HistoryError(
                 "history tree contains an invalid node record",
                 code=HistoryErrorCode.INVALID_TREE,
             )
-        if (
-            not isinstance(tree.cursor_node_id, int)
-            or isinstance(tree.cursor_node_id, bool)
-        ):
+        if type(tree.cursor_node_id) is not int:
             raise HistoryError(
                 "history cursor node ID must be an integer",
                 code=HistoryErrorCode.INVALID_TREE,
             )
         for record in tree.nodes:
-            if not isinstance(record.node_id, int) or isinstance(record.node_id, bool):
+            if type(record.node_id) is not int:
                 raise HistoryError(
                     "history node ID must be an integer",
                     code=HistoryErrorCode.INVALID_TREE,
@@ -557,36 +554,51 @@ class ReviewHistory:
         for record in tree.nodes:
             snapshot = record.snapshot
             if (
-                not isinstance(snapshot, PositionSnapshot)
-                or not isinstance(snapshot.fen, str)
+                type(snapshot) is not PositionSnapshot
+                or type(snapshot.fen) is not str
                 or not snapshot.fen.strip()
-                or not isinstance(snapshot.context, Mapping)
+                or (
+                    snapshot.san is not None
+                    and (type(snapshot.san) is not str or not snapshot.san.strip())
+                )
+                or (
+                    snapshot.last_move is not None
+                    and (
+                        type(snapshot.last_move) is not str
+                        or not snapshot.last_move.strip()
+                    )
+                )
+                or (
+                    snapshot.side is not None
+                    and (
+                        type(snapshot.side) is not str
+                        or snapshot.side not in ("w", "b")
+                    )
+                )
+                or type(snapshot.context) is not MappingProxyType
             ):
                 raise HistoryError(
                     f"history node {record.node_id} has an invalid snapshot",
                     code=HistoryErrorCode.INVALID_SNAPSHOT,
                 )
-            if snapshot.side not in (None, "w", "b"):
-                raise HistoryError(
-                    f"history node {record.node_id} has an invalid side",
-                    code=HistoryErrorCode.INVALID_SNAPSHOT,
-                )
-            if not isinstance(record.child_ids, tuple):
+            if type(record.child_ids) is not tuple:
                 raise HistoryError(
                     f"history node {record.node_id} children must be a tuple",
                     code=HistoryErrorCode.INVALID_TREE,
                 )
-            if len(set(record.child_ids)) != len(record.child_ids):
-                raise HistoryError(
-                    f"history node {record.node_id} has duplicate children",
-                    code=HistoryErrorCode.INVALID_TREE,
-                )
+            seen_children: set[int] = set()
             for child_id in record.child_ids:
-                if not isinstance(child_id, int) or isinstance(child_id, bool):
+                if type(child_id) is not int:
                     raise HistoryError(
                         f"history node {record.node_id} has a non-integer child",
                         code=HistoryErrorCode.INVALID_TREE,
                     )
+                if child_id in seen_children:
+                    raise HistoryError(
+                        f"history node {record.node_id} has duplicate children",
+                        code=HistoryErrorCode.INVALID_TREE,
+                    )
+                seen_children.add(child_id)
                 if child_id <= 0 or child_id >= len(tree.nodes):
                     raise HistoryError(
                         f"history node {record.node_id} references an invalid child",
@@ -605,10 +617,7 @@ class ReviewHistory:
                 child_owners[child_id] = record.node_id
             if (
                 record.active_child is not None
-                and (
-                    not isinstance(record.active_child, int)
-                    or isinstance(record.active_child, bool)
-                )
+                and type(record.active_child) is not int
             ):
                 raise HistoryError(
                     f"history node {record.node_id} active child must be an integer",
@@ -623,8 +632,7 @@ class ReviewHistory:
         for node_id, record in enumerate(tree.nodes[1:], start=1):
             parent_id = record.parent_id
             if (
-                not isinstance(parent_id, int)
-                or isinstance(parent_id, bool)
+                type(parent_id) is not int
                 or parent_id < 0
                 or parent_id >= len(tree.nodes)
             ):
