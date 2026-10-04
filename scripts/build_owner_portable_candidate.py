@@ -95,17 +95,17 @@ def _fail(message: str) -> None:
     raise OwnerPortableCandidateError(message)
 
 
-def _owner_docx_name(path: Path) -> str:
-    """Return a DOCX basename only when it is materializable on supported Win32.
+def _owner_docx_filename(name: str) -> str:
+    """Return a raw root DOCX filename only when it is Win32-materializable.
 
-    The owner archive is assembled and usually qualified on Linux before the
-    exact bytes are extracted on Windows.  POSIX permits several basenames that
-    Win32 either rejects or aliases (for example ``CON.docx``).  Validate the
-    root Word-document component against Windows semantics before package
-    assembly so a Linux-green candidate cannot become an unextractable ZIP.
+    This validator intentionally accepts the un-normalized filename string.
+    Callers that receive an external filename must validate it here *before*
+    constructing a filesystem path; otherwise Windows path parsing could turn a
+    drive-relative or nested value into a different basename before validation.
     """
 
-    name = path.name
+    if type(name) is not str:
+        _fail("owner Word document filename is not Win32-portable")
     try:
         utf16 = name.encode("utf-16-le", errors="strict")
     except UnicodeEncodeError as exc:
@@ -127,6 +127,12 @@ def _owner_docx_name(path: Path) -> str:
     ):
         _fail("owner Word document filename is not Win32-portable")
     return name
+
+
+def _owner_docx_name(path: Path) -> str:
+    """Validate the basename of an already-materialized owner DOCX path."""
+
+    return _owner_docx_filename(path.name)
 
 
 def _sha256_value(value: object, *, label: str) -> str:
