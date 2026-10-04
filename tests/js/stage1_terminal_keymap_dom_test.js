@@ -191,6 +191,9 @@ function chordFor(event) {
         previewKeymap: async () => ({status: 'ok'}),
         api: () => null,
         centralKeymap: false,
+        capture: null,
+        captureStops: 0,
+        stopCapture() { this.captureStops += 1; this.capture = null; },
         announce() {},
     };
     settingsSearchContext.window = settingsSearchContext;
@@ -223,9 +226,14 @@ function chordFor(event) {
     // that action, focus returns to the stable search field.
     const firstRow = settingsList.children[0];
     const firstSave = firstRow.children.find(child => child.id === 'binding-save-board-material');
+    const firstCapture = firstRow.children.find(child => child.id === 'binding-capture-board-material');
     assert.ok(firstSave, 'stable per-action Save id rendered');
+    assert.ok(firstCapture, 'stable per-action capture id rendered');
+    settingsSearchContext.capture = {button: firstCapture};
     firstSave.focus();
     settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsSearchContext.capture, null, 'Settings rebuild disarms removed capture node');
+    assert.strictEqual(settingsSearchContext.captureStops, 1, 'Settings rebuild stops capture exactly once');
     assert.notStrictEqual(settingsSearchContext.document.activeElement, firstSave, 'rebuild replaces row nodes');
     assert.strictEqual(
         settingsSearchContext.document.activeElement.id,
