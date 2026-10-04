@@ -8,6 +8,7 @@ from typing import Iterable, Mapping
 
 
 SCHEMA_VERSION = 1
+MAX_KEYMAP_JSON_BYTES = 1 << 20
 
 
 class BindingContext(str, Enum):
@@ -83,6 +84,8 @@ _LIKELY_NVDA = {
 def _normalize_alias(value: str | None) -> str | None:
     if value is None:
         return None
+    if type(value) is not str:
+        raise TypeError("alias must be text or None")
     value = value.strip()
     return value.casefold() if value else None
 
@@ -90,6 +93,8 @@ def _normalize_alias(value: str | None) -> str | None:
 def normalize_binding(value: str | None) -> str | None:
     if value is None:
         return None
+    if type(value) is not str:
+        raise TypeError("binding must be text or None")
     raw = value.strip()
     if not raw:
         return None
@@ -259,10 +264,14 @@ class ActionRegistry:
             self._bindings[action_id] = normalize_binding(definition.default_binding)
             self._aliases[action_id] = _normalize_alias(definition.default_alias)
 
-        for action_id, value in (bindings or {}).items():
+        for action_id, value in (() if bindings is None else bindings.items()):
+            if type(action_id) is not str:
+                raise TypeError("binding action id must be text")
             if action_id in self._definitions:
                 self._bindings[action_id] = normalize_binding(value)
-        for action_id, value in (aliases or {}).items():
+        for action_id, value in (() if aliases is None else aliases.items()):
+            if type(action_id) is not str:
+                raise TypeError("alias action id must be text")
             if action_id in self._definitions:
                 self._aliases[action_id] = _normalize_alias(value)
 
@@ -270,6 +279,8 @@ class ActionRegistry:
         return tuple(self._definitions.values())
 
     def definition(self, action_id: str) -> ActionDefinition:
+        if type(action_id) is not str:
+            raise TypeError("action_id must be text")
         try:
             return self._definitions[action_id]
         except KeyError as exc:
@@ -284,6 +295,8 @@ class ActionRegistry:
         return self._aliases[action_id]
 
     def set_binding(self, action_id: str, binding: str | None, *, allow_warnings: bool = True) -> tuple[Conflict, ...]:
+        if type(allow_warnings) is not bool:
+            raise TypeError("allow_warnings must be boolean")
         definition = self.definition(action_id)
         if definition.external:
             raise ValueError(f"external action cannot be remapped: {action_id}")
@@ -452,7 +465,7 @@ class ActionRegistry:
         migrated = _migrate_profile(profile)
         bindings = migrated.get("bindings", {})
         aliases = migrated.get("aliases", {})
-        if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
+        if type(bindings) is not dict or type(aliases) is not dict:
             raise ValueError("invalid keymap profile")
         registry = cls(definitions, bindings=bindings, aliases=aliases)
         conflicts = registry.validate()
@@ -469,8 +482,18 @@ class ActionRegistry:
         text: str,
         definitions: Iterable[ActionDefinition] = DEFAULT_ACTIONS,
     ) -> "ActionRegistry":
+        if type(text) is not str:
+            raise TypeError("keymap profile must be text")
+        if len(text) > MAX_KEYMAP_JSON_BYTES:
+            raise ValueError("keymap profile is too large")
+        try:
+            encoded = text.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("keymap profile must be valid UTF-8 text") from exc
+        if len(encoded) > MAX_KEYMAP_JSON_BYTES:
+            raise ValueError("keymap profile is too large")
         value = json.loads(text)
-        if not isinstance(value, Mapping):
+        if type(value) is not dict:
             raise ValueError("keymap profile must be a JSON object")
         return cls.from_profile(value, definitions)
 
@@ -514,6 +537,8 @@ class ActionRegistry:
 
 def _migrate_profile(profile: Mapping[str, object]) -> dict[str, object]:
     raw_version = profile.get("schema_version", 0)
+    if type(raw_version) is not int and type(raw_version) is not str:
+        raise ValueError("invalid schema_version")
     try:
         version = int(raw_version)
     except (TypeError, ValueError) as exc:
@@ -526,10 +551,22 @@ def _migrate_profile(profile: Mapping[str, object]) -> dict[str, object]:
 
     data = dict(profile)
     if version == 0:
+        bindings = data.get("bindings")
+        if bindings is None:
+            bindings = data.get("keys")
+        if bindings is None:
+            bindings = {}
+        aliases = data.get("aliases")
+        if aliases is None:
+            aliases = data.get("commands")
+        if aliases is None:
+            aliases = {}
+        if type(bindings) is not dict or type(aliases) is not dict:
+            raise ValueError("invalid keymap profile")
         data = {
             "schema_version": 1,
-            "bindings": dict(data.get("bindings") or data.get("keys") or {}),
-            "aliases": dict(data.get("aliases") or data.get("commands") or {}),
+            "bindings": dict(bindings),
+            "aliases": dict(aliases),
         }
         version = 1
 
