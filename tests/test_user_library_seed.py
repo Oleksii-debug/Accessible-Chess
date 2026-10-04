@@ -141,6 +141,12 @@ class UserLibrarySeedTests(unittest.TestCase):
             "prn.PGN",
             "COM1.pgn",
             "LPT9.pgn",
+            "COM¹.pgn",
+            "com².PGN",
+            "CoM³.pgn",
+            "LPT¹.pgn",
+            "lpt².PGN",
+            "LpT³.pgn",
         )
         for unsafe_name in unsafe_names:
             with self.subTest(name=unsafe_name):
