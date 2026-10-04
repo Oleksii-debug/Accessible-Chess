@@ -14,6 +14,12 @@ function indexFunction(name) {
     return line.trim();
 }
 
+function indexLineContaining(marker) {
+    const line = indexSource.split('\\n').find(candidate => candidate.includes(marker));
+    assert.ok(line, `missing ${marker} in web/index.html`);
+    return line.trim();
+}
+
 class FakeNode {
     constructor(id = '') {
         this.id = id;
@@ -112,6 +118,93 @@ function chordFor(event) {
         resolverContext.keymapActionForEvent(eventFor('F2', null), 'history'),
         ''
     );
+
+    // Execute the real document-level keydown handler. Editable controls must
+    // retain F1 Help while refusing unrelated global or analysis commands that
+    // would steal typed input. Non-editable controls keep normal shortcut routing.
+    let documentKeydown = null;
+    const editableActions = [];
+    const resolutionCalls = [];
+    const selection = {text: ''};
+    const editableContext = {
+        capture: null,
+        eventChord: chordFor,
+        executeAction: actionId => { editableActions.push(actionId); },
+        resolveBinding: async (chord, registryContext, uiContext) => {
+            resolutionCalls.push([chord, registryContext, uiContext]);
+            if (registryContext === 'global' && chord === 'F1') {
+                return {actionId: 'screen.help', context: 'global'};
+            }
+            if (registryContext === 'global' && chord === 'Ctrl+N') {
+                return {actionId: 'file.new', context: 'global'};
+            }
+            if (registryContext === 'analysis' && chord === 'Alt+R') {
+                return {actionId: 'analysis.restart', context: 'analysis'};
+            }
+            return null;
+        },
+        document: {
+            addEventListener(type, listener) {
+                if (type === 'keydown') documentKeydown = listener;
+            },
+        },
+    };
+    editableContext.window = {
+        getSelection: () => ({toString: () => selection.text}),
+    };
+    vm.createContext(editableContext);
+    vm.runInContext(
+        indexLineContaining('function editableShortcutTarget'),
+        editableContext,
+        {filename: 'index-editable-keydown.js'}
+    );
+    assert.ok(documentKeydown, 'document keyboard handler installed');
+
+    const inputTarget = {
+        tagName: 'INPUT',
+        isContentEditable: false,
+        closest: () => null,
+    };
+    const divTarget = {
+        tagName: 'DIV',
+        isContentEditable: false,
+        closest: () => null,
+    };
+
+    const helpInInput = eventFor('F1', inputTarget);
+    await documentKeydown(helpInInput);
+    assert.strictEqual(helpInInput.prevented, true);
+    assert.strictEqual(helpInInput.stopped, true);
+    assert.deepStrictEqual(editableActions, ['screen.help']);
+
+    const newGameInInput = eventFor('n', inputTarget);
+    newGameInInput.ctrlKey = true;
+    await documentKeydown(newGameInInput);
+    assert.strictEqual(newGameInInput.prevented, false);
+    assert.deepStrictEqual(editableActions, ['screen.help']);
+
+    const analysisInInput = eventFor('r', inputTarget);
+    analysisInInput.altKey = true;
+    await documentKeydown(analysisInInput);
+    assert.strictEqual(analysisInInput.prevented, false);
+    assert.deepStrictEqual(editableActions, ['screen.help']);
+    assert.strictEqual(
+        resolutionCalls.some(row => row[1] === 'analysis' && row[0] === 'Alt+R'),
+        false
+    );
+
+    const analysisOutsideInput = eventFor('r', divTarget);
+    analysisOutsideInput.altKey = true;
+    await documentKeydown(analysisOutsideInput);
+    assert.strictEqual(analysisOutsideInput.prevented, true);
+    assert.deepStrictEqual(editableActions, ['screen.help', 'analysis.restart']);
+
+    const copyInInput = eventFor('c', inputTarget);
+    copyInInput.ctrlKey = true;
+    const callsBeforeCopy = resolutionCalls.length;
+    await documentKeydown(copyInInput);
+    assert.strictEqual(copyInInput.prevented, false);
+    assert.strictEqual(resolutionCalls.length, callsBeforeCopy);
 
     const boardGrid = new FakeNode('board-grid');
     const cell = new FakeNode('sq-e2');
