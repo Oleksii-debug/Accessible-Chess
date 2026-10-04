@@ -1,0 +1,78 @@
+name: P0 Semantic Document Copy Executable Evidence
+
+on:
+  push:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - "web/version2_final_product_bootstrap.js"
+      - "web/p0_accessibility_runtime.js"
+      - "web/index.html"
+      - "tests/test_p0_semantic_document_copy.py"
+      - "tests/p0_semantic_document_copy_executable.js"
+      - ".github/workflows/p0-semantic-document-copy-executable-evidence.yml"
+  pull_request:
+    paths:
+      - "web/version2_final_product_bootstrap.js"
+      - "web/p0_accessibility_runtime.js"
+      - "web/index.html"
+      - "tests/test_p0_semantic_document_copy.py"
+      - "tests/p0_semantic_document_copy_executable.js"
+      - ".github/workflows/p0-semantic-document-copy-executable-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-semantic-document-copy-executable-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  executable-selection:
+    name: Execute semantic selection restoration (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Prove exact checkout
+        shell: python
+        run: |
+          import os
+          import subprocess
+          actual = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          expected = os.environ["EXPECTED_HEAD_SHA"].strip()
+          if actual != expected:
+              raise SystemExit(f"checkout mismatch: expected {expected}, got {actual}")
+          print(f"Exact candidate checkout: {actual}")
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Syntax-check executable oracle
+        run: node --check tests/p0_semantic_document_copy_executable.js
+
+      - name: Execute shipping selection helpers
+        run: node tests/p0_semantic_document_copy_executable.js
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Retain current source-contract regression
+        run: python -m unittest discover -s tests -p "test_p0_semantic_document_copy.py" -v
