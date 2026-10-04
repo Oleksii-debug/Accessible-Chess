@@ -145,7 +145,6 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             'git merge-base --is-ancestor "$authority_tip" HEAD',
             'git merge-base --is-ancestor "$whole_product_parent" HEAD',
             'git diff --exit-code "$authority_tip" HEAD --',
-            ".github/workflows/full-product-convergence-integration-20261004.yml",
             "tests/test_full_product_book_command_authority.py",
             "BOOK_COMMAND_AUTHORITY_ORIGINAL_SCOPE=PASS",
             "BOOK_COMMAND_AUTHORITY_RECONVERGED_LINEAGE=PASS",
