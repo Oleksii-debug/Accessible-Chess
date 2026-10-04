@@ -260,6 +260,38 @@ class BookDocumentTests(unittest.TestCase):
         )
         self.assertFalse(HostileList.touched)
 
+    def test_invalid_kind_and_schema_do_not_execute_hostile_repr(self):
+        class HostileObject:
+            touched = False
+
+            def __repr__(self):
+                type(self).touched = True
+                raise AssertionError("hostile repr must not execute")
+
+        with self.assertRaises(BookDocumentError) as kind_error:
+            BookDocument.from_dict(
+                {
+                    "title": "Book",
+                    "blocks": [{"kind": HostileObject()}],
+                }
+            )
+        self.assertEqual(
+            kind_error.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
+        self.assertFalse(HostileObject.touched)
+
+        HostileObject.touched = False
+        with self.assertRaises(BookDocumentError) as schema_error:
+            BookDocument.from_dict(
+                {"schema_version": HostileObject(), "title": "Book"}
+            )
+        self.assertEqual(
+            schema_error.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_SCHEMA,
+        )
+        self.assertFalse(HostileObject.touched)
+
     def test_scalar_subclasses_fail_before_numeric_or_text_semantics(self):
         class HostileInt(int):
             touched = False
