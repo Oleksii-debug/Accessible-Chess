@@ -23,6 +23,7 @@ from .student_progress import StudentProgressLedger
 STUDENT_PROGRESS_STORE_SCHEMA_VERSION = 1
 STUDENT_PROGRESS_STORE_MAX_BYTES = 16 * 1024 * 1024
 _ENVELOPE_FIELDS = frozenset({"schema_version", "snapshot"})
+_LOCK_MARKER = b"\0"
 
 
 class StudentProgressConflictError(RuntimeError):
@@ -176,6 +177,115 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _open_writer_lock(path: Path) -> int:
+    """Open one persistent private lock inode without following redirects.
+
+    The pathname remains in place between transactions. Kernel lock ownership is
+    descriptor-scoped, so an abrupt process exit releases writer authority
+    automatically without a check-then-delete race on the shared lock pathname.
+    """
+
+    flags = os.O_RDWR
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOINHERIT", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        before = None
+    except OSError as exc:
+        raise StudentProgressBusyError("student progress store lock is unavailable") from exc
+
+    created = False
+    if before is None:
+        try:
+            descriptor = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o600)
+            created = True
+        except FileExistsError:
+            # A peer won first creation and may still be initializing its marker.
+            # Fail this attempt closed rather than adopting an in-flight inode.
+            raise StudentProgressBusyError("student progress store is busy") from None
+        except OSError as exc:
+            raise StudentProgressBusyError("student progress store lock is unavailable") from exc
+    else:
+        # A legacy directory lock may still belong to an older running writer.
+        # Never remove it speculatively; unsafe reclamation could admit two writers.
+        if stat.S_ISDIR(before.st_mode):
+            raise StudentProgressBusyError("student progress store is busy")
+        try:
+            _require_private_regular(before, "student progress lock")
+        except ValueError as exc:
+            raise StudentProgressBusyError("student progress store lock is unavailable") from exc
+        if int(before.st_size) != len(_LOCK_MARKER):
+            raise StudentProgressBusyError("student progress store lock is unavailable")
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as exc:
+            raise StudentProgressBusyError("student progress store lock is unavailable") from exc
+
+    try:
+        if created:
+            os.write(descriptor, _LOCK_MARKER)
+            os.fsync(descriptor)
+        opened = os.fstat(descriptor)
+        _require_private_regular(opened, "student progress lock")
+        if int(opened.st_size) != len(_LOCK_MARKER):
+            raise StudentProgressBusyError("student progress store lock is unavailable")
+        if before is not None and not _same_file_identity(before, opened):
+            raise StudentProgressBusyError("student progress store lock changed while opening")
+        try:
+            current = path.lstat()
+        except OSError as exc:
+            raise StudentProgressBusyError("student progress store lock changed while opening") from exc
+        _require_private_regular(current, "student progress lock")
+        if not _same_file_identity(opened, current):
+            raise StudentProgressBusyError("student progress store lock changed while opening")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        if os.read(descriptor, len(_LOCK_MARKER) + 1) != _LOCK_MARKER:
+            raise StudentProgressBusyError("student progress store lock changed while opening")
+        return descriptor
+    except Exception:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        raise
+
+
+def _lock_writer_descriptor(descriptor: int) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, len(_LOCK_MARKER))
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise StudentProgressBusyError("student progress store is busy") from None
+
+
+def _unlock_writer_descriptor(descriptor: int) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, len(_LOCK_MARKER))
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    except OSError:
+        # Closing the descriptor still releases kernel authority. Lock cleanup
+        # must not turn already-published progress into a false save failure.
+        pass
+
+
 def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -262,13 +372,12 @@ class StudentProgressStore:
         expected = _validate_revision(expected_revision)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            self._lock_path.mkdir()
-        except FileExistsError as exc:
-            raise StudentProgressBusyError("student progress store is busy") from exc
-
+        descriptor = _open_writer_lock(self._lock_path)
+        acquired = False
         temporary: Path | None = None
         try:
+            _lock_writer_descriptor(descriptor)
+            acquired = True
             try:
                 current_data = _read_bounded_file(self.path)
             except FileNotFoundError:
@@ -324,7 +433,9 @@ class StudentProgressStore:
         finally:
             if temporary is not None and temporary.exists():
                 temporary.unlink()
+            if acquired:
+                _unlock_writer_descriptor(descriptor)
             try:
-                self._lock_path.rmdir()
-            except FileNotFoundError:
+                os.close(descriptor)
+            except OSError:
                 pass
