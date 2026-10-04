@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -81,6 +84,7 @@ class StudentProgressStoreTests(unittest.TestCase):
                 [record.record_id for record in loaded2.ledger.records("student-1", "session-1")],
                 ["r1", "r2"],
             )
+            self.assertTrue(store._lock_path.is_file())
 
     def test_create_only_never_overwrites_existing_progress(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
@@ -123,11 +127,12 @@ class StudentProgressStoreTests(unittest.TestCase):
 
             self.assertEqual(store.load().revision, revision2)  # type: ignore[union-attr]
 
-    def test_peer_lock_reports_busy_without_touching_data(self) -> None:
+    def test_legacy_directory_lock_reports_busy_without_touching_data(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
             store = StudentProgressStore(Path(raw_dir) / "student-progress.json")
             revision = store.save(self._ledger(), expected_revision=None)
             original = store.path.read_bytes()
+            store._lock_path.unlink()
             store._lock_path.mkdir()
             try:
                 with self.assertRaises(StudentProgressBusyError):
@@ -136,7 +141,52 @@ class StudentProgressStoreTests(unittest.TestCase):
                 store._lock_path.rmdir()
             self.assertEqual(store.path.read_bytes(), original)
 
-    def test_publication_failure_preserves_prior_file_and_cleans_temp_and_lock(self) -> None:
+    def test_peer_os_lock_reports_busy_then_abrupt_exit_releases_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            store = StudentProgressStore(Path(raw_dir) / "student-progress.json")
+            revision = store.save(self._ledger(), expected_revision=None)
+            original = store.path.read_bytes()
+            child_script = r'''
+import os
+from pathlib import Path
+import sys
+from acs.student_progress_store import _lock_writer_descriptor, _open_writer_lock
+fd = _open_writer_lock(Path(sys.argv[1]))
+_lock_writer_descriptor(fd)
+print("LOCKED", flush=True)
+sys.stdin.read(1)
+os._exit(0)
+'''
+            child = subprocess.Popen(
+                [sys.executable, "-c", child_script, os.fspath(store._lock_path)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                assert child.stdout is not None
+                self.assertEqual(child.stdout.readline().strip(), "LOCKED")
+                with self.assertRaises(StudentProgressBusyError):
+                    store.save(self._ledger(record_id="blocked"), expected_revision=revision)
+                self.assertEqual(store.path.read_bytes(), original)
+                assert child.stdin is not None
+                child.stdin.write("x")
+                child.stdin.flush()
+                self.assertEqual(child.wait(timeout=10), 0)
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait(timeout=10)
+
+            replacement_revision = store.save(
+                self._ledger(record_id="after-crash"),
+                expected_revision=revision,
+            )
+            self.assertNotEqual(replacement_revision, revision)
+            self.assertEqual(store.load().revision, replacement_revision)  # type: ignore[union-attr]
+
+    def test_publication_failure_preserves_prior_file_and_cleans_temp(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
             store = StudentProgressStore(Path(raw_dir) / "student-progress.json")
             revision = store.save(self._ledger(), expected_revision=None)
@@ -164,7 +214,7 @@ class StudentProgressStoreTests(unittest.TestCase):
                     store.save(loaded.ledger, expected_revision=revision)
 
             self.assertEqual(store.path.read_bytes(), original)
-            self.assertFalse(store._lock_path.exists())
+            self.assertTrue(store._lock_path.is_file())
             self.assertEqual(list(store.path.parent.glob(f".{store.path.name}.*.tmp")), [])
 
     def test_strict_envelope_and_snapshot_validation(self) -> None:
@@ -201,8 +251,6 @@ class StudentProgressStoreTests(unittest.TestCase):
             self.assertNotIn('"score"', payload)
             self.assertIn('"record_id":"r1"', payload)
 
-
-
     def test_restore_rejects_oversized_record_list_before_record_validation(self) -> None:
         payload = {
             "schema_version": STUDENT_PROGRESS_SNAPSHOT_SCHEMA_VERSION,
@@ -231,7 +279,7 @@ class StudentProgressStoreTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "payload exceeds maximum size"):
                     store.save(self._ledger(), expected_revision=None)
             self.assertFalse(store.path.exists())
-            self.assertFalse(store._lock_path.exists())
+            self.assertTrue(store._lock_path.is_file())
             self.assertEqual(
                 list(store.path.parent.glob(f".{store.path.name}.*.tmp")),
                 [],
@@ -247,6 +295,7 @@ class StudentProgressStoreTests(unittest.TestCase):
             assert loaded is not None
             self.assertEqual(loaded.revision, revision)
             self.assertEqual(loaded.ledger.snapshot(), ledger.snapshot())
+
 
 if __name__ == "__main__":
     unittest.main()
