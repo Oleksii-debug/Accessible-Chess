@@ -91,13 +91,26 @@ def _regular_file(path: Path, *, label: str, maximum: int) -> os.stat_result:
     return st
 
 
-def _direct_directory(path: Path) -> None:
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    try:
+        return os.path.samestat(first, second)
+    except (AttributeError, OSError):
+        return (
+            getattr(first, "st_dev", None),
+            getattr(first, "st_ino", None),
+        ) == (
+            getattr(second, "st_dev", None),
+            getattr(second, "st_ino", None),
+        )
+
+
+def _direct_directory(path: Path, *, label: str) -> None:
     try:
         st = path.lstat()
     except OSError as exc:
-        raise UserLibrarySeedError("user Library seed directory is unavailable") from exc
+        raise UserLibrarySeedError(f"{label} is unavailable") from exc
     if not stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode) or _is_reparse(st):
-        raise UserLibrarySeedError("user Library seed directory must be direct")
+        raise UserLibrarySeedError(f"{label} must be direct")
 
 
 def _unique_json(text: str) -> object:
@@ -136,9 +149,26 @@ def _portable_name(value: object) -> str:
     return name
 
 
+def _display_name(value: object) -> str:
+    if type(value) is not str:
+        raise UserLibrarySeedError("user Library seed display name is invalid")
+    if (
+        not value
+        or value != value.strip()
+        or len(value) > 512
+        or any(ord(character) < 32 or ord(character) == 0x7F for character in value)
+    ):
+        raise UserLibrarySeedError("user Library seed display name is invalid")
+    return value
+
+
 def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
     root = Path(root)
-    _direct_directory(root)
+    # The runtime contract is package-local. Checking only the final seed
+    # directory is insufficient because a junction/symlink at release-content
+    # can redirect the otherwise-direct child outside the package tree.
+    _direct_directory(root.parent, label="user Library seed parent directory")
+    _direct_directory(root, label="user Library seed directory")
     manifest_path = root / MANIFEST_NAME
     manifest_stat = _regular_file(
         manifest_path,
@@ -149,7 +179,16 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
         manifest_bytes = manifest_path.read_bytes()
     except OSError as exc:
         raise UserLibrarySeedError("user Library seed manifest cannot be read") from exc
-    if len(manifest_bytes) != manifest_stat.st_size:
+    manifest_after = _regular_file(
+        manifest_path,
+        label="user Library seed manifest",
+        maximum=MAX_MANIFEST_BYTES,
+    )
+    if (
+        len(manifest_bytes) != manifest_stat.st_size
+        or manifest_after.st_size != manifest_stat.st_size
+        or not _same_file_identity(manifest_stat, manifest_after)
+    ):
         raise UserLibrarySeedError("user Library seed manifest changed while reading")
     try:
         manifest_text = manifest_bytes.decode("utf-8-sig", errors="strict")
@@ -193,16 +232,14 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
             raise UserLibrarySeedError("user Library seed contains duplicate filenames")
         names.add(folded)
         expected_inventory.add(folded)
-        display = item["display_name"]
-        if type(display) is not str or not display.strip() or len(display) > 512:
-            raise UserLibrarySeedError("user Library seed display name is invalid")
+        display = _display_name(item["display_name"])
         size = item["bytes"]
         digest = item["sha256"]
         if type(size) is not int or not 1 <= size <= MAX_SOURCE_BYTES:
             raise UserLibrarySeedError("user Library seed source byte size is invalid")
         if type(digest) is not str or _SHA256_RE.fullmatch(digest) is None:
             raise UserLibrarySeedError("user Library seed source SHA-256 is invalid")
-        entries.append(UserLibrarySeedEntry(name, display.strip(), size, digest))
+        entries.append(UserLibrarySeedEntry(name, display, size, digest))
 
     try:
         children = tuple(root.iterdir())
@@ -226,8 +263,7 @@ def _verified_source_bytes(manifest: UserLibrarySeedManifest, entry: UserLibrary
     after = _regular_file(path, label="user Library seed PGN", maximum=MAX_SOURCE_BYTES)
     if (
         after.st_size != before.st_size
-        or getattr(after, "st_ino", None) != getattr(before, "st_ino", None)
-        or getattr(after, "st_dev", None) != getattr(before, "st_dev", None)
+        or not _same_file_identity(before, after)
     ):
         raise UserLibrarySeedError("user Library seed PGN changed while reading")
     if len(payload) != entry.size_bytes or hashlib.sha256(payload).hexdigest() != entry.sha256:
