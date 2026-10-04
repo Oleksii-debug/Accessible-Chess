@@ -22,6 +22,31 @@ class MoveEntryTests(unittest.TestCase):
         self.assertEqual(old.kind, MoveEntryKind.CHESS_MOVE)
         self.assertEqual(old.move_text, "u")
 
+    def test_injected_registry_is_never_truth_tested_or_discarded(self):
+        class FalseyRegistry(ActionRegistry):
+            def __bool__(self):
+                return False
+
+        falsey = FalseyRegistry()
+        falsey.set_alias("move.undo", "z")
+        falsey_intent = parse_move_entry("z", falsey)
+        self.assertEqual(falsey_intent.kind, MoveEntryKind.ACTION)
+        self.assertEqual(falsey_intent.action_id, "move.undo")
+
+        class HostileBoolRegistry(ActionRegistry):
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("registry truthiness must not be evaluated")
+
+        hostile = HostileBoolRegistry()
+        hostile.set_alias("move.undo", "x")
+        hostile_intent = parse_move_entry("x", hostile)
+        self.assertEqual(hostile_intent.kind, MoveEntryKind.ACTION)
+        self.assertEqual(hostile_intent.action_id, "move.undo")
+        self.assertFalse(HostileBoolRegistry.touched)
+
     def test_chess_move_text_is_not_modified(self):
         for text in ("e4", "Nf3", "O-O", "exd8=Q+"):
             with self.subTest(text=text):
