@@ -259,7 +259,33 @@ def _share_v2_action_registry(
     """
 
     registry = application.adapter.registry
-    return api.keymap_service.adopt_registry(registry)
+    adopt = getattr(api.keymap_service, "adopt_registry", None)
+    if callable(adopt):
+        return adopt(registry)
+
+    # Compatibility for narrow test doubles/embedders that expose the historical
+    # editor-only service shape. Production KeymapService always takes the
+    # validated adopt_registry path above.
+    source = api.keymap_service.editor.registry
+    profile = source.to_profile()
+    bindings = profile.get("bindings", {})
+    aliases = profile.get("aliases", {})
+    if not isinstance(bindings, Mapping) or not isinstance(aliases, Mapping):
+        raise ValueError("stored keymap profile is invalid")
+    for action_id, value in bindings.items():
+        try:
+            registry.definition(action_id)
+        except KeyError:
+            continue
+        registry.set_binding(action_id, value, allow_warnings=True)
+    for action_id, value in aliases.items():
+        try:
+            registry.definition(action_id)
+        except KeyError:
+            continue
+        registry.set_alias(action_id, value)
+    api.keymap_service.editor.registry = registry
+    return registry
 
 
 def _version2_user_data_layout(
