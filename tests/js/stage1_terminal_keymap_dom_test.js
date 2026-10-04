@@ -9,13 +9,13 @@ const indexSource = fs.readFileSync('web/index.html', 'utf8');
 
 function indexFunction(name) {
     const marker = `function ${name}(`;
-    const line = indexSource.split('\\n').find(candidate => candidate.includes(marker));
+    const line = indexSource.split('\n').find(candidate => candidate.includes(marker));
     assert.ok(line, `missing ${name} in web/index.html`);
     return line.trim();
 }
 
 function indexLineContaining(marker) {
-    const line = indexSource.split('\\n').find(candidate => candidate.includes(marker));
+    const line = indexSource.split('\n').find(candidate => candidate.includes(marker));
     assert.ok(line, `missing ${marker} in web/index.html`);
     return line.trim();
 }
