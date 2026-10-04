@@ -100,6 +100,16 @@ class PortableTreeTests(unittest.TestCase):
             with self.assertRaisesRegex(Version2PortablePackageError, "exactly the declared two"):
                 validate_portable_oneclick_tree(root, expected_integration_sha=_SHA)
 
+    def test_rejects_any_undeclared_root_file_even_if_checksummed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            (root / "unexpected.txt").write_text("not part of the user package contract", encoding="utf-8")
+            _write_checksums(root)
+            with self.assertRaisesRegex(Version2PortablePackageError, "unexpected file"):
+                validate_portable_oneclick_tree(root, expected_integration_sha=_SHA)
+
     def test_checksum_readback_detects_post_assembly_mutation(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
@@ -166,6 +176,19 @@ class PortableTreeTests(unittest.TestCase):
             self.assertEqual(first.archive_sha256, second.archive_sha256)
             self.assertEqual((work / "first.zip").read_bytes(), (work / "second.zip").read_bytes())
             self.assertNotIn(CHECKSUMS_NAME + "/", first.inventory)
+
+    def test_zip_output_cannot_mutate_the_package_tree(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            with self.assertRaisesRegex(Version2PortablePackageError, "outside the package tree"):
+                write_portable_oneclick_zip(
+                    root,
+                    root / "candidate.zip",
+                    expected_integration_sha=_SHA,
+                )
+            self.assertFalse((root / "candidate.zip").exists())
 
 
 if __name__ == "__main__":
