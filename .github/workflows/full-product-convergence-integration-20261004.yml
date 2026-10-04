@@ -15,6 +15,12 @@ on:
       - 'web/**'
       - 'tests/**'
       - '.github/workflows/full-product-convergence-integration-20261004.yml'
+      - '.github/workflows/training-snapshot-definition-identity-v4.yml'
+      - '.github/workflows/pgn-open-source-binding.yml'
+      - '.github/workflows/pgn-command-single-session-toctou.yml'
+      - '.github/workflows/v2-native-thread-runtime.yml'
+      - '.github/workflows/v2-windows-book-board-adapter.yml'
+      - '.github/workflows/version2-windows-composition.yml'
   workflow_dispatch:
 
 permissions:
@@ -127,6 +133,9 @@ jobs:
           tests.test_v2_upgrade_training_progress_artifact_control
           tests.test_v2_data_upgrade
           tests.test_v2_data_upgrade_v6
+          tests.test_d08_training_canonical_resume
+          tests.test_training_snapshot_definition_identity_v4
+          tests.test_training
 
       - name: Chess content, semantic reading and malformed-content regressions
         run: >-
@@ -140,6 +149,16 @@ jobs:
           tests.test_v2_book_library_game_lookup
           tests.test_book_index
           tests.test_v2_book_text_import
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
+          tests.test_dev4_pgn_resource_security
+          tests.test_pgn_open_direct_source
+          tests.test_pgn_open_identity_fail_closed
+          tests.test_pgn_open_source_binding
+          tests.test_pgn_open_unlink_source_binding
+          tests.test_pgn_open_windows_reparse
+          tests.test_version2_pgn_commands
 
       - name: Windows terminal authority, NVDA file flow and Book to Board regressions
         run: >-
