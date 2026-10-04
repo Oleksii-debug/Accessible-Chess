@@ -73,6 +73,7 @@ _DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _ENCODED_PATH_SEPARATOR_RE = re.compile(r"%2[fF]")
 _MIME_TSPECIALS = frozenset('()<>@,;:\\"/[]?=')
+_ZIP_ENCRYPTION_FLAGS = (1 << 0) | (1 << 6) | (1 << 13)
 
 
 class BookEpubImportErrorCode(str, Enum):
@@ -362,9 +363,9 @@ def _validate_local_zip_header(
             "EPUB ZIP compression metadata is inconsistent",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
-    if local_flags & 0x1:
+    if local_flags & _ZIP_ENCRYPTION_FLAGS:
         raise _error(
-            "EPUB uses ZIP encryption, which OCF does not permit",
+            "EPUB uses ZIP encryption features, which OCF does not permit",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         )
     try:
@@ -486,9 +487,9 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 "EPUB package file metadata contradicts its entry name",
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
-        if info.flag_bits & 0x1:
+        if info.flag_bits & _ZIP_ENCRYPTION_FLAGS:
             raise _error(
-                "EPUB uses ZIP encryption, which OCF does not permit",
+                "EPUB uses ZIP encryption features, which OCF does not permit",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
         if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
