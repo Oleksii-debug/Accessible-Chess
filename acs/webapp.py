@@ -76,6 +76,7 @@ class AccessibleChessAPI:
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
             "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
             "move_text_type": "Текст ходу має бути текстовим значенням.",
+            "position_history_failed": "Не вдалося підготувати історію нової позиції.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -89,6 +90,7 @@ class AccessibleChessAPI:
             "undo_none": "No move to undo", "redo_none": "No move to redo",
             "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
             "move_text_type": "Move text must be a text value.",
+            "position_history_failed": "Could not prepare history for the new position.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -318,21 +320,23 @@ class AccessibleChessAPI:
         try:
             side = self.board.turn if turn is None else turn
             fen = parse_position_text(text, side, language=self.lang)
-
-            # Build every fallible part of the replacement state before
-            # publishing any of it.  A history/presenter construction failure
-            # must not leave the live board on the candidate position while the
-            # visible/review state still describes the previous game.
             candidate_board = Board(fen)
             candidate_start_fen = candidate_board.fen()
+        except Exception as exc:
+            return self._error(str(exc))
+
+        # Build presentation/history state before publishing any part of the
+        # candidate.  Internal construction errors are not user-input errors
+        # and must not leak implementation details through the NVDA status.
+        try:
             candidate_history = ReviewHistory(candidate_start_fen)
             candidate_adapter = ReviewPresentationAdapter(
                 candidate_history,
                 language=self.lang,
             )
             candidate_live_node = candidate_history.cursor_node_id
-        except Exception as exc:
-            return self._error(str(exc))
+        except Exception:
+            return self._error(self._t("position_history_failed"))
 
         self.board = candidate_board
         self.start_fen = candidate_start_fen
