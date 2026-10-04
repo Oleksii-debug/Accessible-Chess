@@ -68,6 +68,7 @@ jobs:
           acs/bookreader.py
           acs/book_progress_store.py
           acs/training_progress_store.py
+          acs/ui_keymap_service.py
           acs/full_product_presenters.py
           acs/version2_application.py
           acs/version2_starter_content_application.py
@@ -86,6 +87,8 @@ jobs:
           tests/test_v2_book_progress_store.py
           tests/test_v2_book_progress_store_production.py
           tests/test_w2_training_progress_crash_recovery.py
+          tests/test_training_progress_ancestor_authority.py
+          tests/test_ui_keymap_service.py
           tests/test_book_browser_presentation_lease_required.py
           tests/test_child_coaching.py
           tests/test_child_coaching_application.py
@@ -133,7 +136,11 @@ jobs:
         run: |
           node --check web/full_product_books_training.js
           node --check tests/js/books_training_surface_dom_test.js
+          node --check tests/js/stage1_terminal_keymap_dom_test.js
+          node --check tests/p0_semantic_document_copy_executable.js
           node tests/js/books_training_surface_dom_test.js
+          node tests/js/stage1_terminal_keymap_dom_test.js
+          node tests/p0_semantic_document_copy_executable.js
           python -m unittest -v \
             tests.test_book_browser_presentation_lease_required \
             tests.test_full_product_book_command_authority \
@@ -146,6 +153,7 @@ jobs:
           tests.test_nvda_p0_contract
           tests.test_full_product_native_menu
           tests.test_keybindings
+          tests.test_ui_keymap_service
           tests.test_v2_remapped_keyboard_routing
           tests.test_v2_windows_book_board_adapter
 
@@ -155,6 +163,7 @@ jobs:
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
           tests.test_w2_training_progress_crash_recovery
+          tests.test_training_progress_ancestor_authority
           tests.test_p0_semantic_document_copy
 
       - name: Qualify child coaching over canonical teaching authority
