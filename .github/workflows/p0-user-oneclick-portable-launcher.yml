@@ -546,7 +546,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --check HEAD^ HEAD
+          pr_base='${{ github.event.pull_request.base.sha }}'
+          if [ -n "$pr_base" ]; then
+            git diff --check "$pr_base" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
           python - <<'PY'
           from pathlib import Path
           source = Path('packaging/portable_launcher.c').read_text(encoding='utf-8')
