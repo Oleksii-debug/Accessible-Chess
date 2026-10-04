@@ -129,42 +129,63 @@ class BoardServicePassiveBoundaryTests(unittest.TestCase):
         self.assertIs(snapshot.legal_moves[0], exact)
         self.assertIs(snapshot.last_move, exact)
 
+    def test_mapping_roots_reject_active_containers_before_hooks(self) -> None:
+        class HostileMapping(Mapping):
+            touched = False
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile mapping iterator must not execute")
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile mapping length must not execute")
+
+            def __getitem__(self, key):
+                type(self).touched = True
+                raise AssertionError("hostile mapping item read must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("hostile mapping items must not execute")
+
+        hostile = HostileMapping()
+        pieces = _empty_pieces()
+        exact = {piece: 0 for piece in "PNBRQK"}
+
+        with self.assertRaisesRegex(TypeError, "attacks must be a canonical dict"):
+            BoardSnapshot(pieces, "w", attacks=hostile)
+        self.assertFalse(HostileMapping.touched)
+
+        with self.assertRaisesRegex(TypeError, "white material must be a canonical dict"):
+            MaterialView(hostile, exact, 0, 0)
+        self.assertFalse(HostileMapping.touched)
+
     def test_material_mapping_rejects_active_keys_before_hash_or_equality(self) -> None:
         class HostileText(str):
+            armed = False
             touched = False
 
             def __hash__(self):
-                type(self).touched = True
-                raise AssertionError("hostile material-key hash must not execute")
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile material-key hash must not execute")
+                return super().__hash__()
 
             def __eq__(self, other):
-                type(self).touched = True
-                raise AssertionError("hostile material-key equality must not execute")
-
-        class MaterialMapping(Mapping):
-            value_read = False
-
-            def __init__(self, first_key):
-                self.first_key = first_key
-
-            def __iter__(self):
-                yield self.first_key
-                yield from ("N", "B", "R", "Q", "K")
-
-            def __len__(self):
-                return 6
-
-            def __getitem__(self, key):
-                type(self).value_read = True
-                return 0
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile material-key equality must not execute")
+                return super().__eq__(other)
 
         hostile = HostileText("P")
+        active_key_mapping = {hostile: 0, **{piece: 0 for piece in "NBRQK"}}
         exact = {piece: 0 for piece in "PNBRQK"}
+        HostileText.armed = True
 
         with self.assertRaisesRegex(TypeError, "material keys must be canonical"):
-            MaterialView(MaterialMapping(hostile), exact, 0, 0)
+            MaterialView(active_key_mapping, exact, 0, 0)
         self.assertFalse(HostileText.touched)
-        self.assertFalse(MaterialMapping.value_read)
 
         with self.assertRaisesRegex(ValueError, "contain every canonical piece"):
             MaterialView({piece: 0 for piece in "PNBRQ"}, exact, 0, 0)
