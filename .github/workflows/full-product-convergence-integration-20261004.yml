@@ -7,10 +7,13 @@ on:
       - integration/full-product-successor-qualification-20261004
       - integration/current-main-windows-apex-reconvergence-20261004-sol
       - qualification/consolidated-completion-contract-20261004-ooxple7
+      - qualification/owner-portable-candidate-20261004-sol6f2
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
       - integration/current-main-windows-apex-reconvergence-20261004-sol
+      - qualification/consolidated-completion-contract-20261004-ooxple7
+      - qualification/owner-portable-candidate-20261004-sol6f2
       - main
     paths:
       - 'acs/**'
@@ -131,6 +134,14 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_MAIN_NON_PR_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "qualification/owner-portable-candidate-20261004-sol6f2" ]; then
+            live_base_ref='qualification/consolidated-completion-contract-20261004-ooxple7'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_OWNER_PARENT_ANCESTRY=PASS base=$live_base"
           elif [ "${GITHUB_REF_NAME:-}" = "qualification/consolidated-completion-contract-20261004-ooxple7" ]; then
             live_base_ref='fix/portable-package-same-inode-stable-read-20261004-ooxple7'
             git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
