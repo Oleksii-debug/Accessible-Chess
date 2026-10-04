@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -125,6 +126,58 @@ class ExplodingAckPort:
 
 
 class PersistedUsageCounterBoundaryTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, "symlink"), "symbolic-link support is required")
+    def test_queue_rejects_redirected_parent_before_sqlite_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = root / "outside"
+            outside.mkdir()
+            redirected = root / "redirected"
+            try:
+                os.symlink(outside, redirected, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"directory symlink creation is unavailable: {exc}")
+
+            with self.assertRaisesRegex(OSError, "direct non-reparse directory"):
+                make_queue(redirected / "nested" / "usage-sync.sqlite")
+
+            self.assertFalse((outside / "nested").exists())
+            self.assertEqual(list(outside.iterdir()), [])
+
+    @unittest.skipUnless(hasattr(os, "link"), "hard-link support is required")
+    def test_queue_rejects_hard_linked_existing_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.sqlite"
+            path = root / "usage-sync.sqlite"
+            source.write_bytes(b"")
+            try:
+                os.link(source, path)
+            except OSError as exc:
+                self.skipTest(f"hard-link creation is unavailable: {exc}")
+
+            with self.assertRaisesRegex(OSError, "private regular file"):
+                make_queue(path)
+
+            self.assertTrue(os.path.samefile(source, path))
+            self.assertEqual(source.read_bytes(), b"")
+
+    def test_queue_detects_parent_directory_identity_replacement_after_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "store"
+            path = parent / "usage-sync.sqlite"
+            queue = make_queue(path)
+            moved = root / "moved-store"
+            parent.rename(moved)
+            parent.mkdir()
+
+            with self.assertRaisesRegex(OSError, "usage sync directory changed unexpectedly"):
+                queue.pending("install-1")
+
+            self.assertTrue((moved / "usage-sync.sqlite").is_file())
+            self.assertFalse(path.exists())
+
     def test_duplicate_json_key_fails_closed_without_mutating_persisted_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "usage-sync.sqlite"
