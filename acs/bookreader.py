@@ -79,6 +79,11 @@ class BookReader:
     def index(self) -> int:
         return self._index
 
+    def document_warnings_snapshot(self) -> tuple[str, ...]:
+        """Return importer warnings bound to this reader's indexed document snapshot."""
+        self._require_indexed_revision()
+        return tuple(self._indexed_document.warnings)
+
     def _require_content(self) -> None:
         self._require_indexed_revision()
         if not self._book_index.entries:

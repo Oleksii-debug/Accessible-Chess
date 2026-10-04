@@ -55,6 +55,21 @@ class BookDocumentWarningAccessibilityTests(unittest.TestCase):
         self.assertIn("original retained warning", warning)
         self.assertNotIn("later authoring mutation", warning)
 
+    def test_presenter_uses_reader_indexed_warning_snapshot(self) -> None:
+        document = BookDocument(
+            title="Warning snapshot boundary",
+            warnings=["warning captured by reader"],
+            blocks=[Paragraph(text="Readable body")],
+        )
+        reader = BookReader(document)
+        document.warnings[:] = ["later authoring warning"]
+
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+
+        warning = presenter.current().warning
+        self.assertIn("warning captured by reader", warning)
+        self.assertNotIn("later authoring warning", warning)
+
     def test_warning_summary_is_bounded_and_reports_hidden_items(self) -> None:
         warnings = [f"warning-{index}" for index in range(1, 6)]
         warnings[0] = "x" * 400
