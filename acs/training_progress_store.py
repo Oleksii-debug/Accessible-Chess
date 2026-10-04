@@ -136,6 +136,8 @@ def _windows_open_no_reparse(
     FILE_ATTRIBUTE_TAG_INFO_CLASS = 9
     ERROR_FILE_NOT_FOUND = 2
     ERROR_PATH_NOT_FOUND = 3
+    ERROR_FILE_EXISTS = 80
+    ERROR_ALREADY_EXISTS = 183
 
     class FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
         _fields_ = [
@@ -191,6 +193,12 @@ def _windows_open_no_reparse(
             raise FileNotFoundError(
                 error,
                 "could not open training progress storage",
+                str(path),
+            )
+        if exclusive and error in {ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS}:
+            raise FileExistsError(
+                error,
+                "training progress storage already exists",
                 str(path),
             )
         raise OSError(error, "could not open training progress storage")
