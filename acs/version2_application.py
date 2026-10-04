@@ -311,10 +311,27 @@ class Version2Application:
             raise ValueError("return to the book before replacing the PGN document")
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
             raise ValueError("PGN replacement cancelled")
-        projection = PgnWorkspaceWebViewProjection(session.workspace, self.router, language=self.shell.language)
-        self.session, self.pgn = session, PgnWebViewBridge(projection)
+        projection = PgnWorkspaceWebViewProjection(
+            session.workspace,
+            self.router,
+            language=self.shell.language,
+        )
+        bridge = PgnWebViewBridge(projection)
+        # Route acquisition is part of accepting a replacement owner. Do not
+        # publish the staged session or relinquish an existing PGN Board owner
+        # until the shell has accepted the PGN route. open_route() can partially
+        # write its route before a focus-restore tail fails, so recover from the
+        # actual shell state.
+        origin_route = self.shell.current_route.route_id
+        try:
+            route_focus = self.shell.open_route("pgn")
+        except Exception:
+            if self.shell.current_route.route_id != origin_route:
+                self._focus = self.shell.open_route(origin_route)
+            raise
+        self.session, self.pgn = session, bridge
         self.pgn_board_active = False
-        self._focus = self.shell.open_route("pgn")
+        self._focus = route_focus
 
     def open_book(self, source: Path):
         self._assert_thread()
