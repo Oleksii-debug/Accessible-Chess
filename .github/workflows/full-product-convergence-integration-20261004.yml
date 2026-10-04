@@ -26,6 +26,7 @@ on:
       - '.github/workflows/w3-p0f-starter-books-training.yml'
       - '.github/workflows/current-user-library-seed.yml'
       - '.github/workflows/full-product-book-command-authority.yml'
+      - '.github/workflows/p0-dynamic-selection-executable.yml'
       - '.github/workflows/integration-owner-delivery-uk-docs-current.yml'
       - '.github/workflows/w6-v2-package-assembler.yml'
       - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
@@ -121,13 +122,33 @@ jobs:
           node --check web/full_product_books_training.js
           node --check web/version2_release_bootstrap.js
           node --check web/full_product_library.js
+          node --check web/p0_accessibility_runtime.js
+          node --check web/version2_final_product_bootstrap.js
+          node --check tests/js/p0_accessibility_runtime_test.js
+          node --check tests/js/p0_dynamic_selection_runtime_test.js
+          node --check tests/js/p0_accessibility_partial_replacement_test.js
+          node --check tests/js/p0_selection_ambiguity_runtime_test.js
+          node --check tests/js/p0_selection_route_epoch_runtime_test.js
           node --check tests/js/books_training_surface_dom_test.js
           node --check tests/js/version2_release_bootstrap_dom_test.js
           node --check tests/js/library_surface_dom_test.js
           node tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
           node tests/js/library_surface_dom_test.js
+          node tests/js/p0_accessibility_runtime_test.js
+          node tests/js/p0_dynamic_selection_runtime_test.js
+          node tests/js/p0_accessibility_partial_replacement_test.js
+          node tests/js/p0_selection_ambiguity_runtime_test.js
+          node tests/js/p0_selection_route_epoch_runtime_test.js
           echo 'FULL_PRODUCT_DOM=PASS'
+
+      - name: P0 semantic selection and native-copy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_p0_dynamic_selection_action_delivery
+          tests.test_p0_dynamic_selection_partial_replacement
+          tests.test_p0_semantic_document_copy
+          tests.test_p0_final_product_resource_order
 
       - name: Books Training semantic and accessibility regressions
         run: >-
