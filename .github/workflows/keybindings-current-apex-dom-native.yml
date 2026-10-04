@@ -75,6 +75,34 @@ jobs:
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
           git diff --check "$live_base"...HEAD
 
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/keybindings-current-apex-core.yml' \
+            '.github/workflows/keybindings-current-apex-dom-native.yml' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_native_menu.py' \
+            'acs/keybindings.py' \
+            'acs/ui_keymap_adapter.py' \
+            'acs/ui_keymap_editor.py' \
+            'acs/ui_keymap_service.py' \
+            'tests/js/education_surface_dom_test.js' \
+            'tests/js/library_surface_dom_test.js' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'tests/test_full_product_education_keybindings.py' \
+            'tests/test_full_product_library_keybindings.py' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_full_product_pgn_keybindings.py' \
+            'tests/test_keybindings_current_apex_reconvergence.py' \
+            'tests/test_terminal_keybinding_surface_wiring.py' \
+            'web/full_product_education.js' \
+            'web/full_product_library.js' \
+            'web/full_product_pgn.js' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected keybinding convergence scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12.10'
@@ -103,9 +131,11 @@ jobs:
           node --check web/full_product_library.js
           node --check web/full_product_education.js
           node --check tests/js/pgn_surface_dom_test.js
+          node --check tests/js/pgn_tree_keyboard_dom_test.js
           node --check tests/js/library_surface_dom_test.js
           node --check tests/js/education_surface_dom_test.js
           node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
           node tests/js/library_surface_dom_test.js
           node tests/js/education_surface_dom_test.js
 
