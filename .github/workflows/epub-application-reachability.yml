@@ -11,6 +11,7 @@ on:
       - converge/owner-apex-docx-bootstrap-generic-win32-20261004-c2mbezb
       - converge/book-inline-order-current-owner-apex-20261004-c2mbezb
       - converge/book-html-epub-semantics-20261004-c2mbezb
+      - fix/owner-final-post-upload-apex-freshness-20261004-a7f3c9
     paths:
       - 'acs/book_epub_import.py'
       - 'acs/version2_application.py'
