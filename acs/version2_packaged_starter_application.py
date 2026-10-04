@@ -29,6 +29,13 @@ from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
 from .starter_content import CONTENT_LICENSE_ID
 from .version2_starter_content_application import Version2StarterContentApplication
+from .user_library_seed import (
+    UserLibrarySeedManifest,
+    UserLibrarySeedSummary,
+    default_user_library_seed_root,
+    import_user_library_seed,
+    load_user_library_seed,
+)
 
 
 _EXPECTED_FILES = frozenset(
@@ -499,11 +506,25 @@ def _default_release_manifest_path() -> Path:
 class Version2PackagedStarterApplication(Version2StarterContentApplication):
     """Expose qualified packaged W2 content without mutating it in place."""
 
-    def __init__(self, *args, packaged_starter_root: str | Path | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        packaged_starter_root: str | Path | None = None,
+        packaged_user_seed_root: str | Path | None = None,
+        **kwargs,
+    ) -> None:
         explicit = packaged_starter_root is not None
         root = Path(packaged_starter_root) if explicit else _default_bundle_root()
+        user_seed_explicit = packaged_user_seed_root is not None
+        user_seed_root = (
+            Path(packaged_user_seed_root)
+            if user_seed_explicit
+            else default_user_library_seed_root()
+        )
         self._packaged_starter_root: Path | None = None
         self._packaged_starter_manifest: dict[str, object] | None = None
+        self._packaged_user_seed_manifest: UserLibrarySeedManifest | None = None
+        self._packaged_user_seed_summary: UserLibrarySeedSummary | None = None
         # os.path.lexists() is intentional: Path.exists() follows symlinks and
         # returns False for a broken package-root link.  A broken/reparse entry
         # at the canonical release path must fail closed in _load_manifest()
@@ -517,7 +538,23 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
             raise RuntimeError(
                 "packaged starter content root is missing from the assembled release package"
             )
+
+        if os.path.lexists(user_seed_root):
+            self._packaged_user_seed_manifest = load_user_library_seed(user_seed_root)
+        elif user_seed_explicit:
+            raise RuntimeError("packaged user Library seed root is missing")
+
         super().__init__(*args, **kwargs)
+
+        if self._packaged_user_seed_manifest is not None:
+            self._packaged_user_seed_summary = import_user_library_seed(
+                self.database,
+                self._packaged_user_seed_manifest,
+            )
+            # The base application created the Library projection before the
+            # optional seed transaction. Refresh it from canonical ACSDB so the
+            # very first Library screen includes the bundled user material.
+            self.library.projection.reset_filters()
 
     def _starter_library_actions(self) -> tuple[dict[str, object], ...]:
         manifest = self._packaged_starter_manifest
@@ -552,6 +589,8 @@ class Version2PackagedStarterApplication(Version2StarterContentApplication):
                 "network_required": False,
                 "prebuilt_library": True,
             }
+        if self._packaged_user_seed_summary is not None:
+            result["packaged_user_library"] = self._packaged_user_seed_summary.as_dict()
         return result
 
     def _open_packaged_pgn(self, *, stress: bool) -> dict[str, object]:

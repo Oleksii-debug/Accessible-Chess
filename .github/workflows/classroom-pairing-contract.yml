@@ -3,7 +3,7 @@ name: Classroom Pairing Contract
 on:
   pull_request:
     branches:
-      - work/full-product-teacher-education-reachability-20260911
+      - converge/books-training-owner-current-20261004-zftrkmo
     paths:
       - 'acs/classroom_pairing.py'
       - 'tests/test_classroom_pairing.py'

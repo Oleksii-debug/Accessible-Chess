@@ -3,7 +3,7 @@ name: Accessible Chess Version 2 Windows Composition
 on:
   push:
     branches:
-      - work/version2-windows-composition-20260828
+      - work/full-product-teacher-education-reachability-20260911
   pull_request:
     paths:
       - 'run_accessible_chess_v2.py'
@@ -38,10 +38,14 @@ concurrency:
 env:
   V2_FORMATS_UPSTREAM: b18ac89bb7f1ef3d4106517fe3521179ab4522a1
   V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB: bced41192feb068a71ed0789be5629164a37e6c9
+  V2_ACCEPTED_SOUND_STAGE1_BOOTSTRAP_BLOB: 45a192d93f91f8a564a36b6cfe1b216c2f81a409
   V2_ACCEPTED_STAGE1_UI_BLOB: 16e78af6219c8c36f0c4026942ef1d02875a370a
   V2_ACCEPTED_P0G_STAGE1_UI_BLOB: c8629e690a10fa8e10a2053fdc85284f635d2beb
   V2_ACCEPTED_ENGINE_TIMEOUT_STAGE1_UI_BLOB: 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
   V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB: b579ca0f59ba20f6b69b3a4b7d89589256d54852
+  V2_ACCEPTED_SOUND_STAGE1_CORE_BLOB: cb89d8d2d204545096568134637b39c888cf17b8
+  V2_ACCEPTED_SOUND_STAGE1_UI_BLOB: 23e5bcdde11acdb963515bea4bc4a93473dbbd05
+  V2_ACCEPTED_SOUND_RELEASE_APP_BLOB: dbbcaabd4f6df0ab615095949d464d1371b0ffef
   V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
   V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB: 6ec93d183da623c80c15b542fb7095725b91af52
 
@@ -78,24 +82,61 @@ jobs:
       - name: Prove Version 2 ancestry and convergence-safe isolation
         shell: bash
         env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+          PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           git cat-file -e "$V2_FORMATS_UPSTREAM^{commit}"
           git merge-base --is-ancestor "$V2_FORMATS_UPSTREAM" HEAD
 
-          scope_base="$V2_FORMATS_UPSTREAM"
-          if [ -n "$PR_BASE_SHA" ]; then
-            scope_base="$PR_BASE_SHA"
+          expected_head="${PR_HEAD_SHA:-}"
+          if [ -n "$expected_head" ]; then
+            test "$(git rev-parse HEAD)" = "$expected_head"
           fi
-          git cat-file -e "$scope_base^{commit}"
-          git merge-base --is-ancestor "$scope_base" HEAD
+
+          event_base="${PR_BASE_SHA:-}"
+          base_ref="${PR_BASE_REF:-}"
+          if [ -n "$event_base" ]; then
+            git cat-file -e "$event_base^{commit}" || git fetch --no-tags origin "$event_base"
+            if [ "$base_ref" = "$PRODUCT_BRANCH" ]; then
+              git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+              live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+              git cat-file -e "$live_product^{commit}"
+              git merge-base --is-ancestor "$event_base" "$live_product"
+              git merge-base --is-ancestor "$live_product" HEAD
+              test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+              scope_base="$live_product"
+              echo "V2_COMPOSITION_EVENT_BASE=$event_base"
+              echo "V2_COMPOSITION_PRODUCT_PARENT=$live_product"
+            else
+              scope_base="$event_base"
+              git merge-base --is-ancestor "$scope_base" HEAD
+              test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+              echo "V2_COMPOSITION_STACKED_PARENT=$scope_base"
+            fi
+          else
+            push_base="${PUSH_BASE_SHA:-}"
+            zero_sha='0000000000000000000000000000000000000000'
+            if [ -n "$push_base" ] && [ "$push_base" != "$zero_sha" ]; then
+              scope_base="$push_base"
+            else
+              scope_base="$(git rev-parse HEAD^)"
+            fi
+            git cat-file -e "$scope_base^{commit}" || git fetch --no-tags origin "$scope_base"
+            git merge-base --is-ancestor "$scope_base" HEAD
+            test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+          fi
           git diff --check "$scope_base" HEAD
 
           actual_stage1_bootstrap_blob="$(git rev-parse HEAD:web/stage1_release_bootstrap.js)"
-          if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" ]; then
-            echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
-            exit 1
+          if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_SOUND_STAGE1_BOOTSTRAP_BLOB" ]; then
+            if [ "$actual_stage1_bootstrap_blob" != "$V2_ACCEPTED_STAGE1_BOOTSTRAP_BLOB" ]; then
+              echo "Unexpected Stage 1 bootstrap blob: $actual_stage1_bootstrap_blob" >&2
+              exit 1
+            fi
           fi
 
           actual_pgn_workspace_blob="$(git rev-parse HEAD:acs/pgn_workspace.py)"
@@ -107,17 +148,20 @@ jobs:
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui_core.py'; then
             actual_stage1_core_blob="$(git rev-parse HEAD:acs/stage1_release_ui_core.py)"
-            if [ "${{ github.event.pull_request.head.ref }}" != "integration/clock-engine-serial-intake-20261002" ] \
-               || [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
-              echo "Unexpected Stage 1 core blob: $actual_stage1_core_blob" >&2
-              exit 1
+            # The takeback-recovery successor is canonical Product; the sound
+            # candidate is accepted only by its exact reviewed blob identity.
+            if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_SOUND_STAGE1_CORE_BLOB" ]; then
+              if [ "$actual_stage1_core_blob" != "$V2_ACCEPTED_TAKEBACK_STAGE1_CORE_BLOB" ]; then
+                echo "Unexpected Stage 1 core blob: $actual_stage1_core_blob" >&2
+                exit 1
+              fi
             fi
           fi
 
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui.py'; then
             actual_stage1_ui_blob="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
             case "$actual_stage1_ui_blob" in
-              "$V2_ACCEPTED_STAGE1_UI_BLOB"|"$V2_ACCEPTED_P0G_STAGE1_UI_BLOB"|"$V2_ACCEPTED_ENGINE_TIMEOUT_STAGE1_UI_BLOB")
+              "$V2_ACCEPTED_STAGE1_UI_BLOB"|"$V2_ACCEPTED_P0G_STAGE1_UI_BLOB"|"$V2_ACCEPTED_ENGINE_TIMEOUT_STAGE1_UI_BLOB"|"$V2_ACCEPTED_SOUND_STAGE1_UI_BLOB")
                 ;;
               *)
                 echo "Unexpected Stage 1 release facade blob: $actual_stage1_ui_blob" >&2
@@ -139,8 +183,17 @@ jobs:
             echo 'Stage 1 or strict-release contamination detected' >&2
             exit 1
           fi
+
+          if printf '%s\n' "$changed" | grep -Fxq 'acs/release_app.py'; then
+            actual_release_app_blob="$(git rev-parse HEAD:acs/release_app.py)"
+            if [ "$actual_release_app_blob" != "$V2_ACCEPTED_SOUND_RELEASE_APP_BLOB" ]; then
+              echo "Unexpected release composition blob: $actual_release_app_blob" >&2
+              exit 1
+            fi
+          fi
+
           git diff --quiet "$scope_base" HEAD -- \
-            run_accessible_chess.py acs/release_app.py \
+            run_accessible_chess.py \
             acs/chesscore.py acs/gametree.py acs/pgn_document.py \
             acs/pgn_service.py \
             web/stage1_board_actions.js \
@@ -167,8 +220,10 @@ jobs:
           tests.test_version2_shutdown
           tests.test_version2_pgn_commands
           tests.test_version2_import_terminal_ui
+          tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_library_import_observer
           tests.test_w3_windows_file_action_ui_thread_affinity
+          tests.test_version2_windows_composition_workflow
 
       - name: Version 2 composition and accessibility contracts
         run: >-

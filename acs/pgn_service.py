@@ -14,6 +14,7 @@ contract.
 """
 
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 import stat
@@ -26,6 +27,9 @@ from .import_contract import (
     ImportReport,
     ImportedRecord,
     SourceFingerprint,
+    _open_readonly_no_reparse,
+    _publish_opened_fingerprint,
+    _validate_source_path,
     fingerprint,
 )
 from .pgn_roundtrip import PgnRoundTripError, PgnRoundTripErrorCode, parse_pgn_text
@@ -102,11 +106,22 @@ class PgnFileImporter:
             )
             return report
 
-        lossy_source = bool(opened.global_warnings)
+        lossy_source = any(
+            warning.startswith("Invalid UTF-8 bytes were replaced")
+            for warning in opened.global_warnings
+        )
+        legacy_windows_1251 = any(
+            warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+            for warning in opened.global_warnings
+        )
         for game in opened.games:
             warnings = list(game.warnings)
             if lossy_source:
                 warnings.append("Source text required lossy UTF-8 replacement during decoding.")
+            if legacy_windows_1251:
+                warnings.append(
+                    "Source text was decoded losslessly from legacy Windows-1251."
+                )
             report.add(
                 ImportedRecord(
                     source_record_id=str(game.source_index),
@@ -159,21 +174,208 @@ def _bounded_source_size(path: Path) -> int | None:
     return size
 
 
-def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
-    _bounded_source_size(path)
-    before = fingerprint(path)
-    if before.size > MAX_PGN_SOURCE_BYTES:
+def _source_identity(st: os.stat_result) -> tuple[int, int]:
+    return int(st.st_dev), int(st.st_ino)
+
+
+def _open_direct_source(path: Path):
+    """Open one submitted source through the canonical no-follow source primitive."""
+
+    try:
+        descriptor = _open_readonly_no_reparse(path)
+    except ValueError as exc:
+        raise PgnFileError("PGN source must be a direct regular file") from exc
+    except OSError as exc:
+        raise PgnFileError("PGN source could not be opened safely") from exc
+
+    try:
+        return os.fdopen(descriptor, "rb", closefd=True)
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _opened_source_identity(handle: object) -> tuple[int, int] | None:
+    """Return the real opened object identity; `None` is a focused test-double seam."""
+
+    try:
+        fileno = handle.fileno()  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        return None
+    try:
+        opened = os.fstat(fileno)
+    except OSError as exc:
+        raise PgnSourceChangedError("PGN source identity could not be verified") from exc
+    if not stat.S_ISREG(opened.st_mode):
+        raise PgnSourceChangedError("PGN source changed while being opened")
+    return _source_identity(opened)
+
+
+def _assert_bound_source_path(path: Path, expected_identity: tuple[int, int]) -> None:
+    """Require the public path to still name the held direct regular-file object."""
+
+    try:
+        _, current = _validate_source_path(path)
+    except (OSError, ValueError) as exc:
+        raise PgnSourceChangedError("PGN source changed while being read") from exc
+    if _source_identity(current) != expected_identity:
+        raise PgnSourceChangedError("PGN source changed while being read")
+
+
+def _rehash_open_source(handle: object) -> tuple[str, int]:
+    """Re-hash the exact held source object with a finite second pass."""
+
+    try:
+        handle.seek(0)  # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError) as exc:
+        raise PgnSourceChangedError("PGN source could not be revalidated") from exc
+
+    digest = hashlib.sha256()
+    total = 0
+    while True:
+        remaining = MAX_PGN_SOURCE_BYTES + 1 - total
+        if remaining <= 0:
+            raise PgnResourceLimitError("PGN source exceeds the safety limit")
+        try:
+            chunk = handle.read(min(1024 * 1024, remaining))  # type: ignore[attr-defined]
+        except OSError as exc:
+            raise PgnSourceChangedError("PGN source could not be revalidated") from exc
+        if not chunk:
+            return digest.hexdigest(), total
+        if not isinstance(chunk, bytes):
+            raise PgnSourceChangedError("PGN source verification returned unsupported payload")
+        total += len(chunk)
+        if total > MAX_PGN_SOURCE_BYTES:
+            raise PgnResourceLimitError("PGN source exceeds the safety limit")
+        digest.update(chunk)
+
+
+_WINDOWS_1251_PGN_HEADER_ANCHORS = (
+    b"[event",
+    b"[site",
+    b"[date",
+    b"[round",
+    b"[white",
+    b"[black",
+    b"[result",
+    b"[fen",
+    b"[setup",
+)
+_WINDOWS_1251_CYRILLIC_BYTES = frozenset((*range(0xC0, 0x100), 0xA8, 0xB8))
+
+
+def _looks_like_windows_1251_pgn_bytes(payload: bytes) -> bool:
+    """Gate legacy Cyrillic decoding without hiding arbitrary invalid UTF-8."""
+
+    if not payload or b"\x00" in payload:
+        return False
+    lowered = payload.lower()
+    if not any(anchor in lowered for anchor in _WINDOWS_1251_PGN_HEADER_ANCHORS):
+        return False
+    previous_cyrillic = False
+    for value in payload:
+        current_cyrillic = value in _WINDOWS_1251_CYRILLIC_BYTES
+        if current_cyrillic and previous_cyrillic:
+            return True
+        previous_cyrillic = current_cyrillic
+    return False
+
+
+def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool, bool]:
+    submitted = Path(path)
+    try:
+        absolute, path_before = _validate_source_path(submitted)
+    except ValueError as exc:
+        raise PgnFileError("PGN source must be a direct regular file") from exc
+    except OSError as exc:
+        raise PgnFileError("PGN source is unavailable") from exc
+    if path_before.st_size > MAX_PGN_SOURCE_BYTES:
         raise PgnResourceLimitError(
             f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
         )
+
+    source: SourceFingerprint
     try:
-        with path.open("rb") as handle:
-            payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+        with _open_direct_source(absolute) as handle:
+            opened_identity = _opened_source_identity(handle)
+
+            if opened_identity is None:
+                # Focused bounded-text test doubles do not expose a descriptor.
+                # Preserve that seam without using it in production file reads.
+                try:
+                    before = fingerprint(absolute)
+                except (OSError, ValueError) as exc:
+                    raise PgnFileError("PGN source could not be fingerprinted safely") from exc
+                payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+                try:
+                    after = fingerprint(absolute)
+                except (OSError, ValueError) as exc:
+                    raise PgnSourceChangedError("PGN source changed while being read") from exc
+                if before.size != after.size or before.sha256 != after.sha256:
+                    raise PgnSourceChangedError("PGN changed while being read")
+                source = before
+            else:
+                expected_identity = _source_identity(path_before)
+                if opened_identity != expected_identity:
+                    raise PgnSourceChangedError("PGN source changed while being opened")
+
+                try:
+                    fd_before = os.fstat(handle.fileno())
+                except (AttributeError, OSError, ValueError) as exc:
+                    raise PgnSourceChangedError(
+                        "PGN source identity could not be verified"
+                    ) from exc
+                if (
+                    not stat.S_ISREG(fd_before.st_mode)
+                    or _source_identity(fd_before) != opened_identity
+                ):
+                    raise PgnSourceChangedError("PGN source changed while being opened")
+                if fd_before.st_size > MAX_PGN_SOURCE_BYTES:
+                    raise PgnResourceLimitError(
+                        f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
+                    )
+                _assert_bound_source_path(absolute, opened_identity)
+
+                payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+                if not isinstance(payload, bytes):
+                    raise PgnFileError("PGN source returned an unsupported payload")
+                if len(payload) > MAX_PGN_SOURCE_BYTES:
+                    raise PgnResourceLimitError("PGN source exceeds the safety limit")
+
+                first_sha256 = hashlib.sha256(payload).hexdigest()
+                verified_sha256, verified_size = _rehash_open_source(handle)
+                try:
+                    fd_after = os.fstat(handle.fileno())
+                except (AttributeError, OSError, ValueError) as exc:
+                    raise PgnSourceChangedError(
+                        "PGN source identity could not be verified"
+                    ) from exc
+                if (
+                    verified_size != len(payload)
+                    or fd_after.st_size != verified_size
+                    or first_sha256 != verified_sha256
+                ):
+                    raise PgnSourceChangedError("PGN source changed while being read")
+
+                _assert_bound_source_path(absolute, opened_identity)
+                try:
+                    source = _publish_opened_fingerprint(
+                        submitted,
+                        absolute,
+                        path_before,
+                        fd_before,
+                        fd_after,
+                        verified_sha256,
+                    )
+                except (OSError, ValueError) as exc:
+                    raise PgnSourceChangedError("PGN source changed while being read") from exc
+                _assert_bound_source_path(absolute, opened_identity)
+    except PgnFileError:
+        raise
     except OSError as exc:
         raise PgnFileError("PGN source could not be read safely") from exc
-    # Some focused tests provide a bounded text-handle double.  Real file
-    # reads are bytes; accepting exact text here keeps that test seam without
-    # weakening production decoding or performing a second race-prone read.
+
+    legacy_windows_1251 = False
     if isinstance(payload, str):
         text = payload
         decode_replaced = False
@@ -182,19 +384,29 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     else:
         if not isinstance(payload, bytes):
             raise PgnFileError("PGN source returned an unsupported payload")
-        if len(payload) > MAX_PGN_SOURCE_BYTES:
-            raise PgnResourceLimitError("PGN source exceeds the safety limit")
         try:
             text = payload.decode("utf-8-sig", errors="strict")
             decode_replaced = False
         except UnicodeDecodeError:
-            text = payload.decode("utf-8-sig", errors="replace")
-            decode_replaced = True
+            if _looks_like_windows_1251_pgn_bytes(payload):
+                try:
+                    text = payload.decode("cp1251", errors="strict")
+                except UnicodeDecodeError:
+                    # Windows-1251 has one undefined byte (0x98). A malformed
+                    # source that merely resembles legacy Cyrillic PGN must
+                    # retain the pre-fallback fail-safe behavior rather than
+                    # leaking a raw codec exception from the file boundary.
+                    text = payload.decode("utf-8-sig", errors="replace")
+                    decode_replaced = True
+                else:
+                    decode_replaced = False
+                    legacy_windows_1251 = True
+            else:
+                text = payload.decode("utf-8-sig", errors="replace")
+                decode_replaced = True
+
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    after = fingerprint(path)
-    if before.size != after.size or before.sha256 != after.sha256:
-        raise PgnSourceChangedError("PGN changed while being read")
-    return before, text, decode_replaced
+    return source, text, decode_replaced, legacy_windows_1251
 
 
 def _parse_file_games(text: str) -> tuple[PgnGame, ...]:
@@ -221,15 +433,19 @@ def _parse_file_games(text: str) -> tuple[PgnGame, ...]:
 
 
 def open_pgn(path: str | Path) -> PgnOpenResult:
-    """Open a PGN without mutating it and preserve recursive GameTree content."""
+    """Open one source-bound PGN snapshot without mutating the source."""
 
     source_path = Path(path)
-    source, text, decode_replaced = _read_text_snapshot(source_path)
+    source, text, decode_replaced, legacy_windows_1251 = _read_text_snapshot(source_path)
     games = _parse_file_games(text)
     warnings: list[str] = []
     if decode_replaced:
         warnings.append(
             "Invalid UTF-8 bytes were replaced while reading; save to a new file before editing the source."
+        )
+    if legacy_windows_1251:
+        warnings.append(
+            "Legacy Windows-1251 PGN was decoded losslessly; use Save As so the original legacy-encoded source is not overwritten."
         )
     return PgnOpenResult(source=source, games=games, global_warnings=tuple(warnings))
 

@@ -78,7 +78,9 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("book.next_block", BindingContext.BOOK_READER, "Next book block"),
     _action("book.previous_heading", BindingContext.BOOK_READER, "Previous book heading"),
     _action("book.next_heading", BindingContext.BOOK_READER, "Next book heading"),
+    _action("book.previous_position", BindingContext.BOOK_READER, "Previous book position"),
     _action("book.next_position", BindingContext.BOOK_READER, "Next book position"),
+    _action("book.previous_game", BindingContext.BOOK_READER, "Previous book game"),
     _action("book.next_game", BindingContext.BOOK_READER, "Next book game"),
     _action("book.bookmark", BindingContext.BOOK_READER, "Save book return point"),
     _action("book.open_position", BindingContext.BOOK_READER, "Open book position on board"),
@@ -189,6 +191,12 @@ class FullProductActionRouter:
                 route_id=route_id,
                 focus_target=focus_target,
             )
+        # Delegated domain actions may change the route themselves (for
+        # example Book Reader -> Board). Preserve the invoking element before
+        # delegation so an exact return can restore keyboard/NVDA focus to the
+        # element the user actually left, just as shell-owned route actions do.
+        if current_focus_id:
+            self._shell.record_focus(current_focus_id)
         value = self._delegate(action_id, dict(payload or {}))
         return ActionDispatchResult(
             action_id=action_id,

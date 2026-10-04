@@ -1,0 +1,118 @@
+name: Books Current Owner Convergence
+
+on:
+  push:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-current-owner-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact convergence head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove absorbed successor ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          for absorbed in 36cf0bb63cc45255df3e60dd160cdd4e0ad195a2 64cd6bd75cef34bfc477f651919202d2774ecd74 a0d0a5cfdbae45f25033f129c8d8cb82d28fce3b 74c7a2f614801fbb4bacb6ef0fe4b16763c922a1 be2061e8193fe953efdf5536548a7e964bfd829b 0bf46b2561db3d1dc26f354699c5610d331edb6a
+          do
+            git cat-file -e "$absorbed^{commit}"
+            git merge-base --is-ancestor "$absorbed" HEAD
+          done
+          git diff --check cd7656ddf19e528b445f5e21de6cf14912677b9a HEAD
+          echo 'BOOKS_CURRENT_OWNER_ANCESTRY=PASS'
+
+      - name: Compile affected production and regressions
+        run: >-
+          python -m py_compile
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          acs/bookdocument.py
+          acs/bookreader.py
+          acs/full_product_presenters.py
+          acs/version2_application.py
+          tests/test_book_html_inline_image_order.py
+          tests/test_v2_book_epub_import.py
+          tests/test_bookdocument.py
+          tests/test_bookreader.py
+          tests/test_version2_application.py
+          tests/test_w2_training_progress_crash_recovery.py
+          tests/test_p0_semantic_document_copy.py
+
+      - name: Qualify malformed HTML and source-order semantics
+        run: >-
+          python -m unittest -v
+          tests.test_book_html_inline_image_order
+          tests.test_v2_book_html_import
+          tests.test_v2_html_semantic_lists
+
+      - name: Qualify EPUB malformed-package and reading-order semantics
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_epub_import
+          tests.test_v2_book_epub_package_contract
+
+      - name: Qualify canonical BookDocument ingress
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_v2_accessible_book_core
+
+      - name: Qualify Book reader navigation and board handoff atomicity
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_v2_book_training_route_rollback
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_version2_application
+          tests.test_books_semantic_host_bounds
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_atomicity
+
+      - name: Qualify native accessibility and keyboard feedback
+        run: >-
+          python -m unittest -v
+          tests.test_version2_accessibility_convergence
+          tests.test_nvda_p0_contract
+          tests.test_full_product_native_menu
+          tests.test_keybindings
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_windows_book_board_adapter
+
+      - name: Qualify persistence portability and semantic copy contract
+        run: >-
+          python -m unittest -v
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_p0_semantic_document_copy
+
+      - name: Core selftest
+        run: python -m acs.selftest

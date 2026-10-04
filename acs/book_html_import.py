@@ -32,6 +32,7 @@ from .bookdocument import (
     Position,
 )
 from .chesscore import Board
+from .legacy_text_encoding import LegacyTextEncodingError, decode_book_text_bytes
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -72,12 +73,38 @@ class BookHtmlImportResult:
 
 
 @dataclass(slots=True)
+class _InlineSemanticEvent:
+    part_index: int
+    block: object
+    structural: bool = False
+    forces_split: bool = False
+    resume_part_index: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PgnCandidate:
+    text: str
+    marker_offset: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PgnSlot:
+    candidate: _PgnCandidate
+
+
+@dataclass(slots=True)
 class _Capture:
     tag: str
     kind: str
     attrs: dict[str, str]
     parts: list[str]
+    visible_start_offset: int
+    boundary_count: int = 0
     list_depth: int = 0
+    inline_semantics: list[_InlineSemanticEvent] = field(default_factory=list)
+    parent_inline_owner: _Capture | None = field(default=None, repr=False, compare=False)
+    parent_part_index: int | None = None
+    block_start_index: int = 0
 
 
 @dataclass(slots=True)
@@ -85,8 +112,12 @@ class _ListCapture:
     tag: str
     attrs: dict[str, str]
     items: list[str] = field(default_factory=list)
+    identity_items: list[str] = field(default_factory=list)
     unsupported: bool = False
+    structural_unsupported: bool = False
     nested: bool = False
+    inline_semantic_fallback: bool = False
+    legacy_identity_block: object | None = field(default=None, repr=False, compare=False)
 
 
 _BLOCK_BOUNDARY_TAGS = frozenset(
@@ -98,6 +129,12 @@ _BLOCK_BOUNDARY_TAGS = frozenset(
     }
 )
 _SUPPRESSED_TAGS = frozenset({"script", "style", "noscript", "template"})
+_VOID_TAGS = frozenset(
+    {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    }
+)
 _CAPTURE_KINDS = {
     "title": "title",
     "h1": "heading",
@@ -130,7 +167,7 @@ def _text(value: object, field: str, *, optional: bool = False) -> str | None:
     return value.strip()
 
 
-def _source_text(source: object) -> tuple[str, bytes]:
+def _source_text(source: object) -> tuple[str, bytes, bool]:
     if type(source) is str:
         try:
             encoded = source.encode("utf-8")
@@ -144,7 +181,7 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 "HTML book source exceeds the supported size",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, encoded
+        return source, encoded, False
     if type(source) is bytes:
         if len(source) > MAX_HTML_SOURCE_BYTES:
             raise BookHtmlImportError(
@@ -152,12 +189,13 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         try:
-            return source.decode("utf-8-sig"), source
-        except UnicodeDecodeError as exc:
+            decoded = decode_book_text_bytes(source, html=True)
+        except LegacyTextEncodingError as exc:
             raise BookHtmlImportError(
-                "HTML book source must use UTF-8 encoding",
+                "HTML book source must use UTF-8 or qualified Windows-1251 encoding",
                 code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        return decoded.text, source, decoded.legacy
     raise BookHtmlImportError(
         "HTML book source must be text or bytes",
         code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -169,7 +207,10 @@ def _compact(value: str) -> str:
 
 
 def _asset_name(value: str) -> str:
-    parts = urlsplit(value.strip())
+    try:
+        parts = urlsplit(value.strip())
+    except ValueError:
+        return ""
     if parts.scheme or parts.netloc or not parts.path:
         return ""
     segments = [segment for segment in parts.path.replace("\\", "/").split("/") if segment not in {"", "."}]
@@ -206,7 +247,10 @@ class _SemanticHtmlParser(HTMLParser):
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
         self._suppressed_tags: list[str] = []
+        self._hidden_tags: list[str] = []
+        self._head_depth = 0
         self._node_count = 0
+        self._text_boundary_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
         self._warned_list_fallback = False
@@ -233,6 +277,16 @@ class _SemanticHtmlParser(HTMLParser):
             )
         self.visible_parts.append(text)
 
+    def _append_text_boundary(self) -> None:
+        """Record one semantic separator without an O(capture-depth) boundary walk."""
+        self._append_visible("\n")
+        # Data already fans out through every active semantic capture. Record the
+        # boundary once here, then let the next data event synchronize each capture
+        # it already visits. This preserves boundaries in ancestor captures too
+        # (for example nested list/blockquote text) without making markup-only
+        # boundary handling O(capture depth).
+        self._text_boundary_count += 1
+
     def _block_id(self, kind: str, payload: str) -> str:
         digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
         key = f"{kind}:{digest}"
@@ -247,6 +301,23 @@ class _SemanticHtmlParser(HTMLParser):
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         self.blocks.append(block)
+
+    def _insert_block(self, index: int, block) -> None:
+        if len(self.blocks) >= MAX_HTML_BLOCKS:
+            raise BookHtmlImportError(
+                "HTML book contains too many semantic blocks",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        self.blocks.insert(index, block)
+
+    def _block_identity_index(self, target: object) -> int:
+        for index, block in enumerate(self.blocks):
+            if block is target:
+                return index
+        raise BookHtmlImportError(
+            "HTML inline semantic ordering anchor was lost",
+            code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+        )
 
     @staticmethod
     def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
@@ -263,14 +334,44 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _emit_list(self, captured: _ListCapture) -> None:
         items = [item for item in captured.items if item]
-        if not items:
-            return
+        identity_items = [item for item in captured.identity_items if item]
         ordered = captured.tag == "ol"
         start, start_valid = self._ordered_start(captured.attrs) if ordered else (None, True)
+
+        if (
+            captured.inline_semantic_fallback
+            and not captured.structural_unsupported
+            and captured.legacy_identity_block is not None
+            and identity_items
+        ):
+            # Preserve the exact pre-split canonical ListBlock target so durable
+            # BookProgress restores to the beginning of a list whose text is
+            # unchanged but whose rich inline semantics now require flattening.
+            legacy_identity = (
+                ("ordered" if ordered else "unordered")
+                + "\0"
+                + (str(start) if start is not None else "")
+                + "\0"
+                + "\0".join(identity_items)
+            )
+            captured.legacy_identity_block.block_id = self._block_id(
+                "List",
+                legacy_identity,
+            )
+            captured.legacy_identity_block.source_anchor = (
+                captured.attrs.get("id") or None
+            )
+
+        if not items:
+            return
         unsupported = captured.unsupported or not start_valid
 
         if unsupported:
-            if ordered and not start_valid:
+            if captured.inline_semantic_fallback:
+                self._list_warning(
+                    "HTML list items containing inline semantic content cannot be represented by the flat canonical List block and were preserved as readable bullet text around semantic blocks"
+                )
+            elif ordered and not start_valid:
                 self._list_warning(
                     "HTML ordered list start could not be represented canonically and was preserved as reading text because canonical List start must be positive"
                 )
@@ -285,10 +386,15 @@ class _SemanticHtmlParser(HTMLParser):
                 # and list membership only; the warning above makes structure loss
                 # explicit without publishing invented ordering as book truth.
                 text = f"• {item}"
+                identity_kind = (
+                    "ListFallbackItem"
+                    if captured.inline_semantic_fallback
+                    else "Paragraph"
+                )
                 self._append_block(
                     Paragraph(
                         text=text,
-                        block_id=self._block_id("Paragraph", text),
+                        block_id=self._block_id(identity_kind, text),
                         source_anchor=captured.attrs.get("id") or None,
                     )
                 )
@@ -346,6 +452,47 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             )
 
+    def _nearest_structural_owner_capture(self) -> _Capture | None:
+        """Return the nearest capture whose text may need semantic splitting."""
+        for capture in reversed(self._captures):
+            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
+                return capture
+        return None
+
+    def _nearest_inline_owner_capture(self) -> _Capture | None:
+        for capture in reversed(self._captures):
+            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
+                return capture
+        return None
+
+    def _record_inline_semantic(
+        self,
+        block: object,
+        *,
+        owner: _Capture | None = None,
+        part_index: int | None = None,
+        structural: bool = False,
+        forces_split: bool = False,
+        resume_part_index: int | None = None,
+    ) -> None:
+        # Direct image/position semantics trigger splitting for the nearest
+        # paragraph or heading owner. Nested captures are recorded only as
+        # structural boundaries on their explicit parent owner so source order is
+        # preserved without inventing chess or document structure.
+        capture = owner if owner is not None else self._nearest_inline_owner_capture()
+        if capture is None:
+            return
+        boundary = len(capture.parts) if part_index is None else part_index
+        capture.inline_semantics.append(
+            _InlineSemanticEvent(
+                part_index=boundary,
+                block=block,
+                structural=structural,
+                forces_split=forces_split,
+                resume_part_index=resume_part_index,
+            )
+        )
+
     def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
         self._node_count += 1
@@ -360,6 +507,18 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
+        if self._hidden_tags:
+            if tag not in _VOID_TAGS:
+                self._hidden_tags.append(tag)
+            return
+        if tag == "head":
+            self._head_depth += 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            # HEAD is metadata, not a source of readable or chess-semantic
+            # blocks. In particular, an explicit marker in hidden metadata
+            # must never publish a position/image note or a PGN game.
+            return
         attrs: dict[str, str] = {}
         for name, value in attrs_list:
             normalized_name = name.lower()
@@ -369,8 +528,22 @@ class _SemanticHtmlParser(HTMLParser):
                     code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
                 )
             attrs[normalized_name] = value or ""
+        aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
+        if "hidden" in attrs or aria_hidden == "true":
+            # HTML hidden and ARIA-hidden=true are deterministic boundaries for
+            # this accessibility-first semantic import. Text, image metadata and
+            # explicit chess markers excluded from the rendered/accessibility
+            # surface must not reappear in BookDocument or screen-reader output.
+            # Track all non-void descendants so malformed nesting stays
+            # fail-closed instead of resuming ingestion too early.
+            if tag not in _VOID_TAGS:
+                self._hidden_tags.append(tag)
+            return
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # HTMLParser does not place markup in capture.parts. Preserve the
+            # same block boundary already published to visible_text inside the
+            # directly containing semantic capture so adjacent words cannot collapse.
+            self._append_text_boundary()
         if tag == "html" and not self.language:
             lang = _compact(attrs.get("lang", ""))
             if lang:
@@ -395,6 +568,7 @@ class _SemanticHtmlParser(HTMLParser):
                 local_name = _asset_name(src)
                 if self.available_assets is not None and local_name and local_name not in self.available_assets:
                     self.missing_assets.add(local_name)
+            block_count = len(self.blocks)
             if "data-acs-fen" in attrs:
                 self._emit_explicit_position(tag, attrs)
             elif alt:
@@ -408,8 +582,13 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             else:
                 self._warning("an image reference has no accessible text and no explicit chess position")
-        elif "data-acs-fen" in attrs:
+            if len(self.blocks) == block_count + 1:
+                self._record_inline_semantic(self.blocks[-1])
+        elif "data-acs-fen" in attrs and not self._head_depth:
+            block_count = len(self.blocks)
             self._emit_explicit_position(tag, attrs)
+            if len(self.blocks) == block_count + 1:
+                self._record_inline_semantic(self.blocks[-1])
 
         if tag in {"ol", "ul"} and self._lists:
             for capture in self._captures:
@@ -420,6 +599,7 @@ class _SemanticHtmlParser(HTMLParser):
             nested = bool(self._lists)
             if nested:
                 self._lists[-1].unsupported = True
+                self._lists[-1].structural_unsupported = True
             unsupported = nested or "reversed" in attrs
             if tag == "ol":
                 _, start_valid = self._ordered_start(attrs)
@@ -429,6 +609,7 @@ class _SemanticHtmlParser(HTMLParser):
                     tag=tag,
                     attrs=attrs,
                     unsupported=unsupported,
+                    structural_unsupported=unsupported,
                     nested=nested,
                 )
             )
@@ -437,17 +618,27 @@ class _SemanticHtmlParser(HTMLParser):
         if kind is not None:
             if kind == "list_item" and self._lists and "value" in attrs:
                 self._lists[-1].unsupported = True
+                self._lists[-1].structural_unsupported = True
             if kind == "list_item" and self._lists:
                 for capture in self._captures:
                     if capture.kind == "list_item" and capture.list_depth < len(self._lists):
                         capture.parts.append(" ")
+            parent_inline_owner = self._nearest_structural_owner_capture()
+            parent_part_index = (
+                len(parent_inline_owner.parts) if parent_inline_owner is not None else None
+            )
             self._captures.append(
                 _Capture(
                     tag=tag,
                     kind=kind,
                     attrs=attrs,
                     parts=[],
+                    visible_start_offset=self.visible_chars,
+                    boundary_count=self._text_boundary_count,
                     list_depth=len(self._lists) if kind == "list_item" else 0,
+                    parent_inline_owner=parent_inline_owner,
+                    parent_part_index=parent_part_index,
+                    block_start_index=len(self.blocks),
                 )
             )
 
@@ -470,10 +661,75 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._suppressed_depth:
             return
-        if self._captures and self._captures[-1].tag == tag:
+        if self._hidden_tags:
+            if self._hidden_tags[-1] != tag:
+                self._warning(
+                    "malformed HTML mismatched hidden elements; readable text may have been omitted"
+                )
+                return
+            self._hidden_tags.pop()
+            return
+        if tag == "head":
+            # A malformed unclosed <title> must not survive the explicit end of
+            # metadata. Otherwise handle_data() keeps treating later BODY text as
+            # title metadata and omits it from the semantic document.
+            title_index = next(
+                (
+                    index
+                    for index, capture in enumerate(self._captures)
+                    if capture.kind == "title"
+                ),
+                None,
+            )
+            if title_index is not None:
+                while len(self._captures) > title_index:
+                    capture = self._captures.pop()
+                    self._finish_capture_and_record_parent(capture, recovered=True)
+            if self._head_depth:
+                self._head_depth -= 1
+            return
+        if self._head_depth and tag not in {"title", "meta"}:
+            return
+        matching_capture_index = next(
+            (
+                index
+                for index in range(len(self._captures) - 1, -1, -1)
+                if self._captures[index].tag == tag
+            ),
+            None,
+        )
+        if matching_capture_index is not None:
+            # HTMLParser reports source tags but does not repair malformed
+            # nesting. If an explicit closing tag belongs to an ancestor capture,
+            # recover any still-open semantic descendants first, then honor the
+            # explicit close. Leaving the ancestor live until EOF would let
+            # following source text leak into a region the source already closed.
+            while len(self._captures) - 1 > matching_capture_index:
+                capture = self._captures.pop()
+                self._finish_capture_and_record_parent(capture, recovered=True)
             capture = self._captures.pop()
-            self._finish_capture(capture)
+            self._finish_capture_and_record_parent(capture)
         if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
+            # HTMLParser intentionally does not repair malformed nesting. If a
+            # list container closes while its current <li> (or a semantic child
+            # of that item) is still open, recover that subtree *before* the
+            # list owner disappears. Otherwise later source text can continue
+            # fanning out into the stale item capture until EOF and be
+            # misattributed to the already-closed list.
+            list_depth = len(self._lists)
+            open_item_index = next(
+                (
+                    index
+                    for index in range(len(self._captures) - 1, -1, -1)
+                    if self._captures[index].kind == "list_item"
+                    and self._captures[index].list_depth == list_depth
+                ),
+                None,
+            )
+            if open_item_index is not None:
+                while len(self._captures) > open_item_index:
+                    capture = self._captures.pop()
+                    self._finish_capture_and_record_parent(capture, recovered=True)
             captured = self._lists.pop()
             if captured.nested:
                 for capture in self._captures:
@@ -488,14 +744,265 @@ class _SemanticHtmlParser(HTMLParser):
             else:
                 self._emit_list(captured)
         if tag in _BLOCK_BOUNDARY_TAGS:
-            self._append_visible("\n")
+            # The closing edge matters when inline text resumes after a nested
+            # block (for example Alpha<div>Beta</div>Gamma).
+            self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
-        if self._suppressed_depth:
+        if self._suppressed_depth or self._hidden_tags:
+            return
+        if self._head_depth or any(capture.kind == "title" for capture in self._captures):
+            # HTML title still supplies the book title; it and all other
+            # non-rendered HEAD text are excluded from the visible stream that
+            # owns explicit {PGN N} markers. Do not fan metadata into an
+            # unclosed outer Paragraph/Heading capture either.
+            for capture in self._captures:
+                if capture.kind == "title":
+                    capture.parts.append(data)
             return
         self._append_visible(data)
         for capture in self._captures:
+            pending_boundaries = self._text_boundary_count - capture.boundary_count
+            if pending_boundaries > 0:
+                capture.parts.append("\n" * pending_boundaries)
+                capture.boundary_count = self._text_boundary_count
             capture.parts.append(data)
+
+    def _finish_inline_paragraph(
+        self,
+        capture: _Capture,
+        *,
+        legacy_text: str,
+        source_anchor: str | None,
+    ) -> None:
+        """Project inline semantics in source order without losing progress IDs."""
+        cursor = 0
+        legacy_identity_available = True
+        for event in capture.inline_semantics:
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
+                raise BookHtmlImportError(
+                    "HTML inline semantic boundary is invalid",
+                    code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+                )
+            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            if segment:
+                identity_text = legacy_text if legacy_identity_available else segment
+                identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
+                paragraph = Paragraph(
+                    text=segment,
+                    block_id=self._block_id(identity_kind, identity_text),
+                    source_anchor=source_anchor if legacy_identity_available else None,
+                )
+                self._insert_block(self._block_identity_index(event.block), paragraph)
+                legacy_identity_available = False
+            cursor = resume_part_index
+
+        trailing = _compact("".join(capture.parts[cursor:]))
+        if trailing:
+            identity_text = legacy_text if legacy_identity_available else trailing
+            identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
+            paragraph = Paragraph(
+                text=trailing,
+                block_id=self._block_id(identity_kind, identity_text),
+                source_anchor=source_anchor if legacy_identity_available else None,
+            )
+            # A trailing fragment belongs at capture-close time. Semantic blocks
+            # emitted after the last inline image but before this capture closes
+            # (for example a nested blockquote or explicit position) already own
+            # their source-order slots in self.blocks and must not be jumped over.
+            self._append_block(paragraph)
+
+    def _finish_inline_heading(
+        self,
+        capture: _Capture,
+        *,
+        legacy_text: str,
+        source_anchor: str | None,
+        level: int,
+    ) -> None:
+        """Project inline heading semantics without inventing extra headings."""
+        cursor = 0
+        legacy_identity_available = True
+
+        def heading_or_fragment(segment: str):
+            nonlocal legacy_identity_available
+            if legacy_identity_available:
+                block = Heading(
+                    text=segment,
+                    level=level,
+                    block_id=self._block_id("Heading", f"{level}\0{legacy_text}"),
+                    source_anchor=source_anchor,
+                )
+                legacy_identity_available = False
+                return block
+            return Paragraph(
+                text=segment,
+                block_id=self._block_id(
+                    "HeadingInlineFragment",
+                    f"{level}\0{segment}",
+                ),
+                source_anchor=None,
+            )
+
+        for event in capture.inline_semantics:
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
+                raise BookHtmlImportError(
+                    "HTML inline semantic boundary is invalid",
+                    code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+                )
+            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            if segment:
+                self._insert_block(
+                    self._block_identity_index(event.block),
+                    heading_or_fragment(segment),
+                )
+            cursor = resume_part_index
+
+        trailing = _compact("".join(capture.parts[cursor:]))
+        if trailing:
+            self._append_block(heading_or_fragment(trailing))
+
+    def _finish_inline_list_item(
+        self,
+        capture: _Capture,
+        *,
+        captured_list: _ListCapture | None,
+        source_anchor: str | None,
+    ) -> None:
+        """Flatten one rich list item without reordering its semantic blocks."""
+        events = list(capture.inline_semantics)
+        if not any((not event.structural) or event.forces_split for event in events):
+            return
+
+        self._list_warning(
+            "HTML list items containing inline semantic content cannot be represented by the flat canonical List block and were preserved as readable bullet text around semantic blocks"
+        )
+
+        if captured_list is not None:
+            logical_text = _compact("".join(capture.parts))
+            if logical_text:
+                captured_list.identity_items.append(logical_text)
+            captured_list.unsupported = True
+            captured_list.inline_semantic_fallback = True
+            # Plain items preceding this rich item are still buffered in the
+            # canonical list capture. Publish them immediately before the first
+            # semantic event so an already-emitted image/position cannot jump
+            # ahead of earlier list content.
+            first_event = events[0]
+            for item in [item for item in captured_list.items if item]:
+                fallback_text = f"• {item}"
+                fallback = Paragraph(
+                    text=fallback_text,
+                    block_id=self._block_id("ListFallbackItem", fallback_text),
+                    source_anchor=captured_list.attrs.get("id") or None,
+                )
+                self._insert_block(
+                    self._block_identity_index(first_event.block),
+                    fallback,
+                )
+                if captured_list.legacy_identity_block is None:
+                    captured_list.legacy_identity_block = fallback
+            captured_list.items.clear()
+
+        cursor = 0
+        item_text_started = False
+        for event in events:
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
+                raise BookHtmlImportError(
+                    "HTML inline semantic boundary is invalid",
+                    code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+                )
+            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            if segment:
+                projected = f"• {segment}" if not item_text_started else segment
+                identity_kind = (
+                    "ListFallbackItem"
+                    if not item_text_started
+                    else "ListInlineFragment"
+                )
+                fragment = Paragraph(
+                    text=projected,
+                    block_id=self._block_id(identity_kind, projected),
+                    source_anchor=source_anchor if not item_text_started else None,
+                )
+                self._insert_block(
+                    self._block_identity_index(event.block),
+                    fragment,
+                )
+                if (
+                    captured_list is not None
+                    and captured_list.legacy_identity_block is None
+                ):
+                    captured_list.legacy_identity_block = fragment
+                item_text_started = True
+            elif not item_text_started:
+                # A rich list item may begin with an image/position. Preserve an
+                # explicit list-membership marker before that semantic block
+                # rather than letting it appear outside the item in reading order.
+                marker = Paragraph(
+                    text="•",
+                    block_id=self._block_id("ListInlineItemMarker", "•"),
+                    source_anchor=source_anchor,
+                )
+                self._insert_block(
+                    self._block_identity_index(event.block),
+                    marker,
+                )
+                if (
+                    captured_list is not None
+                    and captured_list.legacy_identity_block is None
+                ):
+                    captured_list.legacy_identity_block = marker
+                item_text_started = True
+            cursor = resume_part_index
+
+        trailing = _compact("".join(capture.parts[cursor:]))
+        if trailing:
+            projected = f"• {trailing}" if not item_text_started else trailing
+            identity_kind = (
+                "ListFallbackItem" if not item_text_started else "ListInlineFragment"
+            )
+            fragment = Paragraph(
+                text=projected,
+                block_id=self._block_id(identity_kind, projected),
+                source_anchor=source_anchor if not item_text_started else None,
+            )
+            self._append_block(fragment)
+            if (
+                captured_list is not None
+                and captured_list.legacy_identity_block is None
+            ):
+                captured_list.legacy_identity_block = fragment
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
@@ -506,23 +1013,71 @@ class _SemanticHtmlParser(HTMLParser):
             if text and not self.title:
                 self.title = text
             return
+        source_anchor = capture.attrs.get("id") or None
+        requires_semantic_split = any(
+            (not event.structural) or event.forces_split
+            for event in capture.inline_semantics
+        )
+        if capture.kind == "list_item" and requires_semantic_split:
+            active_list = (
+                self._lists[-1]
+                if self._lists and capture.list_depth == len(self._lists)
+                else None
+            )
+            self._finish_inline_list_item(
+                capture,
+                captured_list=active_list,
+                source_anchor=source_anchor,
+            )
+            return
         if not text:
             return
-        source_anchor = capture.attrs.get("id") or None
         if capture.kind == "heading":
             level = int(capture.tag[1])
-            self._append_block(
-                Heading(
-                    text=text,
-                    level=level,
-                    block_id=self._block_id("Heading", f"{level}\0{text}"),
+            if capture.inline_semantics and requires_semantic_split:
+                self._finish_inline_heading(
+                    capture,
+                    legacy_text=text,
                     source_anchor=source_anchor,
+                    level=level,
                 )
+            else:
+                self._append_block(
+                    Heading(
+                        text=text,
+                        level=level,
+                        block_id=self._block_id("Heading", f"{level}\0{text}"),
+                        source_anchor=source_anchor,
+                    )
+                )
+            return
+        if capture.kind in {"paragraph", "table_row"} and requires_semantic_split:
+            if capture.kind == "table_row" and not self._warned_table_flatten:
+                self._warning(
+                    "HTML table structure is preserved as row text because BookDocument has no table block kind"
+                )
+                self._warned_table_flatten = True
+            self._finish_inline_paragraph(
+                capture,
+                legacy_text=text,
+                source_anchor=source_anchor,
+            )
+            return
+        if (
+            capture.kind == "pre"
+            and requires_semantic_split
+            and not _explicit_pgn_pre(raw)
+        ):
+            self._finish_inline_paragraph(
+                capture,
+                legacy_text=text,
+                source_anchor=source_anchor,
             )
             return
         if capture.kind == "list_item":
             if self._lists and capture.list_depth == len(self._lists):
                 self._lists[-1].items.append(text)
+                self._lists[-1].identity_items.append(text)
                 return
             self._list_warning(
                 "HTML list item occurred outside a representable list container and was preserved as readable text"
@@ -533,6 +1088,21 @@ class _SemanticHtmlParser(HTMLParser):
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
                 self._warned_table_flatten = True
         elif capture.kind == "pre" and _explicit_pgn_pre(raw):
+            # Keep a bounded placeholder at the exact semantic source location.
+            # Canonical PGN validation still happens only after parsing through
+            # the existing D06 round-trip authority; invalid candidates remove
+            # their placeholder rather than publishing guessed chess content.
+            for candidate in _pgn_candidates(raw):
+                self._append_block(
+                    _PgnSlot(
+                        candidate=_PgnCandidate(
+                            text=candidate.text,
+                            marker_offset=(
+                                capture.visible_start_offset + candidate.marker_offset
+                            ),
+                        )
+                    )
+                )
             return
         self._append_block(
             Paragraph(
@@ -542,38 +1112,110 @@ class _SemanticHtmlParser(HTMLParser):
             )
         )
 
+    def _finish_capture_and_record_parent(
+        self,
+        capture: _Capture,
+        *,
+        recovered: bool = False,
+    ) -> None:
+        self._finish_capture(capture, recovered=recovered)
+        parent = capture.parent_inline_owner
+        part_index = capture.parent_part_index
+        if (
+            parent is None
+            or part_index is None
+            or not any(candidate is parent for candidate in self._captures)
+            or len(self.blocks) <= capture.block_start_index
+        ):
+            return
+        # Anchor the nested semantic subtree at its source start. A plain nested
+        # child remains structural-only so legacy unsplit projection is unchanged.
+        # A child that itself had to split around rich semantics propagates that
+        # requirement upward; otherwise its already-published subtree would be
+        # duplicated by a parent's flat text projection.
+        child_forces_split = any(
+            (not event.structural) or event.forces_split
+            for event in capture.inline_semantics
+        ) or any(
+            isinstance(block, _PgnSlot)
+            for block in self.blocks[capture.block_start_index:]
+        )
+        self._record_inline_semantic(
+            self.blocks[capture.block_start_index],
+            owner=parent,
+            part_index=part_index,
+            structural=True,
+            forces_split=child_forces_split,
+            # A nested semantic capture already published its readable content as
+            # one or more canonical blocks. When the parent later needs splitting
+            # around a direct image/position event, resume after all source text
+            # consumed by this child so the nested text is not duplicated into a
+            # parent fragment. Legacy unsplit projection remains unchanged because
+            # structural events are consulted only by the split paths.
+            resume_part_index=len(parent.parts),
+        )
+
     def close(self) -> None:
         super().close()
+        if self._head_depth:
+            self._warning(
+                "malformed HTML left head metadata unclosed; subsequent readable text may have been omitted"
+            )
+            self._head_depth = 0
         if self._suppressed_depth:
             self._warning(
                 "malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted"
             )
             self._suppressed_depth = 0
             self._suppressed_tags.clear()
+        if self._hidden_tags:
+            self._warning(
+                "malformed HTML left hidden content unclosed; subsequent readable text may have been omitted"
+            )
+            self._hidden_tags.clear()
         while self._captures:
-            self._finish_capture(self._captures.pop(), recovered=True)
+            capture = self._captures.pop()
+            self._finish_capture_and_record_parent(capture, recovered=True)
         while self._lists:
             captured = self._lists.pop()
             captured.unsupported = True
+            captured.structural_unsupported = True
             self._emit_list(captured)
 
 
-def _pgn_candidates(visible_text: str) -> list[str]:
-    """Return only explicitly marked PGN regions; canonical D06 decides validity."""
-    lines = visible_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    candidates: list[str] = []
-    for marker_index, line in enumerate(lines):
+def _pgn_candidates(visible_text: str) -> list[_PgnCandidate]:
+    """Return explicitly marked PGN regions with stable source offsets."""
+    lines: list[tuple[int, str]] = []
+    line_start = 0
+    cursor = 0
+    while cursor < len(visible_text):
+        character = visible_text[cursor]
+        if character == "\r":
+            lines.append((line_start, visible_text[line_start:cursor]))
+            cursor += 2 if cursor + 1 < len(visible_text) and visible_text[cursor + 1] == "\n" else 1
+            line_start = cursor
+            continue
+        if character == "\n":
+            lines.append((line_start, visible_text[line_start:cursor]))
+            cursor += 1
+            line_start = cursor
+            continue
+        cursor += 1
+    lines.append((line_start, visible_text[line_start:]))
+
+    candidates: list[_PgnCandidate] = []
+    for marker_index, (marker_offset, line) in enumerate(lines):
         if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
             continue
 
         start = marker_index + 1
-        while start < len(lines) and not lines[start].strip():
+        while start < len(lines) and not lines[start][1].strip():
             start += 1
-        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start].strip()) is None:
+        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start][1].strip()) is None:
             continue
 
         chunk_lines: list[str] = []
-        for candidate_line in lines[start:]:
+        for _, candidate_line in lines[start:]:
             stripped = candidate_line.strip()
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
@@ -582,14 +1224,23 @@ def _pgn_candidates(visible_text: str) -> list[str]:
             chunk_lines.pop()
         candidate = "\n".join(chunk_lines).strip()
         if candidate:
-            candidates.append(candidate)
+            candidates.append(
+                _PgnCandidate(
+                    text=candidate,
+                    marker_offset=marker_offset,
+                )
+            )
     return candidates
 
 
-def _canonical_pgn_games(candidates: list[str], warnings: list[str]) -> list[Game]:
-    games: list[Game] = []
+def _canonical_pgn_games(
+    candidates: list[_PgnCandidate],
+    warnings: list[str],
+) -> list[tuple[_PgnCandidate, Game]]:
+    games: list[tuple[_PgnCandidate, Game]] = []
     identities: dict[str, int] = {}
-    for candidate_index, candidate in enumerate(candidates, start=1):
+    for candidate_index, candidate_record in enumerate(candidates, start=1):
+        candidate = candidate_record.text
         if len(candidate) > MAX_HTML_PGN_CHARS:
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} exceeded the per-game limit and was ignored")
@@ -617,15 +1268,17 @@ def _canonical_pgn_games(candidates: list[str], warnings: list[str]) -> list[Gam
         occurrence = identities.get(digest, 0) + 1
         identities[digest] = occurrence
         games.append(
-            Game(
-                pgn=candidate,
-                title=title,
-                block_id=f"html-pgn-{digest}-{occurrence}",
-                source_anchor=f"pgn:{candidate_index}",
+            (
+                candidate_record,
+                Game(
+                    pgn=candidate,
+                    title=title,
+                    block_id=f"html-pgn-{digest}-{occurrence}",
+                    source_anchor=f"pgn:{candidate_index}",
+                ),
             )
         )
     return games
-
 
 def _asset_set(available_assets: object) -> frozenset[str] | None:
     if available_assets is None:
@@ -666,7 +1319,7 @@ def import_html_book(
     language: str | None = None,
     available_assets: object = None,
 ) -> BookHtmlImportResult:
-    """Import one UTF-8 HTML/XHTML document into semantic ``BookDocument``.
+    """Import UTF-8 or qualified Windows-1251 HTML/XHTML into ``BookDocument``.
 
     Network/file access is deliberately outside this adapter.  A trusted host may
     provide a source byte string and, optionally, the names of assets it has
@@ -681,7 +1334,7 @@ def import_html_book(
     override_title = _text(title, "title", optional=True)
     override_author = _text(author, "author", optional=True)
     override_language = _text(language, "language", optional=True)
-    text, raw = _source_text(source)
+    text, raw, legacy_windows_1251 = _source_text(source)
     assets = _asset_set(available_assets)
 
     parser = _SemanticHtmlParser(available_assets=assets)
@@ -698,9 +1351,43 @@ def import_html_book(
 
     visible_text = "".join(parser.visible_parts)
     warnings = list(parser.warnings)
-    embedded_games = _canonical_pgn_games(_pgn_candidates(visible_text), warnings)
-    for block in embedded_games:
-        parser._append_block(block)
+    if legacy_windows_1251:
+        warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
+    # The global visible-text scan preserves historical marker acceptance,
+    # including markers outside a semantic capture. Exact marked <pre> captures
+    # override the same marker offset with their bounded local candidate so text
+    # after </pre> can never be swallowed into that game's canonicalization.
+    candidates_by_marker = {
+        candidate.marker_offset: candidate
+        for candidate in _pgn_candidates(visible_text)
+    }
+    for block in parser.blocks:
+        if isinstance(block, _PgnSlot):
+            candidates_by_marker[block.candidate.marker_offset] = block.candidate
+    canonical_games = _canonical_pgn_games(
+        sorted(candidates_by_marker.values(), key=lambda item: item.marker_offset),
+        warnings,
+    )
+    games_by_marker = {
+        candidate.marker_offset: game
+        for candidate, game in canonical_games
+    }
+    consumed_markers: set[int] = set()
+    ordered_blocks = []
+    for block in parser.blocks:
+        if isinstance(block, _PgnSlot):
+            marker_offset = block.candidate.marker_offset
+            game = games_by_marker.get(marker_offset)
+            if game is not None:
+                ordered_blocks.append(game)
+                consumed_markers.add(marker_offset)
+            continue
+        ordered_blocks.append(block)
+    parser.blocks = ordered_blocks
+    for candidate, game in canonical_games:
+        if candidate.marker_offset not in consumed_markers:
+            parser._append_block(game)
+    embedded_games = [game for _, game in canonical_games]
 
     resolved_title = override_title or parser.title
     if not resolved_title:
@@ -748,7 +1435,7 @@ def import_html_book(
 SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
     {
         "format": "HTML/XHTML",
-        "encoding": "UTF-8",
+        "encoding": "UTF-8; evidence-gated Windows-1251",
         "semantic_blocks": (
             "Heading",
             "Paragraph",
@@ -761,7 +1448,7 @@ SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
         "does_not_claim": (
             "implicit PGN inference from ordinary text",
             "image-to-position recognition",
-            "arbitrary legacy encodings",
+            "legacy encodings other than qualified Windows-1251",
             "network asset fetching",
             "TXT",
             "Markdown",

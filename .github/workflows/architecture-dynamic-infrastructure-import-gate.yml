@@ -8,6 +8,7 @@ on:
       - 'acs/bookdocument.py'
       - 'acs/history.py'
       - 'tests/test_architecture_dynamic_infrastructure_imports.py'
+      - 'tests/test_architecture_workflow_concurrency.py'
       - '.github/workflows/architecture-dynamic-infrastructure-import-gate.yml'
   push:
     paths:
@@ -16,10 +17,15 @@ on:
       - 'acs/bookdocument.py'
       - 'acs/history.py'
       - 'tests/test_architecture_dynamic_infrastructure_imports.py'
+      - 'tests/test_architecture_workflow_concurrency.py'
       - '.github/workflows/architecture-dynamic-infrastructure-import-gate.yml'
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   dynamic-infrastructure-boundary:
@@ -46,6 +52,6 @@ jobs:
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected"
       - name: Compile regression
-        run: python -m py_compile tests/test_architecture_dynamic_infrastructure_imports.py
+        run: python -m py_compile tests/test_architecture_dynamic_infrastructure_imports.py tests/test_architecture_workflow_concurrency.py
       - name: Run dynamic infrastructure boundary
-        run: python -m unittest -v tests.test_architecture_dynamic_infrastructure_imports
+        run: python -m unittest -v tests.test_architecture_dynamic_infrastructure_imports tests.test_architecture_workflow_concurrency

@@ -416,6 +416,17 @@ class AcsDatabase:
             raise ValueError(f"{name} exceeds SQLite integer range")
         return value
 
+    @staticmethod
+    def _row_id(value: int, *, name: str) -> int:
+        """Validate a persisted SQLite row identity without scalar coercion."""
+        if type(value) is not int:
+            raise TypeError(f"{name} must be an integer")
+        if value <= 0:
+            raise ValueError(f"{name} must be positive")
+        if value > _SQLITE_INTEGER_MAX:
+            raise ValueError(f"{name} exceeds SQLite integer range")
+        return value
+
     @classmethod
     def _position_cursor(
         cls,
@@ -737,7 +748,9 @@ class AcsDatabase:
 
     @staticmethod
     def position_key(fen: str) -> str:
-        parts = (fen or "").strip().split()
+        if type(fen) is not str:
+            raise TypeError("fen must be text")
+        parts = fen.strip().split()
         if len(parts) < 4:
             raise ValueError("FEN must contain at least placement, turn, castling and en-passant fields")
         return " ".join(parts[:4])
@@ -766,12 +779,25 @@ class AcsDatabase:
                                error_message: str | None = None) -> None:
         if status not in IMPORT_ATTEMPT_STATUSES - {"pending"}:
             raise ValueError(f"Unsupported import attempt status: {status}")
-        self.conn.execute(
+        attempt_id = self._row_id(attempt_id, name="attempt_id")
+        if source_id is not None:
+            source_id = self._row_id(source_id, name="source_id")
+            if self.conn.execute(
+                "SELECT 1 FROM sources WHERE id=?",
+                (source_id,),
+            ).fetchone() is None:
+                raise ValueError("source_id does not identify an existing source")
+        game_count = self._positive_cursor(game_count, name="game_count")
+        warning_count = self._positive_cursor(warning_count, name="warning_count")
+        assert game_count is not None and warning_count is not None
+        cursor = self.conn.execute(
             """UPDATE import_attempts
                SET finished_at=?, status=?, source_id=?, game_count=?, warning_count=?, error_message=?
                WHERE id=?""",
-            (self._now(), status, source_id, int(game_count), int(warning_count), error_message, int(attempt_id)),
+            (self._now(), status, source_id, game_count, warning_count, error_message, attempt_id),
         )
+        if cursor.rowcount != 1:
+            raise ValueError("attempt_id does not identify an existing import attempt")
 
     def _insert_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
                      import_status: str | None = None) -> int:
@@ -793,6 +819,7 @@ class AcsDatabase:
 
     def store_game(self, game: PgnGame, source_id: int, *, raw_pgn: str | None = None,
                    import_status: str | None = None) -> int:
+        source_id = self._row_id(source_id, name="source_id")
         with self.conn:
             return self._insert_game(game, source_id, raw_pgn=raw_pgn, import_status=import_status)
 
@@ -839,15 +866,18 @@ class AcsDatabase:
             raise
 
     def get_game(self, game_id: int) -> dict | None:
+        game_id = self._row_id(game_id, name="game_id")
         row = self.conn.execute("SELECT * FROM games WHERE id=?", (game_id,)).fetchone()
         return dict(row) if row else None
 
     def get_source(self, source_id: int) -> dict | None:
+        source_id = self._row_id(source_id, name="source_id")
         row = self.conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
         return dict(row) if row else None
 
     def get_import_attempt(self, attempt_id: int) -> dict | None:
-        row = self.conn.execute("SELECT * FROM import_attempts WHERE id=?", (int(attempt_id),)).fetchone()
+        attempt_id = self._row_id(attempt_id, name="attempt_id")
+        row = self.conn.execute("SELECT * FROM import_attempts WHERE id=?", (attempt_id,)).fetchone()
         return dict(row) if row else None
 
     def list_import_attempts(self, *, status: str | None = None, sha256: str | None = None,
@@ -1035,6 +1065,7 @@ class AcsDatabase:
         *,
         overwrite: bool = False,
     ) -> None:
+        game_id = self._row_id(game_id, name="game_id")
         overwrite = self._validate_overwrite(overwrite)
         ply = self._position_ply(ply)
         key = self.position_key(fen)
@@ -1056,6 +1087,7 @@ class AcsDatabase:
         *,
         overwrite: bool = False,
     ) -> None:
+        game_id = self._row_id(game_id, name="game_id")
         overwrite = self._validate_overwrite(overwrite)
         rows: list[tuple[int, int, str, str]] = []
         seen: set[int] = set()
