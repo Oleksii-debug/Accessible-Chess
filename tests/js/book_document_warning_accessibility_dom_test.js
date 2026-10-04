@@ -54,6 +54,12 @@ class FakeElement {
     return this.children.flatMap((child) => [child, ...child.descendants()]);
   }
 
+  querySelector(selector) {
+    if (!String(selector).startsWith("#")) return null;
+    const id = String(selector).slice(1);
+    return this.descendants().find((item) => item.id === id) || null;
+  }
+
   querySelectorAll(selector) {
     if (selector !== "[id]") return [];
     return this.descendants().filter((item) => item.id);
