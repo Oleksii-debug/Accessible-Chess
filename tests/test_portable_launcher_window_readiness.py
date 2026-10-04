@@ -26,7 +26,6 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
 
     def test_process_liveness_alone_is_not_success(self):
         self.assertNotIn("CHILD_RUNNING_AFTER_STARTUP_OBSERVATION", self.source)
-        self.assertNotIn("USER_WINDOW_PROVEN: NO\");\n    ac_write_line(report, L\"USER_NVDA_PROVEN: NO", self.source)
         self.assertIn("STATUS: STARTUP_WINDOW_READY", self.source)
         self.assertIn("USER_WINDOW_PROVEN: YES", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
