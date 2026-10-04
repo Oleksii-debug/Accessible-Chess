@@ -3,7 +3,7 @@ name: Current SAN Grammar Integrity
 on:
   pull_request:
     branches:
-      - converge/current-announcement-localization-after-book-progress-20261004-sol57a1
+      - fix/current-book-board-reader-passive-after-bounds-20261004-c2mbezb
     paths:
       - 'acs/notation.py'
       - 'tests/test_notation.py'
@@ -44,7 +44,7 @@ jobs:
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
 
-          base_ref="${EVENT_BASE_REF:-converge/current-announcement-localization-after-book-progress-20261004-sol57a1}"
+          base_ref="${EVENT_BASE_REF:-fix/current-book-board-reader-passive-after-bounds-20261004-c2mbezb}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
