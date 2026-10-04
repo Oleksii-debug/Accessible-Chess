@@ -15,6 +15,7 @@ from acs.version2_package_preflight import (
     MANIFEST_NAME,
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
+    Version2PackagePreflightError,
 )
 from acs.version2_portable_package import (
     PORTABLE_PACKAGE_PROFILE,
@@ -627,13 +628,108 @@ class PortableTreeTests(unittest.TestCase):
                     integration_sha=_SHA,
                 )
 
-            canonical_validation.assert_called_once_with(canonical, expected_integration_sha=_SHA)
+            self.assertEqual(canonical_validation.call_count, 2)
+            first_validation = canonical_validation.call_args_list[0]
+            second_validation = canonical_validation.call_args_list[1]
+            self.assertEqual(first_validation.args, (canonical,))
+            self.assertEqual(
+                first_validation.kwargs,
+                {"expected_integration_sha": _SHA},
+            )
+            snapshot_root = Path(second_validation.args[0])
+            self.assertNotEqual(snapshot_root, canonical)
+            self.assertEqual(
+                second_validation.kwargs,
+                {"expected_integration_sha": _SHA},
+            )
+            self.assertEqual(
+                (snapshot_root / "AccessibleChess" / "payload.dat").read_bytes(),
+                b"canonical-product-bytes",
+            )
             self.assertEqual((output / "App" / "payload.dat").read_bytes(), b"canonical-product-bytes")
             self.assertEqual((output / "AccessibleChess.exe").read_bytes(), launcher.read_bytes())
             self.assertTrue((output / PORTABLE_SOURCE_METADATA_DIR / MANIFEST_NAME).is_file())
             self.assertTrue((output / PORTABLE_SOURCE_METADATA_DIR / CHECKSUMS_NAME).is_file())
             self.assertFalse((output / "data").exists())
             self.assertEqual(report.integration_sha, _SHA)
+
+    def test_assembler_revalidates_private_snapshot_after_live_source_changes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            canonical = work / "canonical"
+            _pe(canonical / "AccessibleChess" / "AccessibleChess.exe")
+            (canonical / "AccessibleChess" / "payload.dat").write_bytes(
+                b"initial-qualified-payload"
+            )
+            (canonical / "THIRD_PARTY_NOTICES").mkdir(parents=True)
+            (canonical / "THIRD_PARTY_NOTICES" / "NOTICE.txt").write_text(
+                "notice",
+                encoding="utf-8",
+            )
+            canonical_manifest = {
+                "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
+                "product": "Accessible Chess",
+                "package_profile": V2_PACKAGE_PROFILE,
+                "integration_sha": _SHA,
+            }
+            (canonical / MANIFEST_NAME).write_text(
+                json.dumps(canonical_manifest, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(canonical)
+
+            launcher = work / "launcher.exe"
+            _pe(launcher)
+            first = work / "Посібник.docx"
+            second = work / "Опис.docx"
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            output = work / "portable"
+
+            calls = 0
+
+            def validate_then_race(candidate, *, expected_integration_sha):
+                nonlocal calls
+                self.assertEqual(expected_integration_sha, _SHA)
+                candidate = Path(candidate)
+                calls += 1
+                if calls == 1:
+                    self.assertEqual(candidate, canonical)
+                    # Simulate a coherent rewrite after the live source was
+                    # declared valid.  The outer portable contract can bind
+                    # these bytes and checksums, but the canonical policy must
+                    # get a second chance to reject the newly bundled raw
+                    # source before it becomes App/.
+                    injected = canonical / "AccessibleChess" / "injected.py"
+                    injected.write_text("print('must never ship')\n", encoding="utf-8")
+                    _write_checksums(canonical)
+                    return object()
+                self.assertNotEqual(candidate, canonical)
+                self.assertTrue(
+                    (candidate / "AccessibleChess" / "injected.py").is_file()
+                )
+                raise Version2PackagePreflightError(
+                    "raw source must not be bundled"
+                )
+
+            with mock.patch(
+                "acs.version2_portable_package.validate_version2_package_tree",
+                side_effect=validate_then_race,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "raw source must not be bundled",
+                ):
+                    assemble_portable_oneclick_tree(
+                        canonical,
+                        launcher,
+                        (first, second),
+                        output,
+                        integration_sha=_SHA,
+                    )
+
+            self.assertEqual(calls, 2)
+            self.assertFalse(output.exists())
 
     def test_zip_is_deterministic_and_byte_verified(self):
         with tempfile.TemporaryDirectory() as raw:
