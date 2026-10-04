@@ -37,6 +37,8 @@ jobs:
       CURRENT_STORE_BLOB: 3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
       CURRENT_BASE_TEST_BLOB: 52cb2948ec6789b60775e1fa38cae44770baff7a
       CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
+      BASE_APPLICATION_BLOB: e1020f4d7d2320f3162bc78b9a6221b2afd46876
+      BASE_APPLICATION_TEST_BLOB: 7ec4d04a3cb96ab0cc546a25036475f60ef92ed7
       WINDOWS_DURABILITY_STORE_BLOB: a077dc71ab750ce3bacdbeaf7a76e69d2dccfb0a
       WINDOWS_DURABILITY_BASE_TEST_BLOB: 0ce0d284ab7c0cdf75c3ffb191bda9f9dad22004
       WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
@@ -298,6 +300,25 @@ jobs:
           candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
           candidate_application="$(git rev-parse HEAD:acs/version2_application.py)"
           candidate_application_test="$(git rev-parse HEAD:tests/test_version2_application.py)"
+
+          # Historically-qualified store/test tuples predate this PR's
+          # application-owned recovery-consent delta. Do not let widening the
+          # bounded path allowlist turn those old tuples into an authority for
+          # arbitrary application/test bytes. Any non-base application pair must
+          # be the exact latest recovery-consent pair and must travel with its
+          # exact store/base-test/production-test tuple.
+          if [ "$candidate_application" != "$BASE_APPLICATION_BLOB" ] \
+            || [ "$candidate_application_test" != "$BASE_APPLICATION_TEST_BLOB" ]; then
+            if [ "$candidate_store" != "$RECOVERY_CONSENT_STORE_BLOB" ] \
+              || [ "$candidate_base_test" != "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+              || [ "$candidate_production_test" != "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+              || [ "$candidate_application" != "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
+              || [ "$candidate_application_test" != "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+              echo 'BookProgress application authority drift' >&2
+              exit 1
+            fi
+          fi
+
           if [ "$candidate_store" = "$CURRENT_STORE_BLOB" ] \
             && [ "$candidate_base_test" = "$CURRENT_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$CURRENT_PRODUCTION_TEST_BLOB" ]; then
