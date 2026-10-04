@@ -531,6 +531,32 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     _validate_package_ids_unique(package, metadata)
+    dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
+    for element in metadata:
+        if type(element.tag) is not str or not element.tag.startswith(dc_prefix):
+            continue
+        if len(element):
+            raise _error(
+                "EPUB Dublin Core metadata must contain text only",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if not " ".join((element.text or "").split()):
+            raise _error(
+                "EPUB Dublin Core metadata values must not be empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
+    if not _metadata_values(metadata, "title"):
+        raise _error(
+            "EPUB package metadata is missing a non-empty dc:title",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    if not _metadata_values(metadata, "language"):
+        raise _error(
+            "EPUB package metadata is missing a non-empty dc:language",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
     matching_identifiers: list[str] = []
     for element in metadata:
