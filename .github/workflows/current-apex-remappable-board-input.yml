@@ -6,8 +6,10 @@ on:
       - 'fix/remappable-board-input-current-apex-20261004-c2mbezb'
     paths:
       - 'web/index.html'
+      - 'web/stage1_board_actions.js'
       - 'tests/js/remappable_board_grid_controls_current_test.js'
       - 'tests/js/remappable_input_submit_keys_current_test.js'
+      - 'tests/js/stage1_terminal_keymap_dom_test.js'
       - '.github/workflows/current-apex-remappable-board-input.yml'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
   pull_request:
@@ -15,8 +17,10 @@ on:
       - 'converge/completion-launcher-books-20261004-sol56'
     paths:
       - 'web/index.html'
+      - 'web/stage1_board_actions.js'
       - 'tests/js/remappable_board_grid_controls_current_test.js'
       - 'tests/js/remappable_input_submit_keys_current_test.js'
+      - 'tests/js/stage1_terminal_keymap_dom_test.js'
       - '.github/workflows/current-apex-remappable-board-input.yml'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
   workflow_dispatch:
@@ -55,13 +59,16 @@ jobs:
           git diff --check
           if [ "$EVENT_NAME" = "pull_request" ]; then
             merge_base="$(git merge-base "$BASE_SHA" HEAD)"
+            git diff --check "$merge_base" HEAD
             changed="$(git diff --name-only "$merge_base" HEAD | sort)"
             expected="$(printf '%s\n' \
               '.github/workflows/current-apex-remappable-board-input.yml' \
               '.github/workflows/keybindings-current-apex-dom-native.yml' \
               'tests/js/remappable_board_grid_controls_current_test.js' \
               'tests/js/remappable_input_submit_keys_current_test.js' \
-              'web/index.html' | sort)"
+              'tests/js/stage1_terminal_keymap_dom_test.js' \
+              'web/index.html' \
+              'web/stage1_board_actions.js' | sort)"
             if [ "$changed" != "$expected" ]; then
               printf 'Unexpected current-apex keymap scope:\n%s\n' "$changed" >&2
               exit 1
