@@ -407,8 +407,13 @@ class BookDocument:
 
     def iter_kind(self, kind: type[SemanticBlock]) -> Iterator[SemanticBlock]:
         self._validate_export_state()
+        if type(kind) is not type or kind not in _SEMANTIC_BLOCK_TYPES:
+            raise BookDocumentError(
+                "Book query kind must be a canonical semantic block type",
+                code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+            )
         for block in self.blocks:
-            if isinstance(block, kind):
+            if type(block) is kind:
                 yield block
 
     def headings(self) -> list[Heading]:
