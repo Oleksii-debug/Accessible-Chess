@@ -34,7 +34,10 @@ class BookDocumentError(ValueError):
 
 
 def _required_text(value: object, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    # Canonical Book payloads originate from JSON/text importers and therefore
+    # use built-in strings. Reject subclasses before calling strip() so hostile
+    # Python-side ingress cannot execute custom text hooks inside validation.
+    if type(value) is not str or not value.strip():
         raise BookDocumentError(
             f"{field_name} must be non-empty text",
             code=BookDocumentErrorCode.INVALID_FIELD,
@@ -117,11 +120,7 @@ class Heading(BookBlock):
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
         self.text = _required_text(self.text, "Heading text")
-        if (
-            not isinstance(self.level, int)
-            or isinstance(self.level, bool)
-            or not 1 <= self.level <= 6
-        ):
+        if type(self.level) is not int or not 1 <= self.level <= 6:
             raise BookDocumentError(
                 "Heading level must be an integer between 1 and 6",
                 code=BookDocumentErrorCode.INVALID_FIELD,
@@ -151,7 +150,7 @@ class ListBlock(BookBlock):
 
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
-        if not isinstance(self.items, list) or not self.items:
+        if type(self.items) is not list or not self.items:
             raise BookDocumentError(
                 "List items must be a non-empty list of text items",
                 code=BookDocumentErrorCode.INVALID_FIELD,
@@ -211,16 +210,14 @@ class Game(BookBlock):
 
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
-        if not isinstance(self.pgn, str):
+        if type(self.pgn) is not str:
             raise BookDocumentError(
                 "Game PGN must be text",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         self.title = _optional_text(self.title, "Game title")
         if self.game_id is not None and (
-            not isinstance(self.game_id, int)
-            or isinstance(self.game_id, bool)
-            or self.game_id < 0
+            type(self.game_id) is not int or self.game_id < 0
         ):
             raise BookDocumentError(
                 "Game game_id must be a non-negative integer or None",
@@ -305,13 +302,21 @@ _SEMANTIC_BLOCK_TYPES = tuple(_BLOCK_TYPES.values())
 
 def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
     """Rebuild one semantic block, rejecting unknown kinds instead of losing data silently."""
-    if not isinstance(data, dict):
+    if type(data) is not dict:
         raise BookDocumentError(
-            "Book block must be a mapping",
+            "Book block must be a built-in mapping",
             code=BookDocumentErrorCode.INVALID_FIELD,
         )
+    # Inspect exact built-in key objects before dictionary/set operations can
+    # invoke attacker-controlled __hash__/__eq__ hooks from exotic key types.
+    keys = tuple(data)
+    if any(type(key) is not str for key in keys):
+        raise BookDocumentError(
+            "Book block field names must be strings",
+            code=BookDocumentErrorCode.UNKNOWN_FIELD,
+        )
     kind = data.get("kind")
-    if not isinstance(kind, str):
+    if type(kind) is not str:
         raise BookDocumentError(
             f"Unsupported BookDocument block kind: {kind!r}",
             code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
@@ -322,14 +327,14 @@ def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
             f"Unsupported BookDocument block kind: {kind!r}",
             code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
         )
-    payload = {key: value for key, value in data.items() if key != "kind"}
     allowed = set(cls.__dataclass_fields__)
-    unknown = sorted(set(payload) - allowed, key=repr)
+    unknown = sorted(key for key in keys if key != "kind" and key not in allowed)
     if unknown:
         raise BookDocumentError(
             f"Unsupported fields for {kind}: {', '.join(map(repr, unknown))}",
             code=BookDocumentErrorCode.UNKNOWN_FIELD,
         )
+    payload = {key: data[key] for key in keys if key != "kind"}
     return cls(**payload)
 
 
@@ -351,7 +356,7 @@ class BookDocument:
         self.source_name = _optional_text(self.source_name, "Book source_name")
         self.source_uri = _optional_text(self.source_uri, "Book source_uri")
         self.source_rights = _optional_text(self.source_rights, "Book source_rights")
-        if not isinstance(self.blocks, list) or not all(
+        if type(self.blocks) is not list or not all(
             isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in self.blocks
         ):
             raise BookDocumentError(
@@ -364,8 +369,8 @@ class BookDocument:
         # a canonical BookDocument and fail only later at export or resolution.
         for block in self.blocks:
             block.as_dict()
-        if not isinstance(self.warnings, list) or not all(
-            isinstance(warning, str) and warning.strip()
+        if type(self.warnings) is not list or not all(
+            type(warning) is str and warning.strip()
             for warning in self.warnings
         ):
             raise BookDocumentError(
@@ -455,7 +460,7 @@ class BookDocument:
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         if type(self.warnings) is not list or not all(
-            isinstance(warning, str) and warning.strip()
+            type(warning) is str and warning.strip()
             for warning in self.warnings
         ):
             raise BookDocumentError(
@@ -488,17 +493,22 @@ class BookDocument:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BookDocument":
         """Loss-aware semantic round-trip entry point for future import/export adapters."""
-        if not isinstance(data, dict):
+        if type(data) is not dict:
             raise BookDocumentError(
-                "BookDocument must be a mapping",
+                "BookDocument must be a built-in mapping",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        keys = tuple(data)
+        if any(type(key) is not str for key in keys):
+            raise BookDocumentError(
+                "BookDocument field names must be strings",
+                code=BookDocumentErrorCode.UNKNOWN_FIELD,
+            )
         raw_version = data.get("schema_version", 0)
-        if (
-            not isinstance(raw_version, int)
-            or isinstance(raw_version, bool)
-            or raw_version not in {0, BOOK_DOCUMENT_SCHEMA_VERSION}
-        ):
+        if type(raw_version) is not int or raw_version not in {
+            0,
+            BOOK_DOCUMENT_SCHEMA_VERSION,
+        }:
             raise BookDocumentError(
                 f"Unsupported BookDocument schema_version: {raw_version!r}",
                 code=BookDocumentErrorCode.UNSUPPORTED_SCHEMA,
@@ -514,21 +524,21 @@ class BookDocument:
             "warnings",
             "blocks",
         }
-        unknown = sorted(set(data) - allowed, key=repr)
+        unknown = sorted(key for key in keys if key not in allowed)
         if unknown:
             raise BookDocumentError(
                 f"Unsupported BookDocument fields: {', '.join(map(repr, unknown))}",
                 code=BookDocumentErrorCode.UNKNOWN_FIELD,
             )
         raw_blocks = data.get("blocks", [])
-        if not isinstance(raw_blocks, list):
+        if type(raw_blocks) is not list:
             raise BookDocumentError(
                 "BookDocument blocks must be a list",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         warnings = data.get("warnings", [])
-        if not isinstance(warnings, list) or not all(
-            isinstance(item, str) and item.strip() for item in warnings
+        if type(warnings) is not list or not all(
+            type(item) is str and item.strip() for item in warnings
         ):
             raise BookDocumentError(
                 "BookDocument warnings must be a list of non-empty strings",
