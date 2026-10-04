@@ -434,7 +434,7 @@ def _canonical_casefold_name(value: str) -> str:
 def _validate_local_zip_header(
     archive: zipfile.ZipFile,
     info: zipfile.ZipInfo,
-) -> int:
+) -> tuple[int, int]:
     stream = archive.fp
     if stream is None:
         raise _error(
@@ -465,6 +465,21 @@ def _validate_local_zip_header(
                 "EPUB local ZIP header has a truncated entry name",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
+        payload_start = info.header_offset + 30 + name_length + extra_length
+        payload_end = payload_start + info.compress_size
+        if (
+            payload_start < info.header_offset
+            or payload_end < payload_start
+            or payload_end > archive.start_dir
+        ):
+            raise _error(
+                "EPUB local ZIP payload overlaps package metadata",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
+        descriptor_probe = b""
+        if local_flags & (1 << 3):
+            stream.seek(payload_end)
+            descriptor_probe = stream.read(24)
     except BookEpubImportError:
         raise
     except (OSError, ValueError) as exc:
@@ -519,6 +534,50 @@ def _validate_local_zip_header(
                 "EPUB local and central ZIP size or CRC metadata is inconsistent",
                 BookEpubImportErrorCode.UNSAFE_PACKAGE,
             )
+    physical_end = payload_end
+    if local_flags & (1 << 3):
+        zip64_descriptor = (
+            local_compressed_size == 0xFFFFFFFF
+            or local_uncompressed_size == 0xFFFFFFFF
+        )
+        width = 8 if zip64_descriptor else 4
+        unsigned_length = 4 + (2 * width)
+        signed_length = unsigned_length + 4
+
+        def descriptor_matches(offset: int) -> bool:
+            required = offset + 4 + (2 * width)
+            if len(descriptor_probe) < required:
+                return False
+            crc = int.from_bytes(
+                descriptor_probe[offset : offset + 4],
+                "little",
+            )
+            compressed_size = int.from_bytes(
+                descriptor_probe[offset + 4 : offset + 4 + width],
+                "little",
+            )
+            uncompressed_size = int.from_bytes(
+                descriptor_probe[
+                    offset + 4 + width : offset + 4 + (2 * width)
+                ],
+                "little",
+            )
+            return (
+                crc == info.CRC
+                and compressed_size == info.compress_size
+                and uncompressed_size == info.file_size
+            )
+
+        if descriptor_probe[:4] == b"PK\x07\x08" and descriptor_matches(4):
+            physical_end = payload_end + signed_length
+        elif descriptor_matches(0):
+            physical_end = payload_end + unsigned_length
+        else:
+            raise _error(
+                "EPUB ZIP data descriptor is inconsistent with central metadata",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
+
     try:
         local_name = raw_name.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -531,7 +590,7 @@ def _validate_local_zip_header(
             "EPUB local and central ZIP entry names are inconsistent",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
-    return extra_length
+    return extra_length, physical_end
 
 
 def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
@@ -548,8 +607,33 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     canonical_file_nodes: set[int] = set()
     next_canonical_node = 1
     total_uncompressed = 0
+    physical_offsets = sorted(info.header_offset for info in infos)
+    if (
+        len(set(physical_offsets)) != len(physical_offsets)
+        or any(offset < 0 or offset >= archive.start_dir for offset in physical_offsets)
+    ):
+        raise _error(
+            "EPUB local ZIP entry offsets are inconsistent",
+            BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        )
+    next_physical_boundary = {
+        offset: (
+            physical_offsets[index + 1]
+            if index + 1 < len(physical_offsets)
+            else archive.start_dir
+        )
+        for index, offset in enumerate(physical_offsets)
+    }
     for info in infos:
-        local_extra_length = _validate_local_zip_header(archive, info)
+        local_extra_length, local_physical_end = _validate_local_zip_header(
+            archive,
+            info,
+        )
+        if local_physical_end > next_physical_boundary[info.header_offset]:
+            raise _error(
+                "EPUB local ZIP entries overlap",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
         if info.volume != 0:
             raise _error(
                 "EPUB uses a multi-disk ZIP entry, which OCF does not permit",
