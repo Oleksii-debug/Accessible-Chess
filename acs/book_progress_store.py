@@ -1298,6 +1298,7 @@ class BookProgressStore:
             ) from None
         if existing is not None:
             self._require_private_data_metadata(existing)
+        publication_base_identity = existing
 
         if expected_target_raw is _EXPECTED_TARGET_UNSET:
             # Even callers that intentionally replace the current target (the
@@ -1309,6 +1310,24 @@ class BookProgressStore:
             )
         else:
             publication_base_raw = expected_target_raw
+
+        if publication_base_identity is not None:
+            try:
+                current_base_identity = os.lstat(target)
+            except OSError:
+                raise BookProgressStoreError(
+                    "book progress changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                ) from None
+            self._require_private_data_metadata(current_base_identity)
+            if not self._same_file_identity(
+                publication_base_identity,
+                current_base_identity,
+            ):
+                raise BookProgressStoreError(
+                    "book progress changed during publication preparation",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
 
         active_directory = self._active_storage_directory_identity
         if active_directory is not None:
@@ -1382,6 +1401,23 @@ class BookProgressStore:
                     "book progress changed during publication preparation",
                     code=BookProgressStoreErrorCode.STALE_WRITE,
                 )
+            if publication_base_identity is not None:
+                try:
+                    current_target_identity = os.lstat(target)
+                except OSError:
+                    raise BookProgressStoreError(
+                        "book progress changed during publication preparation",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    ) from None
+                self._require_private_data_metadata(current_target_identity)
+                if not self._same_file_identity(
+                    publication_base_identity,
+                    current_target_identity,
+                ):
+                    raise BookProgressStoreError(
+                        "book progress changed during publication preparation",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
             if active_directory is not None:
                 self._require_storage_directory_unlocked(active_directory)
             self._require_active_lock_unlocked()
