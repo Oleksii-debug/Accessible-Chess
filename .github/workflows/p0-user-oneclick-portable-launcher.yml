@@ -1,6 +1,15 @@
 name: P0 User One-Click Portable Launcher
 
 on:
+  push:
+    branches:
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
+    paths:
+      - 'packaging/portable_launcher.c'
+      - 'acs/version2_portable_package.py'
+      - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_version2_portable_package.py'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
   pull_request:
     paths:
       - 'packaging/portable_launcher.c'
