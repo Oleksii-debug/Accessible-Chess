@@ -118,12 +118,8 @@ jobs:
           for token in (
               'utf-16-le',
               '255 UTF-16 code-unit component limit',
-              'CONIN          print('OWNER_DOCX_WIN32_AUTHORITY_BOUNDARY=PASS')
-          PY
-,
-              'CONOUT          print('OWNER_DOCX_WIN32_AUTHORITY_BOUNDARY=PASS')
-          PY
-,
+              'CONIN$',
+              'CONOUT$',
               'rstrip(" .")',
           ):
               assert token in preflight, token
