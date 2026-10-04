@@ -14,9 +14,20 @@ from acs.book_html_import import (
     import_html_book,
 )
 from acs.book_progress_store import BookProgressStore
-from acs.bookdocument import Diagram, Note, Paragraph, Position
+from acs.bookdocument import Diagram, Game, Note, Paragraph, Position
 from acs.bookreader import BookReader
 from acs.chesscore import Board
+
+
+_PGN = '''[Event "Source order"]
+[Site "Test"]
+[Date "2026.10.04"]
+[Round "1"]
+[White "White"]
+[Black "Black"]
+[Result "*"]
+
+1. e4 e5 *'''
 
 
 def _semantic_signature(blocks):
@@ -417,6 +428,54 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
                 ("Paragraph", "After"),
             ],
         )
+
+
+    def test_explicit_pgn_game_keeps_crlf_source_order_and_reader_navigation(self) -> None:
+        source = (
+            "<html><body><h1>Before</h1><pre>{PGN 1}\r\n"
+            + _PGN.replace("\n", "\r\n")
+            + "</pre><p>After</p></body></html>"
+        )
+        result = import_html_book(source, source_name="pgn-source-order.html")
+
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Heading", "Game", "Paragraph"],
+        )
+        reader = BookReader(result.document)
+        reader.go_to(0)
+        game_location = reader.next_game()
+        self.assertEqual(game_location.index, 1)
+        self.assertIsInstance(reader.block_snapshot(game_location.index), Game)
+        after = reader.next_block()
+        self.assertEqual(after.index, 2)
+        after_block = reader.block_snapshot(after.index)
+        self.assertIsInstance(after_block, Paragraph)
+        self.assertEqual(after_block.text, "After")
+
+    def test_duplicate_explicit_pgns_keep_distinct_ids_and_interleaved_source_order(self) -> None:
+        source = (
+            "<html><body><p>Before</p>"
+            "<pre>{PGN 1}\n" + _PGN + "</pre>"
+            "<p>Middle</p>"
+            "<pre>{PGN 2}\n" + _PGN + "</pre>"
+            "<p>After</p></body></html>"
+        )
+        result = import_html_book(source, source_name="duplicate-pgn-source-order.html")
+
+        self.assertEqual(
+            [block.kind for block in result.document.blocks],
+            ["Paragraph", "Game", "Paragraph", "Game", "Paragraph"],
+        )
+        games = [block for block in result.document.blocks if isinstance(block, Game)]
+        self.assertEqual(len(games), 2)
+        self.assertNotEqual(games[0].block_id, games[1].block_id)
+        self.assertEqual(
+            [game.source_anchor for game in games],
+            ["pgn:1", "pgn:2"],
+        )
+        self.assertTrue(games[0].block_id.endswith("-1"))
+        self.assertTrue(games[1].block_id.endswith("-2"))
 
 
 if __name__ == "__main__":
