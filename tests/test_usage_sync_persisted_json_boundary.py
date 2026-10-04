@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -91,6 +92,36 @@ class ConcurrentSyncAckPort:
         finally:
             connection.close()
         return (event_id,)
+
+
+class UnderreportedAckSequence(Sequence[str]):
+    def __len__(self) -> int:
+        return 0
+
+    def __getitem__(self, index: int) -> str:
+        if index == 0:
+            return "underreported"
+        if index == 1:
+            return "foreign"
+        raise IndexError
+
+
+class UnderreportingAckPort:
+    def sync_events(self, events):  # type: ignore[no-untyped-def]
+        return UnderreportedAckSequence()
+
+
+class ExplodingAckSequence(Sequence[str]):
+    def __len__(self) -> int:
+        return 1
+
+    def __getitem__(self, index: int) -> str:
+        raise RuntimeError("SECRET adapter iterator detail")
+
+
+class ExplodingAckPort:
+    def sync_events(self, events):  # type: ignore[no-untyped-def]
+        return ExplodingAckSequence()
 
 
 class PersistedUsageCounterBoundaryTests(unittest.TestCase):
@@ -209,6 +240,42 @@ class PersistedUsageCounterBoundaryTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(queue.pending("install-1"), ())
+
+    def test_ack_sequence_iteration_is_bounded_even_if_len_underreports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "usage-sync.sqlite"
+            queue = make_queue(path)
+            inject_pending(
+                path,
+                event_id="underreported",
+                counters_json='{"feature_uses":1}',
+            )
+
+            with self.assertRaisesRegex(ValueError, "outside this batch"):
+                queue.sync_pending(UnderreportingAckPort(), ENABLED, "install-1")
+            self.assertEqual(
+                [item.event_id for item in queue.pending("install-1")],
+                ["underreported"],
+            )
+
+    def test_ack_sequence_iteration_failure_is_redacted_and_preserves_pending_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "usage-sync.sqlite"
+            queue = make_queue(path)
+            inject_pending(
+                path,
+                event_id="iterator-failure",
+                counters_json='{"feature_uses":1}',
+            )
+
+            with self.assertRaisesRegex(
+                ValueError, "^sync adapter acknowledgements could not be read$"
+            ):
+                queue.sync_pending(ExplodingAckPort(), ENABLED, "install-1")
+            self.assertEqual(
+                [item.event_id for item in queue.pending("install-1")],
+                ["iterator-failure"],
+            )
 
 
 if __name__ == "__main__":
