@@ -84,8 +84,8 @@ jobs:
           from pathlib import Path
           workflow = Path('.github/workflows/owner-oneclick-from-w4.yml').read_text(encoding='utf-8')
           assert 'metadata.get(\'product_sha\') != exact' in workflow
-          assert 'scripts/verify_owner_w4_run_provenance.py' in workflow
-          assert 'scripts/finalize_owner_final_receipt.py' in workflow
+          assert 'python -m scripts.verify_owner_w4_run_provenance' in workflow
+          assert 'python -m scripts.finalize_owner_final_receipt' in workflow
           assert 'W4_AUTHORITATIVE_RUN_PROVENANCE=PASS' in workflow
           assert 'OWNER_W4_RUN_EXACT_RELEASE_APEX=PASS' in workflow
           assert 'HUMAN_TESTED=YES' not in workflow
@@ -93,5 +93,6 @@ jobs:
           assert 'expected_source_count=6' in workflow
           assert 'expected_game_count=3738' in workflow
           assert 'sound_wav_count' in workflow
+          assert 'python -m scripts.build_owner_portable_candidate' in workflow
           print('OWNER_FINALIZER_CONTRACT_HYGIENE=PASS')
           PY
