@@ -2036,13 +2036,21 @@ class BookProgressStore:
                 raise LookupError("No saved reading progress for this book")
             snapshot = dict(entries[key])
             BookReader.restore_snapshot(document, snapshot)
-            self._require_recovery_primary_unchanged_unlocked(
-                primary_identity,
-                primary_raw,
+            # At this user-decision boundary, a non-cooperating namespace
+            # mutation is a stale recovery offer, not an opaque read failure.
+            # Preserve bytes+inode CAS for both sides of the validated pair so
+            # the application can follow its canonical STALE_WRITE reload path.
+            self._require_write_path_unchanged_unlocked(
+                self._path,
+                expected_identity=primary_identity,
+                expected_raw=primary_raw,
+                message="book progress changed before recovery could be validated",
             )
-            self._require_recovery_backup_unchanged_unlocked(
-                backup_identity,
-                raw,
+            self._require_write_path_unchanged_unlocked(
+                self.backup_path,
+                expected_identity=backup_identity,
+                expected_raw=raw,
+                message="book progress backup changed before recovery could be validated",
             )
             return _revision(primary_raw), revision
 
