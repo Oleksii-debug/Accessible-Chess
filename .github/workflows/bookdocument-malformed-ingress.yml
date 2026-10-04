@@ -1,0 +1,96 @@
+name: BookDocument Malformed Ingress
+
+on:
+  push:
+    branches:
+      - fix/bookdocument-malformed-ingress-20261004-ooxple7
+  pull_request:
+    branches:
+      - fix/book-board-returnpoint-dispatch-atomicity-20261004-ooxple7
+    paths:
+      - 'acs/bookdocument.py'
+      - 'tests/test_bookdocument.py'
+      - '.github/workflows/bookdocument-malformed-ingress.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bookdocument-malformed-ingress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked parent and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          base='ea1c70b9f3128ea051efad76c65746226c21e0b3'
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/bookdocument-malformed-ingress.yml' \
+            'acs/bookdocument.py' \
+            'tests/test_bookdocument.py' | sort)"
+          test "$changed" = "$expected"
+          echo 'BOOKDOCUMENT_MALFORMED_INGRESS_SCOPE=PASS'
+
+      - name: Compile Book semantic core
+        run: python -m py_compile acs/bookdocument.py tests/test_bookdocument.py
+
+      - name: Run canonical BookDocument and index regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_v2_accessible_book_core
+
+      - name: Run source-format semantic ingress regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_html_head_metadata_semantics
+          tests.test_v2_book_epub_import
+          tests.test_v2_book_epub_package_contract
+          tests.test_v2_html_semantic_lists
+          tests.test_v2_markdown_semantic_lists
+          tests.test_v2_book_game_content
+
+      - name: Run Book presentation and workflow regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_books_semantic_host_bounds
+
+      - name: Core selftest
+        run: python -m acs.selftest
