@@ -14,6 +14,7 @@ from .webapp_keymap_core import *  # noqa: F401,F403 - compatibility surface
 from .webapp_keymap_core import AccessibleChessAPI, _asset_root, _shared_spoken_san
 from .board_service import BoardCommandService, BoardSnapshot, MoveView
 from .chesscore import Board, parse_sq, sq_name
+from .webapp import MAX_MOVE_ENTRY_CHARS
 
 
 _BaseKeymapAwareAccessibleChessAPI = _core.KeymapAwareAccessibleChessAPI
@@ -55,7 +56,11 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         # Canonical null moves are a notation/import pseudo-move, not a legal
         # end-user gameplay action. Keep the frozen Stage1 core and canonical
         # Board replay semantics intact while fencing ordinary Move Entry.
-        if isinstance(text, str) and self.board.norm_san(text) == "--":
+        if type(text) is not str:
+            return self._error(self._t("move_text_type"))
+        if len(text) > MAX_MOVE_ENTRY_CHARS:
+            return self._error(self._t("move_text_too_long"))
+        if self.board.norm_san(text) == "--":
             return self._error(
                 "Нульовий хід не можна грати вручну."
                 if self.lang == "uk"
@@ -97,7 +102,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         )
 
     def _board_square(self, square: str | None) -> str:
-        if not isinstance(square, str):
+        if type(square) is not str:
             raise ValueError("board square is required")
         return sq_name(parse_sq(square))
 
@@ -137,17 +142,47 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
             game = projection()
         except Exception:
             return None, None
-        if not game.get("configured"):
+
+        # This projection is owned by Stage1ReleaseAccessibleChessAPI and is a
+        # closed-world built-in dict. Prove that passive root before any mapping
+        # hook, then bound/validate keys before keyed lookup can encounter an
+        # active str subclass stored by a substituted provider.
+        if type(game) is not dict or len(game) > 20:
             return None, None
-        if int(game.get("initialMinutes", 0)) == 0 and int(game.get("incrementSeconds", 0)) == 0:
+        for key in game:
+            if type(key) is not str:
+                return None, None
+
+        configured = game.get("configured")
+        if type(configured) is not bool or not configured:
+            return None, None
+
+        initial = game.get("initialMinutes", 0)
+        increment = game.get("incrementSeconds", 0)
+        if (
+            type(initial) is not int
+            or type(increment) is not int
+            or initial < 0
+            or increment < 0
+        ):
+            return None, None
+        if initial == 0 and increment == 0:
             untimed = "Untimed" if self.lang == "en" else "Без годинника"
             return untimed, untimed
+
         human = game.get("humanSide")
+        white_clock = game.get("whiteClock")
+        black_clock = game.get("blackClock")
+        if (
+            type(human) is not str
+            or human not in {"w", "b"}
+            or type(white_clock) is not str
+            or type(black_clock) is not str
+        ):
+            return None, None
         if human == "w":
-            return str(game.get("whiteClock") or ""), str(game.get("blackClock") or "")
-        if human == "b":
-            return str(game.get("blackClock") or ""), str(game.get("whiteClock") or "")
-        return None, None
+            return white_clock, black_clock
+        return black_clock, white_clock
 
     def _material_message(self, service: BoardCommandService) -> str:
         material = service.material()
@@ -175,7 +210,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         return result
 
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
-        if not isinstance(action_id, str):
+        if type(action_id) is not str:
             return self._error("Команда недоступна." if self.lang == "uk" else "Command unavailable.")
         action = action_id.strip()
 
