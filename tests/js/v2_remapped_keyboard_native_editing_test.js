@@ -5,6 +5,10 @@ const fs = require('fs');
 const path = require('path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
+const releaseBootstrap = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'web', 'stage1_release_bootstrap.js'),
+  'utf8'
+).replace(/\r\n?/g, '\n');
 const prefix = "function editableShortcutTarget(node)";
 const start = html.indexOf(prefix);
 assert.notStrictEqual(start, -1, 'canonical editable-control keydown policy not found');
@@ -139,6 +143,81 @@ async function main() {
   await handler(selectionCopy.event);
   assert.strictEqual(selectionCopy.prevented(), 0, 'Ctrl+C with ordinary document selection must remain native');
   assert.strictEqual(resolutions.length, beforeSelectionCalls, 'Ctrl+C with selection must not reach the keymap');
+
+  // The packaged release has an early Ctrl+N browser-window suppression guard.
+  // It must still suppress Chromium in edit controls, but it must not execute
+  // file.new (or an active-route remap) before the canonical editable policy.
+  const releaseMarker = "document.addEventListener('keydown', event => {";
+  const installStart = releaseBootstrap.indexOf('function installNewGameVisualSequence()');
+  const releaseStart = releaseBootstrap.indexOf(releaseMarker, installStart);
+  const releaseEndMarker = "    }, true);";
+  const releaseEnd = releaseBootstrap.indexOf(releaseEndMarker, releaseStart);
+  assert.ok(installStart >= 0 && releaseStart >= 0 && releaseEnd >= 0, 'release Ctrl+N listener not found');
+  const releaseListenerSource = releaseBootstrap.slice(
+    releaseStart,
+    releaseEnd + releaseEndMarker.length
+  );
+
+  let releaseKeydown = null;
+  const releaseResolved = [];
+  const releaseExecuted = [];
+  const releaseDocument = {
+    addEventListener(type, listener, capturePhase) {
+      if (type === 'keydown' && capturePhase === true) releaseKeydown = listener;
+    },
+  };
+  const releaseWindow = {
+    executeAction(actionId) {
+      releaseExecuted.push(actionId);
+    },
+  };
+  const releaseResolve = async (chord, registryContext, uiContext) => {
+    releaseResolved.push([chord, registryContext, uiContext]);
+    return {actionId: 'file.new'};
+  };
+  const installReleaseListener = new Function(
+    'document',
+    'window',
+    'eventChord',
+    'resolveBinding',
+    'capture',
+    'newGameVisualPending',
+    'byId',
+    'finishNewGameVisualSequence',
+    'editableShortcutTarget',
+    releaseListenerSource
+  );
+  installReleaseListener(
+    releaseDocument,
+    releaseWindow,
+    eventChord,
+    releaseResolve,
+    null,
+    false,
+    () => null,
+    () => {},
+    node => !!(node && (['INPUT', 'TEXTAREA', 'SELECT'].includes(node.tagName) || node.isContentEditable))
+  );
+  assert.ok(releaseKeydown, 'release Ctrl+N listener installed');
+
+  const releaseInput = eventFor('INPUT', 'n', {ctrlKey: true});
+  releaseKeydown(releaseInput.event);
+  await Promise.resolve();
+  assert.strictEqual(releaseInput.prevented(), 1, 'release guard must suppress Chromium Ctrl+N in input');
+  assert.strictEqual(releaseInput.stopped(), 1, 'release guard must own Chromium Ctrl+N in input');
+  assert.deepStrictEqual(releaseResolved, [], 'release guard must not resolve Ctrl+N from editable input');
+  assert.deepStrictEqual(releaseExecuted, [], 'release guard must not execute an action from editable input');
+
+  const releaseDocumentEvent = eventFor('DIV', 'n', {ctrlKey: true});
+  releaseKeydown(releaseDocumentEvent.event);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepStrictEqual(
+    releaseResolved,
+    [['Ctrl+N', 'document', 'document']],
+    'release guard must resolve the current remap outside editable controls'
+  );
+  assert.deepStrictEqual(releaseExecuted, ['file.new']);
 
   console.log('V2 remapped keyboard native-editing guard: PASS');
 }
