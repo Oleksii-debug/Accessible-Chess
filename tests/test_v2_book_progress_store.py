@@ -1713,6 +1713,168 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
+    def test_save_rejects_same_bytes_primary_inode_replacement_after_load(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:transaction-primary-inode", reader)
+
+        primary_before = self.path.read_bytes()
+        real_write = self.store._write_payload_unlocked
+        injected = False
+
+        def write_after_same_bytes_primary_replacement(payload, **kwargs):
+            nonlocal injected
+            if not injected:
+                replacement = self.path.with_name(
+                    "same-byte-transaction-primary-replacement.json"
+                )
+                replacement.write_bytes(primary_before)
+                os.replace(replacement, self.path)
+                injected = True
+            return real_write(payload, **kwargs)
+
+        reader.go_to(2)
+        with mock.patch.object(
+            self.store,
+            "_write_payload_unlocked",
+            side_effect=write_after_same_bytes_primary_replacement,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:transaction-primary-inode", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertFalse(self.store.backup_path.exists())
+        restored = self.store.restore_primary(
+            "book:transaction-primary-inode",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+
+    def test_backup_publication_rejects_same_bytes_backup_inode_replacement_before_publish_entry(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:transaction-backup-target", reader)
+        reader.go_to(2)
+        self.store.save("book:transaction-backup-target", reader)
+
+        primary_before = self.path.read_bytes()
+        backup_before = self.store.backup_path.read_bytes()
+        real_publish = self.store._atomic_publish_bytes_unlocked
+        injected = False
+
+        def publish_after_same_bytes_backup_replacement(target, encoded, **kwargs):
+            nonlocal injected
+            if Path(target) == self.store.backup_path and not injected:
+                replacement = self.store.backup_path.with_name(
+                    "same-byte-transaction-backup-target-replacement.json"
+                )
+                replacement.write_bytes(backup_before)
+                os.replace(replacement, self.store.backup_path)
+                injected = True
+            return real_publish(target, encoded, **kwargs)
+
+        reader.go_to(3)
+        with mock.patch.object(
+            self.store,
+            "_atomic_publish_bytes_unlocked",
+            side_effect=publish_after_same_bytes_backup_replacement,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:transaction-backup-target", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_before)
+        restored = self.store.restore_primary(
+            "book:transaction-backup-target",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 2)
+
+    def test_primary_publication_rejects_same_bytes_backup_inode_replacement_between_publications(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:transaction-backup-guard", reader)
+
+        primary_before = self.path.read_bytes()
+        real_publish = self.store._atomic_publish_bytes_unlocked
+        injected = False
+
+        def publish_then_replace_backup_with_same_bytes(target, encoded, **kwargs):
+            nonlocal injected
+            result = real_publish(target, encoded, **kwargs)
+            if Path(target) == self.store.backup_path and not injected:
+                backup_bytes = self.store.backup_path.read_bytes()
+                replacement = self.store.backup_path.with_name(
+                    "same-byte-between-publications-backup-replacement.json"
+                )
+                replacement.write_bytes(backup_bytes)
+                os.replace(replacement, self.store.backup_path)
+                injected = True
+            return result
+
+        reader.go_to(2)
+        with mock.patch.object(
+            self.store,
+            "_atomic_publish_bytes_unlocked",
+            side_effect=publish_then_replace_backup_with_same_bytes,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:transaction-backup-guard", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
+        restored = self.store.restore_primary(
+            "book:transaction-backup-guard",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+
+    def test_primary_publication_rejects_same_bytes_primary_inode_replacement_between_publications(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:transaction-primary-target", reader)
+
+        primary_before = self.path.read_bytes()
+        real_publish = self.store._atomic_publish_bytes_unlocked
+        injected = False
+
+        def publish_backup_then_replace_primary_with_same_bytes(target, encoded, **kwargs):
+            nonlocal injected
+            result = real_publish(target, encoded, **kwargs)
+            if Path(target) == self.store.backup_path and not injected:
+                replacement = self.path.with_name(
+                    "same-byte-between-publications-primary-replacement.json"
+                )
+                replacement.write_bytes(primary_before)
+                os.replace(replacement, self.path)
+                injected = True
+            return result
+
+        reader.go_to(2)
+        with mock.patch.object(
+            self.store,
+            "_atomic_publish_bytes_unlocked",
+            side_effect=publish_backup_then_replace_primary_with_same_bytes,
+        ):
+            with self.assertRaises(BookProgressStoreError) as caught:
+                self.store.save("book:transaction-primary-target", reader)
+
+        self.assertTrue(injected)
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), primary_before)
+        self.assertEqual(self.store.backup_path.read_bytes(), primary_before)
+        restored = self.store.restore_primary(
+            "book:transaction-primary-target",
+            self.original_document(),
+        )
+        self.assertEqual(restored.index, 1)
+
     def test_save_preserves_newer_backup_when_primary_advances_before_backup_publish(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
