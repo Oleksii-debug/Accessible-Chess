@@ -79,6 +79,7 @@ jobs:
           fetch-depth: 0
 
       - name: Bind live workflow authority and exact release-apex product
+        id: bind
         shell: bash
         run: |
           set -euo pipefail
@@ -105,13 +106,15 @@ jobs:
           }
           echo "FINALIZER_WORKFLOW_SHA=$workflow_sha" >> "$GITHUB_ENV"
           echo "EXACT_PRODUCT_SHA=$release_live" >> "$GITHUB_ENV"
+          echo "workflow_sha=$workflow_sha" >> "$GITHUB_OUTPUT"
+          echo "product_sha=$release_live" >> "$GITHUB_OUTPUT"
           echo 'OWNER_FINALIZER_WORKFLOW_REGISTRATION=PASS'
           echo 'OWNER_FINALIZER_LIVE_RELEASE_APEX=PASS'
 
       - name: Checkout exact owner release product
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ env.EXACT_PRODUCT_SHA }}
+          ref: ${{ steps.bind.outputs.product_sha }}
           fetch-depth: 0
 
       - name: Prove exact owner release product checkout
