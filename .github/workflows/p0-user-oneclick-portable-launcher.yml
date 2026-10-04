@@ -34,7 +34,7 @@ permissions:
 
 concurrency:
   group: p0-user-oneclick-portable-launcher-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   portable-launcher:
