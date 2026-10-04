@@ -17,6 +17,7 @@ on:
       - acs/child_coaching_rotation_store.py
       - acs/child_coaching_prepared_positions.py
       - tests/test_child_coaching.py
+      - tests/test_child_coaching_pointer_contract.py
       - tests/test_child_coaching_application.py
       - tests/test_child_coaching_projection.py
       - tests/test_child_coaching_rotation.py
@@ -40,13 +41,13 @@ jobs:
     env:
       PYTHONUTF8: "1"
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-      EXACT_BASE: 39b30d6c39a96f884dde5898605740e8d3a13fe8
+      EXACT_BASE: ece44ad8526b0a2845c993cf0eec0ef31d6cb056
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.EXPECTED_HEAD }}
-          fetch-depth: 3
+          fetch-depth: 0
 
       - name: Prove exact apex ancestry, scope and canonical child-coaching blobs
         shell: bash
@@ -62,17 +63,7 @@ jobs:
           expected = {
               ".github/workflows/child-coaching-current-apex-20261004.yml",
               "acs/child_coaching.py",
-              "acs/child_coaching_store.py",
-              "acs/child_coaching_application.py",
-              "acs/child_coaching_projection.py",
-              "acs/child_coaching_rotation.py",
-              "acs/child_coaching_rotation_store.py",
-              "acs/child_coaching_prepared_positions.py",
-              "tests/test_child_coaching.py",
-              "tests/test_child_coaching_application.py",
-              "tests/test_child_coaching_projection.py",
-              "tests/test_child_coaching_rotation.py",
-              "tests/test_child_coaching_prepared_positions.py",
+              "tests/test_child_coaching_pointer_contract.py",
           }
           actual = set(
               subprocess.check_output(
@@ -84,7 +75,7 @@ jobs:
               raise SystemExit(f"unexpected child-coaching scope: {sorted(actual ^ expected)}")
 
           canonical = {
-              "acs/child_coaching.py": "8330b42d7a6684c9b1bfa6ca5badebe0bb07fcfa",
+              "acs/child_coaching.py": "0d9bc76db6ddb0bc943a4569361859ba8ba0ac6a",
               "acs/child_coaching_store.py": "73e4f981efef1bdabf34acc99cc59c9659650469",
               "acs/child_coaching_application.py": "d7b1ae384311514f93c64e4d68f98e6d570d51c1",
               "acs/child_coaching_projection.py": "48b71553685e05be435388a31b44b8df2aeb5dc1",
@@ -92,6 +83,7 @@ jobs:
               "acs/child_coaching_rotation_store.py": "ed37f58f74bab1c990990b65ce2443268c576262",
               "acs/child_coaching_prepared_positions.py": "060fb8cee23c7fe22465208268b4b8fef5760d14",
               "tests/test_child_coaching.py": "8b1c4686d94ff8c234123ef905e0e4144a5f2a4e",
+              "tests/test_child_coaching_pointer_contract.py": "c410b32d7ef4ac05bc45921b859a283bad452b68",
               "tests/test_child_coaching_application.py": "a59dfaa0055f156b64ddd9e22704bf3d1814b9c5",
               "tests/test_child_coaching_projection.py": "d3de779725cf54c100675098a22fd41330d5d790",
               "tests/test_child_coaching_rotation.py": "8251084341a7a494cabc35a2f72cd743f6a50bff",
@@ -121,6 +113,7 @@ jobs:
           acs/child_coaching_rotation_store.py
           acs/child_coaching_prepared_positions.py
           tests/test_child_coaching.py
+          tests/test_child_coaching_pointer_contract.py
           tests/test_child_coaching_application.py
           tests/test_child_coaching_projection.py
           tests/test_child_coaching_rotation.py
@@ -130,6 +123,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_child_coaching
+          tests.test_child_coaching_pointer_contract
           tests.test_child_coaching_application
           tests.test_child_coaching_projection
           tests.test_child_coaching_rotation
