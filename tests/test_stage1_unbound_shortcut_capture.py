@@ -200,5 +200,25 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         self.assertIn("Не вдалося імпортувати налаштування.", HTML)
 
 
+    def test_keymap_mutation_refresh_is_fail_closed_and_recoverable(self) -> None:
+        self.assertIn(
+            "if(nextBase.recoveryMessage)announce(document.documentElement.lang==='en'?'Keyboard settings restored.':'Налаштування клавіш відновлено.');return true",
+            HTML,
+        )
+        self.assertIn(
+            "announce(document.documentElement.lang==='en'?'Keyboard settings unavailable.':'Налаштування клавіш недоступні.');return false",
+            HTML,
+        )
+        self.assertIn(
+            "if(result.snapshot){try{installKeymapSnapshot(result.snapshot,true);refreshed=true}catch(e){refreshed=await loadKeymap()}}else refreshed=await loadKeymap()",
+            HTML,
+        )
+        self.assertIn("if(!refreshed)return false", HTML)
+        self.assertNotIn(
+            "else await loadKeymap()}catch(e){announce(en?'Keyboard settings could not be refreshed.'",
+            HTML,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
