@@ -149,6 +149,40 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertTrue(store._lock_path.is_symlink())
             self.assertFalse(path.exists())
 
+
+    def test_regular_lock_replacement_between_precheck_and_open_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            store = TrainingProgressStore(path)
+            store._lock_path.write_bytes(b"\0")
+            replacement = root / "replacement-lock.bin"
+            replacement.write_bytes(b"replacement")
+
+            real_open = progress_store_module._open_no_reparse
+            swapped = False
+
+            def racing_open(candidate: Path, *, create: bool, writable: bool = False) -> int:
+                nonlocal swapped
+                if Path(candidate) == store._lock_path and create and not swapped:
+                    swapped = True
+                    os.replace(replacement, store._lock_path)
+                return real_open(Path(candidate), create=create, writable=writable)
+
+            with mock.patch(
+                "acs.training_progress_store._open_no_reparse",
+                side_effect=racing_open,
+            ):
+                with self.assertRaises(TrainingProgressBusyError):
+                    store.save(
+                        ExerciseSession(self._definition()),
+                        expected_revision=None,
+                    )
+
+            self.assertTrue(swapped)
+            self.assertEqual(b"replacement", store._lock_path.read_bytes())
+            self.assertFalse(path.exists())
+
     def test_progress_path_swap_before_open_never_reads_redirected_target(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
