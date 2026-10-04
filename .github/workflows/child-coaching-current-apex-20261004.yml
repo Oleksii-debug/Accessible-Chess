@@ -41,13 +41,13 @@ jobs:
     env:
       PYTHONUTF8: "1"
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-      EXACT_BASE: 39b30d6c39a96f884dde5898605740e8d3a13fe8
+      EXACT_BASE: ece44ad8526b0a2845c993cf0eec0ef31d6cb056
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.EXPECTED_HEAD }}
-          fetch-depth: 3
+          fetch-depth: 0
 
       - name: Prove exact apex ancestry, scope and canonical child-coaching blobs
         shell: bash
@@ -63,18 +63,7 @@ jobs:
           expected = {
               ".github/workflows/child-coaching-current-apex-20261004.yml",
               "acs/child_coaching.py",
-              "acs/child_coaching_store.py",
-              "acs/child_coaching_application.py",
-              "acs/child_coaching_projection.py",
-              "acs/child_coaching_rotation.py",
-              "acs/child_coaching_rotation_store.py",
-              "acs/child_coaching_prepared_positions.py",
-              "tests/test_child_coaching.py",
               "tests/test_child_coaching_pointer_contract.py",
-              "tests/test_child_coaching_application.py",
-              "tests/test_child_coaching_projection.py",
-              "tests/test_child_coaching_rotation.py",
-              "tests/test_child_coaching_prepared_positions.py",
           }
           actual = set(
               subprocess.check_output(
