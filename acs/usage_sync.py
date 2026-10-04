@@ -438,18 +438,60 @@ class UsageEventQueue:
         if len(raw_acknowledged) > len(events):
             raise ValueError("sync adapter acknowledged an event outside this batch")
         acknowledged = tuple(_normalize_event_id(value) for value in raw_acknowledged)
-        pending_ids = {event.event_id for event in events}
+        batch_by_id = {event.event_id: event for event in events}
         if len(set(acknowledged)) != len(acknowledged):
             raise ValueError("sync adapter returned duplicate acknowledgements")
-        if not set(acknowledged).issubset(pending_ids):
+        if not set(acknowledged).issubset(batch_by_id):
             raise ValueError("sync adapter acknowledged an event outside this batch")
         if not acknowledged:
             return 0
         with self._connection() as connection:
-            connection.executemany(
-                "UPDATE usage_events SET sync_state = 'synced' WHERE event_id = ?",
-                ((event_id,) for event_id in acknowledged),
-            )
+            for event_id in acknowledged:
+                sent = batch_by_id[event_id]
+                counters_json = json.dumps(
+                    dict(sent.counters),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                )
+                cursor = connection.execute(
+                    "UPDATE usage_events SET sync_state = 'synced' "
+                    "WHERE event_id = ? AND installation_id = ? AND kind = ? "
+                    "AND counters_json = ? AND created_at_utc = ? AND sync_state = 'pending'",
+                    (
+                        sent.event_id,
+                        sent.installation_id,
+                        sent.kind,
+                        counters_json,
+                        sent.created_at_utc,
+                    ),
+                )
+                if cursor.rowcount == 1:
+                    continue
+                current = connection.execute(
+                    "SELECT installation_id, kind, counters_json, created_at_utc, sync_state "
+                    "FROM usage_events WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if current is None:
+                    continue
+                current_identity = (
+                    current["installation_id"],
+                    current["kind"],
+                    current["counters_json"],
+                    current["created_at_utc"],
+                )
+                sent_identity = (
+                    sent.installation_id,
+                    sent.kind,
+                    counters_json,
+                    sent.created_at_utc,
+                )
+                if current_identity == sent_identity and current["sync_state"] == "synced":
+                    continue
+                raise RuntimeError(
+                    "aggregate usage queue changed during provider acknowledgement"
+                )
         return len(acknowledged)
 
     def export_for_installation(self, installation_id: str) -> dict[str, object]:
