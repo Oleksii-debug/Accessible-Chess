@@ -129,6 +129,14 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             self.assertEqual(settings.data, baseline)
             self.assertFalse(path.exists())
 
+    def test_every_current_default_has_an_explicit_validation_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            settings = Settings(Path(td) / "settings.json")
+            for key, value in DEFAULTS.items():
+                with self.subTest(key=key):
+                    settings.set(key, value)
+                    self.assertEqual(settings.get(key), value)
+
     def test_exact_builtin_scalars_still_persist_and_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "settings.json"
